@@ -13,6 +13,10 @@ Fecha os dois gaps residuais rastreados após a v1.1.01: o argumento no-op depre
 ### Removido (BREAKING)
 - Gap 1 — o argumento `--gliner-variant` é removido de `remember` e `ingest`: desde a remoção do pipeline NER GLiNER na v1.0.79 ele sobrevivia como no-op silencioso (exit 0, sem warning). Seguindo o precedente do `--max-entity-degree` (v1.0.99), o clap agora o rejeita com o erro de argumento desconhecido (exit 2), o encanamento GLiNER morto em `constants.rs`/`extraction.rs` (batch size, teto de tokens, limiar de confiança, overrides de env do repositório do modelo) é deletado, e `tests/gliner_variant_removed_regression.rs` guarda ambos os subcomandos além de um `ingest --help` livre de gliner.
 
+### Adicionado
+- Gap 3 (cobertura de regressão) — `tests/reembed_entities_integration.rs` guarda o fix de dispatch de re-embed de entidades lançado na v1.1.01 (dispatch via `strip_prefix("entity:")` para `call_entity_description`/`call_reembed_entity`): afirma que `enrich --operation re-embed --target entities` preenche `entity_embeddings` (0 → N) e é idempotente.
+- `enrich --prune-dead-entity-orphans` — flag dedicada para podar linhas `status='dead' AND item_type='entity'` da fila sidecar, complementando `--prune-dead-orphans` (apenas memory-keyed). Necessária porque o bug de re-embed da 1.1.1 deixou 14680 linhas entity-keyed em dead-letter que o podador memory-scoped não alcança. Somente leitura no banco principal, sem LLM, sem singleton.
+
 
 ## [1.1.01] - 2026-07-02
 

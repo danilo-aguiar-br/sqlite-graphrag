@@ -15,6 +15,10 @@ Closes the two residual gaps tracked after v1.1.01: the deprecated `--gliner-var
 ### Removed (BREAKING)
 - Gap 1 — the `--gliner-variant` argument is dropped from `remember` and `ingest`: since the GLiNER NER pipeline removal in v1.0.79 it survived as a silent no-op (exit 0, no warning). Following the `--max-entity-degree` precedent (v1.0.99), clap now rejects it with the unknown-argument error (exit 2), the dead GLiNER plumbing in `constants.rs`/`extraction.rs` (batch size, token cap, confidence threshold, model-repo env overrides) is deleted, and `tests/gliner_variant_removed_regression.rs` guards both subcommands plus a gliner-free `ingest --help`.
 
+### Added
+- Gap 3 (regression coverage) — `tests/reembed_entities_integration.rs` guards the re-embed entity dispatch fix landed in v1.1.01 (`strip_prefix("entity:")` dispatch to `call_entity_description`/`call_reembed_entity`): asserts `enrich --operation re-embed --target entities` backfills `entity_embeddings` (0 → N) and is idempotent. `tests/gliner_variant_removed_regression.rs` was also created to back the CHANGELOG claim.
+- `enrich --prune-dead-entity-orphans` — dedicated flag to prune `status='dead' AND item_type='entity'` rows from the queue sidecar, complementing `--prune-dead-orphans` (memory-keyed only). Required because the v1.1.1 re-embed bug left 14680 entity-keyed dead-letter rows that the memory-scoped pruner cannot reach. Read-only on the main DB, no LLM, no singleton.
+
 
 ## [1.1.01] - 2026-07-02
 
