@@ -2132,6 +2132,7 @@ pub fn run(
             list_dead: false,
             requeue_dead: false,
             prune_dead_orphans: false,
+            prune_dead_entity_orphans: false,
             ignore_backoff: false,
             body_extract_graph_only: false,
         };

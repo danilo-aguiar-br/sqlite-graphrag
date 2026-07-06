@@ -259,6 +259,27 @@ pub(super) fn prune_dead_orphans(
     Ok(pruned)
 }
 
+/// v1.1.2: prune dead ENTITY orphan rows — remove every `status='dead'`
+/// `item_type='entity'` row from the queue sidecar. Unlike
+/// [`prune_dead_orphans`], this does NOT consult the main DB: entity dead rows
+/// are terminal artifacts of re-extraction/rename and have no recovery path
+/// (re-running them re-fails the same way). Returns the number of rows pruned.
+pub(super) fn prune_dead_entity_orphans(
+    queue_conn: &Connection,
+    operation: &str,
+) -> Result<i64, AppError> {
+    let pruned = queue_conn.execute(
+        "DELETE FROM queue \
+         WHERE status='dead' AND item_type='entity' \
+         AND (operation = ?1 OR operation IS NULL)",
+        rusqlite::params![operation],
+    )? as i64;
+    if pruned > 0 {
+        let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+    Ok(pruned)
+}
+
 // ---------------------------------------------------------------------------
 // GAP-ENRICH-BACKLOG-CONVERGE — dead-letter classification + queue failure sink
 // ---------------------------------------------------------------------------
@@ -1237,6 +1258,50 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(remaining, vec!["alive", "some-entity"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn prune_dead_entity_orphans_removes_only_entity_dead_rows() {
+        let (queue, path) = open_temp_queue();
+        // Entity dead row -> pruned (terminal artifact, no recovery path).
+        queue
+            .execute(
+                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
+                 VALUES ('entity:foo', 'entity', 'dead', 'ReEmbed', 'permanent')",
+                [],
+            )
+            .unwrap();
+        // Memory dead row -> untouched (wrong item_type).
+        queue
+            .execute(
+                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
+                 VALUES ('mem-dead', 'memory', 'dead', 'MemoryBindings', 'permanent')",
+                [],
+            )
+            .unwrap();
+        // Entity pending row -> untouched (not dead).
+        queue
+            .execute(
+                "INSERT INTO queue (item_key, item_type, status, operation) \
+                 VALUES ('entity:bar', 'entity', 'pending', 'ReEmbed')",
+                [],
+            )
+            .unwrap();
+
+        let pruned = prune_dead_entity_orphans(&queue, "ReEmbed").unwrap();
+        assert_eq!(pruned, 1, "only the entity dead row is pruned");
+
+        let remaining: Vec<String> = {
+            let mut stmt = queue
+                .prepare("SELECT item_key FROM queue ORDER BY item_key")
+                .unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(remaining, vec!["entity:bar", "mem-dead"]);
         let _ = std::fs::remove_file(&path);
     }
 }

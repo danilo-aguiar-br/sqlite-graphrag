@@ -556,7 +556,11 @@ impl Commands {
         match self {
             Self::Init(_) => true,
             Self::Enrich(args) => {
-                args.status || args.list_dead || args.requeue_dead || args.prune_dead_orphans
+                args.status
+                    || args.list_dead
+                    || args.requeue_dead
+                    || args.prune_dead_orphans
+                    || args.prune_dead_entity_orphans
             }
             _ => false,
         }

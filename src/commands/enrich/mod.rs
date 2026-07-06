@@ -39,8 +39,8 @@ use postprocess::{
 pub use queue::{cleanup_queue_entry, DeadItem, DeadSummary, EnrichStatus, WaitingItem};
 use queue::{
     dequeue_next_pending, enqueue_candidate, item_type_for, item_type_for_key, open_queue_db,
-    prune_dead_orphans, record_item_failure, record_item_failure_typed, skipped_item_keys,
-    DequeueOutcome,
+    prune_dead_entity_orphans, prune_dead_orphans, record_item_failure, record_item_failure_typed,
+    skipped_item_keys, DequeueOutcome,
 };
 use scan::{
     count_operation_backlog, scan_isolated_entity_pairs, scan_operation, scan_unbound_memories,
@@ -456,7 +456,7 @@ pub struct EnrichArgs {
         short = 'o',
         value_enum,
         value_name = "OPERATION",
-        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans"]
+        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans", "prune_dead_entity_orphans"]
     )]
     pub operation: Option<EnrichOperation>,
 
@@ -466,7 +466,7 @@ pub struct EnrichArgs {
     #[arg(
         long,
         value_enum,
-        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans"]
+        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans", "prune_dead_entity_orphans"]
     )]
     pub mode: Option<EnrichMode>,
 
@@ -627,6 +627,16 @@ pub struct EnrichArgs {
     /// are left untouched. No LLM, no singleton — like `--list-dead`.
     #[arg(long)]
     pub prune_dead_orphans: bool,
+
+    /// v1.1.2: prune dead ENTITY orphan rows — remove every `status='dead'`
+    /// `item_type='entity'` row from the queue sidecar. Distinct from
+    /// `--prune-dead-orphans` (memory-keyed, consults the main DB): entity dead
+    /// rows are terminal artifacts of re-extraction and have no recovery path,
+    /// so no main-DB check is needed. Required because the v1.1.1 re-embed bug
+    /// left 14680 entity-keyed dead-letter rows that the memory-scoped pruner
+    /// cannot reach. No LLM, no singleton — like `--list-dead`.
+    #[arg(long, conflicts_with = "prune_dead_orphans")]
+    pub prune_dead_entity_orphans: bool,
 
     /// GAP-SG-16: ignore the per-item backoff cooldown (`next_retry_at`) when
     /// selecting candidates, so items waiting on exponential backoff are
@@ -1299,12 +1309,42 @@ pub fn run(
     // (resurrect them) are queue-only operations — no LLM, no main-DB write, no
     // singleton. Both are scoped to the current --operation so a shared queue is
     // not cross-contaminated. Handled before any provider setup.
-    if args.list_dead || args.requeue_dead || args.prune_dead_orphans {
+    if args.list_dead
+        || args.requeue_dead
+        || args.prune_dead_orphans
+        || args.prune_dead_entity_orphans
+    {
         let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
         let op_label = format!("{:?}", args.operation());
         let paths = AppPaths::resolve(args.db.as_deref())?;
         let queue_path = crate::paths::sidecar_path(&paths.db, ".enrich-queue.sqlite");
         let queue_conn = open_queue_db(&queue_path)?;
+        // v1.1.2: prune dead ENTITY orphan rows — terminal artifacts of
+        // re-extraction; no main-DB check needed (entity dead rows are not
+        // recoverable, re-running re-fails the same way). Distinct from the
+        // memory-scoped prune below.
+        if args.prune_dead_entity_orphans {
+            let pruned = prune_dead_entity_orphans(&queue_conn, &op_label)?;
+            let dead_total: i64 = queue_conn
+                .query_row(
+                    "SELECT COUNT(*) FROM queue WHERE status='dead' \
+                     AND item_type='entity' \
+                     AND (operation = ?1 OR operation IS NULL)",
+                    rusqlite::params![op_label],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            emit_json(&DeadSummary {
+                summary: true,
+                operation: op_label,
+                namespace,
+                action: "prune-dead-entity-orphans",
+                dead_total,
+                requeued: 0,
+                pruned,
+            });
+            return Ok(());
+        }
         // GAP-SG-66: prune orphan dead rows (memory gone) — needs the main DB to
         // confirm the referenced memory is truly absent before deleting.
         if args.prune_dead_orphans {
