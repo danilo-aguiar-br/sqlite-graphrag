@@ -24,8 +24,8 @@ pub struct ExtractedUrl {
     pub end: usize,
 }
 
-/// One named-entity mention. The default build produces these via the
-/// LLM extraction backend; the ner-legacy build produces them via GLiNER.
+/// One named-entity mention. Produced via the LLM extraction backend
+/// (the legacy GLiNER NER build was removed in v1.0.79).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedEntity {
     pub name: String,
@@ -46,32 +46,8 @@ pub struct ExtractionResult {
     pub elapsed_ms: u64,
 }
 
-/// GLiNER model variant enum. Vestigial since v1.0.79: the `ner-legacy`
-/// feature was removed, so the variant is parsed for CLI compatibility
-/// and then ignored (extraction is URL-regex or LLM-delegated).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GlinerVariant {
-    Fp32,
-    Int8,
-}
-
-impl GlinerVariant {
-    pub fn as_filename(self) -> &'static str {
-        match self {
-            Self::Fp32 => "model.onnx",
-            Self::Int8 => "model_int8.onnx",
-        }
-    }
-    pub fn display_size(self) -> &'static str {
-        match self {
-            Self::Fp32 => "1.1 GB",
-            Self::Int8 => "349 MB",
-        }
-    }
-}
-
-/// Trait abstraction for any extractor. The LLM backend and the
-/// GLiNER backend (ner-legacy) both implement it.
+/// Trait abstraction for any extractor. Implemented by the LLM backend
+/// (the legacy GLiNER backend was removed in v1.0.79).
 pub trait Extractor: Send + Sync {
     fn name(&self) -> &'static str;
     fn extract(&self, body: &str) -> Result<ExtractionResult, crate::errors::AppError>;
@@ -142,7 +118,6 @@ pub fn extract_urls(body: &str) -> Vec<ExtractedUrl> {
 pub fn extract_graph_auto(
     body: &str,
     _paths: &crate::paths::AppPaths,
-    _gliner_variant: GlinerVariant,
 ) -> Result<ExtractionResult, crate::errors::AppError> {
     let start = std::time::Instant::now();
     let urls = extract_urls(body);
@@ -177,12 +152,6 @@ mod tests {
     #[test]
     fn extract_urls_empty_body() {
         assert!(extract_urls("").is_empty());
-    }
-
-    #[test]
-    fn gliner_variant_size_strings() {
-        assert_eq!(GlinerVariant::Fp32.display_size(), "1.1 GB");
-        assert_eq!(GlinerVariant::Int8.display_size(), "349 MB");
     }
 
     #[test]

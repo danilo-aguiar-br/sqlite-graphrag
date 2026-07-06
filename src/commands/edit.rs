@@ -144,12 +144,9 @@ pub fn run(
         } else {
             crate::stdin_helper::read_stdin_with_timeout(60)?
         };
-        if b.len() > MAX_MEMORY_BODY_LEN {
-            return Err(AppError::BodyTooLarge {
-                bytes: b.len() as u64,
-                limit: MAX_MEMORY_BODY_LEN as u64,
-            });
-        }
+        // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings —
+        // bytes (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6.
+        crate::memory_guard::check_embedding_input_size(&b)?;
         raw_body = Some(b);
     }
 
@@ -228,7 +225,13 @@ pub fn run(
                 llm_backend,
             ) {
                 Ok((emb, kind)) => Some((emb, kind.as_str())),
-                Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+                // v1.1.2 (Gap 2): typed payload rejections are permanent and
+                // must not be swallowed by --skip-embedding-on-failure.
+                Err(
+                    e @ (AppError::Validation(_)
+                    | AppError::BodyTooLarge { .. }
+                    | AppError::TooManyTokens { .. }),
+                ) => return Err(e),
                 Err(e) if skip_embed => {
                     tracing::warn!(error = %e, "edit: embedding failed; --skip-embedding-on-failure active, persisting without embedding");
                     None

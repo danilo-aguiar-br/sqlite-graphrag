@@ -136,6 +136,23 @@ pub enum AppError {
     )]
     TooManyChunks { chunks: usize, limit: usize },
 
+    /// Body exceeded [`crate::constants::EMBEDDING_REQUEST_MAX_TOKENS`] tokens
+    /// (conservative cl100k proxy for the `qwen/qwen3-embedding-8b` window).
+    /// Maps to exit code `6` (same contract as [`Self::LimitExceeded`]).
+    ///
+    /// v1.1.2 (Gap 2): third typed payload ceiling alongside
+    /// [`Self::BodyTooLarge`] (bytes) and [`Self::TooManyChunks`] (chunks).
+    /// The token cap used to surface as a generic `Validation` (exit 1) deep
+    /// inside the REST embedding client; it now fires at the write-command
+    /// boundary with the estimated token count and the cap, so the operator
+    /// can tell WHICH ceiling fired without substring matching (GAP-SG-73).
+    #[error(
+        "limit exceeded: body is {tokens} tokens (estimated), above the \
+         {limit}-token cap (EMBEDDING_REQUEST_MAX_TOKENS); split the content \
+         into multiple memories"
+    )]
+    TooManyTokens { tokens: u64, limit: u64 },
+
     /// Low-level SQLite error propagated from `rusqlite`. Maps to exit code `10`.
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
@@ -330,6 +347,7 @@ impl AppError {
             Self::LimitExceeded(_) => 6,
             Self::BodyTooLarge { .. } => 6,
             Self::TooManyChunks { .. } => 6,
+            Self::TooManyTokens { .. } => 6,
             Self::Database(_) => 10,
             Self::Embedding(_) => 11,
             Self::VecExtension(_) => 12,
@@ -428,6 +446,7 @@ impl AppError {
                 | Self::LimitExceeded(_)
                 | Self::BodyTooLarge { .. }
                 | Self::TooManyChunks { .. }
+                | Self::TooManyTokens { .. }
                 | Self::VecExtension(_)
                 | Self::PreFlightFailed { .. }
                 | Self::ProviderError { .. }
@@ -466,6 +485,9 @@ impl AppError {
             }
             Self::TooManyChunks { .. } => {
                 Some("the chunk-count cap (REMEMBER_MAX_SAFE_MULTI_CHUNKS) fired; split the document into smaller memories before writing")
+            }
+            Self::TooManyTokens { .. } => {
+                Some("the token cap (EMBEDDING_REQUEST_MAX_TOKENS) fired; split the content into multiple memories, keeping each under ~25000 tokens")
             }
             Self::Embedding(_) => Some(
                 "verify the embedding backend and OPENROUTER_API_KEY; re-run `enrich --operation re-embed` once resolved",
@@ -538,6 +560,7 @@ impl AppError {
             Self::LimitExceeded(msg) => pt::limit_exceeded(msg),
             Self::BodyTooLarge { bytes, limit } => pt::body_too_large(*bytes, *limit),
             Self::TooManyChunks { chunks, limit } => pt::too_many_chunks(*chunks, *limit),
+            Self::TooManyTokens { tokens, limit } => pt::too_many_tokens(*tokens, *limit),
             Self::Database(e) => pt::database(&e.to_string()),
             Self::Embedding(msg) => pt::embedding(msg),
             Self::VecExtension(msg) => pt::vec_extension(msg),
@@ -646,6 +669,35 @@ mod tests {
             .exit_code(),
             6
         );
+        assert_eq!(
+            AppError::TooManyTokens {
+                tokens: 35_000,
+                limit: 30_000
+            }
+            .exit_code(),
+            6
+        );
+    }
+
+    // v1.1.2 (Gap 2): the token-cap message carries the estimated count and
+    // the limit, naming the constant — the third ceiling is distinguishable
+    // from bytes and chunks on exit 6 without substring classification.
+    #[test]
+    fn too_many_tokens_message_identifies_token_cap() {
+        let err = AppError::TooManyTokens {
+            tokens: 35_000,
+            limit: 30_000,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("limit exceeded"), "obtido: {msg}");
+        assert!(msg.contains("35000 tokens"), "obtido: {msg}");
+        assert!(msg.contains("30000-token cap"), "obtido: {msg}");
+        assert!(
+            msg.contains("EMBEDDING_REQUEST_MAX_TOKENS"),
+            "obtido: {msg}"
+        );
+        assert!(!msg.contains("byte cap"), "obtido: {msg}");
+        assert!(!msg.contains("chunk"), "obtido: {msg}");
     }
 
     // v1.1.1 (P11): the message identifies WHICH cap fired, with the measured
@@ -698,6 +750,16 @@ mod tests {
             .suggestion()
             .unwrap()
             .contains("REMEMBER_MAX_SAFE_MULTI_CHUNKS"));
+        let tokens = AppError::TooManyTokens {
+            tokens: 1,
+            limit: 1,
+        };
+        assert!(tokens.is_permanent());
+        assert!(!tokens.is_retryable());
+        assert!(tokens
+            .suggestion()
+            .unwrap()
+            .contains("EMBEDDING_REQUEST_MAX_TOKENS"));
     }
 
     #[test]
@@ -716,6 +778,14 @@ mod tests {
         let pt = chunks.localized_message_for(crate::i18n::Language::Portuguese);
         assert!(pt.contains("limite excedido"), "obtido: {pt}");
         assert!(pt.contains("700"), "obtido: {pt}");
+        let tokens = AppError::TooManyTokens {
+            tokens: 35_000,
+            limit: 30_000,
+        };
+        let pt = tokens.localized_message_for(crate::i18n::Language::Portuguese);
+        assert!(pt.contains("limite excedido"), "obtido: {pt}");
+        assert!(pt.contains("35000"), "obtido: {pt}");
+        assert!(pt.contains("EMBEDDING_REQUEST_MAX_TOKENS"), "obtido: {pt}");
     }
 
     #[test]

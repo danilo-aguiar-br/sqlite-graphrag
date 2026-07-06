@@ -510,6 +510,16 @@ pub mod validation {
             )
         }
 
+        // v1.1.2 (Gap 2): third typed payload ceiling — token cap, mirroring
+        // the English `#[error]` text of `TooManyTokens`.
+        pub fn too_many_tokens(tokens: u64, limit: u64) -> String {
+            format!(
+                "limite excedido: corpo tem {tokens} tokens (estimado), acima do teto de \
+                 {limit} tokens (EMBEDDING_REQUEST_MAX_TOKENS); divida o conteúdo em \
+                 múltiplas memórias"
+            )
+        }
+
         pub fn database(err: &str) -> String {
             format!("erro de banco de dados: {err}")
         }

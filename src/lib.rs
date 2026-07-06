@@ -170,7 +170,7 @@ fn is_ignore_shutdown_set() -> bool {
 /// Token-aware chunking utilities for bodies that exceed the embedding window.
 pub mod chunking;
 
-/// Hybrid entity extraction: regex pre-filter + GLiNER zero-shot NER (graceful degradation).
+/// Entity and URL extraction: URL-regex pass (the GLiNER NER pipeline was removed in v1.0.79).
 pub mod extraction;
 
 /// v1.0.75 (G21 solution): extraction backend abstraction with

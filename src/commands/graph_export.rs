@@ -158,7 +158,7 @@ pub enum SortOrder {
     sqlite-graphrag graph entities --sort-by created-at --order asc\n\n  \
 NOTES:\n  \
     Output is always JSON with `entities`, `total_count`, `limit`, and `offset` fields.\n  \
-    Entity types are strings extracted by GLiNER NER (e.g. `person`, `organization`, `location`).")]
+    Entity types are canonical strings (e.g. `person`, `organization`, `location`).")]
 pub struct GraphEntitiesArgs {
     #[arg(long)]
     pub namespace: Option<String>,

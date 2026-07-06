@@ -5,6 +5,17 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.1.02] - 2026-07-06
+
+Closes the two residual gaps tracked after v1.1.01: the deprecated `--gliner-variant` no-op argument is fully removed (clap now rejects it with exit 2), and the embedding token ceiling becomes a typed exit-6 error — `AppError::TooManyTokens { tokens, limit }` — validated at the edge before any write. The schema stays at version 15. Note: the official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` because the SemVer parser rejects a leading zero in the patch component.
+
+### Fixed
+- Gap 2 — the token ceiling raises a typed error with actionable context instead of a generic validation string: an input above `EMBEDDING_REQUEST_MAX_TOKENS` raises `AppError::TooManyTokens { tokens, limit }` (exit 6 preserved, PT-BR message via `i18n`, `suggestion` naming the cap and the ~25000-token split guidance), completing the exit-6 typing started in v1.1.01 (`BodyTooLarge`/`TooManyChunks`) and closing the L15 residual. The guard in `memory_guard::check_embedding_input_size` no longer emits `AppError::Validation`; it is enforced at the write boundary of `remember`, `remember-batch` and `edit`, and inside the shared embedding client (`embedding_api`), which also covers `ingest`.
+
+### Removed (BREAKING)
+- Gap 1 — the `--gliner-variant` argument is dropped from `remember` and `ingest`: since the GLiNER NER pipeline removal in v1.0.79 it survived as a silent no-op (exit 0, no warning). Following the `--max-entity-degree` precedent (v1.0.99), clap now rejects it with the unknown-argument error (exit 2), the dead GLiNER plumbing in `constants.rs`/`extraction.rs` (batch size, token cap, confidence threshold, model-repo env overrides) is deleted, and `tests/gliner_variant_removed_regression.rs` guards both subcommands plus a gliner-free `ingest --help`.
+
+
 ## [1.1.01] - 2026-07-02
 
 Closes the 12-priority roadmap catalogued in `gaps.md` from the production-database audit: entity/chunk vectors are written and backfilled through the same OpenRouter REST path as memories, the `degree` cache is reconcilable, literal (hyphenated) relations become reachable, entity maintenance gains ID-based selection, coverage becomes observable, and the exit-6 limit errors are fully typed. The schema stays at version 15. Note: the official release name is v1.1.01; the crate manifest carries `version = "1.1.1"` because the SemVer parser rejects a leading zero in the patch component.

@@ -596,7 +596,7 @@ pub enum Commands {
         sqlite-graphrag remember --name doc1 --type document --description \"...\" --body-file ./README.md\n\n  \
         # Body from stdin (pipe)\n  \
         cat README.md | sqlite-graphrag remember --name doc1 --type document --description \"...\" --body-stdin\n\n  \
-        # Enable automatic URL extraction (URL-regex only since v1.0.79; GLiNER removed)\n  \
+        # Enable automatic URL extraction (URL-regex only since v1.0.79)\n  \
         sqlite-graphrag remember --name rich --type note --description \"...\" --body \"...\" --enable-ner")]
     Remember(remember::RememberArgs),
     /// Batch-create memories from NDJSON stdin (one invocation, one slot)

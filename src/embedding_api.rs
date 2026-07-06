@@ -602,25 +602,27 @@ mod tests {
 
     #[tokio::test]
     async fn embed_single_rejects_oversized_input_before_request() {
-        // GAP-SG-02: an input above EMBEDDING_REQUEST_MAX_TOKENS must fail as
-        // Validation WITHOUT any network call. The fake key/URL would error
+        // GAP-SG-02 / v1.1.2 (Gap 2): an input above
+        // EMBEDDING_REQUEST_MAX_TOKENS must fail as the typed TooManyTokens
+        // (exit 6) WITHOUT any network call. The fake key/URL would error
         // distinctly (Embedding) if the guard let the request through.
         let api_key = SecretBox::new(Box::new("test-key".to_string()));
         let client = OpenRouterClient::new(api_key, "qwen/qwen3-embedding-8b".into(), 384).unwrap();
         let big = "word ".repeat(crate::constants::EMBEDDING_REQUEST_MAX_TOKENS + 5_000);
         match client.embed_single(&big, None).await {
             Err(EmbedError {
-                source: AppError::Validation(msg),
+                source: AppError::TooManyTokens { tokens, limit },
                 retry_class,
             }) => {
-                assert!(msg.contains("tokens"));
+                assert!(tokens > limit, "tokens={tokens} limit={limit}");
+                assert_eq!(limit, crate::constants::EMBEDDING_REQUEST_MAX_TOKENS as u64);
                 assert_eq!(
                     retry_class,
                     AttemptOutcome::HardFailure,
                     "an oversized input is a permanent client error"
                 );
             }
-            other => unreachable!("expected Validation before request, got: {other:?}"),
+            other => unreachable!("expected TooManyTokens before request, got: {other:?}"),
         }
     }
 

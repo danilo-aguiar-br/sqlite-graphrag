@@ -116,7 +116,7 @@ pub struct IngestArgs {
         num_args = 0..=1,
         default_missing_value = "true",
         default_value = "false",
-        help = "Enable automatic URL-regex extraction (the GLiNER NER pipeline was removed in v1.0.79)"
+        help = "Enable automatic URL-regex extraction (URL-regex only since v1.0.79)"
     )]
     pub enable_ner: bool,
 
@@ -136,13 +136,6 @@ pub struct IngestArgs {
         help = "Disable `--auto-describe` and fall back to the legacy `ingested from <path>` description placeholder."
     )]
     pub no_auto_describe: bool,
-    #[arg(
-        long,
-        env = "SQLITE_GRAPHRAG_GLINER_VARIANT",
-        default_value = "fp32",
-        help = "DEPRECATED: no effect since v1.0.79 (the GLiNER pipeline was removed); accepted for compatibility only"
-    )]
-    pub gliner_variant: String,
 
     /// Deprecated: NER is now disabled by default. Kept for backwards compatibility.
     #[arg(long, default_value_t = false, hide = true)]
@@ -224,7 +217,7 @@ pub struct IngestArgs {
     /// AFTER the basename is normalized. Namespaces a corpus inside a shared
     /// database (e.g. `--name-prefix projx-` yields `projx-<derived>`). The
     /// derived part's budget shrinks so the final name always respects the
-    /// 80-char name cap. Only supported with `--mode none` or `gliner`.
+    /// 80-char name cap. Only supported with `--mode none`.
     #[arg(
         long,
         value_name = "PREFIX",
@@ -232,7 +225,7 @@ pub struct IngestArgs {
     )]
     pub name_prefix: Option<String>,
 
-    /// Extraction mode: `none` (body-only, default), `claude-code`/`codex` (LLM-curated), or `gliner` (DEPRECATED: URL-regex only since v1.0.79).
+    /// Extraction mode: `none` (body-only, default) or `claude-code`/`codex`/`opencode` (LLM-curated).
     #[arg(long, value_enum, default_value_t = IngestMode::None)]
     pub mode: IngestMode,
 
@@ -358,8 +351,6 @@ pub struct IngestArgs {
 pub enum IngestMode {
     /// Body-only ingestion without entity/relationship extraction (default).
     None,
-    /// DEPRECATED: URL-regex extraction only since v1.0.79 (the GLiNER pipeline was removed; requires --enable-ner).
-    Gliner,
     /// LLM-curated extraction via locally installed Claude Code CLI.
     ClaudeCode,
     /// LLM-curated extraction via locally installed OpenAI Codex CLI.
@@ -555,7 +546,6 @@ fn stage_file(
     name: &str,
     paths: &AppPaths,
     enable_ner: bool,
-    gliner_variant: crate::extraction::GlinerVariant,
     max_rss_mb: u64,
     llm_parallelism: usize,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -619,6 +609,9 @@ fn stage_file(
     // (bytes, chunk count, token count) into section-aligned sub-memories so
     // ingestion never fails on an oversized document. A body that fits returns
     // a single partition under the original name.
+    // Token-ceiling enforcement for ingest lives in chunking::fits_single_partition
+    // (EMBEDDING_REQUEST_MAX_TOKENS): the auto-split keeps every partition under
+    // the cap, so no edge rejection is needed here (v1.1.02).
     let partitions = chunking::split_body_by_sections(&raw_body);
     let total_parts = partitions.len();
     let mut staged = Vec::with_capacity(total_parts);
@@ -644,7 +637,6 @@ fn stage_file(
             part_description,
             paths,
             enable_ner,
-            gliner_variant,
             max_rss_mb,
             llm_parallelism,
             llm_backend,
@@ -680,7 +672,6 @@ fn stage_one_body(
     description: String,
     paths: &AppPaths,
     enable_ner: bool,
-    gliner_variant: crate::extraction::GlinerVariant,
     max_rss_mb: u64,
     llm_parallelism: usize,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -692,7 +683,7 @@ fn stage_one_body(
     let mut extracted_relationships: Vec<NewRelationship> = Vec::with_capacity(50);
     let mut extracted_urls: Vec<crate::extraction::ExtractedUrl> = Vec::with_capacity(4);
     if enable_ner {
-        match crate::extraction::extract_graph_auto(&raw_body, paths, gliner_variant) {
+        match crate::extraction::extract_graph_auto(&raw_body, paths) {
             Ok(extracted) => {
                 extracted_urls = extracted.urls;
                 // v1.0.76: ExtractionResult.entities is now
@@ -775,7 +766,13 @@ fn stage_one_body(
             llm_backend,
         ) {
             Ok((v, k)) => (Some(v), Some(k.as_str())),
-            Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+            // v1.1.2 (Gap 2): typed payload rejections are permanent and
+            // must not be swallowed by --skip-embedding-on-failure.
+            Err(
+                e @ (AppError::Validation(_)
+                | AppError::BodyTooLarge { .. }
+                | AppError::TooManyTokens { .. }),
+            ) => return Err(e),
             Err(e) if skip_embed => {
                 tracing::warn!(error = %e, file = %name, "ingest: embedding failed; --skip-embedding-on-failure active, persisting without embedding");
                 (None, None)
@@ -819,7 +816,11 @@ fn stage_one_body(
                 // único por chamada. Conservadoramente, populamos None aqui.
                 (Some(aggregated), None)
             }
-            Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+            Err(
+                e @ (AppError::Validation(_)
+                | AppError::BodyTooLarge { .. }
+                | AppError::TooManyTokens { .. }),
+            ) => return Err(e),
             Err(e) if skip_embed => {
                 tracing::warn!(error = %e, file = %name, "ingest: chunk embedding failed; --skip-embedding-on-failure active, persisting without embedding");
                 (None, None)
@@ -1181,10 +1182,9 @@ fn is_at_default<T: PartialEq>(value: T, default: T) -> bool {
 /// an actionable error instead of a surprise at runtime.
 ///
 /// Mode-specific matrices:
-/// - `mode=none` and `mode=gliner` reject: claude_binary, claude_model,
+/// - `mode=none` rejects: claude_binary, claude_model,
 ///   claude_timeout!=300, max_cost_usd, resume, retry_failed, keep_queue,
-///   codex_binary, codex_model, codex_timeout!=300, gliner_variant (if
-///   --enable-ner is false)
+///   codex_binary, codex_model, codex_timeout!=300
 /// - `mode=claude-code` rejects: codex_binary, codex_model, codex_timeout!=300
 /// - `mode=codex` rejects: claude_binary, claude_model, claude_timeout!=300,
 ///   max_cost_usd, resume, retry_failed, keep_queue
@@ -1194,71 +1194,70 @@ fn validate_mode_conditional_flags_ingest(args: &IngestArgs) -> Result<(), AppEr
 
     let mut conflicts: Vec<String> = Vec::new();
 
-    let is_local_mode = args.mode == IngestMode::None || args.mode == IngestMode::Gliner;
+    let is_local_mode = args.mode == IngestMode::None;
 
     // v1.1.1 (P12): --name-prefix is only applied by the local staging path;
     // rejecting it under LLM modes avoids a silently unprefixed corpus.
     if args.name_prefix.is_some() && !is_local_mode {
         return Err(AppError::Validation(
             "--name-prefix is not supported with --mode claude-code/codex/opencode; \
-             use --mode none (default) or gliner"
+             use --mode none (default)"
                 .to_string(),
         ));
     }
 
     if is_local_mode {
         if args.claude_binary.is_some() {
-            conflicts.push("--claude-binary is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--claude-binary is ignored when --mode is none".to_string());
         }
         if args.claude_model.is_some() {
-            conflicts.push("--claude-model is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--claude-model is ignored when --mode is none".to_string());
         }
         if !is_at_default(args.claude_timeout, DEFAULT_TIMEOUT) {
             conflicts.push(format!(
-                "--claude-timeout={} is ignored when --mode is none or gliner (remove the flag to use the default 300s)",
+                "--claude-timeout={} is ignored when --mode is none (remove the flag to use the default 300s)",
                 args.claude_timeout
             ));
         }
         if args.codex_binary.is_some() {
-            conflicts.push("--codex-binary is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--codex-binary is ignored when --mode is none".to_string());
         }
         if args.codex_model.is_some() {
-            conflicts.push("--codex-model is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--codex-model is ignored when --mode is none".to_string());
         }
         if !is_at_default(args.codex_timeout, DEFAULT_TIMEOUT) {
             conflicts.push(format!(
-                "--codex-timeout={} is ignored when --mode is none or gliner (remove the flag to use the default 300s)",
+                "--codex-timeout={} is ignored when --mode is none (remove the flag to use the default 300s)",
                 args.codex_timeout
             ));
         }
         if args.opencode_binary.is_some() {
-            conflicts
-                .push("--opencode-binary is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--opencode-binary is ignored when --mode is none".to_string());
         }
         if args.opencode_model.is_some() {
-            conflicts.push("--opencode-model is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--opencode-model is ignored when --mode is none".to_string());
         }
         if !is_at_default(args.opencode_timeout, DEFAULT_TIMEOUT) {
             conflicts.push(format!(
-                "--opencode-timeout={} is ignored when --mode is none or gliner (remove the flag to use the default 300s)",
+                "--opencode-timeout={} is ignored when --mode is none (remove the flag to use the default 300s)",
                 args.opencode_timeout
             ));
         }
         if args.max_cost_usd.is_some() {
-            conflicts.push("--max-cost-usd is ignored when --mode is none or gliner (cost is only tracked for LLM-backed modes)".to_string());
+            conflicts.push("--max-cost-usd is ignored when --mode is none (cost is only tracked for LLM-backed modes)".to_string());
         }
         if args.resume {
-            conflicts.push("--resume is ignored when --mode is none or gliner (the queue DB is only used by LLM-backed modes)".to_string());
+            conflicts.push("--resume is ignored when --mode is none (the queue DB is only used by LLM-backed modes)".to_string());
         }
         if args.retry_failed {
-            conflicts.push("--retry-failed is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--retry-failed is ignored when --mode is none".to_string());
         }
         if args.keep_queue {
-            conflicts.push("--keep-queue is ignored when --mode is none or gliner".to_string());
+            conflicts.push("--keep-queue is ignored when --mode is none".to_string());
         }
         if !is_at_default(args.rate_limit_wait, DEFAULT_RATE_LIMIT_WAIT) {
             conflicts.push(format!(
-                "--rate-limit-wait={} is ignored when --mode is none or gliner",
+                "--rate-limit-wait={} is ignored when --mode is none",
                 args.rate_limit_wait
             ));
         }
@@ -1373,7 +1372,7 @@ fn validate_mode_conditional_flags_ingest(args: &IngestArgs) -> Result<(), AppEr
                 conflicts.push("--keep-queue is only valid for --mode=claude-code".to_string());
             }
         }
-        IngestMode::None | IngestMode::Gliner => {}
+        IngestMode::None => {}
     }
 
     if !conflicts.is_empty() {
@@ -1721,7 +1720,7 @@ pub fn run(
         // broke the "kept as a hidden no-op for backwards compatibility"
         // promise documented in CHANGELOG v1.0.45 and started failing
         // 5+ CI jobs whose E2E tests use this flag to skip the
-        // GLiNER-ONNX model download in CI environments.
+        // (since-removed) GLiNER-ONNX model download in CI environments.
         tracing::warn!(
             "--skip-extraction is deprecated since v1.0.45 and has no effect (NER is disabled by default); remove this flag to silence the warning"
         );
@@ -1730,23 +1729,6 @@ pub fn run(
     let auto_describe = args.auto_describe && !args.no_auto_describe;
     let max_rss_mb = args.max_rss_mb;
     let llm_parallelism = args.llm_parallelism as usize;
-    // v1.0.79: `--mode gliner` and `--gliner-variant` are no-ops kept for
-    // compatibility (the GLiNER pipeline was removed); warn explicitly so
-    // callers do not silently expect NER-quality extraction.
-    if args.mode == IngestMode::Gliner {
-        tracing::warn!(
-            "--mode gliner is deprecated since v1.0.79 (the GLiNER pipeline was removed); it now performs URL-regex extraction only — use --mode claude-code or --mode codex for LLM-curated extraction"
-        );
-    }
-    if args.gliner_variant != "fp32" {
-        tracing::warn!(
-            "--gliner-variant is deprecated and has no effect since v1.0.79 (the GLiNER pipeline was removed)"
-        );
-    }
-    let gliner_variant: crate::extraction::GlinerVariant = match args.gliner_variant.as_str() {
-        "int8" => crate::extraction::GlinerVariant::Int8,
-        _ => crate::extraction::GlinerVariant::Fp32,
-    };
 
     let total_to_process = process_items.len();
     tracing::info!(
@@ -1783,7 +1765,6 @@ pub fn run(
                     &item.derived_name,
                     &paths_owned,
                     enable_ner,
-                    gliner_variant,
                     max_rss_mb,
                     llm_parallelism,
                     llm_backend_owned,

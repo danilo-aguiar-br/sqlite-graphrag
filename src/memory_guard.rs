@@ -98,30 +98,29 @@ pub fn check_available_memory(min_mb: u64) -> Result<u64, AppError> {
 /// tokenisation.
 ///
 /// # Errors
-/// Returns [`AppError::Validation`] (exit 1, permanent) when either limit is
-/// exceeded; the message advises splitting the input into smaller memories.
+/// v1.1.2 (Gap 2): both ceilings are typed (exit 6, permanent) — no more
+/// generic `Validation` strings. Returns [`AppError::BodyTooLarge`] for the
+/// byte cap and [`AppError::TooManyTokens`] for the token cap, each carrying
+/// the measured value and the limit so the caller and the JSON envelope can
+/// tell WHICH ceiling fired without substring matching (GAP-SG-73).
 pub fn check_embedding_input_size(text: &str) -> Result<(), AppError> {
     // Secondary guard: a byte length far above the body cap cannot fit the
     // token window, and the check is O(1) versus tokenising the whole input.
     let bytes = text.len();
     if bytes > crate::constants::MAX_MEMORY_BODY_LEN {
-        return Err(AppError::Validation(format!(
-            "embedding input is {} bytes, above the {}-byte body cap; \
-             split it into smaller memories",
-            bytes,
-            crate::constants::MAX_MEMORY_BODY_LEN
-        )));
+        return Err(AppError::BodyTooLarge {
+            bytes: bytes as u64,
+            limit: crate::constants::MAX_MEMORY_BODY_LEN as u64,
+        });
     }
 
     // Primary guard: the model's real ceiling is in tokens.
     let tokens = crate::tokenizer::count_tokens(text);
     if tokens > crate::constants::EMBEDDING_REQUEST_MAX_TOKENS {
-        return Err(AppError::Validation(format!(
-            "embedding input is {} tokens, above the {}-token model ceiling; \
-             split it into smaller memories",
-            tokens,
-            crate::constants::EMBEDDING_REQUEST_MAX_TOKENS
-        )));
+        return Err(AppError::TooManyTokens {
+            tokens: tokens as u64,
+            limit: crate::constants::EMBEDDING_REQUEST_MAX_TOKENS as u64,
+        });
     }
 
     Ok(())
@@ -211,8 +210,14 @@ mod tests {
             "token guard, not byte guard, must be exercised"
         );
         match check_embedding_input_size(&big) {
-            Err(AppError::Validation(msg)) => assert!(msg.contains("tokens")),
-            other => unreachable!("expected Validation(tokens), got: {other:?}"),
+            // v1.1.2 (Gap 2): the token ceiling is typed — exit 6 with the
+            // estimated count and the cap, never a generic Validation string.
+            Err(e @ AppError::TooManyTokens { tokens, limit }) => {
+                assert_eq!(e.exit_code(), 6);
+                assert!(tokens > limit, "tokens={tokens} limit={limit}");
+                assert_eq!(limit, crate::constants::EMBEDDING_REQUEST_MAX_TOKENS as u64);
+            }
+            other => unreachable!("expected TooManyTokens, got: {other:?}"),
         }
     }
 
@@ -220,8 +225,14 @@ mod tests {
     fn check_embedding_input_size_rejects_above_byte_cap() {
         let huge = "x".repeat(crate::constants::MAX_MEMORY_BODY_LEN + 1);
         match check_embedding_input_size(&huge) {
-            Err(AppError::Validation(msg)) => assert!(msg.contains("bytes")),
-            other => unreachable!("expected Validation(bytes), got: {other:?}"),
+            // v1.1.2 (Gap 2): the byte ceiling reuses the typed BodyTooLarge
+            // variant already carried by the write-command boundary (exit 6).
+            Err(e @ AppError::BodyTooLarge { bytes, limit }) => {
+                assert_eq!(e.exit_code(), 6);
+                assert!(bytes > limit, "bytes={bytes} limit={limit}");
+                assert_eq!(limit, crate::constants::MAX_MEMORY_BODY_LEN as u64);
+            }
+            other => unreachable!("expected BodyTooLarge, got: {other:?}"),
         }
     }
 }

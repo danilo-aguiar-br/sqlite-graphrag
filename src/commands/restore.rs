@@ -177,7 +177,13 @@ pub fn run(
         llm_backend,
     ) {
         Ok((emb, _backend)) => Some(emb),
-        Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+        // v1.1.2 (Gap 2): typed payload rejections are permanent and must not
+        // be swallowed by --skip-embedding-on-failure.
+        Err(
+            e @ (AppError::Validation(_)
+            | AppError::BodyTooLarge { .. }
+            | AppError::TooManyTokens { .. }),
+        ) => return Err(e),
         Err(e) if skip_embed => {
             tracing::warn!(error = %e, "restore: embedding failed; --skip-embedding-on-failure active, persisting without embedding");
             None

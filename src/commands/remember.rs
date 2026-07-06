@@ -68,7 +68,7 @@ pub struct RememberArgs {
     #[arg(
         long,
         allow_hyphen_values = true,
-        help = "Inline body content (max 500 KB / 512000 bytes; for larger inputs split into multiple memories or use --body-file)",
+        help = "Inline body content (max 500 KB / 512000 bytes and 30000 estimated tokens; split dense bodies into multiple memories at ~25000 tokens, or use --body-file)",
         conflicts_with_all = ["body_file", "body_stdin", "graph_stdin"]
     )]
     pub body: Option<String>,
@@ -149,16 +149,9 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
         num_args = 0..=1,
         default_missing_value = "true",
         default_value = "false",
-        help = "Enable automatic URL-regex extraction from body (the GLiNER NER pipeline was removed in v1.0.79)"
+        help = "Enable automatic URL-regex extraction from body (URL-regex only since v1.0.79)"
     )]
     pub enable_ner: bool,
-    #[arg(
-        long,
-        env = "SQLITE_GRAPHRAG_GLINER_VARIANT",
-        default_value = "fp32",
-        help = "DEPRECATED: no effect since v1.0.79 (the GLiNER pipeline was removed); accepted for compatibility only"
-    )]
-    pub gliner_variant: String,
     #[arg(long, hide = true)]
     pub skip_extraction: bool,
     /// Explicitly clear the body content (set to empty string). Required to distinguish
@@ -442,12 +435,11 @@ pub fn run(
     }
     normalize_and_validate_graph_input(&mut graph)?;
 
-    if raw_body.len() > MAX_MEMORY_BODY_LEN {
-        return Err(AppError::BodyTooLarge {
-            bytes: raw_body.len() as u64,
-            limit: MAX_MEMORY_BODY_LEN as u64,
-        });
-    }
+    // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings — bytes
+    // (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6 — reusing
+    // the same guard the REST embedding client keeps as defence in depth.
+    // The token cap used to fire only deep inside the embedding call.
+    crate::memory_guard::check_embedding_input_size(&raw_body)?;
 
     // v1.0.22 P1: reject empty or whitespace-only body when no external graph is provided.
     // Without this check, empty embeddings would be persisted, breaking recall semantics.
@@ -499,25 +491,13 @@ pub fn run(
         // broke the "kept as a hidden no-op for backwards compatibility"
         // promise documented in CHANGELOG v1.0.45 and started failing
         // 5+ CI jobs whose E2E tests use this flag to skip the
-        // GLiNER-ONNX model download in CI environments.
+        // (since-removed) GLiNER-ONNX model download in CI environments.
         tracing::warn!(
             "--skip-extraction is deprecated since v1.0.45 and has no effect (NER is disabled by default); remove this flag to silence the warning"
         );
     }
-    // v1.0.79: --gliner-variant is a no-op kept for compatibility; a
-    // non-default value signals the caller still expects the removed
-    // GLiNER pipeline, so warn explicitly.
-    if args.gliner_variant != "fp32" {
-        tracing::warn!(
-            "--gliner-variant is deprecated and has no effect since v1.0.79 (the GLiNER pipeline was removed); --enable-ner performs URL-regex extraction only"
-        );
-    }
-    let gliner_variant: crate::extraction::GlinerVariant = match args.gliner_variant.as_str() {
-        "int8" => crate::extraction::GlinerVariant::Int8,
-        _ => crate::extraction::GlinerVariant::Fp32,
-    };
     if args.enable_ner && graph.entities.is_empty() && !raw_body.trim().is_empty() {
-        match crate::extraction::extract_graph_auto(&raw_body, &paths, gliner_variant) {
+        match crate::extraction::extract_graph_auto(&raw_body, &paths) {
             Ok(extracted) => {
                 // v1.0.76: ExtractionResult is URL + entity + elapsed_ms;
                 // the LLM ExtractionBackend returns typed relationships
@@ -727,7 +707,13 @@ pub fn run(
             llm_backend,
         ) {
             Ok((v, k)) => (Some(v), Some(k.as_str())),
-            Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+            // v1.1.2 (Gap 2): permanent payload rejections from the embedder
+            // (typed ceilings) must not be swallowed by --skip-embedding-on-failure.
+            Err(
+                e @ (AppError::Validation(_)
+                | AppError::BodyTooLarge { .. }
+                | AppError::TooManyTokens { .. }),
+            ) => return Err(e),
             Err(e) if skip_embed => {
                 tracing::warn!(error = %e, "embedding failed; --skip-embedding-on-failure active, persisting without embedding");
                 (None, None)

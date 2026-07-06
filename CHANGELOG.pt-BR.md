@@ -3,6 +3,17 @@ Leia este documento em [inglês (EN)](CHANGELOG.md).
 
 # Changelog
 
+## [1.1.02] - 2026-07-06
+
+Fecha os dois gaps residuais rastreados após a v1.1.01: o argumento no-op depreciado `--gliner-variant` é removido por completo (o clap agora o rejeita com exit 2), e o teto de tokens do embedding torna-se um erro tipado exit 6 — `AppError::TooManyTokens { tokens, limit }` — validado na borda antes de qualquer escrita. O schema permanece na versão 15. Nota: o nome oficial do release é v1.1.02; o manifest do crate carrega `version = "1.1.2"` porque o parser SemVer rejeita zero à esquerda no componente patch.
+
+### Corrigido
+- Gap 2 — o teto de tokens levanta erro tipado com contexto acionável em vez de string genérica de validação: entrada acima de `EMBEDDING_REQUEST_MAX_TOKENS` levanta `AppError::TooManyTokens { tokens, limit }` (exit 6 preservado, mensagem PT-BR via `i18n`, `suggestion` nomeando o teto e a orientação de dividir em ~25000 tokens), completando a tipagem do exit 6 iniciada na v1.1.01 (`BodyTooLarge`/`TooManyChunks`) e fechando o residual L15. A guarda em `memory_guard::check_embedding_input_size` não emite mais `AppError::Validation`; é aplicada na borda de escrita de `remember`, `remember-batch` e `edit`, e dentro do cliente de embedding compartilhado (`embedding_api`), que também cobre o `ingest`.
+
+### Removido (BREAKING)
+- Gap 1 — o argumento `--gliner-variant` é removido de `remember` e `ingest`: desde a remoção do pipeline NER GLiNER na v1.0.79 ele sobrevivia como no-op silencioso (exit 0, sem warning). Seguindo o precedente do `--max-entity-degree` (v1.0.99), o clap agora o rejeita com o erro de argumento desconhecido (exit 2), o encanamento GLiNER morto em `constants.rs`/`extraction.rs` (batch size, teto de tokens, limiar de confiança, overrides de env do repositório do modelo) é deletado, e `tests/gliner_variant_removed_regression.rs` guarda ambos os subcomandos além de um `ingest --help` livre de gliner.
+
+
 ## [1.1.01] - 2026-07-02
 
 Fecha o roteiro de 12 prioridades catalogado no `gaps.md` a partir da auditoria do banco de produção: vetores de entidade/chunk passam a ser gravados e reprocessados pelo mesmo caminho REST OpenRouter das memórias, o cache `degree` torna-se reconciliável, relações literais (com hífen) tornam-se alcançáveis, a manutenção de entidades ganha seleção por ID, a cobertura torna-se observável e os erros de teto exit 6 são totalmente tipados. O schema permanece na versão 15. Nota: o nome oficial do release é v1.1.01; o manifest do crate carrega `version = "1.1.1"` porque o parser SemVer rejeita zero à esquerda no componente patch.

@@ -275,6 +275,11 @@ fn process_line(
         )));
     }
 
+    // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings per NDJSON
+    // line — bytes (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6 —
+    // so an oversized item fails typed BEFORE any row is written.
+    crate::memory_guard::check_embedding_input_size(&input.body)?;
+
     let body_hash = blake3::hash(input.body.as_bytes()).to_hex().to_string();
 
     let existing = memories::find_by_name(tx, namespace, &normalized_name)?;
@@ -351,7 +356,13 @@ fn process_line(
                     &snippet,
                 )?;
             }
-            Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+            // v1.1.2 (Gap 2): typed payload rejections are permanent and
+            // must not be swallowed by --skip-embedding-on-failure.
+            Err(
+                e @ (AppError::Validation(_)
+                | AppError::BodyTooLarge { .. }
+                | AppError::TooManyTokens { .. }),
+            ) => return Err(e),
             Err(e) if skip_embed => {
                 tracing::warn!(error = %e, "remember-batch: embedding failed; --skip-embedding-on-failure active, persisting without embedding");
             }
@@ -403,7 +414,11 @@ fn process_line(
                     &snippet,
                 )?;
             }
-            Err(AppError::Validation(msg)) => return Err(AppError::Validation(msg)),
+            Err(
+                e @ (AppError::Validation(_)
+                | AppError::BodyTooLarge { .. }
+                | AppError::TooManyTokens { .. }),
+            ) => return Err(e),
             Err(e) if skip_embed => {
                 tracing::warn!(error = %e, "remember-batch: embedding failed; --skip-embedding-on-failure active, persisting without embedding");
             }
