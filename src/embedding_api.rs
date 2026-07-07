@@ -143,7 +143,7 @@ pub struct OpenRouterClient {
     default_input_type: Option<&'static str>,
     /// Endpoint each request is POSTed to. Always
     /// [`OPENROUTER_EMBEDDINGS_URL`] in production; only the test-only
-    /// [`Self::new_with_url`] constructor repoints it at a local mock server
+    /// Self::new_with_url constructor repoints it at a local mock server
     /// (mirrors `crate::chat_api::OpenRouterChatClient`).
     base_url: String,
 }

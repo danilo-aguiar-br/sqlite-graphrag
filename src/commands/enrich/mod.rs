@@ -1155,7 +1155,7 @@ fn is_at_default<T: PartialEq>(value: T, default: T) -> bool {
 /// surprise at runtime.
 ///
 /// Detection rules:
-/// - For Option<PathBuf> / Option<String>: is_some() means explicit
+/// - For `Option<PathBuf>` / `Option<String>`: is_some() means explicit
 /// - For scalar fields with default_value_t: value != default means explicit
 /// - For boolean fields: true means explicit (default is false)
 ///

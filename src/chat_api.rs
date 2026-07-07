@@ -235,7 +235,7 @@ pub struct OpenRouterChatClient {
     api_key: SecretBox<String>,
     model: String,
     /// Endpoint each request is POSTed to. Always [`OPENROUTER_CHAT_URL`] in
-    /// production; only the test-only [`Self::new_with_url`] constructor
+    /// production; only the test-only Self::new_with_url constructor
     /// repoints it at a local mock server.
     base_url: String,
 }
