@@ -222,6 +222,15 @@ sqlite-graphrag --embedding-backend openrouter \
 - Recipe "How to benchmark hybrid-search against pure vec search"
 
 
+## How To Upgrade To v1.1.02 (GLiNER Removal + TooManyTokens Typed + Entity Orphan Prune)
+- No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.02; `Cargo.toml` version is `1.1.2`; binary ~19 MiB).
+- BREAKING (Gap 1): `--gliner-variant` is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the `--max-entity-degree` precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`/`claude-code`/`codex`/`opencode`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
+- Gap 2: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
+- Gap 3: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings now backfill reliably.
+- New maintenance flag `enrich --prune-dead-entity-orphans` (ADR-0062): deletes `status='dead' AND item_type='entity'` rows from `.enrich-queue.sqlite`; mutually exclusive with `--prune-dead-orphans`. Run both in sequence for a full orphan sweep after bulk entity renames/merges/purges.
+- 4 pre-existing rustdoc warnings resolved (backticks in HTML blocks, cfg(test) intra-doc links).
+- See "Recipes added in v1.1.02" at the end of this cookbook.
+
 ## How To Upgrade To v1.1.01 (Vector-Coverage Backfill + Graph Maintenance)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.01; `Cargo.toml` version is `1.1.1`; binary ~19 MiB).
 - `enrich --operation re-embed` gains `--target memories|entities|chunks|all` (P2): entity and chunk embeddings can now be backfilled, and `enrich --status` reports `scan_backlog` per target.
@@ -336,7 +345,7 @@ sqlite-graphrag ingest ./docs --recursive --pattern "*.md" --json \
 
 ### Variants
 - Automatic extraction is disabled by default; use `--enable-ner` or `SQLITE_GRAPHRAG_ENABLE_NER=1` to activate it — URL-regex ONLY since v1.0.79 (the GLiNER pipeline was removed)
-- `--skip-extraction` is deprecated since v1.0.45 and has no effect; `--gliner-variant` is a no-op since v1.0.79 and emits a `tracing::warn!` when set
+- `--skip-extraction` is deprecated since v1.0.45 and has no effect; `--gliner-variant` was REMOVED in v1.1.02 (clap rejects it with exit 2, following the `--max-entity-degree` precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored
 - Response field `extraction_method` reports `url-regex` or `none:extraction-failed`; the `gliner-<variant>+regex` and `regex-only` values are HISTORICAL (≤ v1.0.75)
 - Duplicate files return `status: "skipped"` with `action: "duplicate"` instead of `status: "failed"`
 - Use `--fail-fast` to abort on the first per-file error instead of continuing with inline error reporting
@@ -2203,6 +2212,9 @@ sqlite-graphrag enrich --operation memory-bindings --mode claude-code --limit 50
 ### Solution
 ```bash
 sqlite-graphrag enrich --prune-dead-orphans --json
+
+# v1.1.02 — entity-keyed counterpart (run BOTH for a full sweep)
+sqlite-graphrag enrich --prune-dead-entity-orphans --json
 ```
 
 ### Explanation
@@ -2679,6 +2691,34 @@ Switching models mid-project requires re-embedding existing memories.
   Backend (GAP-OR-INGEST)"
 - Recipe "How to ingest a directory of markdown files into the graph"
 
+
+## Recipes added in v1.1.02
+### Recipe — Audit And Drop `--gliner-variant` / `--mode gliner` (Gap 1, BREAKING)
+```bash
+# Find every occurrence in your automation
+rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/
+
+# After deleting the matches, verify the binary now rejects them
+sqlite-graphrag remember --name probe --type note --description d --body "x" \
+  --gliner-variant small --json
+# expected: clap exit 2, error "unexpected argument '--gliner-variant'"
+```
+- The `IngestMode` enum in v1.1.02 exposes only `none`, `claude-code`, `codex`, `opencode` — `gliner` is gone
+- The env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` are silently ignored (no error, no warning)
+
+### Recipe — Sweep Both Memory-Keyed And Entity-Keyed Dead-Letter Orphans
+```bash
+# 1. Inspect the dead-letter backlog by item_type
+sqlite-graphrag enrich --status --json | jaq '.queue_dead'
+
+# 2. Drop memory-keyed orphans (memories renamed/purged after enqueue)
+sqlite-graphrag enrich --prune-dead-orphans --json
+
+# 3. Drop entity-keyed orphans (entities renamed/merged/purged after enqueue) — v1.1.02
+sqlite-graphrag enrich --prune-dead-entity-orphans --json
+```
+- The two flags are mutually exclusive — run them in separate invocations
+- Both are read-only inspectors (no LLM, no singleton); only the `.enrich-queue.sqlite` sidecar is mutated
 
 ## Recipes added in v1.1.01
 ### Recipe — Backfill Entity And Chunk Embeddings With `re-embed --target` (P2)

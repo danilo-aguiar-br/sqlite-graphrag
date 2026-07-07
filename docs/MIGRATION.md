@@ -1,6 +1,21 @@
-# MIGRATING TO v1.1.01 — Embedding Backfill, graph recompute-degree, Literal Relation Reclassify
+# MIGRATING TO v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune
 
-> This guide covers upgrading from v1.1.0 to v1.1.01. No migration runs on the main database; the schema remains at v15 — `migrate` is NOT required. The official release name is v1.1.01; `Cargo.toml` carries `1.1.1` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+> This guide covers upgrading from v1.1.01 to v1.1.02. No migration runs on the main database; the schema remains at v15 — `migrate` is NOT required. The official release name is v1.1.02; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01) are preserved as historical sections below.
+
+## v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
+
+### What Changed
+- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`, `claude-code`, `codex`, `opencode`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
+- **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
+- **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
+- **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes entity-keyed dead-letter rows from `.enrich-queue.sqlite`; new unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` + integration test `tests/prune_dead_entity_orphans_integration.rs`.
+- 4 pre-existing rustdoc warnings resolved (backticks in HTML blocks, cfg(test) intra-doc links).
+
+### Operator Action
+- Reinstall: `cargo install sqlite-graphrag --locked --force`. No data migration; schema stays at v15.
+- Library API pin: change from `=1.1.1` to `=1.1.2` (the lib API remains unstable within v1.x.y, ADR-0032).
+- If you scripted `--gliner-variant` anywhere (CI, Makefiles, aliases, shell wrappers), drop it — clap now rejects it with exit 2. The same applies to `--mode gliner`.
+- If `enrich --status` shows entity-keyed dead rows after the upgrade, run `enrich --prune-dead-entity-orphans --json` to clear them (read-only inspector; safe — it removes only `item_type='entity'` dead rows from the sidecar).
 
 ## v1.1.01 — Embedding Backfill, graph recompute-degree, Literal Relation Reclassify
 
@@ -102,11 +117,11 @@ Roll back to v1.0.97 by reinstalling the previous binary. No database changes to
 - **GAP-SG-64 / GAP-SG-65 (ADR-0057)**: the enrich (`.enrich-queue.sqlite`) and ingest (`.ingest-queue.sqlite`) worklist sidecars are now derived from the `--db` directory via `paths::sidecar_path`, not the process CWD. `enrich --status` and the ingest `--resume`/`--retry-failed` follow `--db` regardless of the working directory.
 - NO main-database schema migration (stays at v15). NO sidecar file migration: when run from the project directory with the default DB, the derived path coincides with the legacy `./.enrich-queue.sqlite`, so the existing backlog is kept in place. When `--db` points elsewhere, the queue that belongs to that database is the one used.
 - **GAP-SG-57..60 (ADR-0056)**: internal-only — `enrich.rs` modularised, production `unwrap`/`expect` audited behind a lint gate, `parse_claude_output` de-duplicated. No CLI or output change.
-- **GAP-SG-66 (ADR-0058)**: new read-only inspector `enrich --prune-dead-orphans` deletes ONLY enrich-queue rows with `status='dead'` and `item_type='memory'` whose `item_key` (the memory name) is absent from the main DB — for operators upgrading with an inflated `queue_dead` of orphan rows (memories renamed or purged after enqueue, which `--requeue-dead` only re-fails). No LLM, no singleton, no `--operation`/`--mode`; entity-keyed dead rows are untouched and only the `.enrich-queue.sqlite` sidecar is mutated.
+- **GAP-SG-66 (ADR-0058)**: new read-only inspector `enrich --prune-dead-orphans` deletes ONLY enrich-queue rows with `status='dead'` and `item_type='memory'` whose `item_key` (the memory name) is absent from the main DB — for operators upgrading with an inflated `queue_dead` of orphan rows (memories renamed or purged after enqueue, which `--requeue-dead` only re-fails). No LLM, no singleton, no `--operation`/`--mode`; entity-keyed dead rows are untouched and only the `.enrich-queue.sqlite` sidecar is mutated. (v1.1.02 adds `--prune-dead-entity-orphans` for those entity-keyed rows; see the v1.1.02 section above.)
 
 ### Operator Action
 - Reinstall: `cargo install sqlite-graphrag --locked --force`. No data migration. If you previously ran `enrich`/`ingest` with a `--db` that diverged from your CWD, the now-correct sidecar is the one next to that `--db`; a stale queue left in an old CWD can be deleted.
-- If `enrich --status` reports a large `queue_dead` of orphan rows after the upgrade, run `enrich --prune-dead-orphans --json` once to drop them (read-only inspector; safe — it removes only dead rows whose memory no longer exists).
+- If `enrich --status` reports a large `queue_dead` of orphan rows after the upgrade, run `enrich --prune-dead-orphans --json` once to drop them (read-only inspector; safe — it removes only dead rows whose memory no longer exists). For entity-keyed orphans, run `enrich --prune-dead-entity-orphans --json` afterwards (v1.1.02).
 
 ## v1.0.96 — Enrich Dead-Letter + REST Concurrency (ADR-0055)
 

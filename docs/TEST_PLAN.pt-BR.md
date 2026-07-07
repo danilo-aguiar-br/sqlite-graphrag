@@ -110,6 +110,18 @@ O plano de teste do Split do Backend Claude (ADR-0042) e o plano de teste da Rem
 ### Gate
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99.
 
+## Plano de Teste v1.1.02 — Remoção do GLiNER + TooManyTokens Tipado + Regressão Re-Embed + Prune de Órfãos de Entidade (ADR-0062)
+
+### Adições na Camada 1 (unit)
+- `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows`: prova que o novo helper `prune_dead_entity_orphans` deleta apenas linhas `status='dead' AND item_type='entity'`, preservando linhas dead com chave de memória e linhas vivas de entidade.
+
+### Adições na Camada 2 (integração)
+- `tests/prune_dead_entity_orphans_integration.rs`: exercício end-to-end da CLI `enrich --prune-dead-entity-orphans --json`; planta linhas entity-dead e memory-dead no sidecar, roda a flag e afirma `pruned==1`, a linha entity-dead removida, a memory-dead preservada.
+- `tests/reembed_entities_integration.rs`: regressão do Gap 3 — `remember --graph-stdin` planta 2 entidades com embeddings vazios (`--llm-backend none`), depois `enrich --operation re-embed --target entities` faz backfill dos dois vetores (entity_embeddings 0→2); uma segunda execução é idempotente (sem linhas duplicadas). Esqueleto idiomático espelha `tests/v1063_features.rs` (`assert_cmd` + `serial_test` + `tempfile`).
+
+### Justificativa de Regressão
+- O dispatch `strip_prefix("entity:")` em `call_reembed` estava silenciosamente quebrado para re-embed com chave de entidade desde que o caminho foi adicionado; este teste de regressão garante que o dispatch continue roteando para `call_reembed_entity`.
+
 ## Plano de Teste v1.0.97 — Sidecar de Fila do `--db` + Poda de Órfãos Dead-Letter (ADR-0056/0057/0058, GAP-SG-57..66)
 
 ### Adições na Camada 1 (unit)

@@ -1,3 +1,11 @@
+## O Que Mudou na v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade (ADR-0062)
+- O nome oficial da release é **v1.1.02**; o `Cargo.toml` carrega `1.1.2` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v15 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.2`. User-Agent `sqlite-graphrag/1.1.2`.
+- **Gap 1 (BREAKING)**: `--gliner-variant` e o enum `GlinerVariant` foram REMOVIDOS do parser — clap rejeita `--gliner-variant` com exit 2 (precedente: `--max-entity-degree` da v1.0.99); `--mode gliner` também foi REMOVIDO (o enum `IngestMode` agora tem apenas `none`, `claude-code`, `codex`, `opencode`); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas.
+- **Gap 2**: `AppError::TooManyTokens{tokens,limit}` é a nova variante tipada exit 6 (junta-se a `BodyTooLarge`/`TooManyChunks`); o envelope JSON informa `{tokens,limit}` para o caller distinguir bytes vs chunks vs tokens.
+- **Gap 3**: o dispatch `strip_prefix("entity:")` em `call_reembed` é coberto pelo teste de regressão `tests/reembed_entities_integration.rs` — embeddings de entidades fazem backfill de 0→N e a query de cobertura atinge zero ausentes.
+- **Nova flag**: `enrich --prune-dead-entity-orphans` (mutuamente exclusiva com `--prune-dead-orphans`) deleta linhas dead-letter com chave de entidade do `.enrich-queue.sqlite`; teste unitário `prune_dead_entity_orphans_removes_only_entity_dead_rows` + teste de integração `tests/prune_dead_entity_orphans_integration.rs`.
+- 4 warnings rustdoc pré-existentes resolvidos (backticks em blocos HTML, intra-doc links cfg(test)).
+
 ## O Que Mudou na v1.1.01 — Backfill de Embedding de Entidade/Chunk, Re-Embed Direcionado, graph recompute-degree
 - O nome oficial da release é **v1.1.01**; o `Cargo.toml` carrega `1.1.1` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v15 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.1`.
 - **P1**: o embedding de entidade agora roteia pelo caminho REST do OpenRouter mesmo com `--llm-backend none`; um guard de vetor vazio nos upserts previne blobs de embedding de zero bytes.
@@ -115,7 +123,7 @@ sqlite-graphrag --embedding-backend openrouter \
 - Sem telemetria nova: o fix é silencioso. Nenhum macro `tracing::info!` registra qual provider está em uso. O teste de auditoria no-leak `audit_no_token_leak_in_subprocess_stderr` em `tests/claude_runner_env.rs` garante que o valor literal do token NUNCA aparece em stdout ou stderr mesmo com `RUST_LOG=trace`
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` e `docs/COOKBOOK.pt-BR.md#como-usar-providers-anthropic-compativeis-customizados-v1083` para a receita completa
 - Resolve GAP-058 parcialmente: env vars de custom-provider roteiam em torno de contenção de quota OAuth; `recall`/`hybrid-search` permanecem determinísticos sob fadiga OAuth oficial
-# COMO USAR sqlite-graphrag (v1.1.01 — Backfill de Embedding de Entidade/Chunk, graph recompute-degree, schema v15)
+# COMO USAR sqlite-graphrag (v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Prune de Órfãos de Entidade, schema v15)
 
 > Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
 
@@ -238,7 +246,7 @@ O trabalho do G42 tornou o pipeline de embedding rápido, paralelo e em lote; o 
 - Chamadas de embedding são em lote (`{items:[{i,v}]}`; chunks em 8, nomes de entidade em 25 em dim 64; adaptativos à dim — G44) e rodam em paralelo sob semáforo bounded: `--llm-parallelism` em `remember` (default 4), `ingest` (default 2) e `edit` (default 4), clamp [1, 32].
 - `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` seleciona o modelo de embedding do claude; `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` (default 300) limita cada chamada LLM.
 - `enrich --operation re-embed` e `edit --force-reembed` são os caminhos canônicos de re-embedding.
-- O código restante do daemon foi deletado; as features `embedding-legacy` e `ner-legacy` foram removidas; `--enable-ner` é somente URL-regex e as flags da era GLiNER avisam como no-ops.
+- O código restante do daemon foi deletado; as features `embedding-legacy` e `ner-legacy` foram removidas; `--enable-ner` é somente URL-regex; as flags da era GLiNER foram REMOVIDAS em v1.1.02 (`--gliner-variant` rejeitada pelo clap com exit 2, `--mode gliner` rejeitada, e as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` silenciosamente ignoradas).
 
 
 ## O Que Mudou na v1.0.76
@@ -287,7 +295,7 @@ As duas variáveis de chave de API também são excluídas da whitelist de env-c
 ## Instalação
 
 ```bash
-cargo install sqlite-graphrag --version 1.1.1 --force
+cargo install sqlite-graphrag --version 1.1.2 --force
 ```
 
 Isso instala o build padrão LLM-only. Verifique:
@@ -405,6 +413,7 @@ A LLM devolve JSON estruturado com entidades e relacionamentos no mesmo prompt q
 - `--status` (v1.0.96) imprime um relatório read-only JSON da fila (`unbound_backlog`, `scan_backlog` por operação, `queue_pending/done/failed/dead/skipped`, `eligible_now`, `waiting`). Nunca chama o LLM e nunca adquire o singleton, então é seguro fazer poll enquanto um drain roda; o `scan_backlog` (GAP-SG-77, v1.1.0) é o backlog real do banco por operação que um scan enfileiraria — elimina o falso `pending=0` para `entity-descriptions`/`body-enrich`/`re-embed`, e o `state` deriva o `pending-scan` dele.
 - `--rest-concurrency <N>` (v1.0.96, padrão 8, clamp 1..=16) limita o fan-out REST via `JoinSet` bounded para `--mode openrouter`; é distinto de `--llm-parallelism`. O embedding processa lotes de 32 passagens com a ordem por chunk preservada enquanto a escrita SQLite permanece single-writer via WAL + claim atômico (GAP-OPENROUTER-REST-CONCURRENCY).
 - `--prune-dead-orphans` (v1.0.97, GAP-SG-66, ADR-0058) é um inspetor read-only (sem LLM, sem singleton, sem `--operation`/`--mode`) que deleta SOMENTE linhas da fila de enrich com `status='dead'` e `item_type='memory'` cujo `item_key` (o nome da memória) sumiu do banco principal; linhas dead de entidade ficam intocadas e só o sidecar `.enrich-queue.sqlite` é mutado. A saída JSON `DeadSummary` reporta o campo `pruned`. Use para limpar dead-letter órfão deixado quando uma memória é renomeada ou purgada após o enfileiramento — `--requeue-dead` só as re-falha.
+- `--prune-dead-entity-orphans` (v1.1.02, ADR-0062) é a contraparte para chaves de entidade: deleta linhas dead-letter com `item_type='entity'` do `.enrich-queue.sqlite`, e é mutuamente exclusiva com `--prune-dead-orphans`. Rode ambas em sequência para uma varredura completa de órfãos após um upgrade que renomeou/fundiu/purgou entidades.
 - `--target <memories|entities|chunks|all>` (v1.1.01) seleciona qual tabela de embedding o `re-embed` cobre no backfill; válida apenas com `--operation re-embed` (falha alto caso contrário). `--status` reporta o `scan_backlog` por alvo.
 ### `vec` — Manutenção do Índice Vetorial (G39)
 - `vec orphan-list --json` lista linhas de embedding de memória cujo `memory_id` não existe mais na tabela `memories`. Cada linha reporta o `vector_hash` (BLAKE3 do blob de embedding) para rastreabilidade.

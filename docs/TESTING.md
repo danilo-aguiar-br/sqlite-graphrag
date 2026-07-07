@@ -106,6 +106,13 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - **GAP-SG-69**: `src/commands/enrich/queue.rs::tests::skipped_item_keys_excludes_only_skipped_for_operation` proves the new `skipped_item_keys` helper returns only `status='skipped'` rows for the queried operation, so the `--until-empty` body-enrich rescan no longer re-enqueues vetoed short bodies and the sidecar is retained while `skipped` verdicts remain (empirically 55→3).
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99. Suite totals were not re-baselined in this documentation pass — run `cargo nextest -P ci` for the live count.
 
+## v1.1.02 — Gap Closure Tests (ADR-0062)
+
+- `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows` — proves the new `prune_dead_entity_orphans` helper deletes only `item_type='entity'` dead rows, leaving memory-dead rows and live entity rows untouched.
+- `tests/prune_dead_entity_orphans_integration.rs` — end-to-end CLI exercise of `enrich --prune-dead-entity-orphans`; plants entity-dead + memory-dead rows, asserts `pruned==1`, entity-dead gone, memory-dead preserved.
+- `tests/reembed_entities_integration.rs` — regression for Gap 3: `remember --graph-stdin` plants 2 entities with empty embeddings (`--llm-backend none`), `enrich --operation re-embed --target entities` backfills both (0→2), second run idempotent. Skeleton mirrors `tests/v1063_features.rs`.
+- Context: the `strip_prefix("entity:")` dispatch in `call_reembed` was silently broken since the entity-keyed re-embed path was added; this test guarantees it keeps routing to `call_reembed_entity`.
+
 ## v1.0.97 — Post-Sealing Audit Tests (ADR-0056/0057/0058, GAP-SG-57..66)
 
 - `commands::enrich::queue::tests::prune_dead_orphans_removes_only_orphan_memory_rows` — GAP-SG-66. Proves `enrich --prune-dead-orphans` deletes only orphan `dead` memory rows, keeps the live memory row, and never touches entity-keyed rows (returns 1).

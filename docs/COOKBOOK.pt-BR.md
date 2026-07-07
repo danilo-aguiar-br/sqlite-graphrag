@@ -218,6 +218,15 @@ sqlite-graphrag --embedding-backend openrouter \
 - Receita "Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro"
 
 
+## Como Atualizar Para a v1.1.02 (Remoção do GLiNER + TooManyTokens Tipado + Prune de Órfãos de Entidade)
+- Sem migração de banco; schema permanece em v15. Basta `cargo install sqlite-graphrag --locked --force` (nome de release v1.1.02; versão do `Cargo.toml` é `1.1.2`; binário ~19 MiB).
+- BREAKING (Gap 1): `--gliner-variant` foi REMOVIDA de `remember`/`ingest` (clap rejeita com exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); `--mode gliner` também foi REMOVIDO (o enum `IngestMode` agora expõe apenas `none`/`claude-code`/`codex`/`opencode`); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas. Audite seus scripts (`rg -- "--gliner-variant|--mode gliner" seus-scripts/ ci/ Makefile .github/`) e apague todas as ocorrências.
+- Gap 2: `AppError::TooManyTokens{tokens,limit}` é a nova variante tipada exit 6 (junta-se a `BodyTooLarge`/`TooManyChunks`); o envelope JSON informa `{tokens,limit}` para o caller distinguir bytes vs chunks vs tokens.
+- Gap 3: o dispatch `strip_prefix("entity:")` em `call_reembed` é coberto pelo teste de regressão `tests/reembed_entities_integration.rs` — embeddings de entidades agora fazem backfill de forma confiável.
+- Nova flag de manutenção `enrich --prune-dead-entity-orphans` (ADR-0062): deleta linhas `status='dead' AND item_type='entity'` do `.enrich-queue.sqlite`; mutuamente exclusiva com `--prune-dead-orphans`. Rode ambas em sequência para uma varredura completa de órfãos após renomeação/fusão/purga em massa de entidades.
+- 4 warnings rustdoc pré-existentes resolvidos (backticks em blocos HTML, intra-doc links cfg(test)).
+- Veja "Receitas adicionadas na v1.1.02" no fim deste cookbook.
+
 ## Como Atualizar Para a v1.1.01 (Backfill de Cobertura Vetorial + Manutenção do Grafo)
 - Sem migração de banco; schema permanece em v15. Basta `cargo install sqlite-graphrag --locked --force` (nome de release v1.1.01; versão do `Cargo.toml` é `1.1.1`; binário ~19 MiB).
 - `enrich --operation re-embed` ganha `--target memories|entities|chunks|all` (P2): embeddings de entidades e chunks agora podem receber backfill, e `enrich --status` reporta `scan_backlog` por alvo.
@@ -331,7 +340,7 @@ sqlite-graphrag ingest ./docs --recursive --pattern "*.md" --json \
 
 
 ### Variants
-- Extração automática desabilitada por padrão; use `--enable-ner` ou `SQLITE_GRAPHRAG_ENABLE_NER=1` para ativar — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER foi removido)
+- Extração automática desabilitada por padrão; use `--enable-ner` ou `SQLITE_GRAPHRAG_ENABLE_NER=1` para ativar — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER foi removido); a flag `--gliner-variant` foi REMOVIDA em v1.1.02 (clap rejeita com exit 2) e as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas
 - `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; NER está desabilitado por padrão, use `--enable-ner` para ativar
 - Campo de resposta `extraction_method` informa `url-regex` ou `none:extraction-failed`; os valores `gliner-<variant>+regex` e `regex-only` são HISTÓRICOS (≤ v1.0.75)
 - Arquivos duplicados retornam `status: "skipped"` com `action: "duplicate"` em vez de `status: "failed"`
@@ -2198,6 +2207,9 @@ sqlite-graphrag enrich --operation memory-bindings --mode claude-code --limit 50
 ### Solução
 ```bash
 sqlite-graphrag enrich --prune-dead-orphans --json
+
+# v1.1.02 — contraparte para chaves de entidade (rode AMBAS para varredura completa)
+sqlite-graphrag enrich --prune-dead-entity-orphans --json
 ```
 
 ### Explicação
@@ -2681,6 +2693,34 @@ memórias existentes.
   OpenRouter (GAP-OR-INGEST)"
 - Receita "Como ingerir um diretório de arquivos markdown no grafo"
 
+
+## Receitas adicionadas na v1.1.02
+### Receita — Auditar E Remover `--gliner-variant` / `--mode gliner` (Gap 1, BREAKING)
+```bash
+# Encontre todas as ocorrências na sua automação
+rg -- "--gliner-variant|--mode gliner" seus-scripts/ ci/ Makefile .github/
+
+# Após deletar os matches, verifique que o binário agora rejeita
+sqlite-graphrag remember --name probe --type note --description d --body "x" \
+  --gliner-variant small --json
+# esperado: clap exit 2, erro "unexpected argument '--gliner-variant'"
+```
+- O enum `IngestMode` em v1.1.02 expõe apenas `none`, `claude-code`, `codex`, `opencode` — `gliner` sumiu
+- As env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas (sem erro, sem warning)
+
+### Receita — Varrer Órfãos Dead-Letter Tanto de Memória Quanto de Entidade
+```bash
+# 1. Inspecione o backlog dead-letter por item_type
+sqlite-graphrag enrich --status --json | jaq '.queue_dead'
+
+# 2. Descarte órfãos com chave de memória (memórias renomeadas/purgadas após enqueue)
+sqlite-graphrag enrich --prune-dead-orphans --json
+
+# 3. Descarte órfãos com chave de entidade (entidades renomeadas/fundidas/purgadas após enqueue) — v1.1.02
+sqlite-graphrag enrich --prune-dead-entity-orphans --json
+```
+- As duas flags são mutuamente exclusivas — rode em invocações separadas
+- Ambas são inspetores read-only (sem LLM, sem singleton); apenas o sidecar `.enrich-queue.sqlite` é mutado
 
 ## Receitas adicionadas na v1.1.01
 ### Receita — Backfill de Embeddings de Entidades e Chunks com `re-embed --target` (P2)

@@ -101,6 +101,15 @@ This section updates the framework to cover the documentation generated for the 
 - New ADR: ADR-0059 (EN + PT-BR); docs/decisions/INDEX.md updated.
 - Updated: README, CHANGELOG, AGENTS, INTEGRATIONS (root EN+PT); docs/AGENTS, MIGRATION (EN+PT); DOCUMENTATION_FRAMEWORK; llms.txt, llms.pt-BR.txt, llms-full.txt.
 
+### v1.1.02 — Two Residual Gaps Closed + Entity Orphan Prune (ADR-0062)
+- Official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB. Library consumers pin `=1.1.2`; User-Agent is `sqlite-graphrag/1.1.2`.
+- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser (clap rejects `--gliner-variant` with exit 2, following the `--max-entity-degree` precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars were deleted from the code and are silently ignored if set. The `IngestMode` enum now has only `none`, `claude-code`, `codex`, `opencode` — `--mode gliner` is REMOVED (no longer deprecated).
+- **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed variant; exit 6 now distinguishes `BodyTooLarge{bytes,limit}`, `TooManyChunks{chunks,limit}` and `TooManyTokens{tokens,limit}` in the JSON envelope.
+- **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` (broken since the entity-keyed re-embed path was added) is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
+- **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes dead-letter rows with `item_type='entity'` from the `.enrich-queue.sqlite` sidecar; new unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` and integration test `tests/prune_dead_entity_orphans_integration.rs`.
+- **Docs**: 4 pre-existing rustdoc warnings resolved (HTML backticks, cfg(test) intra-doc links).
+- Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, MIGRATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION (EN+PT); DOCUMENTATION_FRAMEWORK; docs/decisions/INDEX.md + ADR-0062 (EN+PT).
+
 ### v1.1.01 — Production-Database Audit Remediation (12-priority roadmap, gaps.md)
 - Official release name is v1.1.01; the crate manifest carries `version = "1.1.1"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB.
 - New command: `graph recompute-degree` (P3) reconciles the `entities.degree` cache from the real `relationships` rows; new schema `docs/schemas/graph-recompute-degree.schema.json`.

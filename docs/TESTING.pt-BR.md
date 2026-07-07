@@ -108,6 +108,13 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - **GAP-SG-69**: `src/commands/enrich/queue.rs::tests::skipped_item_keys_excludes_only_skipped_for_operation` prova que o novo helper `skipped_item_keys` retorna apenas linhas com `status='skipped'` para a operação consultada, de modo que o rescan do body-enrich com `--until-empty` não re-enfileira corpos curtos vetados e o sidecar é retido enquanto houver veredictos `skipped` (empiricamente 55→3).
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99. Os totais da suíte não foram re-aferidos nesta passagem de documentação — rode `cargo nextest -P ci` para a contagem ao vivo.
 
+## v1.1.02 — Testes de Fechamento de Gaps (ADR-0062)
+
+- `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows` — prova que o novo helper `prune_dead_entity_orphans` deleta apenas linhas dead com `item_type='entity'`, preservando linhas memory-dead e linhas vivas de entidade.
+- `tests/prune_dead_entity_orphans_integration.rs` — exercício end-to-end da CLI `enrich --prune-dead-entity-orphans`; planta linhas entity-dead + memory-dead, afirma `pruned==1`, entity-dead removida, memory-dead preservada.
+- `tests/reembed_entities_integration.rs` — regressão do Gap 3: `remember --graph-stdin` planta 2 entidades com embeddings vazios (`--llm-backend none`), `enrich --operation re-embed --target entities` faz backfill dos dois (0→2), segunda execução idempotente. Esqueleto espelha `tests/v1063_features.rs`.
+- Contexto: o dispatch `strip_prefix("entity:")` em `call_reembed` estava silenciosamente quebrado desde que o caminho de re-embed com chave de entidade foi adicionado; este teste garante que ele continue roteando para `call_reembed_entity`.
+
 ## v1.0.97 — Testes da Auditoria Pós-Selagem (ADR-0056/0057/0058, GAP-SG-57..66)
 
 - `commands::enrich::queue::tests::prune_dead_orphans_removes_only_orphan_memory_rows` — GAP-SG-66. Prova que `enrich --prune-dead-orphans` deleta só linhas `dead` órfãs de memória, mantém a linha de memória viva e nunca toca em linhas de entidade (retorna 1).

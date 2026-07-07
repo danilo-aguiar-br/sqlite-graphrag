@@ -63,6 +63,7 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 | [ADR-0059](adr-0059-v1099-degree-cap-removal-doc-convergence.md) | Remove Destructive Degree-Cap Pruning; Align sort-by-degree Doc; Converge body-enrich (GAP-SG-67/68/69) | v1.0.99 | Accepted | [PT-BR](adr-0059-v1099-degree-cap-removal-doc-convergence.pt-BR.md) |
 | [ADR-0060](adr-0060-v110-enrichment-backlog-convergence.md) | v1.1.0 — Enrichment Backlog Convergence at the Root (GAP-SG-70..78) | v1.1.0 | Accepted | [PT-BR](adr-0060-v110-enrichment-backlog-convergence.pt-BR.md) |
 | [ADR-0061](adr-0061-v1101-twelve-priority-roadmap-closure.md) | v1.1.01 — Twelve-Priority Roadmap Closure (gaps.md Limitations 1–15) | v1.1.01 | Accepted | [PT-BR](adr-0061-v1101-twelve-priority-roadmap-closure.pt-BR.md) |
+| [ADR-0062](adr-0062-v1-1-02-gap-closure.md) | v1.1.02 — Two Residual Gaps Closed (GLiNER Removal, TooManyTokens Typed) + Entity Orphan Prune + Re-Embed Regression Test | v1.1.02 | Accepted | [PT-BR](adr-0062-v1-1-02-gap-closure.pt-BR.md) |
 
 ## Coverage by Version
 

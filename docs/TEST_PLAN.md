@@ -110,6 +110,18 @@ The Claude Backend Split test plan (ADR-0042) and the Five-Gap Remediation test 
 ### Gate
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99.
 
+## v1.1.02 Test Plan — GLiNER Removal + TooManyTokens Typed + Re-Embed Regression + Entity Orphan Prune (ADR-0062)
+
+### Layer 1 (unit) additions
+- `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows`: proves the new `prune_dead_entity_orphans` helper deletes only `status='dead' AND item_type='entity'` rows, leaving memory-keyed dead rows and live entity rows untouched.
+
+### Layer 2 (integration) additions
+- `tests/prune_dead_entity_orphans_integration.rs`: end-to-end CLI exercise of `enrich --prune-dead-entity-orphans --json`; plants both entity-dead and memory-dead rows in the sidecar, runs the flag, and asserts `pruned==1`, the entity-dead row gone, the memory-dead row preserved.
+- `tests/reembed_entities_integration.rs`: regression for Gap 3 — `remember --graph-stdin` plants 2 entities with empty embeddings (`--llm-backend none`), then `enrich --operation re-embed --target entities` backfills both vectors (entity_embeddings 0→2); a second run is idempotent (no duplicate rows). Idiomatic skeleton mirrors `tests/v1063_features.rs` (`assert_cmd` + `serial_test` + `tempfile`).
+
+### Regression rationale
+- The `strip_prefix("entity:")` dispatch in `call_reembed` was silently broken for entity-keyed re-embed since the path was added; this regression test guarantees the dispatch keeps routing to `call_reembed_entity`.
+
 ## v1.0.97 Test Plan — Queue Sidecar from `--db` + Prune Dead-Letter Orphans (ADR-0056/0057/0058, GAP-SG-57..66)
 
 ### Layer 1 (unit) additions

@@ -8,13 +8,21 @@
 - No new telemetry: the fix is silent. No `tracing::info!` macro logs which provider is in use. The no-leak audit test `audit_no_token_leak_in_subprocess_stderr` in `tests/claude_runner_env.rs` enforces that the literal token value NEVER appears in stdout or stderr even with `RUST_LOG=trace`
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` and `docs/COOKBOOK.md#how-to-use-custom-anthropic-compatible-providers-v1083` for the full recipe
 - Resolves GAP-058 partially: custom-provider env vars route around OAuth quota contention; `recall`/`hybrid-search` stay deterministic under official OAuth fatigue
-# HOW TO USE sqlite-graphrag (v1.1.01 — Entity/Chunk Embedding Backfill, graph recompute-degree, schema v15)
+# HOW TO USE sqlite-graphrag (v1.1.02 — GLiNER Removal, TooManyTokens Typed, Entity Orphan Prune, schema v15)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
 
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
+
+## What Changed in v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
+- The official release name is **v1.1.02**; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Schema is UNCHANGED at v15 — upgrading does NOT require `migrate`. Binary ~19 MiB. Library consumers pin `=1.1.2`. User-Agent is `sqlite-graphrag/1.1.2`.
+- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now has only `none`, `claude-code`, `codex`, `opencode`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
+- **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
+- **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
+- **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes entity-keyed dead-letter rows from `.enrich-queue.sqlite`; unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` + integration test `tests/prune_dead_entity_orphans_integration.rs`.
+- 4 pre-existing rustdoc warnings resolved (backticks in HTML blocks, cfg(test) intra-doc links).
 
 ## What Changed in v1.1.01 — Entity/Chunk Embedding Backfill, Targeted Re-Embed, graph recompute-degree
 - The official release name is **v1.1.01**; `Cargo.toml` carries `1.1.1` because SemVer rejects a leading zero in the patch segment. Schema is UNCHANGED at v15 — upgrading does NOT require `migrate`. Binary ~19 MiB. Library consumers pin `=1.1.1`.
@@ -286,7 +294,7 @@ batched; G43 made the dimensionality adoption universal:
   the canonical re-embed paths.
 - The remaining daemon code was deleted; the `embedding-legacy`
   and `ner-legacy` features were removed; `--enable-ner` is
-  URL-regex only and the GLiNER-era flags warn as no-ops.
+  URL-regex only; the GLiNER-era flags were REMOVED in v1.1.02 (`--gliner-variant` is rejected by clap with exit 2, `--mode gliner` is rejected, and the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored).
 
 
 ## What v1.0.76 Changed
@@ -348,7 +356,7 @@ set in a parent process.
 ## Install
 
 ```bash
-cargo install sqlite-graphrag --version 1.1.1 --force
+cargo install sqlite-graphrag --version 1.1.2 --force
 ```
 
 This installs the LLM-only default build. Verify:
@@ -477,6 +485,7 @@ includes the schema and the response is larger).
 - `--status` (v1.0.96) prints a read-only JSON queue report (`unbound_backlog`, per-operation `scan_backlog`, `queue_pending/done/failed/dead/skipped`, `eligible_now`, `waiting`). It never calls the LLM and never acquires the singleton, so it is safe to poll while a drain is running. `scan_backlog` (GAP-SG-77, v1.1.0) is the real per-operation database backlog a scan would enqueue — it kills the false `pending=0` for `entity-descriptions`/`body-enrich`/`re-embed`, and `state` derives `pending-scan` from it.
 - `--rest-concurrency <N>` (v1.0.96, default 8, clamp 1..=16) caps the bounded `JoinSet` REST fan-out for `--mode openrouter`; it is distinct from `--llm-parallelism`. Embedding batches 32 passages with per-chunk order preserved while the SQLite write stays single-writer via WAL + atomic claim (GAP-OPENROUTER-REST-CONCURRENCY).
 - `--prune-dead-orphans` (v1.0.97, GAP-SG-66, ADR-0058) is a read-only inspector (no LLM, no singleton, no `--operation`/`--mode`) that deletes ONLY enrich-queue rows with `status='dead'` and `item_type='memory'` whose `item_key` (the memory name) is absent from the main database; entity-keyed dead rows are untouched and only the `.enrich-queue.sqlite` sidecar is mutated. The JSON `DeadSummary` reports a `pruned` count. Use it to clear orphan dead-letter left when a memory is renamed or purged after it was enqueued — `--requeue-dead` would only re-fail those.
+- `--prune-dead-entity-orphans` (v1.1.02, ADR-0062) is the entity-keyed counterpart: it deletes dead-letter rows with `item_type='entity'` from `.enrich-queue.sqlite`, and is mutually exclusive with `--prune-dead-orphans`. Run both in sequence for a full orphan sweep after an upgrade that renamed/merged/purged entities.
 - `--target <memories|entities|chunks|all>` (v1.1.01) selects which embedding table `re-embed` backfills; only valid with `--operation re-embed` (fails loud otherwise). `--status` reports the per-target `scan_backlog`.
 ### `vec` — Vector Index Maintenance (G39)
 - `vec orphan-list --json` lists memory embedding rows whose `memory_id` no longer exists in the `memories` table. Each row reports the `vector_hash` (BLAKE3 of the embedding blob) for traceability.

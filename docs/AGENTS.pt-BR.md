@@ -9,12 +9,13 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.1.01 — Embedding de Entidade via REST, Alvos de Re-Embed, Manutenção de Grau)
+# sqlite-graphrag para Agentes de IA (v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Prune de Órfãos de Entidade, Teste de Regressão Re-Embed)
 
 
 > Memória persistente para 27 agentes de IA em um único binário Rust de 14.6 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> Novo na v1.1.01 (release corrente): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
+> Novo na v1.1.02 (release corrente): `--gliner-variant`/`--mode gliner` REMOVIDOS (clap exit 2); `AppError::TooManyTokens` tipado exit 6; `enrich --prune-dead-entity-orphans` para dead-letter de entidade; teste de regressão de re-embed de entidades.
+> Novo na v1.1.01 (release anterior): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
 
 ## Novo na v1.0.93 — Backend de Embedding OpenRouter (GAP-OR-INGEST)
 - Novo backend de embedding: API REST do OpenRouter via `--embedding-backend openrouter --embedding-model MODELO`
@@ -210,7 +211,7 @@ As duas variáveis de chave de API também são excluídas da whitelist de env-c
 ### OBRIGATÓRIO — Remoções e Depreciações (v1.0.79)
 - As features `embedding-legacy` e `ner-legacy` foram REMOVIDAS (antecipando o cronograma da v1.1.0); todo build é LLM-only.
 - O código restante do `daemon` foi DELETADO; a CLI é 100% one-shot.
-- Flags da era GLiNER são no-ops formais com `tracing::warn!` explícito: `--gliner-variant` (em `remember` e `ingest`) e `ingest --mode gliner`; `--enable-ner` executa somente extração URL-regex.
+- As flags da era GLiNER foram REMOVIDAS em v1.1.02 (ADR-0062): `--gliner-variant` é rejeitada pelo clap com exit 2 em `remember`/`ingest` (seguindo o precedente `--max-entity-degree` da v1.0.99), e `ingest --mode gliner` também é rejeitada (o enum `IngestMode` agora expõe apenas `none`, `claude-code`, `codex`, `opencode`); `--enable-ner` ainda executa extração URL-regex. As env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` foram deletadas do código e silenciosamente ignoradas se definidas.
 - A matriz de CI roda 2 features desde a v1.0.79: `default` e `llm-only`.
 - A matriz de CI roda 2 features desde a v1.0.79: `default` e `llm-only`.
 
@@ -843,7 +844,7 @@ let output = Command::new("sqlite-graphrag")
 - USAR `--dry-run` para validar o payload (tamanho do body, schema de entidades/relacionamentos, unicidade do nome) sem persistir nada; retorna 0 em sucesso, não-zero em falha de validação
 - USAR `--clear-body` com `--force-merge` para definir explicitamente o body como string vazia em vez de herdar o body existente
 - NER desabilitado por padrão; passar `--enable-ner` ou definir `SQLITE_GRAPHRAG_ENABLE_NER=1` para ativar extração automática — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER foi removido)
-- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` é no-op desde a v1.0.79 e emite `tracing::warn!` quando definido com valor não-default
+- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` foi REMOVIDO em v1.1.02 (clap rejeita com exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas
 - Campo de resposta `extraction_method` informa o método utilizado: `url-regex` (extração de URLs executada) ou `none:extraction-failed`; os valores `gliner-<variant>+regex` e `regex-only` são HISTÓRICOS (≤ v1.0.75)
 - RESPEITAR limite de 512000 bytes e 512 chunks por body
 - USAR `--max-rss-mb <MiB>` para limitar o RSS do processo durante embedding (padrão: 8192 MiB); aborta com exit 77 se excedido
@@ -923,7 +924,7 @@ let output = Command::new("sqlite-graphrag")
 - AMPLIAR `--wait-lock <SECONDS>` para esperar slot antes de exit 75
 ### OBRIGATÓRIO — Performance e Extração
 - NER desabilitado por padrão; passar `--enable-ner` para ativar extração automática — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER em ONNX, o download de modelo de 1,1 GB e a seleção via `--gliner-variant` foram removidos)
-- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` é no-op desde a v1.0.79 e emite `tracing::warn!` quando definido
+- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` foi REMOVIDO em v1.1.02 (clap rejeita com exit 2)
 - Campo de resposta `extraction_method` informa `url-regex` ou `none:extraction-failed`; `gliner-<variant>+regex` e `regex-only` são valores HISTÓRICOS (≤ v1.0.75)
 - USAR `--enable-ner` apenas quando a extração de URLs como entidades for valiosa
 - PREFERIR `--mode claude-code` / `--mode codex` ou `--graph-stdin` com entidades curadas por LLM para qualidade de extração semântica
@@ -955,7 +956,7 @@ let output = Command::new("sqlite-graphrag")
 - Eventos de extração NER vão para stderr, NÃO stdout
 ### OBRIGATÓRIO — Modos de Ingestão (v1.0.62)
 - USAR `--mode none` (padrão) para ingestão body-only sem extração
-- `--mode gliner` está DEPRECIADO desde a v1.0.79 (somente URL-regex; emite `tracing::warn!`); usar `--mode claude-code` ou `--mode codex` para extração semântica
+- `--mode gliner` foi REMOVIDO em v1.1.02 (o enum `IngestMode` agora expõe apenas `none`, `claude-code`, `codex`, `opencode`; clap rejeita `gliner` com exit 2); usar `--mode claude-code`, `--mode codex` ou `--mode opencode` para extração semântica
 - USAR `--mode claude-code` para extração curada por LLM via Claude Code CLI instalado localmente
 - USAR `--mode openrouter` (no `enrich`) quando nenhuma CLI LLM local estiver instalada — o JUDGE roda sobre REST `/chat/completions`; trade-off: cobra tokens na `OPENROUTER_API_KEY` versus o OAuth zero-token de `claude-code`/`codex`/`opencode`
 - Modo Claude Code requer binário `claude` >= 2.1.0 no PATH com assinatura Pro/Max ativa
@@ -1675,6 +1676,14 @@ cargo install --path . && sqlite-graphrag init
 - NÃO existe fix definitivo upstream; mitigação depende de `codex login` dirigido pelo operador
 
 
+## Novidades na v1.1.02 — Dois Gaps Residuais Fechados + Prune de Órfãos de Entidade (ADR-0062)
+- O nome oficial da release é v1.1.02; o `Cargo.toml` publica `1.1.2` porque o SemVer rejeita zero à esquerda (User-Agent `sqlite-graphrag/1.1.2`). Sem migração; o schema permanece em v15. Binário de ~19 MiB. Consumidores da biblioteca fixam `=1.1.2`.
+- Gap 1 (BREAKING): `--gliner-variant` e o enum `GlinerVariant` foram REMOVIDOS do parser (clap exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas; `--mode gliner` também foi REMOVIDO (`IngestMode` agora expõe apenas `none`/`claude-code`/`codex`/`opencode`).
+- Gap 2: `AppError::TooManyTokens{tokens,limit}` é a nova variante tipada exit 6 (junta-se a `BodyTooLarge`/`TooManyChunks`); o envelope JSON informa `{tokens,limit}`.
+- Gap 3: o dispatch `strip_prefix("entity:")` em `call_reembed` é coberto pelo teste de regressão `tests/reembed_entities_integration.rs` — embeddings de entidades fazem backfill de 0→N e a query de cobertura atinge zero ausentes.
+- Nova flag: `enrich --prune-dead-entity-orphans` (mutuamente exclusiva com `--prune-dead-orphans`) deleta linhas dead-letter com chave de entidade do `.enrich-queue.sqlite`; novos testes `prune_dead_entity_orphans_removes_only_entity_dead_rows` e `tests/prune_dead_entity_orphans_integration.rs`.
+- 4 warnings rustdoc pré-existentes resolvidos (backticks em blocos HTML, intra-doc links cfg(test)).
+
 ## Novidades na v1.1.01 — Embedding de Entidade via REST, Alvos de Re-Embed, Manutenção de Grau do Grafo
 - O nome oficial da release é v1.1.01; o `Cargo.toml` publica `1.1.1` porque o SemVer rejeita zero à esquerda (User-Agent `sqlite-graphrag/1.1.1`). Sem migração; o schema permanece em v15. Binário de ~19 MiB.
 - P1: o embedding de entidade agora roda pelo backend REST do OpenRouter mesmo com `--llm-backend none`; todo upsert de embedding ganhou guarda de vetor vazio.
@@ -1688,7 +1697,7 @@ cargo install --path . && sqlite-graphrag init
 - P12: `ingest --name-prefix <prefixo>` prefixa os nomes das memórias ingeridas.
 
 ## Novidades na v1.0.97 — Recuperação Dead-Letter no Enrich + Ergonomia de Escrita (GAP-20, SG-32)
-- Recuperação dead-letter: `enrich --requeue-dead` move itens terminais `dead` de volta para `pending`; `enrich --list-dead` é uma listagem read-only JSON de cada item dead com seu `error_class` e `message`; `enrich --ignore-backoff` desenfileira itens elegíveis de imediato, ignorando o cooldown `next_retry_at`; `enrich --prune-dead-orphans` deleta linhas dead-letter (`status='dead'`, `item_type='memory'`) cujo `item_key` (nome da memória) está ausente do banco principal — inspetor read-only (sem LLM, sem singleton), apenas o sidecar `.enrich-queue.sqlite` é mutado; linhas dead de entidade não são tocadas; limpa dead-letter órfão de memórias renomeadas ou purgadas após o enqueue (`--requeue-dead` apenas re-falharia esses itens); o JSON `DeadSummary` ganha um campo `pruned` (ADR-0058, GAP-SG-66, v1.0.97).
+- Recuperação dead-letter: `enrich --requeue-dead` move itens terminais `dead` de volta para `pending`; `enrich --list-dead` é uma listagem read-only JSON de cada item dead com seu `error_class` e `message`; `enrich --ignore-backoff` desenfileira itens elegíveis de imediato, ignorando o cooldown `next_retry_at`; `enrich --prune-dead-orphans` deleta linhas dead-letter (`status='dead'`, `item_type='memory'`) cujo `item_key` (nome da memória) está ausente do banco principal — inspetor read-only (sem LLM, sem singleton), apenas o sidecar `.enrich-queue.sqlite` é mutado; linhas dead de entidade não são tocadas; limpa dead-letter órfão de memórias renomeadas ou purgadas após o enqueue (`--requeue-dead` apenas re-falharia esses itens); o JSON `DeadSummary` ganha um campo `pruned` (ADR-0058, GAP-SG-66, v1.0.97). A v1.1.02 adiciona `--prune-dead-entity-orphans` como contraparte para chaves de entidade (ADR-0062, mutuamente exclusiva com `--prune-dead-orphans`).
 - `enrich --status`, `--list-dead`, `--requeue-dead` e `--prune-dead-orphans` agora rodam SEM `--operation`/`--mode` (antes `--mode` era obrigatório) — agentes podem inspecionar/recuperar a fila sem nomear uma operação.
 - Nova operação `enrich --operation augment-bindings` adiciona vínculos a memórias que JÁ estão vinculadas e EXIGE `--names`/`--names-file`; `enrich --operation body-extract --body-extract-graph-only` extrai o grafo read-only sem reescrever o corpo.
 - Defaults elevados: o default de `enrich --max-attempts` agora é 8 (faixa 1..=20); o default de `enrich --openrouter-timeout` agora é 600s. O singleton por namespace permanece, com `--rest-concurrency` (clamp 1..=16, padrão 8) como remédio de vazão (GAP-20).

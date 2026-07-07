@@ -1,6 +1,21 @@
-# MIGRANDO PARA v1.1.01 — Backfill de Embedding, graph recompute-degree, Reclassify Literal de Relação
+# MIGRANDO PARA v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade
 
-> Este guia cobre a atualização de v1.1.0 para v1.1.01. Nenhuma migração roda no banco principal; o schema permanece em v15 — `migrate` NÃO é necessário. O nome oficial da release é v1.1.01; o `Cargo.toml` carrega `1.1.1` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+> Este guia cobre a atualização de v1.1.01 para v1.1.02. Nenhuma migração roda no banco principal; o schema permanece em v15 — `migrate` NÃO é necessário. O nome oficial da release é v1.1.02; o `Cargo.toml` carrega `1.1.2` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01) estão preservados como seções históricas abaixo.
+
+## v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade (ADR-0062)
+
+### O Que Mudou
+- **Gap 1 (BREAKING)**: `--gliner-variant` e o enum `GlinerVariant` foram REMOVIDOS do parser — clap rejeita `--gliner-variant` com exit 2 (precedente: `--max-entity-degree` da v1.0.99); `--mode gliner` também foi REMOVIDO (o enum `IngestMode` agora expõe apenas `none`, `claude-code`, `codex`, `opencode`); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas.
+- **Gap 2**: `AppError::TooManyTokens{tokens,limit}` é a nova variante tipada exit 6 (junta-se a `BodyTooLarge`/`TooManyChunks`); o envelope JSON informa `{tokens,limit}` para o caller distinguir bytes vs chunks vs tokens.
+- **Gap 3**: o dispatch `strip_prefix("entity:")` em `call_reembed` é coberto pelo teste de regressão `tests/reembed_entities_integration.rs` — embeddings de entidades fazem backfill de 0→N e a query de cobertura atinge zero ausentes.
+- **Nova flag**: `enrich --prune-dead-entity-orphans` (mutuamente exclusiva com `--prune-dead-orphans`) deleta linhas dead-letter com chave de entidade do `.enrich-queue.sqlite`; novo teste unitário `prune_dead_entity_orphans_removes_only_entity_dead_rows` + teste de integração `tests/prune_dead_entity_orphans_integration.rs`.
+- 4 warnings rustdoc pré-existentes resolvidos (backticks em blocos HTML, intra-doc links cfg(test)).
+
+### Ação do Operador
+- Reinstale: `cargo install sqlite-graphrag --locked --force`. Sem migração de dados; schema permanece em v15.
+- Pin da API da biblioteca: troque de `=1.1.1` para `=1.1.2` (a API da lib permanece instável dentro de v1.x.y, ADR-0032).
+- Se você scriptou `--gliner-variant` em algum lugar (CI, Makefiles, aliases, wrappers de shell), remova — clap agora rejeita com exit 2. O mesmo vale para `--mode gliner`.
+- Se o `enrich --status` mostrar linhas dead com chave de entidade após o upgrade, rode `enrich --prune-dead-entity-orphans --json` para limpá-las (inspetor read-only; seguro — remove apenas linhas `item_type='entity'` dead do sidecar).
 
 ## v1.1.01 — Backfill de Embedding, graph recompute-degree, Reclassify Literal de Relação
 
@@ -102,11 +117,11 @@ Volte para v1.0.97 reinstalando o binário anterior. Nenhuma mudança de banco a
 - **GAP-SG-64 / GAP-SG-65 (ADR-0057)**: os sidecars de fila do enrich (`.enrich-queue.sqlite`) e do ingest (`.ingest-queue.sqlite`) agora são derivados do diretório do `--db` via `paths::sidecar_path`, não do CWD do processo. `enrich --status` e o `--resume`/`--retry-failed` do ingest seguem o `--db` independentemente do diretório de trabalho.
 - SEM migração de schema do banco principal (permanece em v15). SEM migração do arquivo de sidecar: ao rodar do diretório do projeto com o banco default, o caminho derivado coincide com o legado `./.enrich-queue.sqlite`, então o backlog existente é mantido no lugar. Quando o `--db` aponta para outro lugar, usa-se a fila que pertence àquele banco.
 - **GAP-SG-57..60 (ADR-0056)**: interno apenas — `enrich.rs` modularizado, `unwrap`/`expect` de produção auditados sob um lint gate, `parse_claude_output` desduplicado. Sem mudança de CLI ou de saída.
-- **GAP-SG-66 (ADR-0058)**: novo inspetor read-only `enrich --prune-dead-orphans` deleta SOMENTE linhas da fila do enrich com `status='dead'` e `item_type='memory'` cujo `item_key` (o nome da memória) não existe mais no banco principal — para operadores que atualizam com um `queue_dead` inflado de linhas órfãs (memórias renomeadas ou purgadas após o enfileiramento, que o `--requeue-dead` apenas re-falha). Sem LLM, sem singleton, sem `--operation`/`--mode`; linhas dead com chave de entidade ficam intocadas e apenas o sidecar `.enrich-queue.sqlite` é mutado.
+- **GAP-SG-66 (ADR-0058)**: novo inspetor read-only `enrich --prune-dead-orphans` deleta SOMENTE linhas da fila do enrich com `status='dead'` e `item_type='memory'` cujo `item_key` (o nome da memória) não existe mais no banco principal — para operadores que atualizam com um `queue_dead` inflado de linhas órfãs (memórias renomeadas ou purgadas após o enfileiramento, que o `--requeue-dead` apenas re-falha). Sem LLM, sem singleton, sem `--operation`/`--mode`; linhas dead com chave de entidade ficam intocadas e apenas o sidecar `.enrich-queue.sqlite` é mutado. (A v1.1.02 adiciona `--prune-dead-entity-orphans` para essas linhas com chave de entidade; veja a seção v1.1.02 acima.)
 
 ### Ação do Operador
 - Reinstale: `cargo install sqlite-graphrag --locked --force`. Sem migração de dados. Se você rodava `enrich`/`ingest` com um `--db` que divergia do seu CWD, o sidecar agora-correto é o que fica ao lado daquele `--db`; uma fila stale deixada num CWD antigo pode ser apagada.
-- Se o `enrich --status` reportar um `queue_dead` grande de linhas órfãs após o upgrade, rode `enrich --prune-dead-orphans --json` uma vez para removê-las (inspetor read-only; seguro — remove apenas linhas dead cuja memória não existe mais).
+- Se o `enrich --status` reportar um `queue_dead` grande de linhas órfãs após o upgrade, rode `enrich --prune-dead-orphans --json` uma vez para removê-las (inspetor read-only; seguro — remove apenas linhas dead cuja memória não existe mais). Para órfãos com chave de entidade, rode `enrich --prune-dead-entity-orphans --json` em seguida (v1.1.02).
 
 ## v1.0.96 — Dead-Letter do Enrich + Concorrência REST (ADR-0055)
 

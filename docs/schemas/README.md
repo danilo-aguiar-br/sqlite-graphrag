@@ -87,7 +87,7 @@
 - `completions` emits shell completion scripts (Bash, Zsh, Fish, PowerShell, Elvish) as plain text — no JSON schema applies
 - `daemon` was removed in v1.0.76 (remaining code deleted in v1.0.79) — no JSON schema applies (historical)
 ### Ingest Mode Schema Selection
-- `--mode none` and `--mode gliner` (DEPRECATED since v1.0.79: URL-regex only, emits a deprecation warning) use `ingest-file-event.schema.json` and `ingest-summary.schema.json`
+- `--mode none` uses `ingest-file-event.schema.json` and `ingest-summary.schema.json`; `--mode gliner` was REMOVED in v1.1.02 (the `IngestMode` enum now exposes only `none`, `claude-code`, `codex`, `opencode` — clap rejects `gliner` with exit 2)
 - `--mode claude-code` uses `ingest-claude-phase.schema.json`, `ingest-claude-file-event.schema.json`, and `ingest-claude-summary.schema.json`
 - Claude-code mode emits additional phase events (validate, scan) before per-file events
 - Per-file events in claude-code mode include `entities`, `rels`, and `cost_usd` fields not present in normal ingest
