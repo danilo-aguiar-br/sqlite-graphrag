@@ -108,6 +108,18 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - **GAP-SG-69**: `src/commands/enrich/queue.rs::tests::skipped_item_keys_excludes_only_skipped_for_operation` prova que o novo helper `skipped_item_keys` retorna apenas linhas com `status='skipped'` para a operação consultada, de modo que o rescan do body-enrich com `--until-empty` não re-enfileira corpos curtos vetados e o sidecar é retido enquanto houver veredictos `skipped` (empiricamente 55→3).
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99. Os totais da suíte não foram re-aferidos nesta passagem de documentação — rode `cargo nextest -P ci` para a contagem ao vivo.
 
+
+## v1.1.03 — Testes dos Seis Bugs + V8 (ADR-0063)
+
+- **Bug 6 (chunks órfãos)**: `scan_chunks_of_soft_deleted_memory_are_selected` e `count_backlog_includes_orphan_chunks` em `src/commands/enrich/scan.rs` provam que `LEFT JOIN memories` agora seleciona chunks de memórias soft-deletadas no re-embed
+- **Bug 2 (--literal-to)**: `literal_to_writes_hyphenated_target`, `literal_from_applies_to_literal_to_applies_to_hyphen_migrates`, `literal_to_alone_keeps_verbatim` em `src/commands/reclassify_relation.rs` provam que `--literal-to` escreve o valor verbatim sem normalização do clap
+- **Bug 3 (--cross-namespace)**: `cross_namespace_merges_source_from_other_namespace`, `cross_namespace_default_false_rejects_cross_id`, `cross_namespace_target_must_still_be_in_resolved_namespace` em `src/commands/merge_entities.rs` provam o opt-in cross-namespace e o padrão same-namespace seguro
+- **Bug 4 (stale claims)**: `stale_processing_claim_is_reset_after_threshold`, `fresh_processing_claim_is_preserved`, `heartbeat_updates_claimed_at` em `src/commands/enrich/queue.rs` provam a coluna `claimed_at` + heartbeat + reset automático no startup
+- **Bug 1 (enqueue batch)**: `enqueue_batch_is_atomic` em `src/commands/enrich/mod.rs` prova que o loop de enqueue é uma transação única (batch INSERT atômico)
+- **V8 (split-body)**: `split_body_divides_long_memory_into_parts`, `split_body_marks_original_as_superseded`, `split_body_creates_replaces_relations`, `split_body_preserves_history` em `src/commands/split_body.rs` (novo módulo) provam a divisão + tag `SUPERCEDIDO` + relação `replaces` + preservação de histórico
+- **Bug 5 (apenas docs)**: nenhuma mudança de teste — apenas o help text do `enrich --status` esclarecendo `scan_backlog` vs `queue_pending`
+- Suite total: ~1070 testes de lib passando (`cargo test --lib`). Schema permanece v15. Sem nova telemetria.
+
 ## v1.1.02 — Testes de Fechamento de Gaps (ADR-0062)
 
 - `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows` — prova que o novo helper `prune_dead_entity_orphans` deleta apenas linhas dead com `item_type='entity'`, preservando linhas memory-dead e linhas vivas de entidade.
@@ -134,7 +146,7 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 
 ## Tamanho Atual da Suite de Testes
 
-986+ testes de lib passando via `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
+~1070 testes de lib passando a partir de v1.1.03 (v1.1.02 + v1.1.03 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
 
 ## O Que Mudou nas versões v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: testes do backend OpenCode (875 testes de lib)

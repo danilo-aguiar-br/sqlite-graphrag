@@ -110,6 +110,32 @@ O plano de teste do Split do Backend Claude (ADR-0042) e o plano de teste da Rem
 ### Gate
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99.
 
+## Plano de Teste v1.1.03 — Enqueue Atômico do Enrich + Migração Literal de Relação + Merge Cross-Namespace + Recuperação de Stale Claim + Re-Embed de Chunk Órfão + split-body
+
+### Camada 1 (unit) — adições
+- `commands::enrich::queue::tests::enqueue_batch_is_atomic`: prova que o caminho de enqueue em lote envolve todo insert por item em uma única transação SQL — uma falha injetada no meio do lote faz rollback de TODOS os inserts, deixando a fila no estado pré-lote.
+- `commands::reclassify_relation::tests::literal_to_writes_verbatim`: prova que `--literal-to <RELATION>` armazena o destino VERBATIM (sem normalização do clap), simétrico a `--literal-from`.
+- `commands::reclassify_relation::tests::literal_from_applies_to_literal_to_applies_to_hyphen_migrates`: prova que a migração canônica `--literal-from applies_to --literal-to applies-to` reescreve o literal armazenado para a forma com hífen e reporta a contagem migrada.
+- `commands::merge_entities::tests::cross_namespace_merges_source_from_other_namespace`: prova que `--cross-namespace` resolve `--ids`/`--into-id` em TODOS os namespaces e funde a origem externa no destino.
+- `commands::merge_entities::tests::cross_namespace_default_false_rejects_cross_id`: prova que SEM `--cross-namespace` um id cross-namespace é REJEITADO (padrão seguro) e nenhuma fusão ocorre.
+- `commands::enrich::queue::tests::stale_processing_claim_is_reset_after_threshold`: prova que uma claim `processing` cujo `claimed_at` é mais antigo que o limiar de stale é resetada para `pending` pela varredura do startup.
+- `commands::enrich::queue::tests::fresh_processing_claim_is_preserved`: prova que uma claim `processing` cujo `claimed_at` está dentro do limiar é MANTIDA em `processing` (nenhum reset falso de trabalho vivo).
+- `commands::enrich::queue::tests::heartbeat_updates_claimed_at`: prova que o heartbeat em background avança o `claimed_at` enquanto um item está sendo processado, então um worker vivo nunca é classificado como stale.
+- `commands::enrich::tests::enrich_reset_stale_claims_manual_flag`: prova que `enrich --reset-stale-claims` força um reset de toda claim stale imediatamente, independente da varredura do startup.
+- `commands::enrich::scan::tests::scan_chunks_of_soft_deleted_memory_are_selected`: prova que o scan de chunks usa `LEFT JOIN memories` para que chunks cuja memória-mãe foi soft-deletada AINDA sejam selecionados para re-embedding (comportamento anterior os pulava).
+- `commands::enrich::scan::tests::count_backlog_includes_orphan_chunks`: prova que o `scan_backlog` do `--status` para o alvo chunks inclui chunks órfãos na contagem (nenhum `pending=0` falso).
+- `commands::split_body::tests::split_body_divides_long_memory_into_parts`: prova que `split-body --name <N>` divide um corpo sobredimensionado em filhas `{name}-part-{i}` no limiar configurado.
+- `commands::split_body::tests::split_body_marks_original_as_superseded`: prova que a memória original é marcada com metadata `superseded_by_split: true` e é preservada no histórico.
+- `commands::split_body::tests::split_body_creates_replaces_relations`: prova que cada filha ganha uma relação canônica `replaces` apontando para a original, então `related`/`graph traverse` ainda alcançam o corpo sobrescrito.
+- `commands::split_body::tests::split_body_preserves_history`: prova que a operação de split cria uma entrada de histórico para a original (versionada, reversível via `restore`).
+
+### Camada 2 (integration) — adições
+- `tests/split_body_integration.rs`: `split-body --batch --threshold 25000` ponta-a-ponta sobre um corpus de fixture, seguido de `enrich --operation re-embed --target memories`, afirmando que as filhas se tornam pesquisáveis via `recall` e a original ainda resolve via arestas `replaces`.
+
+### Gate
+- Nenhum `migrate` no banco principal; schema permanece v15. O sidecar `.enrich-queue.sqlite` ganha `claimed_at` via `ALTER TABLE ADD COLUMN` idempotente. `Cargo.toml` é 1.1.3.
+
+
 ## Plano de Teste v1.1.02 — Remoção do GLiNER + TooManyTokens Tipado + Regressão Re-Embed + Prune de Órfãos de Entidade (ADR-0062)
 
 ### Adições na Camada 1 (unit)

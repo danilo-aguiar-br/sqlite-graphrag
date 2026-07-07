@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/split-body.schema.json",
+  "title": "SplitBodyResponse",
+  "description": "v1.1.03 (GAP-V8): response emitted by `sqlite-graphrag split-body` on stdout as a single JSON line. The original oversized memory is never soft-deleted: it is annotated with `metadata.superseded_by_split=true` and `metadata.split_into=[child names]`, and each child memory gets a canonical `replaces` graph relationship to the original. The single-mode envelope (`--name <NAME>`) and the batch-mode envelope (`--batch`) are discriminated by `oneOf`: the single envelope carries `original`/`children`, while the batch envelope carries `namespace`/`split`/`skipped`.",
+  "oneOf": [
+    {
+      "title": "SplitBodySingleResponse",
+      "description": "Envelope emitted by `split-body --name <NAME>`. `children` is empty when the body is at or below `threshold`, or when the section chunker could not subdivide it further.",
+      "type": "object",
+      "required": ["original", "children", "threshold", "dry_run", "elapsed_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "original": { "type": "string", "description": "Name of the memory targeted by the split." },
+        "original_id": { "type": "integer", "description": "Row id of the targeted memory. Omitted only when the memory could not be resolved before the scan returned." },
+        "children": {
+          "type": "array",
+          "description": "Planned or persisted child memories, in order. Empty when the body did not exceed the threshold or could not be subdivided.",
+          "items": {
+            "type": "object",
+            "required": ["name", "body_len"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "description": "Canonical child name, formatted as `<original>-part-<i>`." },
+              "body_len": { "type": "integer", "minimum": 0, "description": "Character length of the child body partition." }
+            }
+          }
+        },
+        "threshold": { "type": "integer", "minimum": 0, "description": "Character threshold applied; memories with `LENGTH(body) > threshold` are split." },
+        "dry_run": { "type": "boolean", "description": "True when the split was previewed without writing child memories or annotating the original metadata." },
+        "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Handler wall-clock time for this single split, in milliseconds." }
+      }
+    },
+    {
+      "title": "SplitBodyBatchResponse",
+      "description": "Envelope emitted by `split-body --batch`. Iterates every active memory whose `LENGTH(body) > threshold` in the resolved namespace and reports one `split` entry per processed memory.",
+      "type": "object",
+      "required": ["namespace", "threshold", "dry_run", "split", "skipped", "elapsed_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "namespace": { "type": "string", "description": "Resolved namespace scope of the batch run." },
+        "threshold": { "type": "integer", "minimum": 0, "description": "Character threshold applied to candidate selection." },
+        "dry_run": { "type": "boolean", "description": "True when the whole batch was previewed without writing." },
+        "split": {
+          "type": "array",
+          "description": "One `SplitBodySingleResponse`-shaped entry per memory processed in the batch.",
+          "items": {
+            "type": "object",
+            "required": ["original", "children", "threshold", "dry_run", "elapsed_ms"],
+            "additionalProperties": false,
+            "properties": {
+              "original": { "type": "string" },
+              "original_id": { "type": "integer" },
+              "children": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "body_len"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "body_len": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              },
+              "threshold": { "type": "integer", "minimum": 0 },
+              "dry_run": { "type": "boolean" },
+              "elapsed_ms": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "skipped": { "type": "integer", "minimum": 0, "description": "Memories that vanished between the candidate scan and the per-memory split (race condition); they are skipped quietly rather than failing the batch." },
+        "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Total batch wall-clock time in milliseconds, from handler start to serialisation." }
+      }
+    }
+  ]
+}

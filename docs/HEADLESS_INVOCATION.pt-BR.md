@@ -285,6 +285,28 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"nome-do-server-1":{"enabled":false},"nome-do-s
 - OpenCode: `opencode run`
 
 
+
+### Atualização v1.1.03 — Recuperação de Claims Stale no enrich Headless de Longa Duração
+
+- Orquestradores headless (agent harnesses, runners de CI, timers do systemd) frequentemente enviam SIGINT, SIGTERM e ocasionalmente SIGKILL para jobs `enrich --until-empty` de longa duração
+- SIGKILL NÃO é capturável — o sidecar `.enrich-queue.sqlite` pode ficar com linhas presas em `status='processing'` sob o PID morto
+- Desde v1.1.03 (ADR-0063, Bug 4), o sidecar da fila ganha uma coluna `claimed_at` INTEGER e o worker do enrich emite um heartbeat por item (`UPDATE queue SET claimed_at = unixepoch() WHERE id = ?`)
+- Em CADA startup do enrich, o worker chama `reset_stale_processing_claims(conn, 1800)` — itens com `status='processing' AND claimed_at < unixepoch() - 1800` são devolvidos para `pending` e `claimed_at = NULL`
+- O threshold de 1800 segundos (30 minutos) é o padrão; combinado com o heartbeat ele cobre qualquer job que pare de progredir por meia hora
+- Para reset manual (ex.: após um incidente kill -9 conhecido), a nova flag `enrich --reset-stale-claims --json` descarrega claims stale sem rodar o loop completo de scan→drain
+- SIGTERM (capturável) é tratado pelo path gracioso existente do `signals::handler`; apenas SIGKILL depende da recuperação baseada em timestamp
+- Sem nova variável de ambiente, sem telemetria — a recuperação é silenciosa e idempotente
+
+```bash
+# Forçar reset de claims stale após um incidente kill -9 conhecido (sem scan, sem LLM)
+sqlite-graphrag enrich --reset-stale-claims --json
+
+# enrich headless normal — claims stale são auto-recuperados no startup
+OPENROUTER_API_KEY="$KEY" sqlite-graphrag enrich --operation memory-bindings \
+  --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" \
+  --until-empty --max-runtime 1800 --json
+```
+
 ## Atualização v1.0.80 — Resiliência de SHUTDOWN e a Receita de Bypass em 3 Camadas
 
 A v1.0.80 (ADR-0034) endurece o handler em `src/signals.rs` para que

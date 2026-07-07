@@ -63,20 +63,20 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 ## OpenRouter Embedding Models and Prices
 - PASS `--embedding-model <MODEL>` when `--embedding-backend openrouter`; there is NO default model, so omission triggers exit 78
 - KNOW prices below are per one million tokens; CHOOSE the model by cost and quality for the task
-- USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` for FREE zero-cost embedding (RECOMMENDED default)
-- USE `qwen/qwen3-embedding-4b` at about 0.02 USD (CHEAPEST paid option, 4B params)
-- USE `qwen/qwen3-embedding-8b` at about 0.02 USD (higher quality Qwen family)
-- USE `baai/bge-m3` at about 0.02 USD
-- USE `openai/text-embedding-3-small` at about 0.02 USD
-- USE `perplexity/pplx-embed-v1-0.6b` at about 0.04 USD
-- USE `mistralai/mistral-embed-2312` at about 0.10 USD
-- USE `google/gemini-embedding-2` at about 0.12 USD
-- USE `openai/text-embedding-3-large` at about 0.13 USD
-- USE `google/gemini-embedding-002` at about 0.15 USD
+- USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` for FREE zero-cost embedding (zero token cost option)
+- USE `qwen/qwen3-embedding-4b` at about 0.03 USD per million tokens (CHEAPEST paid option, 4B params)
+- USE `qwen/qwen3-embedding-8b` at about 0.03 USD per million tokens (RECOMMENDED default, highest quality Qwen family)
+- USE `baai/bge-m3` at about 0.03 USD per million tokens
+- USE `openai/text-embedding-3-small` at about 0.03 USD per million tokens
+- USE `perplexity/pplx-embed-v1-0.6b` at about 0.04 USD per million tokens
+- USE `mistralai/mistral-embed-2312` at about 0.10 USD per million tokens
+- USE `google/gemini-embedding-2` at about 0.12 USD per million tokens
+- USE `openai/text-embedding-3-large` at about 0.13 USD per million tokens
+- USE `google/gemini-embedding-003` at about 0.15 USD per million tokens
 - KEEP `--embedding-dim 384` consistent across writes and reads; a mismatched dimension collides with the stored index and fails knn with exit 11
 - KNOW MRL truncation is applied server-side to the requested `--embedding-dim`, so a higher dimension stays cheap on the OpenRouter REST path
 - KNOW NO subcommand enumerates OpenRouter embedding models; the curated price table above IS the authoritative menu
-- VERIFY a model's availability in production by RUNNING a direct REST call: `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -r '.data[].id' | rg -i 'embed'`; DO NOT trust hardcoded ids, they change without notice
+- VERIFY a model's availability in production by RUNNING a direct REST call: `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -r '.data[].id' | rg -i 'embed'`; DO NOT trust hardcoded ids, they change without notice; FILTER prices with `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer " | jaq -c '.data[] | select(.id | test("embed";"i")) | {id, pricing}'` to pick the model by cost
 - CONFIRM the key and config resolution with `sqlite-graphrag config doctor --json`; an invalid model fails fast with exit 78; MONITOR real cost per call by reading `usage.cost` from the embedding response
 - KNOW `--embedding-backend openrouter` propagates to ALL embedding paths: `remember`, `remember-batch`, `ingest`, `recall`, `edit`, `restore`, `hybrid-search`, `deep-research`, `enrich`, `init`, `rename-entity`
 
@@ -171,7 +171,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - VALID `--type` values: `user`, `feedback`, `project`, `reference`, `decision`, `incident`, `skill`, `document`, `note`
 - INVOKE `remember-batch` for 10 or more memories via NDJSON stdin; PASS `--transaction` for all-or-nothing
 - INVOKE `ingest <DIR> --recursive --pattern "*.md" --mode none` to import a directory as body-only, then enrich SEPARATELY
-- INVOKE `split-body --name <N>` (v1.1.03) to split ONE memory whose body exceeds 25000 characters into daughter memories at chunk boundaries; the original is marked `SUPERCEDIDO` and `replaces` relations are created from each daughter to the original (history preserved, recall traverses the lineage); PASS `--batch --threshold 25000` to iterate EVERY memory above the threshold; DAUGHTERS ARE NOT EMBEDDED INLINE — run `enrich --operation re-embed --target memories` AFTER the split to backfill the daughter vectors
+- INVOKE `split-body --name <N>` to split ONE memory whose body exceeds 25000 characters into daughter memories at chunk boundaries; the original is marked `SUPERCEDIDO` and `replaces` relations are created from each daughter to the original (history preserved, recall traverses the lineage); PASS `--batch --threshold 25000` to iterate EVERY memory above the threshold; DAUGHTERS ARE NOT EMBEDDED INLINE — run `enrich --operation re-embed --target memories` AFTER the split to backfill the daughter vectors; TWO-STEP FORMULA — step 1 split: `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --llm-backend none split-body --name <n> --json`, step 2 SEPARATE re-embed: `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 enrich --operation re-embed --target memories --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --json`
 - KNOW `ingest --mode` accepts `none` (default body-only), `claude-code`, `codex`, `opencode`; each non-none mode runs LLM-curated extraction inline DURING ingest, and needs NO separate enrich for the bindings of that ingest
 - USE `--resume` to continue from the queue after interruption; `--retry-failed` for failed items only; `--auto-describe` to synthesize descriptions
 - PASS `--name-prefix <prefix>` on `ingest` to prefix derived file names (e.g. `--name-prefix projx-` yields `projx-<derived>`); the prefix counts toward the name-length ceiling and applies ONLY to local directory ingestion
@@ -214,7 +214,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - PASS `--cross-namespace` to `merge-entities` to resolve `--ids`/`--into-id` across ALL namespaces (opt-in, default same-namespace safe); USE it to merge same-name duplicates that live in different namespaces; the surviving entity inherits the `--into-id` entity's namespace
 - INVOKE `reclassify --name <n> --new-type <kind>` for one entity, or `--from-type <old> --to-type <new> --batch` for bulk type migration
 - INVOKE `reclassify-relation --from-relation <old> --to-relation <new> --batch` for bulk relation-type migration; FILTER with `--filter-source-type` and `--filter-target-type`; PASS `--literal-from <value>` to match the stored relation VERBATIM without kebab-case normalization; `--from-relation` and `--literal-from` are mutually exclusive and exactly one is required; USE `--literal-from applies_to --to-relation applies-to --batch` to migrate legacy underscore edges
-- PASS `--literal-to <RELATION>` (v1.1.03) to WRITE the target value VERBATIM without kebab-case normalization, complementing `--literal-from`; the from==to guard compares the raw literals, so `--literal-from applies_to --literal-to applies-to --batch` is the CANONICAL migration of a legacy underscore edge to its hyphen form; legacy migration runbook: run `reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run` (preview) then without `--dry-run`; REPEAT for `depends_on` and `tracked_in`
+- PASS `--literal-to <RELATION>` to WRITE the target value VERBATIM without kebab-case normalization, complementing `--literal-from`; the from==to guard compares the raw literals, so `--literal-from applies_to --literal-to applies-to --batch` is the CANONICAL migration of a legacy underscore edge to its hyphen form; legacy migration runbook: run `reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run` (preview) then without `--dry-run`; REPEAT for `depends_on` and `tracked_in`
 - INVOKE `prune-relations --relation mentions --dry-run` to preview low-value edges, then drop `--dry-run` with `--yes`
 - INVOKE `normalize-entities --yes` to normalize all names to kebab-case ASCII
 - INVOKE `prune-ner --entity <n>` to remove NER bindings; `prune-ner --all --yes` for the whole namespace
@@ -271,8 +271,8 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - KNOW a truncated OpenRouter completion (`finish_reason` = `length`) is NOT dead-lettered on sight: the chat path re-emits the request with a GROWN `max_tokens` budget before any JSON repair, so a length-truncated item retries with more room instead of failing identically
 - KNOW the enrich queue lives in a sidecar database `.enrich-queue.sqlite` next to the main `.sqlite`
 - STATUS formula: `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --status --json` (no LLM call, no singleton)
-- DISTINGUISH the `enrich --status` fields (v1.1.03): `scan_backlog` = candidates a fresh scan WOULD select from the database (REAL pending work, same WHERE predicate as the scanners); `queue_pending` = a COMPUTED COUNT over the sidecar queue, NOT a physical queue of rows to process — it stays non-zero even after a clean drain; `eligible_now == 0` with `queue_pending > 0` is COOLDOWN (rate-limit backoff, items on `next_retry_at`), NOT a deadlock; `eligible_now > 0` stuck against `state: "draining"` IS a deadlock — run `--reset-stale-claims`
-- PASS `enrich --reset-stale-claims` (v1.1.03) to MANUALLY clear stale `processing` claims (older than the threshold) from the sidecar queue; use it when `--status` shows `state: "draining"` held by claims from a process killed by `kill -9`; enrich startup now resets stale claims automatically, so this flag is the manual post-crash remedy; a SIGTERM handler now performs graceful cleanup before exit 19, so a normal termination NEVER leaves stale claims
+- DISTINGUISH the `enrich --status` fields : `scan_backlog` = candidates a fresh scan WOULD select from the database (REAL pending work, same WHERE predicate as the scanners); `queue_pending` = a COMPUTED COUNT over the sidecar queue, NOT a physical queue of rows to process — it stays non-zero even after a clean drain; `eligible_now == 0` with `queue_pending > 0` is COOLDOWN (rate-limit backoff, items on `next_retry_at`), NOT a deadlock; `eligible_now > 0` stuck against `state: "draining"` IS a deadlock — run `--reset-stale-claims`
+- PASS `enrich --reset-stale-claims` to MANUALLY clear stale `processing` claims (older than the threshold) from the sidecar queue; use it when `--status` shows `state: "draining"` held by claims from a process killed by `kill -9`; enrich startup now resets stale claims automatically, so this flag is the manual post-crash remedy; a SIGTERM handler now performs graceful cleanup before exit 19, so a normal termination NEVER leaves stale claims
 - UNTIL-EMPTY formula: `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --max-attempts 8 --rest-concurrency 8 --json`
 
 
@@ -325,13 +325,13 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - INSPECT terminal items with `--status`: `queue_dead` lists HardFailures that will NEVER be reprocessed; treat them as data debt, not a transient error
 
 
-## Read-Only OpenRouter Formulas
+## Read-Only OpenRouter Formulas (no database mutation)
 - INIT: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY init --namespace <ns>`
-- RECALL: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY recall "query" --k 10 --json`
-- HYBRID-SEARCH: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY hybrid-search "query" --k 10 --with-graph --max-hops 2 --min-weight 0.3 --rrf-k 60 --json`
-- DEEP-RESEARCH: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY deep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies --json`
-- RENAME-ENTITY: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY rename-entity --name <old> --new-name <new> --json`
-- ENRICH re-embed: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY --llm-backend codex --llm-model gpt-5.4-mini enrich --operation re-embed --limit 100 --resume --mode codex --codex-model gpt-5.4-mini --json`
+- RECALL with qwen-8b: `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key  recall "query" --k 10 --json`
+- HYBRID-SEARCH with bge-m3: `sqlite-graphrag --embedding-backend openrouter --embedding-model baai/bge-m3 --embedding-dim 384 --openrouter-api-key  hybrid-search "query" --k 10 --with-graph --max-hops 2 --min-weight 0.3 --rrf-k 60 --json`
+- DEEP-RESEARCH with text-embedding-3-small: `sqlite-graphrag --embedding-backend openrouter --embedding-model openai/text-embedding-3-small --embedding-dim 384 --openrouter-api-key  deep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies --json`
+- RENAME-ENTITY with perplexity: `sqlite-graphrag --embedding-backend openrouter --embedding-model perplexity/pplx-embed-v1-0.6b --embedding-dim 384 --openrouter-api-key  rename-entity --name <old> --new-name <new> --json`
+- ENRICH re-embed with openrouter (MUTATION — backfills vectors): `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key  enrich --operation re-embed --target all --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --json`
 - HYBRID-SEARCH offline: `sqlite-graphrag hybrid-search "query" --k 10 --fallback-fts-only --json`
 
 

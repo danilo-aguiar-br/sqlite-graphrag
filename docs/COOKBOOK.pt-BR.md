@@ -2694,6 +2694,52 @@ memórias existentes.
 - Receita "Como ingerir um diretório de arquivos markdown no grafo"
 
 
+## Receitas adicionadas na v1.1.03
+### Receita — Migrar Relações Legadas Com Underscore Para A Forma Canônica Com Hífen (Bug 2)
+Imports antigos armazenavam literais de relação com underscore (`applies_to`, `depends_on`, `tracked_in`) em vez da forma canônica com hífen. O parser normaliza na leitura, mas o literal ARMAZENADO continuava com underscore. Use a flag verbatim de destino `--literal-to` (simétrica a `--literal-from`) para que o destino seja escrito VERBATIM sem normalização do clap.
+```bash
+# Passo 1 — preview da contagem de candidatos para cada relação legada (dry-run)
+sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run --json
+sqlite-graphrag reclassify-relation --literal-from depends_on --literal-to depends-on --batch --dry-run --json
+sqlite-graphrag reclassify-relation --literal-from tracked_in --literal-to tracked-in --batch --dry-run --json
+
+# Passo 2 — aplique (sem --dry-run) quando as contagens parecerem corretas
+sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --json
+sqlite-graphrag reclassify-relation --literal-from depends_on --literal-to depends-on --batch --json
+sqlite-graphrag reclassify-relation --literal-from tracked_in --literal-to tracked-in --batch --json
+```
+O envelope do `--dry-run` reporta a contagem exata de arestas legadas do SEU banco (cerca de 61357 em imports pré-era-canônica-com-hífen).
+
+### Receita — Recuperar De Locks Stale Do Enrich Após `kill -9` (Bug 4)
+Quando um worker do enrich morre de forma dura (OOM, `kill -9`, queda de energia) sua processing claim fica travada. O auto-reset do startup limpa claims mais antigas que o limiar de stale, mas se o binário já estiver rodando você pode forçar um reset sem reiniciar.
+```bash
+# Reseta toda processing claim stale de volta para pending agora
+sqlite-graphrag enrich --reset-stale-claims --json
+
+# Ou sobrescreva o limiar de stale (ex. 120 segundos) e resete
+sqlite-graphrag enrich --stale-claim-secs 120 --reset-stale-claims --json
+```
+Um heartbeat em background atualiza o `claimed_at` enquanto um item está sendo processado, então um worker vivo nunca é falsamente classificado como stale.
+
+### Receita — Dividir Corpos De Memória Sobredimensionados Para O Orçamento De Embedding (V8)
+Um corpo de memória perto do teto de tokens do embedding eventualmente falha com exit 6 (`TooManyTokens`). O novo subcomando `split-body` divide corpos sobredimensionados em filhas `{name}-part-{i}`, marca a original com metadata `superseded_by_split: true` e cria relações canônicas `replaces` de cada filha para a original.
+```bash
+# Memória sobredimensionada única
+sqlite-graphrag split-body --name log-import-enorme --json
+
+# Toda memória acima de 25000 chars em um lote
+sqlite-graphrag split-body --batch --threshold 25000 --json
+
+# As filhas NÃO são embebedadas inline — re-embeba-as para que fiquem pesquisáveis
+mkdir -p /tmp/graphrag-empty-config && SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config timeout 600 sqlite-graphrag \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  enrich --operation re-embed --target memories \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
+  --until-empty --max-runtime 600 --json
+```
+`related log-import-enorme --hops 2` e `graph traverse --from log-import-enorme --depth 1` ainda alcançam o corpo sobrescrito via as arestas `replaces`.
+
+
 ## Receitas adicionadas na v1.1.02
 ### Receita — Auditar E Remover `--gliner-variant` / `--mode gliner` (Gap 1, BREAKING)
 ```bash

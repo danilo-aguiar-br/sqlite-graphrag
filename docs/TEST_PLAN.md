@@ -110,6 +110,32 @@ The Claude Backend Split test plan (ADR-0042) and the Five-Gap Remediation test 
 ### Gate
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99.
 
+## v1.1.03 Test Plan — Enrich Atomic Batch + Literal Relation Migration + Cross-Namespace Merge + Stale Claim Recovery + Chunk Orphan Re-Embed + split-body
+
+### Layer 1 (unit) additions
+- `commands::enrich::queue::tests::enqueue_batch_is_atomic`: proves the batch enqueue path wraps every per-item insert in a single SQL transaction — an injected failure mid-batch rolls back ALL inserts, leaving the queue in its pre-batch state.
+- `commands::reclassify_relation::tests::literal_to_writes_verbatim`: proves `--literal-to <RELATION>` stores the target VERBATIM (no clap normalization), symmetrical to `--literal-from`.
+- `commands::reclassify_relation::tests::literal_from_applies_to_literal_to_applies_to_hyphen_migrates`: proves the canonical migration `--literal-from applies_to --literal-to applies-to` rewrites the stored literal to the hyphen form and reports the migrated count.
+- `commands::merge_entities::tests::cross_namespace_merges_source_from_other_namespace`: proves `--cross-namespace` resolves `--ids`/`--into-id` across ALL namespaces and merges the foreign source into the target.
+- `commands::merge_entities::tests::cross_namespace_default_false_rejects_cross_id`: proves that WITHOUT `--cross-namespace` a cross-namespace id is REJECTED (safe default) and no merge occurs.
+- `commands::enrich::queue::tests::stale_processing_claim_is_reset_after_threshold`: proves a `processing` claim whose `claimed_at` is older than the stale threshold is reset to `pending` by the startup sweep.
+- `commands::enrich::queue::tests::fresh_processing_claim_is_preserved`: proves a `processing` claim whose `claimed_at` is within the threshold is LEFT in `processing` (no false reset of live work).
+- `commands::enrich::queue::tests::heartbeat_updates_claimed_at`: proves the background heartbeat advances `claimed_at` while an item is being processed, so a live worker is never classified as stale.
+- `commands::enrich::tests::enrich_reset_stale_claims_manual_flag`: proves `enrich --reset-stale-claims` forces a reset of every stale claim immediately, independent of the startup sweep.
+- `commands::enrich::scan::tests::scan_chunks_of_soft_deleted_memory_are_selected`: proves the chunk scan uses a `LEFT JOIN memories` so chunks whose parent memory was soft-deleted are STILL selected for re-embedding (previous behavior skipped them).
+- `commands::enrich::scan::tests::count_backlog_includes_orphan_chunks`: proves `--status` `scan_backlog` for the chunk target includes orphan chunks in its count (no false `pending=0`).
+- `commands::split_body::tests::split_body_divides_long_memory_into_parts`: proves `split-body --name <N>` divides an oversized body into daughters `{name}-part-{i}` at the configured threshold.
+- `commands::split_body::tests::split_body_marks_original_as_superseded`: proves the original memory is marked with metadata `superseded_by_split: true` and is preserved in history.
+- `commands::split_body::tests::split_body_creates_replaces_relations`: proves each daughter gets a canonical `replaces` relation pointing at the original so `related`/`graph traverse` still reach the superseded body.
+- `commands::split_body::tests::split_body_preserves_history`: proves the split operation creates a history entry for the original (versioned, reversible via `restore`).
+
+### Layer 2 (integration) additions
+- `tests/split_body_integration.rs`: end-to-end `split-body --batch --threshold 25000` over a fixture corpus, followed by `enrich --operation re-embed --target memories`, asserting daughters become searchable via `recall` and the original still resolves via `replaces` edges.
+
+### Gate
+- No `migrate` on the main database; schema stays v15. The `.enrich-queue.sqlite` sidecar gains `claimed_at` via an idempotent `ALTER TABLE ADD COLUMN`. `Cargo.toml` is 1.1.3.
+
+
 ## v1.1.02 Test Plan — GLiNER Removal + TooManyTokens Typed + Re-Embed Regression + Entity Orphan Prune (ADR-0062)
 
 ### Layer 1 (unit) additions

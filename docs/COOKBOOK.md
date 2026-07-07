@@ -2692,6 +2692,52 @@ Switching models mid-project requires re-embedding existing memories.
 - Recipe "How to ingest a directory of markdown files into the graph"
 
 
+## Recipes added in v1.1.03
+### Recipe — Migrate Legacy Underscore Relations To Canonical Hyphen (Bug 2)
+Older imports stored relation literals with underscores (`applies_to`, `depends_on`, `tracked_in`) instead of the canonical hyphen form. The parser normalizes on read, but the STORED literal stayed underscored. Use the verbatim target flag `--literal-to` (symmetrical to `--literal-from`) so the target is written VERBATIM without clap normalization.
+```bash
+# Step 1 — preview the candidate count for each legacy relation (dry-run)
+sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run --json
+sqlite-graphrag reclassify-relation --literal-from depends_on --literal-to depends-on --batch --dry-run --json
+sqlite-graphrag reclassify-relation --literal-from tracked_in --literal-to tracked-in --batch --dry-run --json
+
+# Step 2 — apply (no --dry-run) once the counts look right
+sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --json
+sqlite-graphrag reclassify-relation --literal-from depends_on --literal-to depends-on --batch --json
+sqlite-graphrag reclassify-relation --literal-from tracked_in --literal-to tracked-in --batch --json
+```
+The `--dry-run` envelope reports the exact legacy-edge count for YOUR database (around 61357 in pre-hyphen-canonical imports).
+
+### Recipe — Recover From `kill -9` Stale Enrich Locks (Bug 4)
+When an enrich worker dies hard (OOM, `kill -9`, power loss) its processing claim is left pinned. The startup auto-reset clears claims older than the stale threshold, but if the binary is already running you can force a reset without restarting.
+```bash
+# Reset every stale processing claim back to pending right now
+sqlite-graphrag enrich --reset-stale-claims --json
+
+# Or override the staleness threshold (e.g. 120 seconds) and reset
+sqlite-graphrag enrich --stale-claim-secs 120 --reset-stale-claims --json
+```
+A background heartbeat updates `claimed_at` while an item is being processed, so a live worker is never falsely classified as stale.
+
+### Recipe — Split Oversized Memory Bodies For Embedding Budget (V8)
+A memory body near the embedding token ceiling eventually fails with exit 6 (`TooManyTokens`). The new `split-body` subcommand divides oversized bodies into daughters `{name}-part-{i}`, marks the original with metadata `superseded_by_split: true`, and creates canonical `replaces` relations from each daughter to the original.
+```bash
+# Single oversized memory
+sqlite-graphrag split-body --name huge-import-log --json
+
+# Every memory above 25000 chars in one batch
+sqlite-graphrag split-body --batch --threshold 25000 --json
+
+# Daughters are NOT embedded inline — re-embed them so they become searchable
+mkdir -p /tmp/graphrag-empty-config && SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config timeout 600 sqlite-graphrag \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  enrich --operation re-embed --target memories \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
+  --until-empty --max-runtime 600 --json
+```
+`related huge-import-log --hops 2` and `graph traverse --from huge-import-log --depth 1` still reach the superseded body via the `replaces` edges.
+
+
 ## Recipes added in v1.1.02
 ### Recipe — Audit And Drop `--gliner-variant` / `--mode gliner` (Gap 1, BREAKING)
 ```bash

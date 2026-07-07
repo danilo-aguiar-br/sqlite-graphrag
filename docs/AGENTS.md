@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.02)
+# sqlite-graphrag for AI Agents (v1.1.03)
 
 > Persistent memory for 27 AI agents in a single 14.6 MiB Rust binary.
 > v1.0.93 is **LLM-only and one-shot**: every `remember` / `ingest`
@@ -17,7 +17,8 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> New in v1.1.02 (current release): `--gliner-variant`/`--mode gliner` REMOVED (clap exit 2); `AppError::TooManyTokens` typed exit 6; `enrich --prune-dead-entity-orphans` for entity-keyed dead-letter; re-embed entities regression test.
+> New in v1.1.03 (current release): `reclassify-relation --literal-to`; `merge-entities --cross-namespace`; `enrich --reset-stale-claims` (stale-claim recovery after kill -9); `split-body` subcommand (bodies >25k chars); enrich scan-phase batch transaction; `LEFT JOIN` orphan chunks; `claimed_at` + heartbeat on the queue sidecar.
+> New in v1.1.02 (previous release): `--gliner-variant`/`--mode gliner` REMOVED (clap exit 2); `AppError::TooManyTokens` typed exit 6; `enrich --prune-dead-entity-orphans` for entity-keyed dead-letter; re-embed entities regression test.
 > New in v1.1.01 (previous release): entity embedding via OpenRouter REST even with `--llm-backend none`; `enrich --operation re-embed --target`; new `graph recompute-degree`; `ingest --name-prefix`.
 
 ## New in v1.0.93 — OpenRouter Embedding Backend (GAP-OR-INGEST)
@@ -1696,6 +1697,18 @@ cargo install --path . && sqlite-graphrag init
 - The stderr-capture fallback chain in ADR-0040 detects `refresh_token_reused` and routes to the next backend in `--llm-backend`
 - There is NO definitive upstream fix; mitigation depends on operator-driven `codex login`
 
+
+
+## New in v1.1.03 — Six Bug Fixes + V8 (ADR-0063)
+
+- **Bug 1 (FIX)**: the enrich scan-phase enqueue loop is now wrapped in a single transaction (batch INSERT atomic); eliminates the apparent deadlock on `re-embed --target entities` against 44k+ entities
+- **Bug 2 (NEW FLAG)**: `reclassify-relation --literal-to <valor>` is the verbatim symmetric of `--literal-from`; writes the value to the UPDATE without clap normalization, bypassing the "must be different" guard. Unblocks legacy→canonical migration of `applies_to` → `applies-to` (and `depends_on`, `tracked_in`)
+- **Bug 3 (NEW FLAG)**: `merge-entities --cross-namespace` (opt-in, default false) merges entities across namespaces; resolves the namespace of each `--ids` from its own row. Default preserves same-namespace safety with a non-regression guard
+- **Bug 4 (NEW FLAG + BEHAVIOUR)**: the `.enrich-queue.sqlite` sidecar gains a `claimed_at` INTEGER column + per-item heartbeat; reset of stale claims runs automatically on enrich startup (threshold 30 min); new flag `enrich --reset-stale-claims` forces a manual reset. Resolves locks stale after kill -9 (SIGKILL is not capturable, detection is by timestamp)
+- **Bug 5 (DOCS ONLY)**: `enrich --status` help text now distinguishes `scan_backlog` (real per-operation database backlog) from `queue_pending` (computed COUNT); `eligible_now=0 + queue_pending>0` means cooldown, NOT deadlock
+- **Bug 6 (FIX)**: `enrich --operation re-embed --target chunks` now uses `LEFT JOIN memories` to include chunks of soft-deleted memories; `health.vec_chunks_coverage_pct` converges to 100% real
+- **V8 (NEW SUBCOMMAND)**: `split-body --name <n>` (single) and `split-body --batch --threshold 25000` divide memories with body > 25000 chars into N daughter memories `<original>-part-1..N`; the original is tagged `SUPERCEDIDO` in metadata (NOT soft-deleted, history preserved); daughter memories get canonical `replaces` relations to the original; reuses the existing chunker (`memory_chunks`)
+- **Coverage**: `health.vec_chunks_coverage_pct` now converges to 100% real after `enrich --operation re-embed --target chunks`
 
 ## New in v1.1.02 — Two Residual Gaps Closed + Entity Orphan Prune (ADR-0062)
 - The release name is v1.1.02; `Cargo.toml` ships `1.1.2` because SemVer rejects leading zeros (User-Agent `sqlite-graphrag/1.1.2`). No migration; schema stays at v15. Binary ~19 MiB. Library consumers pin `=1.1.2`.

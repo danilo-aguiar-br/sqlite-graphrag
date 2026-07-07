@@ -1,6 +1,42 @@
-# MIGRATING TO v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune
+# MIGRATING TO v1.1.03 — Enrich Atomic Batch, Literal Relation Migration, Cross-Namespace Merge, Stale Claim Recovery, Chunk Orphan Re-Embed, split-body
 
 > This guide covers upgrading from v1.1.01 to v1.1.02. No migration runs on the main database; the schema remains at v15 — `migrate` is NOT required. The official release name is v1.1.02; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01) are preserved as historical sections below.
+
+## v1.1.03 — Enrich Atomic Batch, Literal Relation Migration, Cross-Namespace Merge, Stale Claim Recovery, Chunk Orphan Re-Embed, split-body
+
+> Upgrade from v1.1.02. The main database schema STAYS at v15 — `migrate` is NOT required. The `.enrich-queue.sqlite` sidecar gains a `claimed_at` column via an idempotent `ALTER TABLE ADD COLUMN` on first open (no data backfill). The official release name is v1.1.03; `Cargo.toml` carries `1.1.3`. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+
+### Bug 1 — Enrich enqueue is now one atomic transaction
+- The batch enqueue path that fans out per-item inserts is now wrapped in a single SQL transaction. A failure partway through no longer leaves a half-populated queue; either all eligible items land or none do. No user action required.
+
+### Bug 2 — Legacy underscore relations migration (`--literal-to`)
+- Older imports wrote relation literals with underscores (`applies_to`, `depends_on`, `tracked_in`) instead of the canonical hyphen form. The parser already normalizes on read, but the STORED literals stayed underscored.
+- The canonical migration uses the verbatim target flag `--literal-to`, symmetrical to `--literal-from`, so the source and target are matched and written VERBATIM (no clap normalization on the target side).
+- Runbook (repeat for each legacy relation):
+  1. Preview: `sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run --json` — confirm the candidate count.
+  2. Apply:   `sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --json`.
+  3. Repeat for `depends_on` → `depends-on` and `tracked_in` → `tracked-in`.
+- Approximately 61357 legacy underscore edges exist in databases that ingested before the hyphen-canonical era; the `--dry-run` envelope reports the exact count for YOUR database.
+
+### Bug 4 — Stale processing-claim recovery
+- The enrich queue now records a `claimed_at` timestamp when a worker claims an item. A background heartbeat updates `claimed_at` while the item is being processed.
+- On startup, any claim whose `claimed_at` is older than the stale threshold is reset to `pending` AUTOMATICALLY, so a `kill -9` no longer pins items in `processing` forever.
+- The SIGTERM/exit-19 path performs a graceful cleanup of its own claims before shutdown.
+- Manual override when you suspect a wedged worker:
+  - `sqlite-graphrag enrich --reset-stale-claims --json` resets all stale claims now.
+  - `sqlite-graphrag enrich --stale-claim-secs <N>` overrides the threshold (default is documented in `enrich --help`).
+
+### Bug 6 — Chunk scan re-embeds orphan chunks
+- The chunk scan now uses a `LEFT JOIN memories` so chunks whose parent memory was soft-deleted are STILL selected for re-embedding. Previous behavior skipped them, leaving vector coverage below 100%.
+- After upgrade, run `sqlite-graphrag enrich --operation re-embed --target chunks --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 600 --json` once to close the gap; `health --json` then reports `vec_chunks_coverage_pct = 100`.
+
+### V8 — Oversized body splitting (`split-body`)
+- New subcommand `split-body` divides memory bodies that exceed a character threshold into daughter memories named `{name}-part-{i}`.
+- Single: `sqlite-graphrag split-body --name <huge-memory>` splits one memory at the default threshold.
+- Batch:  `sqlite-graphrag split-body --batch --threshold 25000 --json` splits every memory above 25000 chars in one pass.
+- The original memory is marked with metadata `superseded_by_split: true` (preserved in history), and each daughter gets a canonical `replaces` relation pointing at the original so `related`/`graph traverse` still reaches the superseded body.
+- Daughters are NOT embedded inline; run `sqlite-graphrag enrich --operation re-embed --target memories --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 600 --json` afterward so the daughters become searchable.
+
 
 ## v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
 

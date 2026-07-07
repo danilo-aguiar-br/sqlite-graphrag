@@ -1,9 +1,9 @@
-# sqlite-graphrag (v1.1.02 LLM-Only One-Shot)
+# sqlite-graphrag (v1.1.03 LLM-Only One-Shot)
 
 
 > Persistent memory for 27 AI agents in a single ~19 MiB Rust binary (LLM-only, one-shot)
 
-27 AI agents. One ~19 MiB binary. Zero model download. v1.1.02 gives every AI coding assistant a local, private memory layer backed by a single SQLite file. The CLI is a thin orchestrator: embedding generation uses EITHER the OpenRouter REST API (v1.0.93, ~100-500ms via `--embedding-backend openrouter`) OR a headless `claude code` / `codex` / `opencode` subprocess (OAuth, ~20-60s). No daemon, no ONNX runtime, no model download. Graph-native retrieval. Deterministic JSON output ready for pipeline orchestration.
+27 AI agents. One ~19 MiB binary. Zero model download. v1.1.03 gives every AI coding assistant a local, private memory layer backed by a single SQLite file. The CLI is a thin orchestrator: embedding generation uses EITHER the OpenRouter REST API (v1.0.93, ~100-500ms via `--embedding-backend openrouter`) OR a headless `claude code` / `codex` / `opencode` subprocess (OAuth, ~20-60s). No daemon, no ONNX runtime, no model download. Graph-native retrieval. Deterministic JSON output ready for pipeline orchestration.
 
 - Portuguese version available at [README.pt-BR.md](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/README.pt-BR.md)
 - Compact summary in [llms.txt](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/llms.txt); Portuguese variant in [llms.pt-BR.txt](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/llms.pt-BR.txt)
@@ -40,6 +40,16 @@ cargo install --locked sqlite-graphrag
 - Schema version stays at v15 throughout v1.0.86-91. No database migrations run in this 6-release cycle
 - v1.0.90 OpenCode backend integration (ADR-0051, GAP-OPENCODE-001/002): third LLM backend `opencode run` alongside `codex exec` and `claude -p`. New `--llm-backend opencode`, `--mode opencode` for ingest/enrich, `--opencode-binary/model/timeout` flags and `SQLITE_GRAPHRAG_OPENCODE_*` env vars. Fallback chain extended to `codex → claude → opencode → none`. `spawn_opencode()` without RLIMIT_AS (Bun runtime crash fix). 24-bug remediation including `--skip-embedding-on-failure` activation (BUG-SKIP-EMBED), `--llm-fallback` dead-flag fix (GAP-LLM-FALLBACK-DEAD-FLAG), FTS desync in batch/enrich (BUG-BATCH-FTS-DESYNC, BUG-ENRICH-DESC-FTS-DESYNC), Windows cross-compilation (BUG-WINDOWS-001), embedding timeout hardcode (BUG-TIMEOUT-HARDCODE-001), `list` pagination (BUG-LIST-TOTAL-COUNT-001), `--yes` enforcement on 3 destructive commands (BUG-YES-FLAG-IGNORED). 875+ tests passing
 - v1.0.91 spawn CWD isolation (GAP-SPAWN-001): `spawn_isolation_dir()` and `apply_cwd_isolation()` in `src/spawn/mod.rs` set `current_dir` to an ephemeral temp directory and `CLAUDE_CONFIG_DIR` to the same dir for ALL 10 production spawn sites. LLM subprocesses no longer inherit `.mcp.json` from the caller's project — embedding works zero-config in any directory. `cleanup_spawn_dir()` removes the temp dir at process exit (GAP-SPAWN-002). BUG-17 fixed `entities.degree` inflation: `increment_degree()` replaced by `recalculate_degree()` after all relationships are inserted. BUG-15 fixed 7 JSON schemas with missing `"opencode"` and `"auto"` in `backend_invoked` enum. BUG-16 fixed `deep-research.schema.json` missing `vec_degraded` field
+
+## v1.1.03 Patch Notes
+- Release 2026-07-07. Official release name is v1.1.03; the crate manifest carries `version = "1.1.3"` because the SemVer parser rejects a leading zero in the patch component. No main schema migration (v15); the enrich sidecar queue gains a `claimed_at` column via idempotent ALTER.
+- Bug 1 (Fixed): the enrich scan-enqueue path now batches candidate inserts in a single transaction instead of row-by-row under the WAL write lock, eliminating the apparent scan-phase deadlock that froze the 44 163-entity `re-embed --target entities` workload under stale-claim contention.
+- Bug 2 (Added): `reclassify-relation` gains `--literal-to <RELATION>` (verbatim target write) complementing `--literal-from`; `--literal-from applies_to --literal-to applies_to --batch` migrates the 61 357 legacy underscore edges (`applies_to`, `depends_on`, `tracked_in`) to canonical hyphen form.
+- Bug 3 (Added): `merge-entities` gains `--cross-namespace` (opt-in, default same-namespace) so `--ids`/`--into-id` resolve across all namespaces.
+- Bug 4 (Added): the enrich sidecar gains a `claimed_at` column, stale `processing` claims are reset on startup, a SIGTERM handler performs graceful cleanup before exit 19, and `enrich --reset-stale-claims` plus `enrich --stale-claim-secs <N>` manually clear stale processing claims.
+- Bug 5 (Docs): the `enrich --status` help text clarifies that `scan_backlog` is the REAL pending work, `queue_pending` is a COMPUTED COUNT, `eligible_now == 0` with `queue_pending > 0` is COOLDOWN, and `eligible_now > 0` stuck against `state: "draining"` is a deadlock recoverable via `--reset-stale-claims`.
+- Bug 6 (Fixed): the `re-embed --target chunks` scanner and `count_operation_backlog` switch from `JOIN memories` to `LEFT JOIN memories` so chunks of soft-deleted mothers reach a real 100% coverage.
+- V8 (Added): new `split-body` subcommand divides memories whose body exceeds 25 000 characters into daughter memories at chunk boundaries, marks the original superseded, and creates `replaces` relations from each daughter to the original. Daughters are not embedded inline; run `enrich --operation re-embed --target memories` afterwards.
 
 ## v1.1.02 Patch Release
 - Release 2026-07-06. Official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` because the SemVer parser rejects a leading zero in the patch component. No schema migration (v15). The OpenRouter clients send User-Agent `sqlite-graphrag/1.1.2` derived from CARGO_PKG_VERSION. Release binary approximately 19 MiB.
@@ -219,7 +229,7 @@ sqlite-graphrag recall "graphrag" --k 5 --json
 | --- | --- | --- |
 | `hybrid-search` | `<query>`, `-k`/`--k` (alias `--limit` since v1.0.35), `--rrf-k` | FTS5 plus vector fused via Reciprocal Rank Fusion |
 | `deep-research` | `<query>`, `--k` (default 20), `--max-sub-queries` (default 7), `--max-hops` (default 3), `--min-weight`, `--max-concurrency`, `--timeout`, `--with-bodies`, `--max-results` (default 50), `--rrf-k` (default 60), `--graph-decay` (default 0.7), `--graph-min-score` (default 0.05), `--max-neighbors-per-hop`, `--mode` (none|claude-code|codex), `--max-cost-usd` | Parallel multi-hop GraphRAG research with per-sub-query embeddings, RRF fusion for KNN+FTS5, directed evidence chains, graph_context with entities and relationships |
-| `reclassify-relation` | `--from-relation` (or `--literal-from`, v1.1.01: verbatim match, no normalization), `--to-relation`, `--batch`, `--source`, `--target`, `--filter-source-type`, `--filter-target-type`, `--dry-run` | Bulk or single reclassification of relationship types with UNIQUE collision handling; `--literal-from` migrates legacy hyphenated edges |
+| `reclassify-relation` | `--from-relation` (or `--literal-from`, v1.1.01: verbatim match, no normalization; `--literal-to`, v1.1.03: verbatim target write), `--to-relation`, `--batch`, `--source`, `--target`, `--filter-source-type`, `--filter-target-type`, `--dry-run` | Bulk or single reclassification of relationship types with UNIQUE collision handling; `--literal-from`/`--literal-to` migrate legacy underscore edges to canonical hyphen form |
 | `normalize-entities` | `--dry-run`, `--yes` | Normalize entity names to lowercase kebab-case ASCII, auto-merge collisions |
 | `enrich` | `--operation` (memory-bindings, entity-descriptions, body-enrich, re-embed — v1.1.01: `--target memories|entities|chunks|all`), `--mode` (claude-code, codex), `--limit`, `--dry-run`, `--max-cost-usd`, `--resume`, `--retry-failed`, `--llm-parallelism <N>` | LLM-augmented graph quality pipeline with scan-judge-persist pattern; `--llm-parallelism` controls concurrent LLM subprocesses (default 1) |
 | `link` | `--source`, `--target`, `--relation` | Create an explicit relationship between two entities |
@@ -308,8 +318,9 @@ API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) ABORT the spawn with AppError::Vali
 | `delete-entity` | `--name <name>`, `--cascade`, `--json` | Delete an entity node; `--cascade` also removes its relationships |
 | `rename-entity` | `--name <name>` (or `--id <id>`, v1.1.01), `--new-name <name>`, `--json` | Rename a graph entity preserving all FK-based relationships; re-embeds for search |
 | `reclassify` | `--name <name>` or `--from-type <t>`, `--entity-type <t>` or `--to-type <t>`, `--batch`, `--json` | Change `entity_type` of one entity or a whole category |
-| `merge-entities` | `--names <csv>`, `--into <name>` (or `--ids <csv>`, `--into-id <id>`, v1.1.01, namespace-scoped), `--json` | Merge duplicate entity nodes into a single canonical node |
+| `merge-entities` | `--names <csv>`, `--into <name>` (or `--ids <csv>`, `--into-id <id>`, v1.1.01, namespace-scoped; `--cross-namespace`, v1.1.03, opt-in, default same-namespace), `--json` | Merge duplicate entity nodes into a single canonical node |
 | `graph recompute-degree` | `--dry-run`, `--json` | Reconcile the cached `entities.degree` with real edge counts in one transaction; envelope `{total, updated, zeroed, unchanged}` (v1.1.01) |
+| `split-body` | `--name <name>` (single) or `--batch --threshold <N>` (bulk, default 25000), `--json` | Divide memories whose body exceeds 25 000 characters into daughter memories at chunk boundaries, mark the original superseded (`metadata.superseded_by_split: true`), and create canonical `replaces` relations from each daughter to the original; daughters are NOT embedded inline — run `enrich --operation re-embed --target memories` afterwards (v1.1.03) |
 | `prune-ner` | `--entity <name>` or `--all`, `--yes`, `--json` | Remove NER-generated bindings from one or all entities |
 
 
@@ -670,6 +681,7 @@ sqlite-graphrag hybrid-search "$GEMINI_QUERY" --json --k 5 \
 - `--preserve-threshold <FLOAT>` (default 0.7) is the Jaccard trigram preservation gate from `src/preservation.rs` (10 tests). Scores below the threshold are rejected as `EnrichItemResult::PreservationFailed`.
 - `--preflight-check`, `--fallback-mode <claude-code|codex>`, `--rate-limit-buffer <SECONDS>` (default 300) prevent batch loss when the Claude OAuth 5-hour window closes mid-run.
 - `--names <a,b,c>` and `--names-file <PATH>` select a specific subset of memory names instead of scanning all candidates. `--names-file` accepts `#` comments and blank lines. Both flags combine as a union.
+- v1.1.03: `--reset-stale-claims` manually clears `processing` claims older than the threshold, and `--stale-claim-secs <N>` (default 1800) tunes that threshold; the sidecar queue gained a `claimed_at` column, stale claims are reset on startup, and a SIGTERM handler performs graceful cleanup before exit 19 (recovering the three-layer stale-lock state left by `kill -9`).
 - `--llm-parallelism <N>` warning is conditional to the mode: Claude warns at 5 (OAuth-MCP fan-out), Codex warns at 17 (rate-limit risk), Codex 5..16 is silent.
 - `--max-load-check` refuses to start when load average > `2 × ncpus`. `--circuit-breaker-threshold <N>` (default 5) aborts after N consecutive `HardFailure` outcomes.
 ### `vec` Subcommand Family (G39)

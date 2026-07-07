@@ -285,6 +285,28 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"server-name-1":{"enabled":false},"server-name-
 - OpenCode: `opencode run`
 
 
+
+### v1.1.03 Update — Stale Claim Recovery in Headless Long-Running enrich
+
+- Headless orchestrators (agent harnesses, CI runners, systemd timers) frequently send SIGINT, SIGTERM, and occasionally SIGKILL to long-running `enrich --until-empty` jobs
+- SIGKILL is NOT capturable — the `.enrich-queue.sqlite` sidecar may be left with rows stuck in `status='processing'` under the dead PID
+- Since v1.1.03 (ADR-0063, Bug 4), the queue sidecar gains a `claimed_at` INTEGER column and the enrich worker emits a per-item heartbeat (`UPDATE queue SET claimed_at = unixepoch() WHERE id = ?`)
+- On EVERY enrich startup, the worker calls `reset_stale_processing_claims(conn, 1800)` — items with `status='processing' AND claimed_at < unixepoch() - 1800` are flipped back to `pending` and `claimed_at = NULL`
+- The 1800-second (30-minute) threshold is the default; combined with the heartbeat it covers any job that stops making progress for half an hour
+- For manual reset (e.g. after a known kill -9 incident), the new flag `enrich --reset-stale-claims --json` flushes stale claims without running the full scan→drain loop
+- SIGTERM (capturable) is handled by the existing `signals::handler` graceful path; only SIGKILL relies on the timestamp-based recovery
+- No new env var, no telemetry — the recovery is silent and idempotent
+
+```bash
+# Force-reset stale claims after a known kill -9 incident (no scan, no LLM)
+sqlite-graphrag enrich --reset-stale-claims --json
+
+# Normal headless enrich — stale claims auto-recovered at startup
+OPENROUTER_API_KEY="$KEY" sqlite-graphrag enrich --operation memory-bindings \
+  --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" \
+  --until-empty --max-runtime 1800 --json
+```
+
 ## v1.0.80 Update — SHUTDOWN Resilience and the 3-Layer Bypass Recipe
 
 v1.0.80 (ADR-0034) hardens the `src/signals.rs` handler so that the

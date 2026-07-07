@@ -9,12 +9,13 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Prune de Órfãos de Entidade, Teste de Regressão Re-Embed)
+# sqlite-graphrag para Agentes de IA (v1.1.03 — literal-to, cross-namespace, reset-stale-claims, split-body, Bug Fixes)
 
 
 > Memória persistente para 27 agentes de IA em um único binário Rust de 14.6 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> Novo na v1.1.02 (release corrente): `--gliner-variant`/`--mode gliner` REMOVIDOS (clap exit 2); `AppError::TooManyTokens` tipado exit 6; `enrich --prune-dead-entity-orphans` para dead-letter de entidade; teste de regressão de re-embed de entidades.
+> Novo na v1.1.03 (release corrente): `reclassify-relation --literal-to`; `merge-entities --cross-namespace`; `enrich --reset-stale-claims` (recuperação de claims stale após kill -9); subcomando `split-body` (corpos >25k chars); transação batch na scan-phase do enrich; `LEFT JOIN` chunks órfãos; `claimed_at` + heartbeat no sidecar da fila.
+> Novo na v1.1.02 (release anterior): `--gliner-variant`/`--mode gliner` REMOVIDOS (clap exit 2); `AppError::TooManyTokens` tipado exit 6; `enrich --prune-dead-entity-orphans` para dead-letter de entidade; teste de regressão de re-embed de entidades.
 > Novo na v1.1.01 (release anterior): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
 
 ## Novo na v1.0.93 — Backend de Embedding OpenRouter (GAP-OR-INGEST)
@@ -1675,6 +1676,18 @@ cargo install --path . && sqlite-graphrag init
 - A cadeia de fallback de captura de stderr em ADR-0040 detecta `refresh_token_reused` e roteia para o próximo backend em `--llm-backend`
 - NÃO existe fix definitivo upstream; mitigação depende de `codex login` dirigido pelo operador
 
+
+
+## Novidades na v1.1.03 — Seis Correções de Bug + V8 (ADR-0063)
+
+- **Bug 1 (CORREÇÃO)**: o loop de enqueue da scan-phase do enrich agora é envolvido em uma transação única (batch INSERT atômico); elimina o deadlock aparente em `re-embed --target entities` contra 44k+ entidades
+- **Bug 2 (NOVA FLAG)**: `reclassify-relation --literal-to <valor>` é o simétrico verbatim de `--literal-from`; escreve o valor no UPDATE sem normalização do clap, bypassando o guard "must be different". Desbloqueia a migração legacy→canonical de `applies_to` → `applies-to` (e `depends_on`, `tracked_in`)
+- **Bug 3 (NOVA FLAG)**: `merge-entities --cross-namespace` (opt-in, padrão false) funde entidades entre namespaces; resolve o namespace de cada `--ids` pela própria row. O padrão preserva a safety same-namespace com um guard de não-regressão
+- **Bug 4 (NOVA FLAG + COMPORTAMENTO)**: o sidecar `.enrich-queue.sqlite` ganha uma coluna `claimed_at` INTEGER + heartbeat por item; o reset de claims stale roda automaticamente no startup do enrich (threshold 30 min); a nova flag `enrich --reset-stale-claims` força um reset manual. Resolve locks stale após kill -9 (SIGKILL não é capturável, detecção é por timestamp)
+- **Bug 5 (APENAS DOCS)**: o help do `enrich --status` agora distingue `scan_backlog` (backlog real de banco por operação) de `queue_pending` (COUNT computado); `eligible_now=0 + queue_pending>0` significa cooldown, NÃO deadlock
+- **Bug 6 (CORREÇÃO)**: `enrich --operation re-embed --target chunks` agora usa `LEFT JOIN memories` para incluir chunks de memórias soft-deletadas; `health.vec_chunks_coverage_pct` converge para 100% real
+- **V8 (NOVO SUBCOMANDO)**: `split-body --name <n>` (single) e `split-body --batch --threshold 25000` dividem memórias com body > 25000 chars em N memórias filhas `<original>-part-1..N`; a original é marcada com `SUPERCEDIDO` no metadata (NÃO soft-deleted, histórico preservado); as filhas ganham relações canônicas `replaces` para a original; reutiliza o chunker existente (`memory_chunks`)
+- **Cobertura**: `health.vec_chunks_coverage_pct` agora converge para 100% real após `enrich --operation re-embed --target chunks`
 
 ## Novidades na v1.1.02 — Dois Gaps Residuais Fechados + Prune de Órfãos de Entidade (ADR-0062)
 - O nome oficial da release é v1.1.02; o `Cargo.toml` publica `1.1.2` porque o SemVer rejeita zero à esquerda (User-Agent `sqlite-graphrag/1.1.2`). Sem migração; o schema permanece em v15. Binário de ~19 MiB. Consumidores da biblioteca fixam `=1.1.2`.

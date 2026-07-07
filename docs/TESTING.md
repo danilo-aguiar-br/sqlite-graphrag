@@ -106,6 +106,18 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - **GAP-SG-69**: `src/commands/enrich/queue.rs::tests::skipped_item_keys_excludes_only_skipped_for_operation` proves the new `skipped_item_keys` helper returns only `status='skipped'` rows for the queried operation, so the `--until-empty` body-enrich rescan no longer re-enqueues vetoed short bodies and the sidecar is retained while `skipped` verdicts remain (empirically 55→3).
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99. Suite totals were not re-baselined in this documentation pass — run `cargo nextest -P ci` for the live count.
 
+
+## v1.1.03 — Six Bugs + V8 Tests (ADR-0063)
+
+- **Bug 6 (chunks órfãos)**: `scan_chunks_of_soft_deleted_memory_are_selected` e `count_backlog_includes_orphan_chunks` em `src/commands/enrich/scan.rs` provam que `LEFT JOIN memories` agora seleciona chunks de memórias soft-deletadas no re-embed
+- **Bug 2 (--literal-to)**: `literal_to_writes_hyphenated_target`, `literal_from_applies_to_literal_to_applies_to_hyphen_migrates`, `literal_to_alone_keeps_verbatim` em `src/commands/reclassify_relation.rs` provam que `--literal-to` escreve o valor verbatim sem normalização do clap
+- **Bug 3 (--cross-namespace)**: `cross_namespace_merges_source_from_other_namespace`, `cross_namespace_default_false_rejects_cross_id`, `cross_namespace_target_must_still_be_in_resolved_namespace` em `src/commands/merge_entities.rs` provam o opt-in cross-namespace e o default same-namespace safe
+- **Bug 4 (stale claims)**: `stale_processing_claim_is_reset_after_threshold`, `fresh_processing_claim_is_preserved`, `heartbeat_updates_claimed_at` em `src/commands/enrich/queue.rs` provam a coluna `claimed_at` + heartbeat + reset automático no startup
+- **Bug 1 (enqueue batch)**: `enqueue_batch_is_atomic` em `src/commands/enrich/mod.rs` prova que o loop de enqueue é uma transação única (batch INSERT atômico)
+- **V8 (split-body)**: `split_body_divides_long_memory_into_parts`, `split_body_marks_original_as_superseded`, `split_body_creates_replaces_relations`, `split_body_preserves_history` em `src/commands/split_body.rs` (novo módulo) provam a divisão + tag `SUPERCEDIDO` + relação `replaces` + preservação de histórico
+- **Bug 5 (docs only)**: nenhuma mudança de teste — apenas o help text de `enrich --status` esclarecendo `scan_backlog` vs `queue_pending`
+- Suite total: ~1070 lib tests passing (`cargo test --lib`). Schema permanece v15. Sem nova telemetria.
+
 ## v1.1.02 — Gap Closure Tests (ADR-0062)
 
 - `commands::enrich::queue::tests::prune_dead_entity_orphans_removes_only_entity_dead_rows` — proves the new `prune_dead_entity_orphans` helper deletes only `item_type='entity'` dead rows, leaving memory-dead rows and live entity rows untouched.
@@ -132,7 +144,7 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 
 ## Current Test Suite Size
 
-986+ lib tests passing via `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
+~1070 lib tests passing as of v1.1.03 (v1.1.02 + v1.1.03 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
 
 ## What Changed in v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: OpenCode backend tests (875 lib tests)

@@ -64,6 +64,7 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 | [ADR-0060](adr-0060-v110-enrichment-backlog-convergence.md) | v1.1.0 — Enrichment Backlog Convergence at the Root (GAP-SG-70..78) | v1.1.0 | Accepted | [PT-BR](adr-0060-v110-enrichment-backlog-convergence.pt-BR.md) |
 | [ADR-0061](adr-0061-v1101-twelve-priority-roadmap-closure.md) | v1.1.01 — Twelve-Priority Roadmap Closure (gaps.md Limitations 1–15) | v1.1.01 | Accepted | [PT-BR](adr-0061-v1101-twelve-priority-roadmap-closure.pt-BR.md) |
 | [ADR-0062](adr-0062-v1-1-02-gap-closure.md) | v1.1.02 — Two Residual Gaps Closed (GLiNER Removal, TooManyTokens Typed) + Entity Orphan Prune + Re-Embed Regression Test | v1.1.02 | Accepted | [PT-BR](adr-0062-v1-1-02-gap-closure.pt-BR.md) |
+| [ADR-0063](adr-0063-v1-1-03-bug-fixes.md) | v1.1.03 — Six Bugs + split-body (Bug-Fix Wave) | v1.1.03 | Accepted | [PT-BR](adr-0063-v1-1-03-bug-fixes.pt-BR.md) |
 
 ## Coverage by Version
 
@@ -89,11 +90,12 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 - **v1.0.99**: 1 ADR (0059) — remove destructive degree-cap pruning + flag; align sort-by-degree doc; converge body-enrich
 - **v1.1.0**: 1 ADR (0060) — truncated-completion retry, adaptive max_tokens, dead-letter diagnostics, typed retry-classification, shared openrouter_http, User-Agent bump, bounded dequeue, per-operation scan_backlog, transient entity absence (GAP-SG-70..78)
 - **v1.1.01**: 1 ADR (0061) — twelve-priority roadmap closure: entity embedding via OpenRouter REST, re-embed --target backfill, graph recompute-degree, reclassify-relation --literal-from, merge/rename by ID, real vector-coverage in health/embedding status, typed EntityType errors, dimension-aware re-embed predicate, typed exit-6 variants, ingest --name-prefix (gaps.md Priorities 1-7, 10-12)
+- **v1.1.03**: 1 ADR (0063) — six operator-blocking bugs + split-body: batched scan-enqueue, --literal-to, --cross-namespace merge, claimed_at + --reset-stale-claims, status doc clarification, LEFT JOIN chunk re-embed, split-body subcommand
 
 ## Bilíngue Status
 
-- **EN (English)**: 55/55 ADRs (100%)
-- **PT-BR (Português Brasileiro)**: 43/55 ADRs (78%)
+- **EN (English)**: 56/56 ADRs (100%)
+- **PT-BR (Português Brasileiro)**: 44/56 ADRs (79%)
 - **PT-BR pendente**: 12 ADRs (0007-0018) — criados antes do mandato bilíngue (legado histórico)
 
 ## Conventions
@@ -107,10 +109,10 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 
 ## Adding a New ADR
 
-1. Choose the next sequential number (next is ADR-0062)
-2. Create `adr-0062-slug.md` following the canonical structure
+1. Choose the next sequential number (next is ADR-0064)
+2. Create `adr-0064-slug.md` following the canonical structure
 3. Add entry to this INDEX.md (EN row)
-4. After EN stabilizes (typically 1+ release), create `adr-0062-slug.pt-BR.md`
+4. After EN stabilizes (typically 1+ release), create `adr-0064-slug.pt-BR.md`
 5. Add PT-BR column link
 6. Update the "Coverage by Version" section
 7. Reference the new ADR from `gaps.md` if it closes a documented gap

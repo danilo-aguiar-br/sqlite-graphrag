@@ -2,6 +2,42 @@
 
 > Este guia cobre a atualização de v1.1.01 para v1.1.02. Nenhuma migração roda no banco principal; o schema permanece em v15 — `migrate` NÃO é necessário. O nome oficial da release é v1.1.02; o `Cargo.toml` carrega `1.1.2` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01) estão preservados como seções históricas abaixo.
 
+## v1.1.03 — Enqueue Atômico do Enrich, Migração Literal de Relação, Merge Cross-Namespace, Recuperação de Stale Claim, Re-Embed de Chunk Órfão, split-body
+
+> Upgrade da v1.1.02. O schema do banco principal PERMANECE em v15 — `migrate` NÃO é necessário. O sidecar `.enrich-queue.sqlite` ganha a coluna `claimed_at` via `ALTER TABLE ADD COLUMN` idempotente na primeira abertura (sem backfill de dados). O nome oficial da release é v1.1.03; o `Cargo.toml` carrega `1.1.3`. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+
+### Bug 1 — O enqueue do enrich agora é uma transação atômica única
+- O caminho de enqueue em lote que faz fan-out de inserts por item agora está envolvido em uma única transação SQL. Uma falha no meio não deixa a fila pela metade; ou todos os itens elegíveis entram, ou nenhum entra. Nenhuma ação do usuário é necessária.
+
+### Bug 2 — Migração de relações legadas com underscore (`--literal-to`)
+- Imports antigos escreviam literais de relação com underscore (`applies_to`, `depends_on`, `tracked_in`) em vez da forma canônica com hífen. O parser já normaliza na leitura, mas os literais ARMAZENADOS continuavam com underscore.
+- A migração canônica usa a flag verbatim de destino `--literal-to`, simétrica a `--literal-from`, de modo que origem e destino são casados e escritos VERBATIM (sem normalização do clap no lado do destino).
+- Runbook (repita para cada relação legada):
+  1. Preview:  `sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --dry-run --json` — confirme a contagem de candidatos.
+  2. Aplique:  `sqlite-graphrag reclassify-relation --literal-from applies_to --literal-to applies-to --batch --json`.
+  3. Repita para `depends_on` → `depends-on` e `tracked_in` → `tracked-in`.
+- Aproximadamente 61357 arestas legadas com underscore existem em bancos que ingeriram antes da era canônica com hífen; o envelope do `--dry-run` reporta a contagem exata do SEU banco.
+
+### Bug 4 — Recuperação de processing-claim travado (stale)
+- A fila de enrich agora registra um timestamp `claimed_at` quando um worker claima um item. Um heartbeat em background atualiza o `claimed_at` enquanto o item está sendo processado.
+- No startup, qualquer claim cujo `claimed_at` é mais antigo que o limiar de stale é resetada para `pending` AUTOMATICAMENTE, então um `kill -9` não trava itens em `processing` para sempre.
+- O caminho de SIGTERM/exit-19 faz cleanup gracioso das próprias claims antes do shutdown.
+- Override manual quando você suspeita de um worker travado:
+  - `sqlite-graphrag enrich --reset-stale-claims --json` reseta todas as claims stale agora.
+  - `sqlite-graphrag enrich --stale-claim-secs <N>` sobrescreve o limiar (o padrão está documentado em `enrich --help`).
+
+### Bug 6 — O scan de chunks re-embebe chunks órfãos
+- O scan de chunks agora usa `LEFT JOIN memories` para que chunks cuja memória-mãe foi soft-deletada AINDA sejam selecionados para re-embedding. O comportamento anterior os pulava, deixando a cobertura vetorial abaixo de 100%.
+- Após o upgrade, rode `sqlite-graphrag enrich --operation re-embed --target chunks --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 600 --json` uma vez para fechar a lacuna; `health --json` então reporta `vec_chunks_coverage_pct = 100`.
+
+### V8 — Divisão de corpos sobredimensionados (`split-body`)
+- Novo subcomando `split-body` divide corpos de memória que excedem um limiar de caracteres em memórias filhas nomeadas `{name}-part-{i}`.
+- Único: `sqlite-graphrag split-body --name <memoria-enorme>` divide uma memória no limiar padrão.
+- Lote:  `sqlite-graphrag split-body --batch --threshold 25000 --json` divide toda memória acima de 25000 chars em uma passada.
+- A memória original é marcada com metadata `superseded_by_split: true` (preservada no histórico), e cada filha ganha uma relação canônica `replaces` apontando para a original, então `related`/`graph traverse` ainda alcançam o corpo sobrescrito.
+- As filhas NÃO são embebedadas inline; rode `sqlite-graphrag enrich --operation re-embed --target memories --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 600 --json` depois para que as filhas se tornem pesquisáveis.
+
+
 ## v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade (ADR-0062)
 
 ### O Que Mudou

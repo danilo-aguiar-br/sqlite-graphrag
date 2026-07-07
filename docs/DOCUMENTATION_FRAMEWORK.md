@@ -110,6 +110,21 @@ This section updates the framework to cover the documentation generated for the 
 - **Docs**: 4 pre-existing rustdoc warnings resolved (HTML backticks, cfg(test) intra-doc links).
 - Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, MIGRATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION (EN+PT); DOCUMENTATION_FRAMEWORK; docs/decisions/INDEX.md + ADR-0062 (EN+PT).
 
+### v1.1.03 — Six Bugs + V8 Bug Fixes (ADR-0063)
+- Official release name is v1.1.03; the crate manifest carries `version = "1.1.3"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB. Library consumers pin `=1.1.3`; User-Agent is `sqlite-graphrag/1.1.3`.
+- **Bug 1 (FIX)**: enrich scan-phase enqueue is now wrapped in a single transaction (batch INSERT atomic); eliminates the apparent deadlock on re-embed of 44k+ entities.
+- **Bug 2 (NEW FLAG)**: `reclassify-relation --literal-to <valor>` is the verbatim symmetric of `--literal-from`; writes the value to the UPDATE without clap normalization. Unblocks legacy→canonical migration of `applies_to` → `applies-to`.
+- **Bug 3 (NEW FLAG)**: `merge-entities --cross-namespace` (opt-in, default false) merges entities across namespaces; resolves the namespace of each `--ids` from its own row. Default preserves same-namespace safety.
+- **Bug 4 (NEW FLAG + BEHAVIOUR)**: the `.enrich-queue.sqlite` sidecar gains a `claimed_at` column + per-item heartbeat; reset of stale claims runs automatically on enrich startup (threshold 30 min); new flag `enrich --reset-stale-claims` forces a manual reset.
+- **Bug 5 (DOCS ONLY)**: `enrich --status` help text now distinguishes `scan_backlog` (real per-operation database backlog) from `queue_pending` (computed COUNT).
+- **Bug 6 (FIX)**: `enrich --operation re-embed --target chunks` now uses `LEFT JOIN memories` to include chunks of soft-deleted memories; `health.vec_chunks_coverage_pct` converges to 100% real.
+- **V8 (NEW SUBCOMMAND)**: `split-body --name <n>` and `split-body --batch --threshold 25000` divide memories with body > 25000 chars into N daughter memories `<original>-part-1..N`; the original is tagged `SUPERCEDIDO` in metadata (NOT soft-deleted, history preserved); daughter memories get canonical `replaces` relations.
+- New ADR: ADR-0063 (v1-1-03-bug-fixes) — EN + PT-BR; docs/decisions/INDEX.md updated.
+- New schema: `docs/schemas/split-body.schema.json` (Draft 2020-12, oneOf SplitResult/BatchResult, DERIVED per ADR-0048).
+- Updated in this release: README/CHANGELOG/AGENTS/COOKBOOK/HOW_TO_USE/MIGRATION/INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION, docs/TESTING, docs/TEST_PLAN, docs/DOCUMENTATION_FRAMEWORK (EN+PT); docs/schemas/README + split-body.schema.json; docs/decisions/INDEX.md + ADR-0063 (EN+PT).
+- Tests: regression tests for chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch-atomic, split-body (divides/marks-superseded/creates-replaces/preserves-history); suite total ~1070 lib tests passing.
+
+
 ### v1.1.01 — Production-Database Audit Remediation (12-priority roadmap, gaps.md)
 - Official release name is v1.1.01; the crate manifest carries `version = "1.1.1"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB.
 - New command: `graph recompute-degree` (P3) reconciles the `entities.degree` cache from the real `relationships` rows; new schema `docs/schemas/graph-recompute-degree.schema.json`.
