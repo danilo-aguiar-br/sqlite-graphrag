@@ -1,6 +1,6 @@
 ---
 name: sqlite-graphrag
-description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag cobrindo memória persistente, grafo de conhecimento GraphRAG, ligação de entidades, hybrid-search, recall, deep-research, remember, remember-batch, ingest, edit, restore, enrich, forget, purge, link, rename-entity e manutenção de grafo. Esta skill ensina a LLM a embedar via backend REST do OpenRouter com seleção explícita de modelo e preço, a rodar extração de entidades e enrichment como etapa SEPARADA através dos backends codex, claude-code, opencode ou openrouter com escolha explícita de modelo, a adicionar e verificar chaves de API OpenRouter, a honrar regras OAuth-only de subprocesso, isolamento preflight, fusão FTS5 mais cosine BLOB, relações canônicas, estratégia de retry por exit-code e isolamento de namespace. Esta skill ativa nas palavras-chave sqlite-graphrag GraphRAG memory embedding openrouter codex claude opencode remember recall hybrid-search ingest enrich deep-research forget purge link rename-entity
+description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag cobrindo memória persistente, grafo de conhecimento GraphRAG, ligação de entidades, hybrid-search, recall, deep-research, remember, remember-batch, ingest, edit, restore, enrich, forget, purge, link, rename-entity e manutenção de grafo. Esta skill ensina a LLM a embedar via backend REST do OpenRouter com seleção explícita de modelo e preço, a rodar extração de entidades e enrichment como etapa SEPARADA através dos backends codex, claude-code, opencode ou openrouter com escolha explícita de modelo, a adicionar e verificar chaves de API OpenRouter, a honrar regras OAuth-only de subprocesso, isolamento preflight, fusão FTS5 mais cosine BLOB, relações canônicas, estratégia de retry por exit-code e isolamento de namespace. Ativa nas palavras-chave sqlite-graphrag GraphRAG embedding openrouter codex claude opencode remember recall hybrid-search ingest enrich deep-research forget purge rename-entity
 ---
 
 
@@ -64,19 +64,20 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - PASSE `--embedding-model <MODEL>` quando `--embedding-backend openrouter`; NÃO existe modelo padrão, então a omissão dispara exit 78
 - SAIBA que os preços abaixo são por um milhão de tokens; ESCOLHA o modelo por custo e qualidade para a tarefa
 - USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` para embedding GRATUITO de custo zero (padrão RECOMENDADO)
-- USE `qwen/qwen3-embedding-8b` em cerca de 0.01 USD (opção paga MAIS BARATA)
-- USE `baai/bge-m3` em cerca de 0.01 USD
-- USE `qwen/qwen3-embedding-4b` em cerca de 0.02 USD
+- USE `qwen/qwen3-embedding-4b` em cerca de 0.02 USD (opção paga MAIS BARATA com 4B de parâmetros)
+- USE `qwen/qwen3-embedding-8b` em cerca de 0.02 USD (opção de maior qualidade da família Qwen)
+- USE `baai/bge-m3` em cerca de 0.02 USD
 - USE `openai/text-embedding-3-small` em cerca de 0.02 USD
 - USE `perplexity/pplx-embed-v1-0.6b` em cerca de 0.04 USD
 - USE `mistralai/mistral-embed-2312` em cerca de 0.10 USD
 - USE `google/gemini-embedding-2` em cerca de 0.12 USD
 - USE `openai/text-embedding-3-large` em cerca de 0.13 USD
-- USE `google/gemini-embedding-001` em cerca de 0.15 USD
+- USE `google/gemini-embedding-002` em cerca de 0.15 USD
 - MANTENHA `--embedding-dim 384` consistente entre escritas e leituras; uma dimensão divergente colide com o índice armazenado e falha o knn com exit 11
 - SAIBA que o truncamento MRL é aplicado server-side ao `--embedding-dim` requisitado, então uma dimensão maior continua barata no path REST do OpenRouter
 - SAIBA que NENHUM subcomando enumera modelos de embedding OpenRouter; a tabela de preços curada acima É o menu autoritativo
-- VERIFIQUE a chave OpenRouter e a resolução da config com `sqlite-graphrag config doctor --json`; um modelo inválido falha rápido com exit 78
+- VERIFIQUE a disponibilidade de um modelo em produção RODANDO uma chamada REST direta: `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -r '.data[].id' | rg -i 'embed'`; NÃO confie em hardcoded, IDs mudam sem aviso
+- CONFIRME a chave e a resolução da config com `sqlite-graphrag config doctor --json`; um modelo inválido falha rápido com exit 78; MONITORE o custo real por chamada lendo `usage.cost` da resposta de embedding
 - SAIBA que `--embedding-backend openrouter` se propaga a TODOS os paths de embedding: `remember`, `remember-batch`, `ingest`, `recall`, `edit`, `restore`, `hybrid-search`, `deep-research`, `enrich`, `init`, `rename-entity`
 
 
@@ -170,7 +171,7 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - VALORES válidos de `--type`: `user`, `feedback`, `project`, `reference`, `decision`, `incident`, `skill`, `document`, `note`
 - INVOQUE `remember-batch` para 10 ou mais memórias via NDJSON stdin; PASSE `--transaction` para all-or-nothing
 - INVOQUE `ingest <DIR> --recursive --pattern "*.md" --mode none` para importar um diretório como body-only, depois enriqueça SEPARADAMENTE
-- SAIBA que `ingest --mode` aceita `none` (padrão body-only), `claude-code`, `codex`; opencode NÃO é um modo de ingest, então enriqueça com opencode em uma etapa SEPARADA
+- SAIBA que `ingest --mode` aceita `none` (padrão body-only), `claude-code`, `codex`, `opencode`; cada modo não-none roda extração LLM-curada inline DURANTE a ingestão, e NÃO precisa de enrich separado para os bindings daquela ingestão
 - USE `--resume` para continuar da fila após interrupção; `--retry-failed` apenas para itens falhados; `--auto-describe` para sintetizar descrições
 - PASSE `--name-prefix <prefixo>` no `ingest` para prefixar os nomes derivados dos arquivos (ex: `--name-prefix projx-` gera `projx-<derivado>`); o prefixo conta no teto de tamanho do nome e vale APENAS para a ingestão de diretório local
 - PASSE `--force-merge` no `ingest` para ATUALIZAR arquivos duplicados em vez de pulá-los; o ingest deduplica por `body_hash`, então um arquivo inalterado é pulado mesmo após renomear
@@ -241,7 +242,7 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 
 
 ## Operações de Enrich
-- INVOQUE `enrich --operation <op> --mode <backend>` onde AMBAS as flags são OBRIGATÓRIAS para qualquer operação LLM; omitir `--mode` é rejeitado com exit 2 — EXCETO os inspetores read-only `--status`, `--list-dead`, `--requeue-dead` e `--prune-dead-orphans`, que NÃO exigem `--operation` e `--mode`
+- INVOQUE `enrich --operation <op> --mode <backend>` onde AMBAS as flags são OBRIGATÓRIAS para qualquer operação LLM; omitir `--mode` é rejeitado com exit 2 — EXCETO os inspetores read-only `--status`, `--list-dead`, `--requeue-dead`, `--prune-dead-orphans` (memory-keyed) e `--prune-dead-entity-orphans` (entity-keyed), que NÃO exigem `--operation` e `--mode`
 - VALORES válidos de `--operation`: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`
 - VALORES válidos de `--mode`: `codex`, `claude-code`, `opencode`, `openrouter`
 - USE `augment-bindings` para adicionar MAIS vínculos a memórias que JÁ estão vinculadas; EXIGE `--names <a,b,c>` ou `--names-file <path>` para escopar os alvos
@@ -262,6 +263,7 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - PASSE `--rest-concurrency <N>` para definir o fan-out REST de `--mode openrouter`; clamp 1..=16, padrão 8, DISTINTO de `--llm-parallelism`
 - PASSE `--list-dead` para uma listagem JSON read-only de cada item terminal `dead` com seu `error_class`, `message` e os diagnósticos de truncamento `finish_reason`, `input_tokens` e `output_tokens` da resposta OpenRouter; `--requeue-dead` move esses itens de volta para `pending` para outra passada; `--ignore-backoff` desenfileira itens elegíveis de imediato, ignorando o cooldown `next_retry_at`
 - PASSE `--prune-dead-orphans` para deletar APENAS as linhas da fila de enrich onde `status='dead'` e `item_type='memory'` cujo `item_key` (nome da memória) está AUSENTE do banco principal; linhas dead com chave de entidade são INTOCADAS; o banco principal é read-only — APENAS o sidecar `.enrich-queue.sqlite` é mutado; o JSON `DeadSummary` inclui o campo `pruned` com a contagem de linhas removidas; NÃO exige `--operation`/`--mode`/flags de LLM — é um inspetor SQLite puro sem aquisição de singleton; FÓRMULA: `sqlite-graphrag enrich --prune-dead-orphans --json`; USE ANTES de `--requeue-dead` para limpar linhas dead orphan de memória (memória renomeada ou purgada APÓS o enfileiramento, `error_class=permanent` 'not found') que o `--requeue-dead` sozinho apenas re-falharia
+- PASSE `--prune-dead-entity-orphans` para deletar APENAS as linhas da fila onde `status='dead'` e `item_type='entity'`; mutuamente exclusivo com `--prune-dead-orphans`; ao contrário da variante memory-keyed, NÃO faz cross-check contra o banco principal (linhas dead já são falhas terminais), então RODE `enrich --operation re-embed --target entities --requeue-dead --ignore-backoff` PRIMEIRO para tentar recuperar entidades reais antes de podar; FÓRMULA: `sqlite-graphrag enrich --prune-dead-entity-orphans --json`; COMBINE com a estratégia de recuperação: re-embed primeiro, requeue-dead depois, prune apenas o que sobreviver como órfão verdadeiro
 - SAIBA que a fila dead-letter TEM as colunas `error_class` e `next_retry_at` mais o status terminal `dead`: falhas Transient (rate-limit, timeout, 5xx, um retry-interno-esgotado e uma entidade ainda-não-materializada que uma passada posterior cria) reagendam com backoff exponencial limitado por `--max-attempts`, HardFailures (validação, parse) viram terminal de imediato, e o dequeue pula `dead` para o conjunto vivo encolher estritamente rumo à convergência
 - SAIBA que uma completação OpenRouter truncada (`finish_reason` = `length`) NÃO é dead-lettered de imediato: o path de chat re-emite a requisição com um orçamento `max_tokens` MAIOR antes de qualquer reparo de JSON, então um item truncado por comprimento é retentado com mais espaço em vez de falhar identicamente
 - SAIBA que a fila de enrich vive em um banco sidecar `.enrich-queue.sqlite` ao lado do `.sqlite` principal
@@ -347,7 +349,7 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 
 ## Códigos de Saída e Estratégia de Retry
 - EXIT 0 sucesso; EXIT 1 erro de validação; EXIT 2 parsing de argumento (flag obrigatória ausente); EXIT 3 conflito de lock otimista, recarregue e retente
-- EXIT 4 não encontrado; EXIT 5 erro de namespace; EXIT 6 payload grande demais — o envelope tipado distingue corpo acima do limite de bytes (reporta `bytes` e `limit`) de excesso de chunks (reporta `chunks` e `limit`), então DIVIDA o corpo em múltiplas memórias; EXIT 9 duplicada, use `--force-merge`
+- EXIT 4 não encontrado; EXIT 5 erro de namespace; EXIT 6 payload grande demais — o envelope tipado distingue TRÊS variantes: corpo acima do limite de bytes (reporta `bytes` e `limit`), excesso de chunks (reporta `chunks` e `limit`) e corpo acima do teto de TOKENS do modelo de embedding (reporta `tokens` e `limit`); DIVIDA o corpo em múltiplas memórias ou reduza tokens; EXIT 9 duplicada, use `--force-merge`
 - EXIT 10 erro de banco, execute `vacuum` mais `health`; EXIT 11 falha de embedding, verifique backend, dimensão e OAuth
 - EXIT 13 falha parcial de batch, reprocesse apenas falhados; EXIT 14 erro de I/O; EXIT 15 banco ocupado (também o dequeue do enrich sob contenção de lock sustentada), amplie `--wait-lock`
 - EXIT 16 falha preflight, corrija config MCP, NUNCA trate como transitório

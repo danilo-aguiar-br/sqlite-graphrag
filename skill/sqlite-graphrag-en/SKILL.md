@@ -64,19 +64,20 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - PASS `--embedding-model <MODEL>` when `--embedding-backend openrouter`; there is NO default model, so omission triggers exit 78
 - KNOW prices below are per one million tokens; CHOOSE the model by cost and quality for the task
 - USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` for FREE zero-cost embedding (RECOMMENDED default)
-- USE `qwen/qwen3-embedding-8b` at about 0.01 USD (CHEAPEST paid option)
-- USE `baai/bge-m3` at about 0.01 USD
-- USE `qwen/qwen3-embedding-4b` at about 0.02 USD
+- USE `qwen/qwen3-embedding-4b` at about 0.02 USD (CHEAPEST paid option, 4B params)
+- USE `qwen/qwen3-embedding-8b` at about 0.02 USD (higher quality Qwen family)
+- USE `baai/bge-m3` at about 0.02 USD
 - USE `openai/text-embedding-3-small` at about 0.02 USD
 - USE `perplexity/pplx-embed-v1-0.6b` at about 0.04 USD
 - USE `mistralai/mistral-embed-2312` at about 0.10 USD
 - USE `google/gemini-embedding-2` at about 0.12 USD
 - USE `openai/text-embedding-3-large` at about 0.13 USD
-- USE `google/gemini-embedding-001` at about 0.15 USD
+- USE `google/gemini-embedding-002` at about 0.15 USD
 - KEEP `--embedding-dim 384` consistent across writes and reads; a mismatched dimension collides with the stored index and fails knn with exit 11
 - KNOW MRL truncation is applied server-side to the requested `--embedding-dim`, so a higher dimension stays cheap on the OpenRouter REST path
 - KNOW NO subcommand enumerates OpenRouter embedding models; the curated price table above IS the authoritative menu
-- VERIFY the OpenRouter key and config resolution with `sqlite-graphrag config doctor --json`; an invalid model fails fast with exit 78
+- VERIFY a model's availability in production by RUNNING a direct REST call: `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -r '.data[].id' | rg -i 'embed'`; DO NOT trust hardcoded ids, they change without notice
+- CONFIRM the key and config resolution with `sqlite-graphrag config doctor --json`; an invalid model fails fast with exit 78; MONITOR real cost per call by reading `usage.cost` from the embedding response
 - KNOW `--embedding-backend openrouter` propagates to ALL embedding paths: `remember`, `remember-batch`, `ingest`, `recall`, `edit`, `restore`, `hybrid-search`, `deep-research`, `enrich`, `init`, `rename-entity`
 
 
@@ -170,7 +171,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - VALID `--type` values: `user`, `feedback`, `project`, `reference`, `decision`, `incident`, `skill`, `document`, `note`
 - INVOKE `remember-batch` for 10 or more memories via NDJSON stdin; PASS `--transaction` for all-or-nothing
 - INVOKE `ingest <DIR> --recursive --pattern "*.md" --mode none` to import a directory as body-only, then enrich SEPARATELY
-- KNOW `ingest --mode` accepts `none` (default body-only), `claude-code`, `codex`; opencode is NOT an ingest mode, so enrich with opencode in a SEPARATE step
+- KNOW `ingest --mode` accepts `none` (default body-only), `claude-code`, `codex`, `opencode`; each non-none mode runs LLM-curated extraction inline DURING ingest, and needs NO separate enrich for the bindings of that ingest
 - USE `--resume` to continue from the queue after interruption; `--retry-failed` for failed items only; `--auto-describe` to synthesize descriptions
 - PASS `--name-prefix <prefix>` on `ingest` to prefix derived file names (e.g. `--name-prefix projx-` yields `projx-<derived>`); the prefix counts toward the name-length ceiling and applies ONLY to local directory ingestion
 - PASS `--force-merge` on `ingest` to UPDATE duplicate files instead of skipping them; ingest dedups by `body_hash`, so an unchanged file is skipped even after a rename
@@ -241,7 +242,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 
 
 ## Enrich Operations
-- INVOKE `enrich --operation <op> --mode <backend>` where BOTH flags are MANDATORY for any LLM operation; omitting `--mode` is rejected with exit 2 — EXCEPT the read-only inspectors `--status`, `--list-dead`, `--requeue-dead` and `--prune-dead-orphans`, which do NOT require `--operation` and `--mode`
+- INVOKE `enrich --operation <op> --mode <backend>` where BOTH flags are MANDATORY for any LLM operation; omitting `--mode` is rejected with exit 2 — EXCEPT the read-only inspectors `--status`, `--list-dead`, `--requeue-dead`, `--prune-dead-orphans` (memory-keyed) and `--prune-dead-entity-orphans` (entity-keyed), which do NOT require `--operation` and `--mode`
 - VALID `--operation` values: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`
 - VALID `--mode` values: `codex`, `claude-code`, `opencode`, `openrouter`
 - USE `augment-bindings` to add MORE bindings to memories that are ALREADY linked; it REQUIRES `--names <a,b,c>` or `--names-file <path>` to scope the targets
@@ -262,6 +263,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 - PASS `--rest-concurrency <N>` to set the REST fan-out for `--mode openrouter`; clamp 1..=16, default 8, DISTINCT from `--llm-parallelism`
 - PASS `--list-dead` for a read-only JSON listing of every terminal `dead` item with its `error_class`, `message` and the truncation diagnostics `finish_reason`, `input_tokens` and `output_tokens` from the OpenRouter response; `--requeue-dead` moves those items back to `pending` for another pass; `--ignore-backoff` dequeues eligible items immediately, ignoring the `next_retry_at` cooldown
 - PASS `--prune-dead-orphans` to delete ONLY enrich-queue rows where `status='dead'` and `item_type='memory'` whose `item_key` (memory name) is ABSENT from the main DB; entity-keyed dead rows are UNTOUCHED; the main DB is read-only — ONLY the sidecar `.enrich-queue.sqlite` is mutated; the JSON `DeadSummary` includes a `pruned` field with the count of rows removed; NO `--operation`/`--mode`/LLM flags needed — it is a pure SQLite inspector with no singleton acquisition; FORMULA: `sqlite-graphrag enrich --prune-dead-orphans --json`; USE this BEFORE `--requeue-dead` to clear memory-orphan dead rows (memory renamed or purged AFTER enqueue, `error_class=permanent` 'not found') that `--requeue-dead` alone would only re-fail
+- PASS `--prune-dead-entity-orphans` to delete ONLY queue rows where `status='dead'` and `item_type='entity'`; mutually exclusive with `--prune-dead-orphans`; unlike the memory-keyed variant it does NOT cross-check the main DB (dead rows are already terminal failures), so RUN `enrich --operation re-embed --target entities --requeue-dead --ignore-backoff` FIRST to try recovering real entities before pruning; FORMULA: `sqlite-graphrag enrich --prune-dead-entity-orphans --json`; COMBINE with the recovery strategy: re-embed first, requeue-dead next, prune only what survives as a true orphan
 - KNOW the dead-letter queue HAS `error_class` and `next_retry_at` columns plus a terminal `dead` status: Transient failures (rate-limit, timeout, 5xx, an exhausted-internal-retry, and a not-yet-materialized entity a later pass will create) reschedule with exponential backoff bounded by `--max-attempts`, HardFailures (validation, parse) go terminal at once, and dequeue skips `dead` so the live set strictly shrinks toward convergence
 - KNOW a truncated OpenRouter completion (`finish_reason` = `length`) is NOT dead-lettered on sight: the chat path re-emits the request with a GROWN `max_tokens` budget before any JSON repair, so a length-truncated item retries with more room instead of failing identically
 - KNOW the enrich queue lives in a sidecar database `.enrich-queue.sqlite` next to the main `.sqlite`
@@ -347,7 +349,7 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 
 ## Exit Codes and Retry Strategy
 - EXIT 0 success; EXIT 1 validation error; EXIT 2 argument parsing (missing required flag); EXIT 3 optimistic lock conflict, reload and retry
-- EXIT 4 not found; EXIT 5 namespace error; EXIT 6 payload too large, the typed envelope distinguishes a body over the byte limit (reports `bytes` and `limit`) from too many chunks (reports `chunks` and `limit`), so SPLIT the body into multiple memories; EXIT 9 duplicate, use `--force-merge`
+- EXIT 4 not found; EXIT 5 namespace error; EXIT 6 payload too large, the typed envelope distinguishes THREE variants: a body over the byte limit (reports `bytes` and `limit`), too many chunks (reports `chunks` and `limit`), and a body over the embedding model's TOKEN ceiling (reports `tokens` and `limit`); SPLIT the body into multiple memories or reduce tokens; EXIT 9 duplicate, use `--force-merge`
 - EXIT 10 database error, run `vacuum` plus `health`; EXIT 11 embedding failure, check backend, dimension and OAuth
 - EXIT 13 partial batch failure, reprocess failed only; EXIT 14 I/O error; EXIT 15 database busy (also the enrich dequeue under sustained lock contention), widen `--wait-lock`
 - EXIT 16 preflight failure, fix MCP config, NEVER treat as transient
