@@ -5,6 +5,24 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.1.03] - 2026-07-07
+
+Closes the six operator-blocking bugs catalogued in `gaps.md` after the 2026-07-07 GraphRAG remediation run, plus the V8 oversized-body gate. The schema stays at version 15 (the enrich sidecar queue gains a `claimed_at` column via idempotent ALTER). Note: the official release name is v1.1.03; the crate manifest carries `version = "1.1.3"` because the SemVer parser rejects a leading zero in the patch component.
+
+### Fixed
+- Bug 1 — the enrich scan-enqueue path now batches candidate inserts in a single transaction instead of row-by-row under the WAL write lock, eliminating the apparent scan-phase deadlock that froze the 44 163-entity `re-embed --target entities` workload under stale-claim contention.
+- Bug 2 — `reclassify-relation` gains `--literal-to <RELATION>` (verbatim target write) complementing the existing `--literal-from`; the from==to guard now compares raw literals, so `--literal-from applies_to --literal-to applies-to --batch` migrates the 61 357 legacy underscore edges (`applies_to`, `depends_on`, `tracked_in`) to their canonical hyphen form.
+- Bug 3 — `merge-entities` gains `--cross-namespace` (opt-in, default same-namespace) so `--ids`/`--into-id` resolve across all namespaces, unblocking the 15 cross-namespace duplicates.
+- Bug 4 — the enrich sidecar gains a `claimed_at` column, stale `processing` claims are reset on startup, a SIGTERM handler performs graceful cleanup before exit 19, and a new `enrich --reset-stale-claims` flag manually clears stale processing claims older than the threshold — eliminating the three-layer stale-lock state left by `kill -9`.
+- Bug 6 — the `re-embed --target chunks` scanner and `count_operation_backlog` switch from `JOIN memories` to `LEFT JOIN memories` with a relaxed namespace filter, so chunks of soft-deleted mothers become visible to re-embed; `enrich --status` (`scan_backlog`) and `health` (`vec_chunks_missing`) now agree, and coverage reaches a real 100%.
+
+### Added
+- V8 — new `split-body` subcommand divides memories whose body exceeds 25 000 characters into daughter memories at chunk boundaries, marks the original `SUPERCEDIDO`, and creates `replaces` relations from each daughter to the original. Daughters are not embedded inline; run `enrich --operation re-embed --target memories` afterwards to backfill their vectors.
+
+### Docs
+- Bug 5 — the `enrich --status` help text and doc-comment now explicitly document that `scan_backlog` is the REAL pending work (candidates a scan would select), `queue_pending` is a COMPUTED COUNT (not a physical queue), `eligible_now == 0` with `queue_pending > 0` is COOLDOWN (not a deadlock), and `eligible_now > 0` stuck against `state: "draining"` is a deadlock recoverable via `--reset-stale-claims`.
+
+
 ## [1.1.02] - 2026-07-06
 
 Closes the two residual gaps tracked after v1.1.01: the deprecated `--gliner-variant` no-op argument is fully removed (clap now rejects it with exit 2), and the embedding token ceiling becomes a typed exit-6 error — `AppError::TooManyTokens { tokens, limit }` — validated at the edge before any write. The schema stays at version 15. Note: the official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` because the SemVer parser rejects a leading zero in the patch component.

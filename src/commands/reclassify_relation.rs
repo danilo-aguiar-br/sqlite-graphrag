@@ -66,9 +66,21 @@ pub struct ReclassifyRelationArgs {
     /// --from-relation.
     #[arg(long, value_name = "RELATION")]
     pub literal_from: Option<String>,
-    /// New relation type to assign. Required in both single and batch modes.
-    #[arg(long, value_parser = crate::parsers::parse_relation, value_name = "RELATION")]
-    pub to_relation: String,
+    /// New relation type to assign (normalized: hyphens become underscores at
+    /// the CLI boundary). Required in both single and batch modes unless
+    /// --literal-to is given.
+    #[arg(
+        long,
+        value_parser = crate::parsers::parse_relation,
+        value_name = "RELATION",
+        required_unless_present = "literal_to"
+    )]
+    pub to_relation: Option<String>,
+    /// v1.1.03: novo relation value to assign, matched LITERALLY (no
+    /// normalization). When present, wins over --to-relation. Allows
+    /// migrating legacy underscore relations to canonical hyphen.
+    #[arg(long, value_name = "RELATION")]
+    pub literal_to: Option<String>,
     /// Enable batch reclassification of all edges with --from-relation. Requires --from-relation and --to-relation.
     #[arg(long, default_value_t = false)]
     pub batch: bool,
@@ -118,6 +130,21 @@ impl ReclassifyRelationArgs {
             .or(self.from_relation.as_deref())
             .unwrap_or_default()
     }
+
+    /// v1.1.03: the relation value written into every UPDATE and emitted in
+    /// the response.
+    ///
+    /// `--literal-to` wins and is stored VERBATIM (no normalization), enabling
+    /// migration of legacy underscore relations to canonical hyphen (e.g.
+    /// `--literal-from applies_to --literal-to applies-to`). Otherwise the
+    /// clap-normalized `--to-relation` applies. Clap guarantees exactly one of
+    /// the two is present (`required_unless_present` on `to_relation`).
+    fn effective_to(&self) -> &str {
+        self.literal_to
+            .as_deref()
+            .or(self.to_relation.as_deref())
+            .unwrap_or_default()
+    }
 }
 
 pub fn run(args: ReclassifyRelationArgs) -> Result<(), AppError> {
@@ -129,16 +156,18 @@ pub fn run(args: ReclassifyRelationArgs) -> Result<(), AppError> {
 
     // Emit warnings for non-canonical relation values.
     crate::parsers::warn_if_non_canonical(args.effective_from());
-    crate::parsers::warn_if_non_canonical(&args.to_relation);
+    crate::parsers::warn_if_non_canonical(args.effective_to());
 
     // Reject same-value renames: nothing to do and would silently remove
-    // duplicates. The comparison uses the EFFECTIVE from value, so migrating
-    // a literal hyphenated relation onto its normalized form (e.g.
+    // duplicates. The comparison uses the EFFECTIVE from AND to values, so
+    // migrating a literal hyphenated relation onto its normalized form (e.g.
     // `--literal-from applies-to --to-relation applies_to`) is a VALID
-    // migration, not an equality.
-    if args.effective_from() == args.to_relation {
+    // migration, not an equality. Likewise `--literal-from applies_to
+    // --literal-to applies-to` migrates underscore→hyphen.
+    if args.effective_from() == args.effective_to() {
         return Err(AppError::Validation(
-            "--from-relation/--literal-from and --to-relation must be different".to_string(),
+            "--from-relation/--literal-from and --to-relation/--literal-to must be different"
+                .to_string(),
         ));
     }
 
@@ -233,7 +262,7 @@ fn run_single(
          SET relation = ?1
          WHERE source_id = ?2 AND target_id = ?3 AND relation = ?4 AND namespace = ?5",
         params![
-            args.to_relation,
+            args.effective_to(),
             source_id,
             target_id,
             args.effective_from(),
@@ -342,7 +371,7 @@ fn run_batch(
                 "UPDATE OR IGNORE relationships
                  SET relation = ?1
                  WHERE id = ?2",
-                params![args.to_relation, id],
+                params![args.effective_to(), id],
             )?;
             moved += n;
         }
@@ -352,7 +381,7 @@ fn run_batch(
             "UPDATE OR IGNORE relationships
              SET relation = ?1
              WHERE relation = ?2 AND namespace = ?3",
-            params![args.to_relation, args.effective_from(), namespace],
+            params![args.effective_to(), args.effective_from(), namespace],
         )?
     };
 
@@ -400,7 +429,7 @@ fn emit_response(
     let response = ReclassifyRelationResponse {
         action: action.to_string(),
         from_relation: args.effective_from().to_string(),
-        to_relation: args.to_relation.clone(),
+        to_relation: args.effective_to().to_string(),
         count,
         merged_duplicates,
         namespace: namespace.clone(),
@@ -412,7 +441,7 @@ fn emit_response(
         OutputFormat::Text | OutputFormat::Markdown => {
             output::emit_text(&format!(
                 "{action}: {count} edges '{}' → '{}' [{namespace}] (duplicates merged: {merged_duplicates})",
-                args.effective_from(), args.to_relation
+                args.effective_from(), args.effective_to()
             ));
         }
     }
@@ -521,7 +550,8 @@ mod tests {
             target: None,
             from_relation: None,
             literal_from: None,
-            to_relation: "applies_to".to_string(),
+            to_relation: Some("applies_to".to_string()),
+            literal_to: None,
             batch: true,
             filter_source_type: None,
             filter_target_type: None,
@@ -547,7 +577,7 @@ mod tests {
         );
 
         // Migração literal→normalizado é VÁLIDA (não é igualdade).
-        assert_ne!(args.effective_from(), args.to_relation);
+        assert_ne!(args.effective_from(), args.effective_to());
     }
 
     fn setup_migrated_db() -> (tempfile::TempDir, rusqlite::Connection) {
@@ -665,6 +695,137 @@ mod tests {
                 assert_eq!(a.literal_from.as_deref(), Some("applies-to"));
                 assert!(a.from_relation.is_none());
                 assert_eq!(a.effective_from(), "applies-to");
+            }
+            _ => unreachable!("unexpected command"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // v1.1.03: --literal-to — grava valor canonical hífen verbatim
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn literal_to_writes_hyphenated_target() {
+        let (_tmp, mut conn) = setup_migrated_db();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','ent-a','concept')",
+            [],
+        )
+        .unwrap();
+        let a = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','ent-b','concept')",
+            [],
+        )
+        .unwrap();
+        let b = conn.last_insert_rowid();
+        // Aresta legacy armazenada com underscore (61357 casos reais).
+        conn.execute(
+            "INSERT INTO relationships (namespace, source_id, target_id, relation, weight) \
+             VALUES ('global', ?1, ?2, 'applies_to', 0.5)",
+            params![a, b],
+        )
+        .unwrap();
+
+        let mut args = base_args();
+        args.from_relation = Some("applies_to".to_string());
+        args.to_relation = None;
+        args.literal_to = Some("applies-to".to_string());
+        run_batch(
+            args,
+            std::time::Instant::now(),
+            "global".to_string(),
+            &mut conn,
+        )
+        .expect("batch literal-to migration");
+
+        let migrated: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships WHERE relation = 'applies-to'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(migrated, 1, "underscore edge must become hyphenated");
+        let leftover: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships WHERE relation = 'applies_to'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftover, 0, "no underscore edge may remain");
+    }
+
+    #[test]
+    fn literal_from_applies_to_literal_to_applies_to_hyphen_migrates() {
+        // Reproduz o bug 2: --literal-from applies_to --literal-to applies-to
+        // --batch --dry-run deve retornar count > 0 (antes: erro "must be
+        // different" porque to_relation normalizava para applies_to).
+        let (_tmp, mut conn) = setup_migrated_db();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','ent-a','concept')",
+            [],
+        )
+        .unwrap();
+        let a = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','ent-b','concept')",
+            [],
+        )
+        .unwrap();
+        let b = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO relationships (namespace, source_id, target_id, relation, weight) \
+             VALUES ('global', ?1, ?2, 'applies_to', 0.5)",
+            params![a, b],
+        )
+        .unwrap();
+
+        let mut args = base_args();
+        args.from_relation = None;
+        args.literal_from = Some("applies_to".to_string());
+        args.to_relation = None;
+        args.literal_to = Some("applies-to".to_string());
+        args.dry_run = true;
+        // Migração agora passa: effective_from()="applies_to" !=
+        // effective_to()="applies-to".
+        assert_ne!(
+            args.effective_from(),
+            args.effective_to(),
+            "literal underscore→hyphen migration must NOT be treated as equality"
+        );
+        run_batch(
+            args,
+            std::time::Instant::now(),
+            "global".to_string(),
+            &mut conn,
+        )
+        .expect("dry-run must succeed and report the matched edge");
+    }
+
+    #[test]
+    fn literal_to_alone_keeps_verbatim() {
+        use clap::Parser;
+        let parsed = crate::cli::Cli::try_parse_from([
+            "sqlite-graphrag",
+            "reclassify-relation",
+            "--from-relation",
+            "mentions",
+            "--literal-to",
+            "applies-to",
+            "--batch",
+        ])
+        .expect("literal-to alone (no --to-relation) must parse");
+        match parsed.command {
+            Some(crate::cli::Commands::ReclassifyRelation(a)) => {
+                assert_eq!(a.literal_to.as_deref(), Some("applies-to"));
+                assert!(a.to_relation.is_none());
+                assert_eq!(
+                    a.effective_to(),
+                    "applies-to",
+                    "literal_to must win and stay verbatim"
+                );
             }
             _ => unreachable!("unexpected command"),
         }

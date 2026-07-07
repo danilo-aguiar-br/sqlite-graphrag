@@ -633,6 +633,8 @@ pub enum Commands {
     Purge(purge::PurgeArgs),
     /// Rename a memory preserving history
     Rename(rename::RenameArgs),
+    /// Split an oversized memory body into N child memories (v1.1.03, GAP-V8)
+    SplitBody(split_body::SplitBodyArgs),
     /// Edit a memory's body or description
     Edit(edit::EditArgs),
     /// List all versions of a memory
@@ -747,6 +749,7 @@ impl std::fmt::Debug for Commands {
             Self::Read(_) => "Read",
             Self::Edit(_) => "Edit",
             Self::Rename(_) => "Rename",
+            Self::SplitBody(_) => "SplitBody",
             Self::Restore(_) => "Restore",
             Self::History(_) => "History",
             Self::Forget(_) => "Forget",

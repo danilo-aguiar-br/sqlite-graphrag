@@ -67,6 +67,12 @@ pub struct MergeEntitiesArgs {
     pub json: bool,
     #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
     pub db: Option<String>,
+    /// v1.1.03: allow merging source entities from OTHER namespaces into the
+    /// target. Default false preserves same-namespace safety. When true, each
+    /// --ids source is resolved by its own row (no namespace filter); target
+    /// must still exist in the resolved namespace.
+    #[arg(long, default_value_t = false, hide = false)]
+    pub cross_namespace: bool,
 }
 
 #[derive(Serialize)]
@@ -83,18 +89,36 @@ struct MergeEntitiesResponse {
     elapsed_ms: u64,
 }
 
-/// v1.1.1 (P5): resolves an entity ID to its name, enforcing that the entity
-/// exists AND belongs to the namespace — IDs are global, so a bare existence
-/// check could silently cross namespaces.
+/// v1.1.1 (P5): resolves an entity ID to its name. When `enforce_namespace`
+/// is true (default behaviour, same-namespace safety), the lookup also enforces
+/// that the entity belongs to `namespace` — IDs are global, so a bare existence
+/// check could silently cross namespaces. When false (v1.1.03 cross-namespace
+/// merge), the lookup resolves the entity by its own row and returns the
+/// namespace it actually lives in, so callers can audit the cross-namespace move.
 fn find_entity_name_by_id(
     conn: &rusqlite::Connection,
     namespace: &str,
     id: i64,
-) -> Result<String, AppError> {
-    let mut stmt =
-        conn.prepare_cached("SELECT name FROM entities WHERE id = ?1 AND namespace = ?2")?;
-    match stmt.query_row(params![id, namespace], |r| r.get::<_, String>(0)) {
-        Ok(name) => Ok(name),
+    enforce_namespace: bool,
+) -> Result<(String, String), AppError> {
+    let mut stmt = if enforce_namespace {
+        conn.prepare_cached(
+            "SELECT name, namespace FROM entities WHERE id = ?1 AND namespace = ?2",
+        )?
+    } else {
+        conn.prepare_cached("SELECT name, namespace FROM entities WHERE id = ?1")?
+    };
+    let row = if enforce_namespace {
+        stmt.query_row(params![id, namespace], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+    } else {
+        stmt.query_row(params![id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+    };
+    match row {
+        Ok((name, ns_actual)) => Ok((name, ns_actual)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(format!(
             "entity id={id} not found in namespace '{namespace}'"
         ))),
@@ -122,7 +146,9 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     // Existence is validated here, BEFORE any mutation.
     let (target_id, target_name) = match args.into_id {
         Some(id) => {
-            let name = find_entity_name_by_id(&conn, &namespace, id)?;
+            // Target is always validated in the resolved namespace, even when
+            // --cross-namespace is set: cross-namespace only relaxes SOURCES.
+            let (name, _ns_actual) = find_entity_name_by_id(&conn, &namespace, id, true)?;
             (id, name)
         }
         None => {
@@ -150,7 +176,20 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
                      self-referential merge is not allowed"
                 )));
             }
-            let name = find_entity_name_by_id(&conn, &namespace, id)?;
+            // v1.1.03: when --cross-namespace is set, resolve each source by its
+            // own row (no namespace filter) and warn on the cross-namespace move.
+            // Default (false) preserves same-namespace safety.
+            let (name, ns_actual) =
+                find_entity_name_by_id(&conn, &namespace, id, !args.cross_namespace)?;
+            if args.cross_namespace && ns_actual != namespace {
+                tracing::warn!(
+                    target: "merge_entities",
+                    from_id = id,
+                    from_namespace = %ns_actual,
+                    to_namespace = %namespace,
+                    "cross-namespace merge"
+                );
+            }
             if !source_ids.contains(&id) {
                 source_ids.push(id);
                 source_names.push(name);
@@ -336,11 +375,23 @@ mod tests {
         .unwrap();
 
         // Same name in two namespaces: each ID resolves only in its own.
-        assert_eq!(find_entity_name_by_id(&conn, "ns-a", 1).unwrap(), "auth");
-        assert_eq!(find_entity_name_by_id(&conn, "ns-b", 2).unwrap(), "auth");
-        let err = find_entity_name_by_id(&conn, "ns-a", 2).unwrap_err();
+        assert_eq!(
+            find_entity_name_by_id(&conn, "ns-a", 1, true).unwrap(),
+            ("auth".to_string(), "ns-a".to_string())
+        );
+        assert_eq!(
+            find_entity_name_by_id(&conn, "ns-b", 2, true).unwrap(),
+            ("auth".to_string(), "ns-b".to_string())
+        );
+        let err = find_entity_name_by_id(&conn, "ns-a", 2, true).unwrap_err();
         assert_eq!(err.exit_code(), 4, "cross-namespace ID must be NotFound");
         assert!(err.to_string().contains("id=2"), "obtido: {err}");
+
+        // v1.1.03: with enforce_namespace=false, id=2 resolves from any
+        // namespace and reports the namespace it actually lives in.
+        let (name, ns_actual) = find_entity_name_by_id(&conn, "ns-a", 2, false).unwrap();
+        assert_eq!(name, "auth");
+        assert_eq!(ns_actual, "ns-b");
     }
 
     #[test]
@@ -354,7 +405,7 @@ mod tests {
             );",
         )
         .unwrap();
-        let err = find_entity_name_by_id(&conn, "global", 99).unwrap_err();
+        let err = find_entity_name_by_id(&conn, "global", 99, true).unwrap_err();
         assert_eq!(err.exit_code(), 4);
     }
 
@@ -493,5 +544,165 @@ mod tests {
         assert_eq!(json["entities_removed"], 3);
         let sources = json["sources"].as_array().unwrap();
         assert_eq!(sources.len(), 3);
+    }
+
+    // v1.1.03: integration setup — a fully migrated DB on disk so run() can
+    // open it via AppPaths + open_rw. Returns the tempdir (kept alive for the
+    // test lifetime), the seeded connection, and the DB file path.
+    fn setup_migrated_db_on_disk() -> (tempfile::TempDir, rusqlite::Connection, std::path::PathBuf)
+    {
+        crate::storage::connection::register_vec_extension();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("test.db");
+        let mut conn = rusqlite::Connection::open(&db_path).expect("open");
+        crate::migrations::runner().run(&mut conn).expect("migrate");
+        (tmp, conn, db_path)
+    }
+
+    // v1.1.03 (Bug 3): --cross-namespace allows merging a source that lives in
+    // a DIFFERENT namespace into the target. Relationships are retargeted and
+    // the source row is deleted from its origin namespace.
+    #[test]
+    fn cross_namespace_merges_source_from_other_namespace() {
+        let (_tmp, conn, db_path) = setup_migrated_db_on_disk();
+        // Target lives in "global".
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','tgt','concept')",
+            [],
+        )
+        .unwrap();
+        let tgt_id = conn.last_insert_rowid();
+        // Source lives in "ai-sdd" — a homonym in a different namespace.
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('ai-sdd','dup-src','concept')",
+            [],
+        )
+        .unwrap();
+        let src_id = conn.last_insert_rowid();
+        // A third entity in "global" that the source points to, so the
+        // retarget produces an observable relationship_moved > 0.
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','third','concept')",
+            [],
+        )
+        .unwrap();
+        let third_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO relationships (namespace, source_id, target_id, relation, weight) \
+             VALUES ('ai-sdd', ?1, ?2, 'related', 0.5)",
+            params![src_id, third_id],
+        )
+        .unwrap();
+        // Drop the seeding connection so run() can open the DB exclusively.
+        drop(conn);
+
+        let args = MergeEntitiesArgs {
+            names: vec![],
+            ids: vec![src_id],
+            into: None,
+            into_id: Some(tgt_id),
+            namespace: Some("global".to_string()),
+            format: OutputFormat::Json,
+            json: false,
+            db: Some(db_path.to_string_lossy().into_owned()),
+            cross_namespace: true,
+        };
+        run(args).expect("cross-namespace merge must succeed");
+
+        // Reopen and verify: source deleted, relationship retargeted to target.
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let src_remaining: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM entities WHERE id = ?1",
+                params![src_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(src_remaining, 0, "cross-namespace source must be deleted");
+        let moved: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships WHERE source_id = ?1 AND target_id = ?2",
+                params![tgt_id, third_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            moved > 0,
+            "relationship must be retargeted to the target entity"
+        );
+    }
+
+    // v1.1.03 (Bug 3): without --cross-namespace, a source ID from another
+    // namespace is rejected with NotFound — preserves the same-namespace safety
+    // (non-regression of the v1.1.1 P5 behaviour).
+    #[test]
+    fn cross_namespace_default_false_rejects_cross_id() {
+        let (_tmp, conn, db_path) = setup_migrated_db_on_disk();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','tgt','concept')",
+            [],
+        )
+        .unwrap();
+        let tgt_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('ai-sdd','dup-src','concept')",
+            [],
+        )
+        .unwrap();
+        let src_id = conn.last_insert_rowid();
+        drop(conn);
+
+        let args = MergeEntitiesArgs {
+            names: vec![],
+            ids: vec![src_id],
+            into: None,
+            into_id: Some(tgt_id),
+            namespace: Some("global".to_string()),
+            format: OutputFormat::Json,
+            json: false,
+            db: Some(db_path.to_string_lossy().into_owned()),
+            cross_namespace: false,
+        };
+        let err = run(args).expect_err("default must reject cross-namespace ID");
+        assert_eq!(err.exit_code(), 4, "cross-namespace ID must be NotFound");
+    }
+
+    // v1.1.03 (Bug 3): even with --cross-namespace, the TARGET must still exist
+    // in the resolved namespace — cross-namespace only relaxes SOURCES.
+    #[test]
+    fn cross_namespace_target_must_still_be_in_resolved_namespace() {
+        let (_tmp, conn, db_path) = setup_migrated_db_on_disk();
+        // Target lives in "ai-sdd", but we will resolve namespace to "global".
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('ai-sdd','tgt','concept')",
+            [],
+        )
+        .unwrap();
+        let tgt_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','src','concept')",
+            [],
+        )
+        .unwrap();
+        let src_id = conn.last_insert_rowid();
+        drop(conn);
+
+        let args = MergeEntitiesArgs {
+            names: vec![],
+            ids: vec![src_id],
+            into: None,
+            into_id: Some(tgt_id),
+            namespace: Some("global".to_string()),
+            format: OutputFormat::Json,
+            json: false,
+            db: Some(db_path.to_string_lossy().into_owned()),
+            cross_namespace: true,
+        };
+        let err = run(args).expect_err("target in wrong namespace must fail");
+        assert_eq!(
+            err.exit_code(),
+            4,
+            "target must still be NotFound in the resolved namespace"
+        );
     }
 }

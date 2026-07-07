@@ -461,6 +461,7 @@ fn main() -> std::process::ExitCode {
             sqlite_graphrag::cli::Commands::Forget(args) => commands::forget::run(args),
             sqlite_graphrag::cli::Commands::Purge(args) => commands::purge::run(args),
             sqlite_graphrag::cli::Commands::Rename(args) => commands::rename::run(args),
+            sqlite_graphrag::cli::Commands::SplitBody(args) => commands::split_body::run(args),
             sqlite_graphrag::cli::Commands::Health(args) => commands::health::run(args),
             sqlite_graphrag::cli::Commands::Migrate(args) => commands::migrate::run(args),
             sqlite_graphrag::cli::Commands::NamespaceDetect(args) => {

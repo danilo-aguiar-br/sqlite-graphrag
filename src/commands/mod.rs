@@ -50,6 +50,7 @@ pub mod rename;
 pub mod rename_entity;
 pub mod restore;
 pub mod slots;
+pub mod split_body;
 pub mod stats;
 pub mod sync_safe_copy;
 pub mod unlink;

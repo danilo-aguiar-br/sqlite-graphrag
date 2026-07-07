@@ -2104,6 +2104,8 @@ pub fn run(
             json: false,
             resume: false,
             retry_failed: false,
+            reset_stale_claims: false,
+            stale_claim_secs: 1800,
             max_cost_usd: args.max_cost_usd,
             llm_parallelism: args.llm_parallelism as u32,
             wait_job_singleton: args.wait_job_singleton,

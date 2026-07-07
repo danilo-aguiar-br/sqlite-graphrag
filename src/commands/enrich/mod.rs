@@ -38,9 +38,9 @@ use postprocess::{
 };
 pub use queue::{cleanup_queue_entry, DeadItem, DeadSummary, EnrichStatus, WaitingItem};
 use queue::{
-    dequeue_next_pending, enqueue_candidate, item_type_for, item_type_for_key, open_queue_db,
-    prune_dead_entity_orphans, prune_dead_orphans, record_item_failure, record_item_failure_typed,
-    skipped_item_keys, DequeueOutcome,
+    dequeue_next_pending, enqueue_candidate, heartbeat, item_type_for, item_type_for_key,
+    open_queue_db, prune_dead_entity_orphans, prune_dead_orphans, record_item_failure,
+    record_item_failure_typed, reset_stale_processing_claims, skipped_item_keys, DequeueOutcome,
 };
 use scan::{
     count_operation_backlog, scan_isolated_entity_pairs, scan_operation, scan_unbound_memories,
@@ -572,6 +572,17 @@ pub struct EnrichArgs {
     #[arg(long)]
     pub retry_failed: bool,
 
+    /// v1.1.2 (Bug 4): reset `processing` rows whose `claimed_at` is older than
+    /// `--stale-claim-secs` (default 1800s = 30 min) back to `pending`, then exit.
+    /// Recover rows orphaned by a kill -9 mid-enrich without a full re-scan.
+    #[arg(long)]
+    pub reset_stale_claims: bool,
+
+    /// v1.1.2 (Bug 4): age threshold (seconds) for `--reset-stale-claims` and
+    /// the run-startup stale sweep. Default 1800 (30 min).
+    #[arg(long, value_name = "SECONDS", default_value_t = 1800)]
+    pub stale_claim_secs: u64,
+
     /// GAP-ENRICH-BACKLOG-CONVERGE: loop scan→drain internally until the queue
     /// empties of eligible items or --max-runtime elapses; removes the need for
     /// an external bash retry loop.
@@ -599,6 +610,17 @@ pub struct EnrichArgs {
 
     /// GAP-ENRICH-BACKLOG-CONVERGE: read-only mode — report queue and backlog
     /// counts without calling the LLM or acquiring the singleton.
+    ///
+    /// Field semantics (v1.1.03 clarification):
+    /// - `scan_backlog` = candidates a fresh scan WOULD select from the database
+    ///   (REAL pending work, same WHERE predicate as the scanners).
+    /// - `queue_pending` = a COMPUTED COUNT over the sidecar queue, NOT a physical
+    ///   queue of rows to process — it stays non-zero even after a clean drain.
+    /// - `eligible_now == 0` WITH `queue_pending > 0` means COOLDOWN (rate-limit
+    ///   backoff), NOT a deadlock: items are parked on `next_retry_at`.
+    /// - `eligible_now > 0` stuck against `state: "draining"` IS a deadlock —
+    ///   stale `processing` claims hold the state. Run `--reset-stale-claims`
+    ///   to clear processing claims older than the threshold.
     #[arg(long)]
     pub status: bool,
 
@@ -1537,6 +1559,31 @@ pub fn run(
         return Ok(());
     }
 
+    // v1.1.2 (Bug 4): standalone recovery path — reset stale `processing` claims
+    // left behind by a kill -9, then exit. No scan, no LLM, no singleton: the
+    // operator runs this after a crash to unblock the queue before re-running
+    // enrich. Emits a JSON envelope mirroring the other maintenance paths.
+    if args.reset_stale_claims {
+        let paths = AppPaths::resolve(args.db.as_deref())?;
+        ensure_db_ready(&paths)?;
+        let queue_path = crate::paths::sidecar_path(&paths.db, ".enrich-queue.sqlite");
+        let queue_conn = open_queue_db(&queue_path)?;
+        let reset = reset_stale_processing_claims(&queue_conn, args.stale_claim_secs)?;
+        let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        tracing::info!(
+            target: "enrich",
+            reset,
+            max_age_secs = args.stale_claim_secs,
+            "reset stale processing claims"
+        );
+        emit_json(&serde_json::json!({
+            "reset_stale_claims": true,
+            "reset": reset,
+            "max_age_secs": args.stale_claim_secs,
+        }));
+        return Ok(());
+    }
+
     // v1.0.95 (ADR-0054): when the JUDGE is OpenRouter the model is mandatory
     // (no default) and the API key must resolve BEFORE any network or DB work.
     // The chat client singleton is initialised here so every per-item dispatch
@@ -1778,9 +1825,27 @@ pub fn run(
 
     // All operations in this enum have an execution path.
 
-    // Queue setup for resume/retry (GAP-SG-64: sidecar alongside --db)
+    // Queue setup for resume/retry (GAP-SG-64: sidecar alongside --db).
+    // v1.1.2 (Bug 4): `mut` is required because the enqueue batch (D5) opens a
+    // transaction on this connection.
     let queue_path = crate::paths::sidecar_path(&paths.db, ".enrich-queue.sqlite");
-    let queue_conn = open_queue_db(&queue_path)?;
+    let mut queue_conn = open_queue_db(&queue_path)?;
+
+    // v1.1.2 (Bug 4): sweep stale `processing` claims left by a previous kill -9
+    // BEFORE the singleton/drain starts, on EVERY run (not only --resume). A row
+    // orphaned mid-LLM-call never clears its claimed_at, so without this sweep the
+    // next run would never re-select it and the backlog would silently shrink.
+    {
+        let stale_reset = reset_stale_processing_claims(&queue_conn, args.stale_claim_secs)?;
+        if stale_reset > 0 {
+            tracing::info!(
+                target: "enrich",
+                count = stale_reset,
+                max_age_secs = args.stale_claim_secs,
+                "reset stale processing claims (older than threshold)"
+            );
+        }
+    }
 
     if args.resume {
         let reset = queue_conn
@@ -1811,14 +1876,25 @@ pub fn run(
     }
 
     // Populate queue (GAP-SG-12: tag rows with the operation + link memory_id).
+    // v1.1.2 (Bug 4, D5): batch every INSERT in a single transaction so hundreds
+    // of candidates commit with one fsync instead of one-per-statement. The
+    // memory_id resolution SELECT runs against the main DB (read-only here) and
+    // stays outside the queue transaction.
     let op_label = format!("{:?}", args.operation());
     let item_type = item_type_for(&args.operation());
-    for key in scan_result.iter() {
-        // v1.1.1 (P2): re-embed keys may be prefixed (`entity:` / `chunk:`);
-        // derive the row item_type from the key so prune-dead-orphans never
-        // mistakes an entity/chunk row for an orphaned memory.
-        let it = item_type_for_key(key, item_type);
-        enqueue_candidate(&queue_conn, &conn, &namespace, key, it, &op_label);
+    {
+        let tx = queue_conn.transaction()?;
+        // v1.1.2 (Bug 4): `Transaction` derefs to `Connection`, so `&*tx` yields
+        // the `&Connection` the existing enqueue_candidate signature expects.
+        let tx_conn: &Connection = &tx;
+        for key in scan_result.iter() {
+            // v1.1.1 (P2): re-embed keys may be prefixed (`entity:` / `chunk:`);
+            // derive the row item_type from the key so prune-dead-orphans never
+            // mistakes an entity/chunk row for an orphaned memory.
+            let it = item_type_for_key(key, item_type);
+            enqueue_candidate(tx_conn, &conn, &namespace, key, it, &op_label);
+        }
+        tx.commit()?;
     }
 
     // G19: parallel LLM processing via std::thread::scope when parallelism > 1.
@@ -1960,9 +2036,15 @@ pub fn run(
                     rescan.retain(|k| !vetoed.contains(k));
                 }
             }
-            for key in &rescan {
-                let it = item_type_for_key(key, item_type);
-                enqueue_candidate(&queue_conn, &conn, &namespace, key, it, &op_label);
+            // v1.1.2 (Bug 4, D5): batch the re-scan INSERTs in one transaction.
+            {
+                let tx = queue_conn.transaction()?;
+                let tx_conn: &Connection = &tx;
+                for key in &rescan {
+                    let it = item_type_for_key(key, item_type);
+                    enqueue_candidate(tx_conn, &conn, &namespace, key, it, &op_label);
+                }
+                tx.commit()?;
             }
         }
         let completed_before = completed;
@@ -2083,6 +2165,11 @@ pub fn run(
                                 Some(p) => p,
                                 None => break,
                             };
+                            // v1.1.2 (Bug 4): refresh claimed_at so a slow LLM
+                            // call is not mistaken for a stale claim by a
+                            // concurrent startup sweep. The dequeue already set
+                            // it; this bumps it right before the long call.
+                            let _ = heartbeat(&w_queue, queue_id);
                             let item_started = Instant::now();
                             let current_index = w_completed + w_failed + w_skipped;
 
@@ -2311,6 +2398,10 @@ pub fn run(
                     Some(p) => p,
                     None => break,
                 };
+
+                // v1.1.2 (Bug 4): refresh claimed_at before the long LLM call so
+                // a startup sweep does not reclaim this row mid-processing.
+                let _ = heartbeat(&queue_conn, queue_id);
 
                 let item_started = Instant::now();
                 let current_index = completed + failed + skipped;
@@ -2702,6 +2793,28 @@ pub fn run(
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     } // end until-empty loop
+
+    // v1.1.2 (Bug 4 / Omissão 3): SIGTERM graceful cleanup. When a shutdown was
+    // requested mid-drain (the worker/serial loops already broke out), reset the
+    // in-flight `processing` claims back to `pending` so the NEXT run re-selects
+    // them — without this a kill recycles the rows via the startup stale-claim
+    // sweep (which waits `stale_claim_secs`), delaying recovery. Scoped to the
+    // enrich run (not the global signal handler) so unrelated code paths keep
+    // their existing exit semantics. Best-effort: errors are logged, not fatal.
+    if crate::shutdown_requested() {
+        let reset = queue_conn
+            .execute(
+                "UPDATE queue SET status='pending', claimed_at=NULL WHERE status='processing'",
+                [],
+            )
+            .unwrap_or(0);
+        let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        tracing::info!(
+            target: "enrich",
+            reset,
+            "graceful shutdown: WAL checkpointed, processing claims reset"
+        );
+    }
 
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");

@@ -518,9 +518,8 @@ pub(super) fn scan_chunks_missing_embeddings(
         let sql = format!(
             "SELECT c.id
              FROM memory_chunks c
-             JOIN memories m ON m.id = c.memory_id
-             WHERE m.namespace = ?1
-               AND m.deleted_at IS NULL
+             LEFT JOIN memories m ON m.id = c.memory_id
+             WHERE (m.namespace = ?1 OR m.id IS NULL)
                AND {predicate}
              ORDER BY c.id
              {limit_clause}"
@@ -538,10 +537,9 @@ pub(super) fn scan_chunks_missing_embeddings(
         let sql = format!(
             "SELECT c.id
              FROM memory_chunks c
-             JOIN memories m ON m.id = c.memory_id
-             WHERE m.namespace = ?1
-               AND m.deleted_at IS NULL
-               AND m.name IN ({in_clause})
+             LEFT JOIN memories m ON m.id = c.memory_id
+             WHERE (m.namespace = ?1 OR m.id IS NULL)
+               AND (m.name IN ({in_clause}) OR m.id IS NULL)
                AND {predicate}
              ORDER BY c.id
              {limit_clause}"
@@ -886,8 +884,8 @@ pub(super) fn count_operation_backlog(
             if matches!(reembed_target, ReEmbedTarget::Chunks | ReEmbedTarget::All) {
                 let sql = format!(
                     "SELECT COUNT(*) FROM memory_chunks c \
-                     JOIN memories m ON m.id = c.memory_id \
-                     WHERE m.namespace = ?1 AND m.deleted_at IS NULL \
+                     LEFT JOIN memories m ON m.id = c.memory_id \
+                     WHERE (m.namespace = ?1 OR m.id IS NULL) \
                      AND {}",
                     reembed_chunk_predicate(dim)
                 );
@@ -1648,5 +1646,61 @@ mod tests {
         )
         .unwrap();
         assert_eq!(n_all, n_mem + n_ent + n_chunk, "all = soma dos três alvos");
+    }
+
+    // Bug 6: chunks whose parent memory was soft-deleted stay invisible to
+    // re-embed under the old INNER JOIN + `m.deleted_at IS NULL` filter.
+    // LEFT JOIN + `(m.namespace = ?1 OR m.id IS NULL)` must surface them.
+    #[test]
+    fn scan_chunks_of_soft_deleted_memory_are_selected() {
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO memories (namespace, name, body, deleted_at) \
+             VALUES ('global', 'gone-mem', 'b', 1700000000)",
+            [],
+        )
+        .unwrap();
+        let mem_id: i64 = conn
+            .query_row("SELECT id FROM memories WHERE name='gone-mem'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let orphan_chunk = insert_chunk_row(&conn, mem_id, 0);
+
+        let ids = scan_chunks_missing_embeddings(&conn, "global", None, &[]).unwrap();
+        assert!(
+            ids.contains(&orphan_chunk),
+            "orphan chunk of soft-deleted memory must be selected for re-embed"
+        );
+    }
+
+    #[test]
+    fn count_backlog_includes_orphan_chunks() {
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO memories (namespace, name, body, deleted_at) \
+             VALUES ('global', 'gone-mem', 'b', 1700000000)",
+            [],
+        )
+        .unwrap();
+        let mem_id: i64 = conn
+            .query_row("SELECT id FROM memories WHERE name='gone-mem'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let orphan_chunk = insert_chunk_row(&conn, mem_id, 0);
+
+        let n = count_operation_backlog(
+            &conn,
+            &EnrichOperation::ReEmbed,
+            "global",
+            ReEmbedTarget::Chunks,
+        )
+        .unwrap();
+        assert!(
+            n >= 1,
+            "orphan chunk of soft-deleted memory must be counted in backlog"
+        );
+        let _ = orphan_chunk;
     }
 }

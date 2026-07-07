@@ -62,6 +62,11 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
     let mut has_finish_reason = false;
     let mut has_input_tokens = false;
     let mut has_output_tokens = false;
+    // v1.1.2 (Bug 4): `claimed_at` carries the unixepoch timestamp of the last
+    // dequeue claim. `--reset-stale-claims` and the run-startup sweep use it to
+    // reset rows stuck in `processing` after a kill -9 (the schema predates this
+    // column, so migrate idempotently like the other dead-letter columns).
+    let mut has_claimed_at = false;
     {
         let mut stmt = conn.prepare("PRAGMA table_info(queue)")?;
         let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
@@ -73,6 +78,7 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
                 "finish_reason" => has_finish_reason = true,
                 "input_tokens" => has_input_tokens = true,
                 "output_tokens" => has_output_tokens = true,
+                "claimed_at" => has_claimed_at = true,
                 _ => {}
             }
         }
@@ -95,6 +101,9 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
     if !has_output_tokens {
         conn.execute_batch("ALTER TABLE queue ADD COLUMN output_tokens INTEGER")?;
     }
+    if !has_claimed_at {
+        conn.execute_batch("ALTER TABLE queue ADD COLUMN claimed_at INTEGER")?;
+    }
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_enrich_queue_eligible ON queue(status, next_retry_at);
          CREATE INDEX IF NOT EXISTS idx_enrich_queue_operation ON queue(operation, status);
@@ -110,6 +119,10 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
 /// keyed operations leave `memory_id` NULL (the `item_key` carries the link).
 /// `INSERT OR IGNORE` preserves the v1.0.96 invariant that a dead-letter row is
 /// never resurrected by re-enqueue (item_key is UNIQUE).
+///
+/// v1.1.2 (Bug 4, D5): batch callers wrap a `queue_conn.transaction()` and pass
+/// `&tx` here (`Transaction` derefs to `Connection`), so hundreds of candidates
+/// commit in a single fsync instead of one-per-statement.
 pub(super) fn enqueue_candidate(
     queue_conn: &Connection,
     main_conn: &Connection,
@@ -136,6 +149,35 @@ pub(super) fn enqueue_candidate(
     ) {
         tracing::warn!(target: "enrich", error = %e, "queue insert failed");
     }
+}
+
+/// v1.1.2 (Bug 4): reset `processing` rows whose `claimed_at` is older than
+/// `max_age_secs`. A row stuck in `processing` after a kill -9 never clears its
+/// claim (no heartbeat, no done_at), so a subsequent run never re-selects it and
+/// the backlog appears permanently drained. Returns the number of rows reset to
+/// `pending`.
+pub fn reset_stale_processing_claims(
+    conn: &Connection,
+    max_age_secs: u64,
+) -> Result<usize, AppError> {
+    let reset = conn.execute(
+        "UPDATE queue SET status='pending', claimed_at=NULL \
+         WHERE status='processing' AND claimed_at IS NOT NULL \
+         AND CAST(strftime('%s','now') AS INTEGER) - claimed_at > ?1",
+        rusqlite::params![max_age_secs as i64],
+    )?;
+    Ok(reset)
+}
+
+/// v1.1.2 (Bug 4): refresh `claimed_at` on the currently-processed row so a slow
+/// LLM call (body-enrich can take 60s+) is not mistaken for a stale claim by a
+/// concurrent sweep. Called by the worker loop right after the dequeue claim.
+pub fn heartbeat(conn: &Connection, queue_id: i64) -> Result<(), AppError> {
+    conn.execute(
+        "UPDATE queue SET claimed_at = CAST(strftime('%s','now') AS INTEGER) WHERE id = ?1",
+        rusqlite::params![queue_id],
+    )?;
+    Ok(())
 }
 
 /// GAP-SG-69: item_keys vetoed `status='skipped'` for an operation. The
@@ -550,7 +592,8 @@ pub(super) fn dequeue_next_pending(
     backoff_clause: &str,
 ) -> Result<DequeueOutcome, AppError> {
     let dequeue_sql = format!(
-        "UPDATE queue SET status='processing', attempt=attempt+1 \
+        "UPDATE queue SET status='processing', attempt=attempt+1, \
+         claimed_at=CAST(strftime('%s','now') AS INTEGER) \
          WHERE id = (SELECT id FROM queue WHERE status='pending' {backoff_clause} \
                      ORDER BY id LIMIT 1) \
          RETURNING id, item_key, item_type, attempt"
@@ -1302,6 +1345,128 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(remaining, vec!["entity:bar", "mem-dead"]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // v1.1.2 (Bug 4): a `processing` row whose claimed_at is older than the
+    // threshold is reset to `pending` so a kill -9 does not strand it forever.
+    #[test]
+    fn stale_processing_claim_is_reset_after_threshold() {
+        let (conn, path) = open_temp_queue();
+        let id = insert_pending(&conn, "mem-stale");
+        // Simulate a claim taken long ago (2 hours back).
+        conn.execute(
+            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) - 7200 WHERE id=?1",
+            rusqlite::params![id],
+        )
+        .unwrap();
+        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
+        assert_eq!(reset, 1, "a stale claim older than the threshold is reset");
+        let (status, claimed_at): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT status, claimed_at FROM queue WHERE id=?1",
+                rusqlite::params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status, "pending");
+        assert!(claimed_at.is_none(), "claimed_at must be cleared on reset");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // v1.1.2 (Bug 4): a fresh claim (within the threshold) is preserved so an
+    // in-flight worker is not preempted by the sweep.
+    #[test]
+    fn fresh_processing_claim_is_preserved() {
+        let (conn, path) = open_temp_queue();
+        let id = insert_pending(&conn, "mem-fresh");
+        // Claim taken now.
+        conn.execute(
+            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) WHERE id=?1",
+            rusqlite::params![id],
+        )
+        .unwrap();
+        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
+        assert_eq!(reset, 0, "a fresh claim must not be reset");
+        let status: String = conn
+            .query_row(
+                "SELECT status FROM queue WHERE id=?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "processing");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // v1.1.2 (Bug 4, D5): enqueuing N candidates inside one transaction makes
+    // the batch atomic — a second connection sees NONE of them before commit and
+    // ALL of them after. (Within the same connection SQLite always shows
+    // read-your-own-writes, so atomicity is observed cross-connection.)
+    #[test]
+    fn enqueue_batch_is_atomic() {
+        let main = open_test_db();
+        main.execute(
+            "INSERT INTO memories (namespace, name, body) VALUES ('global', 'm1', 'b'), ('global', 'm2', 'b'), ('global', 'm3', 'b')",
+            [],
+        )
+        .unwrap();
+        let (mut queue, path) = open_temp_queue();
+        // Independent reader on the same sidecar file: sees only committed rows.
+        let reader = Connection::open(&path).unwrap();
+
+        let tx = queue.transaction().unwrap();
+        let tx_conn: &Connection = &tx;
+        for key in ["m1", "m2", "m3"] {
+            enqueue_candidate(tx_conn, &main, "global", key, "memory", "MemoryBindings");
+        }
+        // A second connection sees nothing until commit.
+        let before: i64 = reader
+            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(before, 0, "rows must not be visible before commit");
+        tx.commit().unwrap();
+
+        let after: i64 = reader
+            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(after, 3, "all three rows are visible after commit");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // v1.1.2 (Bug 4): heartbeat refreshes claimed_at so a slow LLM call is not
+    // mistaken for a stale claim.
+    #[test]
+    fn heartbeat_updates_claimed_at() {
+        let (conn, path) = open_temp_queue();
+        let id = insert_pending(&conn, "mem-heartbeat");
+        // Stale claim taken 2 hours ago.
+        conn.execute(
+            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) - 7200 WHERE id=?1",
+            rusqlite::params![id],
+        )
+        .unwrap();
+        heartbeat(&conn, id).unwrap();
+        let claimed_at: Option<i64> = conn
+            .query_row(
+                "SELECT claimed_at FROM queue WHERE id=?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let claimed_at = claimed_at.expect("claimed_at must be set after heartbeat");
+        let now: i64 = conn
+            .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert!(
+            now - claimed_at <= 5,
+            "claimed_at must be within 5s of now after heartbeat"
+        );
+        // And the row is no longer stale under a 1800s threshold.
+        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
+        assert_eq!(reset, 0, "fresh claim survives the sweep after heartbeat");
         let _ = std::fs::remove_file(&path);
     }
 }
