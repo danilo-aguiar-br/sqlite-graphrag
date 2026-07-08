@@ -1,6 +1,34 @@
-# MIGRATING TO v1.1.03 — Enrich Atomic Batch, Literal Relation Migration, Cross-Namespace Merge, Stale Claim Recovery, Chunk Orphan Re-Embed, split-body
+# MIGRATING TO v1.1.04 — deep-research Nested-Runtime Fix, entity-connect Convergence, entity_connect_seen Migration
 
-> This guide covers upgrading from v1.1.01 to v1.1.02. No migration runs on the main database; the schema remains at v15 — `migrate` is NOT required. The official release name is v1.1.02; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01) are preserved as historical sections below.
+> This guide covers upgrading from v1.1.03 to v1.1.04. A numbered database migration (V016) runs on the main database — `migrate --json` is REQUIRED on first open. The schema advances from v15 to v16. The official release name is v1.1.04; `Cargo.toml` carries `1.1.4` because SemVer rejects a leading zero in the patch segment. Binary ~16 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) are preserved as historical sections below.
+
+## v1.1.04 — deep-research Nested-Runtime Fix, entity-connect Convergence, entity_connect_seen Migration
+
+> Upgrade from v1.1.03. The main database schema ADVANCES from v15 to v16 — `migrate --json` is REQUIRED (it applies V016, the `entity_connect_seen` table). The official release name is v1.1.04; `Cargo.toml` carries `1.1.4`. Binary ~16 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+
+### What changed
+
+- GAP-001 (Fixed): `deep-research` no longer panics with "Cannot start a runtime from within a runtime". The sync entry point `deep_research::run` now computes per-sub-query embeddings BEFORE building its dedicated Tokio runtime via the new `compute_sub_embeddings` helper, and the three OpenRouter embedding paths in `embedder.rs` (single, serial batch, JoinSet fan-out) adopt the canonical `Handle::try_current` + `block_in_place` reentry pattern already used by the batch path. `ingest_opencode` is also guarded. No behavioural change for `recall`/`hybrid-search` (they were never affected because they never created their own runtime).
+- GAP-002 (Fixed): `entity-connect` now converges. A new `entity_connect_seen` table (V016) records the LLM verdict (`related`/`none`) for each evaluated pair; the `scan_isolated_entity_pairs` scanner excludes already-evaluated pairs and prioritises hub entities (those with the most NER bindings); `count_operation_backlog` reports a real O(n) backlog proxy (degree-0 entities with NER bindings) instead of a hard-coded zero; and `call_entity_connect` persists the verdict on both the `related` and `none` branches. `--until-empty` now reaches `eligible_remaining == 0` instead of re-evaluating the same rejected pairs forever.
+
+### Migration V016 — `entity_connect_seen`
+
+- `migrate --json` applies V016 automatically on first open after the upgrade. The new table:
+  - `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)`
+  - Composite primary key `(source_id, target_id)`
+  - Dual `ON DELETE CASCADE` foreign keys to `entities(id)` — deleting an entity cleans its seen pairs automatically
+  - `verdict TEXT NOT NULL CHECK(verdict IN ('related','none'))`
+  - `evaluated_at INTEGER NOT NULL DEFAULT (unixepoch())`
+  - Index `idx_entity_connect_seen_ns` on `namespace`
+- `CURRENT_SCHEMA_VERSION` advances from 15 to 16. Verify with `sqlite-graphrag health --json` (expect `schema_version >= 16`, `integrity_ok: true`).
+- No data backfill — the table starts empty and fills as `entity-connect` evaluates pairs.
+
+### Post-upgrade actions
+
+- Run `sqlite-graphrag migrate --json` once (or just open the DB — it auto-applies).
+- Run `sqlite-graphrag health --json` to confirm `schema_version >= 16`.
+- (Optional) run `enrich --operation entity-connect --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 300 --json` to start populating `entity_connect_seen` and connecting the previously-isolated degree-0 entities.
+
 
 ## v1.1.03 — Enrich Atomic Batch, Literal Relation Migration, Cross-Namespace Merge, Stale Claim Recovery, Chunk Orphan Re-Embed, split-body
 

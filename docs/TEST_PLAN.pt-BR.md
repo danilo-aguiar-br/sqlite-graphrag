@@ -110,6 +110,34 @@ O plano de teste do Split do Backend Claude (ADR-0042) e o plano de teste da Rem
 ### Gate
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99.
 
+## Plano de Teste v1.1.04 — Correção de Runtime Aninhado do deep-research + Convergência do entity-connect + Migração V016 (ADR-0064)
+
+- Nome oficial de release v1.1.04; `Cargo.toml` é `1.1.4`; binário ~19 MiB; User-Agent `sqlite-graphrag/1.1.4`. Migração de banco OBRIGATÓRIA (V016).
+- Schema avança v15 → v16 via migração V016 (tabela `entity_connect_seen`).
+
+### GAP-001 — pânico de runtime Tokio aninhado no deep-research
+
+- Reprodução (pré-correção entrava em pânico): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 deep-research "<query>" --k 5 --max-hops 2 --json` deve emitir um envelope JSON estruturado (sucesso OU erro estruturado), NUNCA um pânico.
+- Teste de regressão `tests/deep_research_nested_runtime_regression.rs`: invoca `deep_research::run` dentro de um runtime Tokio ativo; afirma `Ok`/`Err` estruturado, não pânico.
+- Valida o helper `compute_sub_embeddings` (embeddings computados ANTES da construção do T1) e o padrão `Handle::try_current()` + `block_in_place(|| handle.block_on(fut))` nos três caminhos OpenRouter de `embedder.rs`.
+
+### GAP-002 — convergência do entity-connect
+
+- `enrich --operation entity-connect --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json` deve reportar `scan_backlog > 0` (antes era sempre 0 antes da v1.1.04).
+- `enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json` deve convergir: `eligible_remaining` decai para 0; pares aparecem em `entity_connect_seen` com veredito `related` ou `none`; re-scans pulam pares avaliados.
+- `graph stats --json` mostra novas arestas após a convergência.
+- Testes de regressão: `count_operation_backlog_entity_connect_counts_isolated` (entidade de grau 0 COM binding NER conta; sem binding não conta); `scan_isolated_entity_pairs_excludes_seen` (par em `entity_connect_seen` não é retornado).
+- O teste `count_operation_backlog_advisory_ops_report_zero` exclui `EntityConnect` (agora tem predicado real de backlog).
+
+### Migração V016
+
+- `migrate --dry-run --json` lista V016; `migrate --json` aplica; `health --json` reporta `schema_version >= 16` e `integrity_ok: true`.
+- `schema_version_matches_migrations_count` passa com V016 presente e `CURRENT_SCHEMA_VERSION = 16`.
+
+### Totais da Suíte
+
+- ~1072 testes lib passando (ante ~1070 na v1.1.03 — dois novos testes de regressão). `cargo nextest -P ci` para a contagem ao vivo.
+
 ## Plano de Teste v1.1.03 — Enqueue Atômico do Enrich + Migração Literal de Relação + Merge Cross-Namespace + Recuperação de Stale Claim + Re-Embed de Chunk Órfão + split-body
 
 ### Camada 1 (unit) — adições

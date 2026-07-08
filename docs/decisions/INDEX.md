@@ -65,6 +65,7 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 | [ADR-0061](adr-0061-v1101-twelve-priority-roadmap-closure.md) | v1.1.01 — Twelve-Priority Roadmap Closure (gaps.md Limitations 1–15) | v1.1.01 | Accepted | [PT-BR](adr-0061-v1101-twelve-priority-roadmap-closure.pt-BR.md) |
 | [ADR-0062](adr-0062-v1-1-02-gap-closure.md) | v1.1.02 — Two Residual Gaps Closed (GLiNER Removal, TooManyTokens Typed) + Entity Orphan Prune + Re-Embed Regression Test | v1.1.02 | Accepted | [PT-BR](adr-0062-v1-1-02-gap-closure.pt-BR.md) |
 | [ADR-0063](adr-0063-v1-1-03-bug-fixes.md) | v1.1.03 — Six Bugs + split-body (Bug-Fix Wave) | v1.1.03 | Accepted | [PT-BR](adr-0063-v1-1-03-bug-fixes.pt-BR.md) |
+| [ADR-0064](adr-0064-v1-1-04-gap-closure.md) | v1.1.04 — Two Structural Gaps Closure (deep-research Nested-Runtime Panic, entity-connect Convergence) | v1.1.04 | Accepted | [PT-BR](adr-0064-v1-1-04-gap-closure.pt-BR.md) |
 
 ## Coverage by Version
 
@@ -109,10 +110,10 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 
 ## Adding a New ADR
 
-1. Choose the next sequential number (next is ADR-0064)
-2. Create `adr-0064-slug.md` following the canonical structure
+1. Choose the next sequential number (next is ADR-0065)
+2. Create `adr-0065-slug.md` following the canonical structure
 3. Add entry to this INDEX.md (EN row)
-4. After EN stabilizes (typically 1+ release), create `adr-0064-slug.pt-BR.md`
+4. After EN stabilizes (typically 1+ release), create `adr-0065-slug.pt-BR.md`
 5. Add PT-BR column link
 6. Update the "Coverage by Version" section
 7. Reference the new ADR from `gaps.md` if it closes a documented gap

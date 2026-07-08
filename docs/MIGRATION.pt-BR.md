@@ -1,6 +1,34 @@
-# MIGRANDO PARA v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade
+# MIGRANDO PARA v1.1.04 — Correção do Nested-Runtime do deep-research, Convergência do entity-connect, Migração entity_connect_seen
 
-> Este guia cobre a atualização de v1.1.01 para v1.1.02. Nenhuma migração roda no banco principal; o schema permanece em v15 — `migrate` NÃO é necessário. O nome oficial da release é v1.1.02; o `Cargo.toml` carrega `1.1.2` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01) estão preservados como seções históricas abaixo.
+> Este guia cobre a atualização de v1.1.03 para v1.1.04. Uma migração numerada (V016) roda no banco principal — `migrate --json` é OBRIGATÓRIO na primeira abertura. O schema avança de v15 para v16. O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~16 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) estão preservados como seções históricas abaixo.
+
+## v1.1.04 — Correção do Nested-Runtime do deep-research, Convergência do entity-connect, Migração entity_connect_seen
+
+> Upgrade da v1.1.03. O schema do banco principal AVANÇA de v15 para v16 — `migrate --json` é OBRIGATÓRIO (aplica a V016, a tabela `entity_connect_seen`). O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4`. Binário ~16 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+
+### O que mudou
+
+- GAP-001 (Fixed): o `deep-research` não entra mais em panic com "Cannot start a runtime from within a runtime". O entry point síncrono `deep_research::run` agora computa os embeddings por sub-query ANTES de construir seu runtime Tokio dedicado via o novo helper `compute_sub_embeddings`, e os três caminhos de embedding OpenRouter em `embedder.rs` (single, batch serial, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place` já usado pelo path batch. O `ingest_opencode` também recebeu o guard. Nenhuma mudança comportamental para `recall`/`hybrid-search` (nunca foram afetados pois nunca criaram seu próprio runtime).
+- GAP-002 (Fixed): o `entity-connect` agora converge. A nova tabela `entity_connect_seen` (V016) registra o veredito do LLM (`related`/`none`) por par avaliado; o scanner `scan_isolated_entity_pairs` exclui pares já avaliados e prioriza entidades hub (aquelas com mais bindings NER); o `count_operation_backlog` reporta um backlog real O(n) (entidades grau-0 com bindings NER) em vez de zero hard-coded; e o `call_entity_connect` persiste o veredito nos dois ramos (`related` e `none`). O `--until-empty` agora atinge `eligible_remaining == 0` em vez de re-avaliar infinitamente os mesmos pares rejeitados.
+
+### Migração V016 — `entity_connect_seen`
+
+- O `migrate --json` aplica a V016 automaticamente na primeira abertura após o upgrade. A nova tabela:
+  - `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)`
+  - Chave primária composta `(source_id, target_id)`
+  - FK dupla `ON DELETE CASCADE` para `entities(id)` — deletar uma entidade limpa seus pares seen automaticamente
+  - `verdict TEXT NOT NULL CHECK(verdict IN ('related','none'))`
+  - `evaluated_at INTEGER NOT NULL DEFAULT (unixepoch())`
+  - Índice `idx_entity_connect_seen_ns` em `namespace`
+- O `CURRENT_SCHEMA_VERSION` avança de 15 para 16. Verifique com `sqlite-graphrag health --json` (esperado `schema_version >= 16`, `integrity_ok: true`).
+- Sem backfill de dados — a tabela inicia vazia e preenche conforme o `entity-connect` avalia pares.
+
+### Ações pós-upgrade
+
+- Rode `sqlite-graphrag migrate --json` uma vez (ou apenas abra o DB — ele auto-aplica).
+- Rode `sqlite-graphrag health --json` para confirmar `schema_version >= 16`.
+- (Opcional) rode `enrich --operation entity-connect --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --max-runtime 300 --json` para começar a popular o `entity_connect_seen` e conectar as entidades grau-0 previamente isoladas.
+
 
 ## v1.1.03 — Enqueue Atômico do Enrich, Migração Literal de Relação, Merge Cross-Namespace, Recuperação de Stale Claim, Re-Embed de Chunk Órfão, split-body
 

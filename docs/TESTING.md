@@ -107,6 +107,12 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99. Suite totals were not re-baselined in this documentation pass — run `cargo nextest -P ci` for the live count.
 
 
+## v1.1.04 — GAP Closure Tests (ADR-0064)
+
+- **GAP-001 (nested tokio runtime)**: regression test covers the "Cannot start a runtime from within a runtime" panic that `deep-research` hit when its sync entry point built a dedicated Tokio runtime while OpenRouter embedding calls were already on a runtime. The fix moves per-sub-query embedding computation into the new `compute_sub_embeddings` helper (run before the runtime is built) and the three OpenRouter paths in `embedder.rs` (single, serial batch, JoinSet fan-out) adopt the canonical `Handle::try_current` + `block_in_place` reentry pattern. `ingest_opencode` is guarded by the same pattern. `recall`/`hybrid-search` were never affected (they never create their own runtime) and need no new coverage.
+- **GAP-002 (entity-connect convergence)**: tests cover the new `entity_connect_seen` table and the backlog accounting. The V016 migration creates `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)` with a composite PK, dual `ON DELETE CASCADE` FKs to `entities(id)`, a `CHECK(verdict IN ('related','none'))` constraint, and a namespace index. `scan_isolated_entity_pairs` now excludes already-evaluated pairs (LEFT ANTI JOIN against `entity_connect_seen`) and prioritises hub entities; `count_operation_backlog` reports a real O(n) proxy (degree-0 entities with NER bindings) instead of a hard-coded zero; and `call_entity_connect` persists the verdict on both the `related` and `none` branches. As a result `enrich --operation entity-connect --until-empty` reaches `eligible_remaining == 0` instead of re-evaluating rejected pairs forever.
+
+
 ## v1.1.03 — Six Bugs + V8 Tests (ADR-0063)
 
 - **Bug 6 (chunks órfãos)**: `scan_chunks_of_soft_deleted_memory_are_selected` e `count_backlog_includes_orphan_chunks` em `src/commands/enrich/scan.rs` provam que `LEFT JOIN memories` agora seleciona chunks de memórias soft-deletadas no re-embed
@@ -144,7 +150,7 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 
 ## Current Test Suite Size
 
-~1070 lib tests passing as of v1.1.03 (v1.1.02 + v1.1.03 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
+~1072 lib tests passing as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
 
 ## What Changed in v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: OpenCode backend tests (875 lib tests)

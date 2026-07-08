@@ -9,13 +9,13 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.1.03 — literal-to, cross-namespace, reset-stale-claims, split-body, Bug Fixes)
+# sqlite-graphrag para Agentes de IA (v1.1.04 — fix de nested-runtime no deep-research, convergência do entity-connect, schema v16)
 
 
 > Memória persistente para 27 agentes de IA em um único binário Rust de 14.6 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> Novo na v1.1.03 (release corrente): `reclassify-relation --literal-to`; `merge-entities --cross-namespace`; `enrich --reset-stale-claims` (recuperação de claims stale após kill -9); subcomando `split-body` (corpos >25k chars); transação batch na scan-phase do enrich; `LEFT JOIN` chunks órfãos; `claimed_at` + heartbeat no sidecar da fila.
-> Novo na v1.1.02 (release anterior): `--gliner-variant`/`--mode gliner` REMOVIDOS (clap exit 2); `AppError::TooManyTokens` tipado exit 6; `enrich --prune-dead-entity-orphans` para dead-letter de entidade; teste de regressão de re-embed de entidades.
+> Novo na v1.1.04 (release corrente): dois gaps estruturais fechados (GAP-001 panic de nested-runtime no deep-research, GAP-002 convergência do entity-connect); migração V016 (schema v15→v16); entity-connect promovido a fully-implemented.
+> Releases anteriores: v1.1.03 (split-body, stale-claims, literal-to, merge cross-namespace); v1.1.02 (remoção do GLiNER, TooManyTokens tipado, prune de órfãos de entidade).
 > Novo na v1.1.01 (release anterior): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
 
 ## Novo na v1.0.93 — Backend de Embedding OpenRouter (GAP-OR-INGEST)
@@ -1677,6 +1677,14 @@ cargo install --path . && sqlite-graphrag init
 - NÃO existe fix definitivo upstream; mitigação depende de `codex login` dirigido pelo operador
 
 
+
+## Novidades na v1.1.04 — Fechamento de Dois Gaps Estruturais (ADR-0064)
+
+- Nome oficial da release é v1.1.04; o manifest do crate carrega `version = "1.1.4"` (SemVer rejeita zero à esquerda no componente patch). Migração de banco OBRIGATÓRIA: `migrate --json` aplica V016. Schema avança de v15 para v16. Binário ~19 MiB. Consumidores de biblioteca pinam `=1.1.4`; User-Agent é `sqlite-graphrag/1.1.4`.
+- GAP-001 [RESOLVIDO]: o panic de runtime Tokio aninhado no `deep-research` ("Cannot start a runtime from within a runtime") está corrigido. `deep_research::run` agora computa embeddings de sub-query via `compute_sub_embeddings` ANTES de construir o runtime T1 multi-thread; o padrão canônico `Handle::try_current()` + `block_in_place(|| handle.block_on(fut))` é aplicado aos três caminhos OpenRouter de `embedder.rs` (single, batch serial, JoinSet fan-out) e ao `ingest_opencode.rs`. O `deep-research` agora emite um envelope JSON estruturado em 100% das invocações.
+- GAP-002 [RESOLVIDO]: o enriquecimento `entity-connect` não-convergente está corrigido. A migração V016 introduz a tabela `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)` registrando o veredito do LLM (`related`/`none`) por par avaliado. O scanner `scan_isolated_entity_pairs` agora é seen-aware (LEFT JOIN exclui pares já avaliados) e prioriza hubs com binding NER. `count_operation_backlog` reporta um backlog real O(n) para EntityConnect. `--until-empty` agora converge.
+- entity-connect é promovido de scan-only para fully-implemented (veja HOW_TO_USE.md).
+- Suíte de testes: 1072 testes de lib passando (antes 1070 — dois novos testes de regressão para GAP-001 nested-runtime e GAP-002 entity_connect_seen). Veja ADR-0064.
 
 ## Novidades na v1.1.03 — Seis Correções de Bug + V8 (ADR-0063)
 

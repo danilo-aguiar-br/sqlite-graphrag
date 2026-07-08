@@ -1013,8 +1013,19 @@ pub fn embed_via_backend(
                     "OpenRouter client not initialised; call get_openrouter_embedder first".into(),
                 )
             })?;
-            let rt = shared_runtime()?;
-            let vec = rt.block_on(client.embed_single(text, client.default_input_type()))?;
+            // GAP-001 (v1.1.04): canonical nested-runtime guard. When called
+            // from inside an existing tokio runtime (e.g. deep-research fan-out),
+            // `block_in_place` parks the current worker thread and drives the
+            // future via the existing handle instead of building a nested
+            // runtime, which would panic with "Cannot start a runtime from
+            // within a runtime".
+            let vec = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => tokio::task::block_in_place(|| {
+                    handle.block_on(client.embed_single(text, client.default_input_type()))
+                })?,
+                Err(_) => shared_runtime()?
+                    .block_on(client.embed_single(text, client.default_input_type()))?,
+            };
             Ok((vec, LlmBackendKind::OpenRouter))
         }
     }
@@ -1152,7 +1163,6 @@ pub fn embed_passages_parallel_with_embedding_choice(
                 "OpenRouter client not initialised; call get_openrouter_embedder first".into(),
             )
         })?;
-        let rt = shared_runtime()?;
 
         // GAP-OPENROUTER-REST-CONCURRENCY: reuse the caller's `parallelism`
         // as a bounded fan-out width, clamped to a Cloudflare-safe range.
@@ -1161,7 +1171,14 @@ pub fn embed_passages_parallel_with_embedding_choice(
         let k = parallelism.clamp(1, 16);
         if texts.len() <= 32 || k == 1 {
             let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-            let vecs = rt.block_on(client.embed_batch(&refs, client.default_input_type()))?;
+            // GAP-001 (v1.1.04): canonical nested-runtime guard.
+            let vecs = match tokio::runtime::Handle::try_current() {
+                Ok(handle) => tokio::task::block_in_place(|| {
+                    handle.block_on(client.embed_batch(&refs, client.default_input_type()))
+                })?,
+                Err(_) => shared_runtime()?
+                    .block_on(client.embed_batch(&refs, client.default_input_type()))?,
+            };
             return Ok(vecs);
         }
 
@@ -1169,7 +1186,11 @@ pub fn embed_passages_parallel_with_embedding_choice(
         // static OnceLock), so it is Copy + Send + 'static and moves freely
         // into each spawned task. Chunk contents are cloned into owned
         // `Vec<String>` because `texts` is only borrowed.
-        let vecs = rt.block_on(async move {
+        //
+        // GAP-001 (v1.1.04): canonical nested-runtime guard. The async block
+        // borrows `client`, `texts` and `k`, all of which remain valid for
+        // both branches.
+        let fan_out = async move {
             let mut set: JoinSet<EmbedChunkResult> = JoinSet::new();
             let mut parts: Vec<(usize, Vec<Vec<f32>>)> = Vec::new();
 
@@ -1203,7 +1224,11 @@ pub fn embed_passages_parallel_with_embedding_choice(
             }
 
             Ok::<Vec<Vec<f32>>, AppError>(reassemble_ordered(parts))
-        })?;
+        };
+        let vecs = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(fan_out))?,
+            Err(_) => shared_runtime()?.block_on(fan_out)?,
+        };
         Ok(vecs)
     } else {
         embed_passages_parallel_local(models_dir, texts, parallelism, batch_size)

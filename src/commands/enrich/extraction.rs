@@ -978,6 +978,11 @@ pub(super) fn call_entity_connect(
         .and_then(|v| v.as_str())
         .unwrap_or("none");
     if relation == "none" {
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO entity_connect_seen (source_id, target_id, namespace, verdict, relation) \
+             VALUES (?1, ?2, ?3, 'none', NULL)",
+            rusqlite::params![e1_id, e2_id, namespace],
+        );
         return Ok(EnrichItemResult::Skipped {
             reason: "LLM determined no relationship".into(),
         });
@@ -990,6 +995,11 @@ pub(super) fn call_entity_connect(
         "INSERT OR IGNORE INTO relationships (namespace, source_id, target_id, relation, weight) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![namespace, e1_id, e2_id, relation, strength],
     )?;
+    let _ = conn.execute(
+        "INSERT OR REPLACE INTO entity_connect_seen (source_id, target_id, namespace, verdict, relation) \
+         VALUES (?1, ?2, ?3, 'related', ?4)",
+        rusqlite::params![e1_id, e2_id, namespace, relation],
+    );
     Ok(EnrichItemResult::Done {
         memory_id: None,
         entity_id: None,

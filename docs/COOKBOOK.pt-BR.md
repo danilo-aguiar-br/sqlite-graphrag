@@ -218,6 +218,17 @@ sqlite-graphrag --embedding-backend openrouter \
 - Receita "Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro"
 
 
+## Como Atualizar Para a v1.1.04 (Correção de Runtime Aninhado do deep-research + Convergência do entity-connect + Schema v16)
+
+- Migração de banco OBRIGATÓRIA: `migrate --json` aplica V016 (tabela `entity_connect_seen`). O schema avança de v15 para v16.
+- O nome de release é v1.1.04; a versão do `Cargo.toml` é `1.1.4` (SemVer rejeita zero à esquerda no componente patch); binário ~19 MiB; User-Agent `sqlite-graphrag/1.1.4`.
+- GAP-001 (pânico de runtime aninhado do deep-research) está corrigido — `deep-research` agora emite um envelope JSON estruturado em 100% das invocações.
+- GAP-002 (não-convergência do entity-connect) está corrigido — `enrich --operation entity-connect --until-empty` agora converge.
+- entity-connect é promovido de scan-only para fully-implemented.
+- Basta `cargo install sqlite-graphrag --locked --force`, depois `sqlite-graphrag migrate --json`, depois `sqlite-graphrag health --json` (confirme `schema_version >= 16`).
+- Consumidores de biblioteca fixam `=1.1.4`.
+- Veja "Receitas adicionadas na v1.1.04" abaixo.
+
 ## Como Atualizar Para a v1.1.02 (Remoção do GLiNER + TooManyTokens Tipado + Prune de Órfãos de Entidade)
 - Sem migração de banco; schema permanece em v15. Basta `cargo install sqlite-graphrag --locked --force` (nome de release v1.1.02; versão do `Cargo.toml` é `1.1.2`; binário ~19 MiB).
 - BREAKING (Gap 1): `--gliner-variant` foi REMOVIDA de `remember`/`ingest` (clap rejeita com exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); `--mode gliner` também foi REMOVIDO (o enum `IngestMode` agora expõe apenas `none`/`claude-code`/`codex`/`opencode`); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas. Audite seus scripts (`rg -- "--gliner-variant|--mode gliner" seus-scripts/ ci/ Makefile .github/`) e apague todas as ocorrências.
@@ -2693,6 +2704,40 @@ memórias existentes.
   OpenRouter (GAP-OR-INGEST)"
 - Receita "Como ingerir um diretório de arquivos markdown no grafo"
 
+
+## Receitas adicionadas na v1.1.04
+
+### Receita — deep-research Agora Estável (GAP-001, ADR-0064)
+
+```bash
+# Antes da v1.1.04 isto entrava em pânico com "Cannot start a runtime from within a runtime"
+sqlite-graphrag deep-research "decisões de arquitetura de autenticação e incidentes de segurança" --k 20 --max-hops 3 --json
+```
+
+- O pânico de runtime Tokio aninhado está corrigido: `deep_research::run` computa os embeddings das sub-queries antes de construir T1, e os três caminhos OpenRouter de `embedder.rs` usam `Handle::try_current()` + `block_in_place`.
+
+### Receita — entity-connect Convergente (GAP-002, ADR-0064)
+
+```bash
+# 1. Inspecione o backlog real (era sempre 0 antes da v1.1.04)
+sqlite-graphrag enrich --operation entity-connect --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# 2. Rode até convergir (cada par avaliado UMA VEZ, veredito persistido em entity_connect_seen)
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# 3. Verifique se novas arestas apareceram
+sqlite-graphrag graph stats --json
+```
+
+- entity-connect agora é fully-implemented (era scan-only). A tabela `entity_connect_seen` (migração V016) registra o veredito do LLM por par, então re-scans pulam pares já avaliados.
+
+### Receita — Aplicar Migração V016
+
+```bash
+sqlite-graphrag migrate --dry-run --json   # prévia da V016
+sqlite-graphrag migrate --json              # aplicar
+sqlite-graphrag health --json               # confirmar schema_version >= 16
+```
 
 ## Receitas adicionadas na v1.1.03
 ### Receita — Migrar Relações Legadas Com Underscore Para A Forma Canônica Com Hífen (Bug 2)

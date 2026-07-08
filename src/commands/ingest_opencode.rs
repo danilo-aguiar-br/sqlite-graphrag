@@ -151,8 +151,10 @@ pub fn run_opencode_ingest(args: &IngestArgs) -> Result<(), AppError> {
         return Ok(());
     }
 
-    let rt = crate::embedder::shared_runtime()?;
-
+    // GAP-001 (v1.1.04): `rt` is no longer hoisted here; each `block_on`
+    // site resolves the runtime via the canonical nested-runtime guard
+    // (`Handle::try_current` + `block_in_place`), so this command can be
+    // invoked from inside an existing tokio runtime without panicking.
     let ns = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let app_paths = crate::paths::AppPaths::resolve(args.db.as_deref())?;
 
@@ -200,9 +202,12 @@ pub fn run_opencode_ingest(args: &IngestArgs) -> Result<(), AppError> {
 
         let file_started = std::time::Instant::now();
 
-        let extraction = rt.block_on(extract_with_opencode(
-            &binary, &model, &body, &name, timeout,
-        ));
+        // GAP-001 (v1.1.04): canonical nested-runtime guard.
+        let fut = extract_with_opencode(&binary, &model, &body, &name, timeout);
+        let extraction = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| handle.block_on(fut)),
+            Err(_) => crate::embedder::shared_runtime()?.block_on(fut),
+        };
 
         match extraction {
             Ok((result, cost, _tokens)) => {

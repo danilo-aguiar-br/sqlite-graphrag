@@ -372,7 +372,8 @@ pub struct Cli {
         global = true,
         value_name = "KEY",
         hide = true,
-        env = "OPENROUTER_API_KEY"
+        env = "OPENROUTER_API_KEY",
+        hide_env_values = true
     )]
     pub openrouter_api_key: Option<String>,
 

@@ -109,6 +109,12 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99. Os totais da suíte não foram re-aferidos nesta passagem de documentação — rode `cargo nextest -P ci` para a contagem ao vivo.
 
 
+## v1.1.04 — Testes de Fechamento de GAPs (ADR-0064)
+
+- **GAP-001 (runtime tokio aninhado)**: teste de regressão cobre o panic "Cannot start a runtime from within a runtime" que o `deep-research` atingia quando seu entry point síncrono construía um runtime Tokio dedicado enquanto chamadas de embedding do OpenRouter já estavam em um runtime. O fix move a computação de embeddings por sub-query para o novo helper `compute_sub_embeddings` (executado antes da construção do runtime) e os três caminhos OpenRouter em `embedder.rs` (single, batch serial, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place`. O `ingest_opencode` recebe o mesmo guard. `recall`/`hybrid-search` nunca foram afetados (nunca criam seu próprio runtime) e não precisam de cobertura nova.
+- **GAP-002 (convergência do entity-connect)**: testes cobrem a nova tabela `entity_connect_seen` e a contabilidade de backlog. A migração V016 cria `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)` com PK composta, FK dupla `ON DELETE CASCADE` para `entities(id)`, restrição `CHECK(verdict IN ('related','none'))` e índice de namespace. O `scan_isolated_entity_pairs` agora exclui pares já avaliados (LEFT ANTI JOIN contra `entity_connect_seen`) e prioriza entidades hub; o `count_operation_backlog` reporta um proxy real O(n) (entidades grau-0 com bindings NER) em vez de zero hard-coded; e o `call_entity_connect` persiste o veredito nos dois ramos (`related` e `none`). Como resultado, o `enrich --operation entity-connect --until-empty` atinge `eligible_remaining == 0` em vez de re-avaliar infinitamente os pares rejeitados.
+
+
 ## v1.1.03 — Testes dos Seis Bugs + V8 (ADR-0063)
 
 - **Bug 6 (chunks órfãos)**: `scan_chunks_of_soft_deleted_memory_are_selected` e `count_backlog_includes_orphan_chunks` em `src/commands/enrich/scan.rs` provam que `LEFT JOIN memories` agora seleciona chunks de memórias soft-deletadas no re-embed
@@ -146,7 +152,7 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 
 ## Tamanho Atual da Suite de Testes
 
-~1070 testes de lib passando a partir de v1.1.03 (v1.1.02 + v1.1.03 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
+~1072 testes de lib passando a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
 
 ## O Que Mudou nas versões v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: testes do backend OpenCode (875 testes de lib)

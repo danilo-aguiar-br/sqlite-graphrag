@@ -222,6 +222,17 @@ sqlite-graphrag --embedding-backend openrouter \
 - Recipe "How to benchmark hybrid-search against pure vec search"
 
 
+## How To Upgrade To v1.1.04 (Deep-Research Nested-Runtime Fix + entity-connect Convergence + Schema v16)
+
+- Database migration REQUIRED: `migrate --json` applies V016 (`entity_connect_seen` table). Schema advances from v15 to v16.
+- The release name is v1.1.04; the `Cargo.toml` version is `1.1.4` (SemVer rejects a leading zero in the patch component); binary ~19 MiB; User-Agent `sqlite-graphrag/1.1.4`.
+- GAP-001 (deep-research nested-runtime panic) is fixed — `deep-research` now emits a structured JSON envelope in 100% of invocations.
+- GAP-002 (entity-connect non-convergence) is fixed — `enrich --operation entity-connect --until-empty` now converges.
+- entity-connect is promoted from scan-only to fully-implemented.
+- Just `cargo install sqlite-graphrag --locked --force`, then `sqlite-graphrag migrate --json`, then `sqlite-graphrag health --json` (confirm `schema_version >= 16`).
+- Library consumers pin `=1.1.4`.
+- See "Recipes added in v1.1.04" below.
+
 ## How To Upgrade To v1.1.02 (GLiNER Removal + TooManyTokens Typed + Entity Orphan Prune)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.02; `Cargo.toml` version is `1.1.2`; binary ~19 MiB).
 - BREAKING (Gap 1): `--gliner-variant` is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the `--max-entity-degree` precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`/`claude-code`/`codex`/`opencode`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
@@ -2691,6 +2702,40 @@ Switching models mid-project requires re-embedding existing memories.
   Backend (GAP-OR-INGEST)"
 - Recipe "How to ingest a directory of markdown files into the graph"
 
+
+## Recipes added in v1.1.04
+
+### Recipe — Deep-Research Now Stable (GAP-001, ADR-0064)
+
+```bash
+# Before v1.1.04 this panicked with "Cannot start a runtime from within a runtime"
+sqlite-graphrag deep-research "authentication architecture decisions and security incidents" --k 20 --max-hops 3 --json
+```
+
+- The nested-Tokio-runtime panic is fixed: `deep_research::run` computes sub-query embeddings before constructing T1, and the three OpenRouter paths of `embedder.rs` use `Handle::try_current()` + `block_in_place`.
+
+### Recipe — Convergent entity-connect (GAP-002, ADR-0064)
+
+```bash
+# 1. Check the real backlog (was always 0 before v1.1.04)
+sqlite-graphrag enrich --operation entity-connect --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# 2. Run until convergence (each pair evaluated ONCE, verdict persisted in entity_connect_seen)
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# 3. Verify new edges appeared
+sqlite-graphrag graph stats --json
+```
+
+- entity-connect is now fully-implemented (was scan-only). The `entity_connect_seen` table (migration V016) records the LLM verdict per pair so re-scans skip evaluated pairs.
+
+### Recipe — Apply Migration V016
+
+```bash
+sqlite-graphrag migrate --dry-run --json   # preview V016
+sqlite-graphrag migrate --json              # apply
+sqlite-graphrag health --json               # confirm schema_version >= 16
+```
 
 ## Recipes added in v1.1.03
 ### Recipe — Migrate Legacy Underscore Relations To Canonical Hyphen (Bug 2)

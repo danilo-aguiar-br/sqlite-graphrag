@@ -80,7 +80,7 @@ Run `claude -p` with the MCP config locked down and empty, and the hooks config 
 - `--openrouter-model` is REQUIRED with `--mode openrouter` (NO default; omitting it → exit 1 before any network call)
 - `--openrouter-api-key` reads from env `OPENROUTER_API_KEY` or `config add-key --provider openrouter`; `--openrouter-timeout` defaults to 300s; `--openrouter-base-url` is optional
 - Request uses `response_format` `json_schema` with `strict: true` and `provider.require_parameters: true`; `reasoning.enabled: false` with a one-shot reasoning-mandatory fallback; `usage.cost` is read from the response
-- Trade-off: OAuth zero-token (local CLI modes) vs tokens billed to `OPENROUTER_API_KEY` (OpenRouter mode); no migration, schema stays v15
+- Trade-off: OAuth zero-token (local CLI modes) vs tokens billed to `OPENROUTER_API_KEY` (OpenRouter mode); schema advances v15 → v16 in v1.1.04 (migration V016 required); v15 in earlier releases
 
 ```bash
 # Headless enrich JUDGE via OpenRouter REST (no subprocess, no CWD isolation)
@@ -284,6 +284,12 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"server-name-1":{"enabled":false},"server-name-
 - Codex: `codex exec`
 - OpenCode: `opencode run`
 
+
+
+### v1.1.04 Update — Deep-Research Stability + entity-connect Convergence (ADR-0064)
+
+- GAP-001: `deep-research` no longer panics with "Cannot start a runtime from within a runtime" when invoked headless (agent harnesses, CI runners, scheduled jobs). The sync entry point `deep_research::run` now computes per-sub-query embeddings BEFORE building its dedicated Tokio runtime via the new `compute_sub_embeddings` helper, and the three OpenRouter embedding paths in `embedder.rs` (single, serial batch, JoinSet fan-out) adopt the canonical `Handle::try_current` + `block_in_place` reentry pattern already used by the batch path. `ingest_opencode` is also guarded. For headless orchestrators this means long-running `deep-research --with-bodies` jobs that previously crashed mid-flight now complete reliably.
+- GAP-002: `entity-connect` now converges in headless long-running loops. A new `entity_connect_seen` table (migration V016, main database schema v15 → v16) records the LLM verdict (`related`/`none`) for each evaluated pair; the `scan_isolated_entity_pairs` scanner excludes already-evaluated pairs and prioritises hub entities; and `call_entity_connect` persists the verdict on both branches. Combined with `--until-empty --max-runtime`, a headless `enrich --operation entity-connect` job now reaches `eligible_remaining == 0` instead of re-evaluating the same rejected pairs forever. Running `migrate --json` once on first open is REQUIRED before the first `entity-connect` invocation.
 
 
 ### v1.1.03 Update — Stale Claim Recovery in Headless Long-Running enrich

@@ -744,10 +744,15 @@ pub(super) fn scan_isolated_entity_pairs(
     let limit_val = limit.unwrap_or(50) as i64;
     let mut stmt = conn.prepare_cached(
         "SELECT e1.id, e1.name, e2.id, e2.name FROM entities e1, entities e2 \
+         LEFT JOIN entity_connect_seen ecs \
+           ON ecs.source_id = e1.id AND ecs.target_id = e2.id \
          WHERE e1.namespace = ?1 AND e2.namespace = ?1 AND e1.id < e2.id \
+         AND ecs.source_id IS NULL \
          AND NOT EXISTS (SELECT 1 FROM relationships r WHERE \
            (r.source_id = e1.id AND r.target_id = e2.id) OR \
            (r.source_id = e2.id AND r.target_id = e1.id)) \
+         ORDER BY (SELECT COUNT(*) FROM memory_entities me WHERE me.entity_id = e1.id) DESC, \
+                  e1.id, e2.id \
          LIMIT ?2",
     )?;
     let rows = stmt
@@ -927,10 +932,17 @@ pub(super) fn count_operation_backlog(
             );
             conn.query_row(&sql, rusqlite::params![namespace], |r| r.get::<_, i64>(0))?
         }
+        EnrichOperation::EntityConnect => {
+            // Proxy O(n): entidades degree-0 com binding NER (ilhadas e conectaveis).
+            // Nao conta pares O(n^2) — seria proibitivo para 82k entidades.
+            let sql = "SELECT COUNT(*) FROM entities e \
+                       WHERE e.namespace = ?1 AND e.degree = 0 \
+                       AND EXISTS (SELECT 1 FROM memory_entities me WHERE me.entity_id = e.id)";
+            conn.query_row(sql, rusqlite::params![namespace], |r| r.get::<_, i64>(0))?
+        }
         // Advisory / quadratic scan-only operations have no closeable database
         // backlog; report 0 (see the doc comment above).
         EnrichOperation::AugmentBindings
-        | EnrichOperation::EntityConnect
         | EnrichOperation::CrossDomainBridges
         | EnrichOperation::DomainClassify
         | EnrichOperation::GraphAudit
@@ -1029,6 +1041,15 @@ mod tests {
                 model       TEXT NOT NULL DEFAULT '',
                 dim         INTEGER NOT NULL DEFAULT 384,
                 created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+            CREATE TABLE entity_connect_seen (
+                source_id    INTEGER NOT NULL,
+                target_id    INTEGER NOT NULL,
+                namespace    TEXT NOT NULL,
+                verdict      TEXT NOT NULL CHECK(verdict IN ('related','none')),
+                relation     TEXT,
+                evaluated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (source_id, target_id)
             );",
         )
         .expect("schema creation must succeed");
@@ -1418,7 +1439,6 @@ mod tests {
         )
         .unwrap();
         for op in [
-            EnrichOperation::EntityConnect,
             EnrichOperation::CrossDomainBridges,
             EnrichOperation::GraphAudit,
             EnrichOperation::BodyExtract,
@@ -1426,6 +1446,81 @@ mod tests {
             let n = count_operation_backlog(&conn, &op, "global", ReEmbedTarget::Memories).unwrap();
             assert_eq!(n, 0, "advisory op {op:?} must report zero backlog");
         }
+    }
+
+    #[test]
+    fn count_operation_backlog_entity_connect_counts_isolated() {
+        let conn = open_test_db();
+        // entidade degree-0 COM binding NER -> deve contar como backlog
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type, degree) VALUES ('global','hub','tool',0)",
+            [],
+        )
+        .unwrap();
+        let hub_id: i64 = conn
+            .query_row("SELECT id FROM entities WHERE name='hub'", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memories (namespace, name, body) VALUES ('global','m','b')",
+            [],
+        )
+        .unwrap();
+        let mem_id: i64 = conn
+            .query_row("SELECT id FROM memories WHERE name='m'", [], |r| r.get(0))
+            .unwrap();
+        conn.execute(
+            "INSERT INTO memory_entities (entity_id, memory_id) VALUES (?1, ?2)",
+            rusqlite::params![hub_id, mem_id],
+        )
+        .unwrap();
+        let n = count_operation_backlog(
+            &conn,
+            &EnrichOperation::EntityConnect,
+            "global",
+            ReEmbedTarget::Memories,
+        )
+        .unwrap();
+        assert!(
+            n > 0,
+            "entity-connect backlog must count degree-0 entities with NER bindings"
+        );
+    }
+
+    #[test]
+    fn scan_isolated_entity_pairs_excludes_seen() {
+        let conn = open_test_db();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','a','tool')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global','b','tool')",
+            [],
+        )
+        .unwrap();
+        let (a_id, b_id): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT id FROM entities WHERE name='a'), \
+                 (SELECT id FROM entities WHERE name='b')",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        // marca o par como já avaliado (verdict none)
+        conn.execute(
+            "INSERT INTO entity_connect_seen (source_id, target_id, namespace, verdict) \
+             VALUES (?1, ?2, 'global','none')",
+            rusqlite::params![a_id, b_id],
+        )
+        .unwrap();
+        let pairs = scan_isolated_entity_pairs(&conn, "global", Some(50)).unwrap();
+        assert!(
+            pairs
+                .iter()
+                .all(|(id1, _, id2, _)| !(*id1 == a_id && *id2 == b_id)),
+            "seen pair must not be re-scanned"
+        );
     }
 
     // -----------------------------------------------------------------------

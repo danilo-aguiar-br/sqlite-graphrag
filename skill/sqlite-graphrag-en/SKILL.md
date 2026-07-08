@@ -63,16 +63,16 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 ## OpenRouter Embedding Models and Prices
 - PASS `--embedding-model <MODEL>` when `--embedding-backend openrouter`; there is NO default model, so omission triggers exit 78
 - KNOW prices below are per one million tokens; CHOOSE the model by cost and quality for the task
-- USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` for FREE zero-cost embedding (zero token cost option)
-- USE `qwen/qwen3-embedding-4b` at about 0.03 USD per million tokens (CHEAPEST paid option, 4B params)
-- USE `qwen/qwen3-embedding-8b` at about 0.03 USD per million tokens (RECOMMENDED default, highest quality Qwen family)
-- USE `baai/bge-m3` at about 0.03 USD per million tokens
-- USE `openai/text-embedding-3-small` at about 0.03 USD per million tokens
-- USE `perplexity/pplx-embed-v1-0.6b` at about 0.04 USD per million tokens
-- USE `mistralai/mistral-embed-2312` at about 0.10 USD per million tokens
-- USE `google/gemini-embedding-2` at about 0.12 USD per million tokens
-- USE `openai/text-embedding-3-large` at about 0.13 USD per million tokens
-- USE `google/gemini-embedding-003` at about 0.15 USD per million tokens
+- USE `nvidia/llama-nemotron-embed-vl-1b-v2:free` for ZERO-COST free embedding (no token charge)
+- USE `qwen/qwen3-embedding-4b` at 0.04 USD per million tokens (4B, cheap and capable)
+- USE `qwen/qwen3-embedding-8b` at 0.04 USD per million tokens (RECOMMENDED default, higher Qwen quality)
+- USE `baai/bge-m3` at 0.04 USD per million tokens
+- USE `openai/text-embedding-3-small` at 0.04 USD per million tokens
+- USE `perplexity/pplx-embed-v1-0.6b` at 0.04 USD per million tokens
+- USE `mistralai/mistral-embed-2312` at 0.10 USD per million tokens
+- USE `google/gemini-embedding-2` at 0.12 USD per million tokens
+- USE `openai/text-embedding-3-large` at 0.13 USD per million tokens
+- USE `google/gemini-embedding-004` at 0.15 USD per million tokens
 - KEEP `--embedding-dim 384` consistent across writes and reads; a mismatched dimension collides with the stored index and fails knn with exit 11
 - KNOW MRL truncation is applied server-side to the requested `--embedding-dim`, so a higher dimension stays cheap on the OpenRouter REST path
 - KNOW NO subcommand enumerates OpenRouter embedding models; the curated price table above IS the authoritative menu
@@ -246,8 +246,9 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 
 ## Enrich Operations
 - INVOKE `enrich --operation <op> --mode <backend>` where BOTH flags are MANDATORY for any LLM operation; omitting `--mode` is rejected with exit 2 — EXCEPT the read-only inspectors `--status`, `--list-dead`, `--requeue-dead`, `--prune-dead-orphans` (memory-keyed) and `--prune-dead-entity-orphans` (entity-keyed), which do NOT require `--operation` and `--mode`
-- VALID `--operation` values: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`
-- VALID `--mode` values: `codex`, `claude-code`, `opencode`, `openrouter`
+- FULLY-IMPLEMENTED `--operation` values (persist to the graph): `memory-bindings` (links extracted entities to unbound memories), `augment-bindings` (adds bindings to ALREADY-bound memories, requires `--names` or `--names-file`), `entity-descriptions` (fills empty descriptions), `body-enrich` (expands short bodies), `re-embed` (rebuilds vectors without rewriting the body), `entity-connect` (suggests and PERSISTS relationships between isolated entities via `entity_connect_seen` table recording the `related`/`none` verdict per pair, prioritizes hubs and converges with `--until-empty`), `cross-domain-bridges` (identifies bridges between disconnected subgraphs, same convergent path as `entity-connect`), `body-extract` with `--body-extract-graph-only` (extracts graph READ-ONLY without rewriting the body)
+- SCAN-ONLY `--operation` values (do not persist, produce an analysis report): `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth`
+- Valid `--mode` values: `codex`, `claude-code`, `opencode`, `openrouter`
 - USE `augment-bindings` to add MORE bindings to memories that are ALREADY linked; it REQUIRES `--names <a,b,c>` or `--names-file <path>` to scope the targets
 - USE `body-extract --body-extract-graph-only` to extract the graph from a body READ-ONLY, persisting only entities and relationships without rewriting the body
 - PASS `--codex-model`, `--claude-model`, `--opencode-model`, or `--openrouter-model` to pick the extraction model matching the chosen mode
@@ -327,11 +328,11 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation co
 
 ## Read-Only OpenRouter Formulas (no database mutation)
 - INIT: `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEY init --namespace <ns>`
-- RECALL with qwen-8b: `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key  recall "query" --k 10 --json`
-- HYBRID-SEARCH with bge-m3: `sqlite-graphrag --embedding-backend openrouter --embedding-model baai/bge-m3 --embedding-dim 384 --openrouter-api-key  hybrid-search "query" --k 10 --with-graph --max-hops 2 --min-weight 0.3 --rrf-k 60 --json`
-- DEEP-RESEARCH with text-embedding-3-small: `sqlite-graphrag --embedding-backend openrouter --embedding-model openai/text-embedding-3-small --embedding-dim 384 --openrouter-api-key  deep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies --json`
-- RENAME-ENTITY with perplexity: `sqlite-graphrag --embedding-backend openrouter --embedding-model perplexity/pplx-embed-v1-0.6b --embedding-dim 384 --openrouter-api-key  rename-entity --name <old> --new-name <new> --json`
-- ENRICH re-embed with openrouter (MUTATION — backfills vectors): `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key  enrich --operation re-embed --target all --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --json`
+- RECALL with qwen-8b: `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEYrecall "query" --k 10 --json`
+- HYBRID-SEARCH with bge-m3: `sqlite-graphrag --embedding-backend openrouter --embedding-model baai/bge-m3 --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEYhybrid-search "query" --k 10 --with-graph --max-hops 2 --min-weight 0.3 --rrf-k 60 --json`
+- DEEP-RESEARCH with text-embedding-3-small: `sqlite-graphrag --embedding-backend openrouter --embedding-model openai/text-embedding-3-small --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEYdeep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies --json`
+- RENAME-ENTITY with perplexity: `sqlite-graphrag --embedding-backend openrouter --embedding-model perplexity/pplx-embed-v1-0.6b --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEYrename-entity --name <old> --new-name <new> --json`
+- ENRICH re-embed with openrouter (MUTATION — backfills vectors): `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --openrouter-api-key $OPENROUTER_API_KEYenrich --operation re-embed --target all --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --json`
 - HYBRID-SEARCH offline: `sqlite-graphrag hybrid-search "query" --k 10 --fallback-fts-only --json`
 
 

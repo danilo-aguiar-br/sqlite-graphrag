@@ -254,19 +254,83 @@ pub fn run(
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<(), AppError> {
     tracing::debug!(target: "deep_research", query = %args.query, k = args.k, "starting deep research");
+
+    // GAP-001 (v1.1.04): resolve embeddings for every sub-query BEFORE the
+    // multi-thread runtime is built. `compute_sub_embeddings` calls the
+    // OpenRouter REST path, which internally does
+    // `shared_runtime()?.block_on(...)`; running that inside the worker
+    // threads of the runtime created below panics with
+    // "Cannot start a runtime from within a runtime". Doing the work
+    // synchronously here removes the nesting entirely.
+    let paths = AppPaths::resolve(args.db.as_deref())?;
+    crate::storage::connection::ensure_db_ready(&paths)?;
+    let sub_query_texts = decompose_query(&args.query, args.max_sub_queries);
+    let (sub_embeddings, vec_degraded) =
+        compute_sub_embeddings(&paths, &sub_query_texts, embedding_backend, llm_backend);
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to build tokio runtime: {e}")))?;
-    rt.block_on(run_async(args, llm_backend, embedding_backend))
+    rt.block_on(run_async(
+        args,
+        llm_backend,
+        embedding_backend,
+        sub_embeddings,
+        vec_degraded,
+    ))
+}
+
+/// GAP-001 (v1.1.04): computes per-sub-query embeddings OUTSIDE the tokio
+/// runtime. `try_embed_query_with_embedding_choice` (OpenRouter path) calls
+/// `shared_runtime()?.block_on(...)` internally; running it inside the
+/// multi-thread runtime built in `run` triggers
+/// "Cannot start a runtime from within a runtime" because the nested
+/// `block_on` happens on a worker thread already driven by the outer
+/// runtime. Resolving embeddings synchronously before the runtime is built
+/// removes the nesting entirely.
+fn compute_sub_embeddings(
+    paths: &crate::paths::AppPaths,
+    sub_query_texts: &[String],
+    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    llm_backend: crate::cli::LlmBackendChoice,
+) -> (Vec<Option<Arc<Vec<f32>>>>, bool) {
+    output::emit_progress_i18n(
+        "Computing per-sub-query embeddings...",
+        "Calculando embeddings por sub-consulta...",
+    );
+    let mut sub_embeddings: Vec<Option<Arc<Vec<f32>>>> = Vec::with_capacity(sub_query_texts.len());
+    let mut vec_degraded = false;
+    for sq_text in sub_query_texts {
+        match crate::embedder::try_embed_query_with_embedding_choice(
+            &paths.models,
+            sq_text,
+            embedding_backend,
+            llm_backend,
+        ) {
+            Ok((v, _backend)) => sub_embeddings.push(Some(Arc::new(v))),
+            Err(reason) => {
+                tracing::warn!(target: "deep_research", fallback_reason = %reason, reason_code = %reason.reason_code(), "embedding failed for sub-query; falling back to FTS5");
+                sub_embeddings.push(None);
+                vec_degraded = true;
+            }
+        }
+    }
+    (sub_embeddings, vec_degraded)
 }
 
 /// Main async logic: decompose, fan-out, assemble, emit JSON.
+///
+/// `sub_embeddings` and `vec_degraded` are computed synchronously in
+/// [`run`] before the tokio runtime is built (GAP-001, v1.1.04) to avoid
+/// a nested-runtime panic on the OpenRouter embedding path.
 async fn run_async(
     args: DeepResearchArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    _llm_backend: crate::cli::LlmBackendChoice,
+    _embedding_backend: crate::cli::EmbeddingBackendChoice,
+    sub_embeddings: Vec<Option<Arc<Vec<f32>>>>,
+    vec_degraded: bool,
 ) -> Result<(), AppError> {
     let start = std::time::Instant::now();
 
@@ -298,30 +362,12 @@ async fn run_async(
         })
         .collect();
 
-    // GAP-DEEPRESEARCH-001 FIX (v1.0.89): use graceful degradation path
-    // instead of hard-fail. When LLM is unavailable (OAuth expired, timeout,
-    // slots exhausted), fall back to FTS5-only search per sub-query — same
-    // contract as `recall` and `hybrid-search`.
-    output::emit_progress_i18n(
-        "Computing per-sub-query embeddings...",
-        "Calculando embeddings por sub-consulta...",
-    );
-    let mut sub_embeddings: Vec<Option<Arc<Vec<f32>>>> = Vec::with_capacity(sub_query_texts.len());
-    let mut vec_degraded = false;
-    for sq_text in &sub_query_texts {
-        match crate::embedder::try_embed_query_with_embedding_choice(
-            &paths.models,
-            sq_text,
-            embedding_backend,
-            llm_backend,
-        ) {
-            Ok((v, _backend)) => sub_embeddings.push(Some(Arc::new(v))),
-            Err(reason) => {
-                tracing::warn!(target: "deep_research", fallback_reason = %reason, reason_code = %reason.reason_code(), "embedding failed for sub-query; falling back to FTS5");
-                sub_embeddings.push(None);
-                vec_degraded = true;
-            }
-        }
+    // GAP-001 (v1.1.04): sub-query embeddings were already resolved in
+    // `run` before the tokio runtime was built. Using them here keeps the
+    // OpenRouter REST path out of the worker threads (nested-runtime panic).
+    // `vec_degraded` reflects per-sub-query FTS5 fallback (GAP-DEEPRESEARCH-001).
+    if vec_degraded {
+        tracing::debug!(target: "deep_research", "vector degraded: at least one sub-query fell back to FTS5");
     }
 
     // Phase 2: Fan-out — parallel sub-query execution.

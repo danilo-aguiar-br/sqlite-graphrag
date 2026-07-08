@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.03)
+# sqlite-graphrag for AI Agents (v1.1.04 — deep-research nested-runtime fix, entity-connect convergence, schema v16)
 
 > Persistent memory for 27 AI agents in a single 14.6 MiB Rust binary.
 > v1.0.93 is **LLM-only and one-shot**: every `remember` / `ingest`
@@ -17,8 +17,8 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> New in v1.1.03 (current release): `reclassify-relation --literal-to`; `merge-entities --cross-namespace`; `enrich --reset-stale-claims` (stale-claim recovery after kill -9); `split-body` subcommand (bodies >25k chars); enrich scan-phase batch transaction; `LEFT JOIN` orphan chunks; `claimed_at` + heartbeat on the queue sidecar.
-> New in v1.1.02 (previous release): `--gliner-variant`/`--mode gliner` REMOVED (clap exit 2); `AppError::TooManyTokens` typed exit 6; `enrich --prune-dead-entity-orphans` for entity-keyed dead-letter; re-embed entities regression test.
+> New in v1.1.04 (current release): two structural gaps closed (GAP-001 deep-research nested-runtime panic, GAP-002 entity-connect convergence); migration V016 (schema v15→v16); entity-connect promoted to fully-implemented.
+> Previous releases: v1.1.03 (split-body, stale-claims, literal-to, cross-namespace merge); v1.1.02 (GLiNER removal, TooManyTokens typed, entity orphan prune).
 > New in v1.1.01 (previous release): entity embedding via OpenRouter REST even with `--llm-backend none`; `enrich --operation re-embed --target`; new `graph recompute-degree`; `ingest --name-prefix`.
 
 ## New in v1.0.93 — OpenRouter Embedding Backend (GAP-OR-INGEST)
@@ -1698,6 +1698,14 @@ cargo install --path . && sqlite-graphrag init
 - There is NO definitive upstream fix; mitigation depends on operator-driven `codex login`
 
 
+
+## New in v1.1.04 — Two Structural Gaps Closure (ADR-0064)
+
+- Official release name is v1.1.04; the crate manifest carries `version = "1.1.4"` (SemVer rejects a leading zero in the patch component). Database migration REQUIRED: `migrate --json` applies V016. Schema advances from v15 to v16. Binary ~19 MiB. Library consumers pin `=1.1.4`; User-Agent is `sqlite-graphrag/1.1.4`.
+- GAP-001 [RESOLVED]: the `deep-research` nested-Tokio-runtime panic ("Cannot start a runtime from within a runtime") is fixed. `deep_research::run` now computes sub-query embeddings via `compute_sub_embeddings` BEFORE constructing the T1 multi-thread runtime; the canonical `Handle::try_current()` + `block_in_place(|| handle.block_on(fut))` pattern is applied to the three OpenRouter paths of `embedder.rs` (single, batch serial, JoinSet fan-out) and to `ingest_opencode.rs`. `deep-research` now emits a structured JSON envelope in 100% of invocations.
+- GAP-002 [RESOLVED]: the non-convergent `entity-connect` enrichment is fixed. Migration V016 introduces the `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)` table recording the LLM verdict (`related`/`none`) per evaluated pair. The scanner `scan_isolated_entity_pairs` is now seen-aware (LEFT JOIN excludes evaluated pairs) and prioritizes hubs with NER bindings. `count_operation_backlog` reports a real O(n) backlog for EntityConnect. `--until-empty` now converges.
+- entity-connect is promoted from scan-only to fully-implemented (see HOW_TO_USE.md).
+- Test suite: 1072 lib tests passing (up from 1070 — two new regression tests for GAP-001 nested-runtime and GAP-002 entity_connect_seen). See ADR-0064.
 
 ## New in v1.1.03 — Six Bug Fixes + V8 (ADR-0063)
 

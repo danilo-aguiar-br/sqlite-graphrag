@@ -3,6 +3,20 @@ Leia este documento em [inglês (EN)](CHANGELOG.md).
 
 # Changelog
 
+## [1.1.04] - 2026-07-08
+
+Fecha os dois gaps estruturais rastreados em `gaps.md` após a v1.1.03: o panic de runtime Tokio aninhado no `deep-research` (GAP-001) e o enrich de `entity-connect` sem convergência (GAP-002). O schema avança da versão 15 para 16 com uma migração numerada. Nota: o nome oficial do release é v1.1.04; o manifest do crate carrega `version = "1.1.4"` porque o parser SemVer rejeita zero à esquerda no componente patch.
+
+### Corrigido
+- GAP-001 — `deep-research` não panica mais com "Cannot start a runtime from within a runtime". O ponto de entrada síncrono agora computa os embeddings por sub-query ANTES de construir seu runtime Tokio dedicado (novo helper `compute_sub_embeddings` em `deep_research.rs`), e os três caminhos de embedding OpenRouter em `embedder.rs` (single, serial batch, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place` já usado pelo caminho batch — eliminando panics de runtime aninhado para qualquer chamador futuro que rode dentro de um runtime existente. A mesma guarda é aplicada ao `ingest_opencode`.
+- GAP-002 — `entity-connect` agora converge. Uma nova tabela `entity_connect_seen` (migração V016) registra o veredito do LLM (`related`/`none`) para cada par avaliado, o scanner `scan_isolated_entity_pairs` exclui pares já avaliados e prioriza entidades hub, `count_operation_backlog` reporta um proxy de backlog O(n) real (entidades grau-0 com bindings NER) em vez de um zero hard-coded, e `call_entity_connect` persiste o veredito tanto no ramo `related` quanto no `none`. `--until-empty` agora atinge `eligible_remaining == 0` em vez de reavaliar para sempre os mesmos pares rejeitados.
+
+### Adicionado
+- Migração V016 — `entity_connect_seen(source_id, target_id, namespace, verdict, relation, evaluated_at)` com chave primária composta, duas chaves estrangeiras `ON DELETE CASCADE` para `entities(id)`, um check constraint no `verdict`, e um índice de namespace. `CURRENT_SCHEMA_VERSION` avança de 15 para 16.
+
+### Documentação
+- A operação de enrich `entity-connect` é promovida de "scan-only (não persiste)" para "fully-implemented" na referência da skill, refletindo o pipeline convergente de rastreamento de vereditos.
+- A description do `Cargo.toml` reintroduz o tamanho do binário (~16 MiB), restaurando o invariante `binary_size_documented_regression` que derivou durante o refresh da description na v1.1.03.
 ## [1.1.03] - 2026-07-07
 
 Fecha os seis bugs que bloqueavam operadores catalogados em `gaps.md` após a corrida de remediação do GraphRAG de 2026-07-07, mais o portão V8 de corpo excessivamente grande. O schema permanece na versão 15 (a fila sidecar do enrich ganha uma coluna `claimed_at` via ALTER idempotente). Nota: o nome oficial do release é v1.1.03; o manifest do crate carrega `version = "1.1.3"` porque o parser SemVer rejeita zero à esquerda no componente patch.

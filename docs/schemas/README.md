@@ -48,7 +48,7 @@
 | `prune-relations` | `prune-relations.schema.json` |
 | `reclassify-relation` | `reclassify-relation.schema.json` |
 | `split-body` (v1.1.03, GAP-V8) | `split-body.schema.json` |
-| `split-body` (v1.1.03, GAP-V8) | `split-body.schema.json` |
+| `entity_connect_seen` (v1.1.04, GAP-002) | implicit via migration V016 — records `(source_id, target_id, namespace, verdict, relation, evaluated_at)` |
 | `normalize-entities` | `normalize-entities.schema.json` |
 | `enrich` (phase event) | `enrich-phase.schema.json` |
 | `enrich` (per-item event) | `enrich-item-event.schema.json` |
@@ -169,6 +169,12 @@
 - NO new schema files were added — `enrich-phase.schema.json`, `enrich-item-event.schema.json`, and `enrich-summary.schema.json` are unchanged; the SCAN→JUDGE→PERSIST envelopes keep the same shape regardless of JUDGE transport
 - The optional `backend_invoked` enum already covers `openrouter` (added v1.0.93 for embedding); the same variant now also describes an enrich JUDGE served via OpenRouter chat
 - Structured Outputs (`response_format` `json_schema` `strict: true`) make the JUDGE output conform to the same entity/relationship structs the subprocess backends emit — no schema divergence
+
+### Schema Changes in v1.1.04 (ADR-0064)
+- Migration V016 introduces the `entity_connect_seen` table recording the LLM verdict (`related`/`none`) per evaluated entity pair for convergent `entity-connect`
+- `CURRENT_SCHEMA_VERSION` advances 15 to 16
+- The `entity_connect` enrich operation is promoted from scan-only to fully-implemented
+- No new output schema file: `entity_connect_seen` is an internal table (implicit schema via the V016 migration), not a subcommand stdout contract
 
 ### Schema Changes in v1.0.96 → v1.0.97 (ADR-0055, GAP-SG-15/16/41/43)
 - v1.0.96 (ADR-0055): `enrich-status.schema.json` for the read-only `enrich --status` report (`unbound_backlog`, per-operation `scan_backlog` (GAP-SG-77, v1.1.0), queue `pending`/`done`/`failed`/`dead`/`skipped`, `eligible_now`, `waiting`); the `.enrich-queue.sqlite` sidecar gains the `error_class`/`next_retry_at` columns and the `dead` terminal status via an idempotent `ALTER TABLE`

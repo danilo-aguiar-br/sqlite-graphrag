@@ -542,7 +542,12 @@ pub struct EnrichArgs {
     pub openrouter_model: Option<String>,
 
     /// OpenRouter API key. Falls back to OPENROUTER_API_KEY env or stored config.
-    #[arg(long, value_name = "KEY", env = "OPENROUTER_API_KEY")]
+    #[arg(
+        long,
+        value_name = "KEY",
+        env = "OPENROUTER_API_KEY",
+        hide_env_values = true
+    )]
     pub openrouter_api_key: Option<String>,
 
     /// Timeout per item in seconds when using OpenRouter. Default: 600.

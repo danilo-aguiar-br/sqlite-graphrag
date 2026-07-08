@@ -110,6 +110,13 @@ This section updates the framework to cover the documentation generated for the 
 - **Docs**: 4 pre-existing rustdoc warnings resolved (HTML backticks, cfg(test) intra-doc links).
 - Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, MIGRATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION (EN+PT); DOCUMENTATION_FRAMEWORK; docs/decisions/INDEX.md + ADR-0062 (EN+PT).
 
+### v1.1.04 — Two Structural Gaps Closure (ADR-0064)
+
+- Official release name is v1.1.04; the crate manifest carries `version = "1.1.4"` (SemVer rejects a leading zero in the patch component). Database migration REQUIRED: V016 (`entity_connect_seen` table). Schema advances from v15 to v16. Binary ~19 MiB. Library consumers pin `=1.1.4`; User-Agent is `sqlite-graphrag/1.1.4`.
+- GAP-001 [RESOLVED]: deep-research nested-Tokio-runtime panic fixed via `compute_sub_embeddings` + `Handle::try_current()`/`block_in_place` pattern in the three OpenRouter paths of embedder.rs.
+- GAP-002 [RESOLVED]: entity-connect non-convergence fixed via migration V016 (`entity_connect_seen`), seen-aware scanner, real backlog predicate, and verdict persistence. entity-connect promoted scan-only → fully-implemented.
+- See `docs/decisions/adr-0064-v1-1-04-gap-closure.md` (EN) and `docs/decisions/adr-0064-v1-1-04-gap-closure.pt-BR.md` (PT-BR).
+
 ### v1.1.03 — Six Bugs + V8 Bug Fixes (ADR-0063)
 - Official release name is v1.1.03; the crate manifest carries `version = "1.1.3"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB. Library consumers pin `=1.1.3`; User-Agent is `sqlite-graphrag/1.1.3`.
 - **Bug 1 (FIX)**: enrich scan-phase enqueue is now wrapped in a single transaction (batch INSERT atomic); eliminates the apparent deadlock on re-embed of 44k+ entities.

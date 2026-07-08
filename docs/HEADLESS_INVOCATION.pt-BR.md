@@ -80,7 +80,7 @@ Rodar `claude -p` com a config de MCP travada e vazia, e a config de hooks zerad
 - `--openrouter-model` é OBRIGATÓRIA com `--mode openrouter` (SEM default; omiti-la → exit 1 antes de qualquer chamada de rede)
 - `--openrouter-api-key` lê da env `OPENROUTER_API_KEY` ou de `config add-key --provider openrouter`; `--openrouter-timeout` tem default de 300s; `--openrouter-base-url` é opcional
 - A requisição usa `response_format` `json_schema` com `strict: true` e `provider.require_parameters: true`; `reasoning.enabled: false` com fallback reasoning-mandatory de uma retentativa; `usage.cost` é lido da resposta
-- Trade-off: OAuth zero-token (modos CLI locais) vs tokens cobrados na `OPENROUTER_API_KEY` (modo OpenRouter); sem migração, schema permanece v15
+- Trade-off: OAuth zero-token (modos CLI locais) vs tokens cobrados na `OPENROUTER_API_KEY` (modo OpenRouter); o caminho JUDGE do OpenRouter em si não exige migração, mas a v1.1.04 avança o schema do banco principal para v16 (a tabela `entity_connect_seen` da V016, exigida apenas quando você rodar depois `enrich --operation entity-connect`)
 
 ```bash
 # JUDGE do enrich headless via REST OpenRouter (sem subprocesso, sem isolamento de CWD)
@@ -284,6 +284,12 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"nome-do-server-1":{"enabled":false},"nome-do-s
 - Codex: `codex exec`
 - OpenCode: `opencode run`
 
+
+
+### Atualização v1.1.04 — Estabilidade do deep-research + Convergência do entity-connect (ADR-0064)
+
+- GAP-001: o `deep-research` não entra mais em panic com "Cannot start a runtime from within a runtime" quando invocado em modo headless (agent harnesses, runners de CI, jobs agendados). O entry point síncrono `deep_research::run` agora computa os embeddings por sub-query ANTES de construir seu runtime Tokio dedicado via o novo helper `compute_sub_embeddings`, e os três caminhos de embedding OpenRouter em `embedder.rs` (single, batch serial, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place` já usado pelo path batch. O `ingest_opencode` também recebeu o guard. Para orquestradores headless isso significa que jobs `deep-research --with-bodies` de longa duração que antes crashavam no meio agora completam de forma confiável.
+- GAP-002: o `entity-connect` agora converge em loops headless de longa duração. A nova tabela `entity_connect_seen` (migração V016, schema do banco principal v15 → v16) registra o veredito do LLM (`related`/`none`) por par avaliado; o scanner `scan_isolated_entity_pairs` exclui pares já avaliados e prioriza entidades hub; e o `call_entity_connect` persiste o veredito nos dois ramos. Combinado com `--until-empty --max-runtime`, um job headless `enrich --operation entity-connect` agora atinge `eligible_remaining == 0` em vez de re-avaliar infinitamente os mesmos pares rejeitados. Rodar `migrate --json` uma vez na primeira abertura é OBRIGATÓRIO antes da primeira invocação do `entity-connect`.
 
 
 ### Atualização v1.1.03 — Recuperação de Claims Stale no enrich Headless de Longa Duração
