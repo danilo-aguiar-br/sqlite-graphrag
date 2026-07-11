@@ -218,6 +218,19 @@ sqlite-graphrag --embedding-backend openrouter \
 - Receita "Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro"
 
 
+## Como Atualizar Para a v1.1.05 (Cinco Bugs do Incidente deep-research "danilo" — Sem Migração)
+
+- Nenhuma migração de banco; o schema permanece em v16 (V016 da v1.1.04). Basta `cargo install sqlite-graphrag --locked --force`.
+- O nome de release é v1.1.05; a versão do `Cargo.toml` é `1.1.5` (SemVer rejeita zero à esquerda no componente patch); binário ~19 MiB; User-Agent `sqlite-graphrag/1.1.5`.
+- ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+- Bug 1: `deep-research` com token único gera sub-queries multi-aspecto (`source: "aspect"`); opcional `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2: `deep-research --output PATH` (atomwrite) + ack no stdout `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` + `--quiet` + contrato stdout-JSON / stderr-logs. Schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json).
+- Bug 3: `graph traverse --fuzzy` + sugestões em NotFound (exit 4).
+- Bug 4: `merge-entities` rejeita self-ref pré-DB.
+- Bug 5: `link --from-id`/`--to-id`; nomes só dígitos rejeitados.
+- Consumidores de biblioteca fixam `=1.1.5`.
+- Veja a seção de receitas v1.1.05 abaixo.
+
 ## Como Atualizar Para a v1.1.04 (Correção de Runtime Aninhado do deep-research + Convergência do entity-connect + Schema v16)
 
 - Migração de banco OBRIGATÓRIA: `migrate --json` aplica V016 (tabela `entity_connect_seen`). O schema avança de v15 para v16.
@@ -2704,6 +2717,48 @@ memórias existentes.
   OpenRouter (GAP-OR-INGEST)"
 - Receita "Como ingerir um diretório de arquivos markdown no grafo"
 
+
+## Receitas adicionadas na v1.1.05
+
+Veja [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md) e [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+
+### Receita — deep-research com token único (Bug 1)
+```bash
+# Token único agora gera sub-queries multi-aspecto (source: "aspect")
+sqlite-graphrag deep-research "danilo" --k 20 --max-sub-queries 7 --json | jaq '.sub_queries | length'
+# Estratégia manual permanece disponível
+printf '%s\n' 'danilo patrimônio' 'danilo stack' 'danilo projetos' > /tmp/sq.txt
+sqlite-graphrag deep-research "danilo" --sub-query-strategy manual --sub-queries-file /tmp/sq.txt --json
+```
+
+### Receita — envelope atômico com --output e --quiet (Bug 2)
+```bash
+# JSON completo no arquivo (atomwrite); ack curto no stdout; logs no stderr
+sqlite-graphrag --quiet deep-research "auth architecture" --k 20 --output /tmp/dr.json --json
+# Campos exatos do ack:
+# { "written", "bytes", "blake3", "sub_queries_total", "unique_memories_found", "elapsed_ms" }
+# Schema: docs/schemas/deep-research-output-ack.schema.json
+jaq '.stats' /tmp/dr.json
+# NUNCA redirecione stdout+stderr no mesmo arquivo: # errado: ... &> /tmp/all.log
+```
+
+### Receita — graph traverse com apelido curto e --fuzzy (Bug 3)
+```bash
+# Sem --fuzzy: NotFound (exit 4) inclui sugestões ranqueadas
+sqlite-graphrag graph traverse --from danilo --depth 2 --json
+# Com --fuzzy: auto-resolve vencedor claro (warning em stderr)
+sqlite-graphrag graph traverse --from danilo --depth 2 --fuzzy --json
+```
+
+### Receita — merge sem self-ref e link por ID (Bugs 4 e 5)
+```bash
+# Bug 4: self-ref rejeitado antes de qualquer trabalho no DB
+# (falha se 3 estiver em --ids)
+# sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json
+
+# Bug 5: link por ID numérico (não cria entidade fantasma "12")
+sqlite-graphrag link --from-id 12 --to-id 34 --relation uses --json
+```
 
 ## Receitas adicionadas na v1.1.04
 

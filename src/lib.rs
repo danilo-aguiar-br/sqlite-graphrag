@@ -267,6 +267,9 @@ pub mod pragmas;
 /// `memory_embeddings` / `entity_embeddings` tables.
 pub mod similarity;
 
+/// Atomic file writes (atomwrite algorithm: tempfile → fsync → rename).
+pub mod atomic_io;
+
 /// Cross-platform signal handling: SIGINT, SIGTERM, SIGHUP.
 pub mod signals;
 

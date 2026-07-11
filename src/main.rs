@@ -84,9 +84,10 @@ fn main() -> std::process::ExitCode {
         }
     }
 
-    // Pre-parse --verbose / -v before tracing init so the flag overrides the env var.
-    // We avoid full Cli::parse() here because it would fail on missing required args
-    // when --help is requested. Counts the number of `-v` occurrences (or `--verbose`).
+    // Pre-parse --verbose / -v / --quiet before tracing init so the flag
+    // overrides the env var. We avoid full Cli::parse() here because it would
+    // fail on missing required args when --help is requested.
+    let quiet = std::env::args().any(|a| a == "--quiet" || a == "-q");
     let verbose_count: u8 = std::env::args()
         .skip(1)
         .map(|a| {
@@ -100,7 +101,12 @@ fn main() -> std::process::ExitCode {
         })
         .sum();
 
-    let log_level = if verbose_count > 0 {
+    // v1.1.05 Bug 2: --quiet keeps stderr free of info/warn noise so pipelines
+    // that mistakenly use 2>&1 are less likely to contaminate JSON; prefer
+    // redirecting stdout alone (`> out.json`) or `--output path`.
+    let log_level = if quiet {
+        "error".to_string()
+    } else if verbose_count > 0 {
         match verbose_count {
             1 => "info".to_string(),
             2 => "debug".to_string(),

@@ -62,6 +62,15 @@ pub fn validate_entity_name(name: &str) -> Result<(), AppError> {
             "entity name must not contain newline characters".to_string(),
         ));
     }
+    // v1.1.05 Bug 5: pure digit names are almost always accidental entity IDs
+    // passed as `--from`/`--to` instead of names (or via `--from-id`/`--to-id`).
+    // Reject them so `--create-missing` cannot pollute the graph with ghost nodes.
+    if name.chars().all(|c| c.is_ascii_digit()) {
+        return Err(AppError::Validation(format!(
+            "entity name '{name}' rejected: purely numeric names look like entity IDs — \
+             use --from-id/--to-id for ID-based linking, or pass a non-numeric name"
+        )));
+    }
     if name.len() <= 4
         && name
             .chars()
@@ -72,6 +81,167 @@ pub fn validate_entity_name(name: &str) -> Result<(), AppError> {
         )));
     }
     Ok(())
+}
+
+/// Fuzzy match candidate returned by [`suggest_entity_names`] / [`resolve_entity_fuzzy`].
+#[derive(Debug, Clone)]
+pub struct FuzzyEntityMatch {
+    pub id: i64,
+    pub name: String,
+    /// Similarity in `[0.0, 1.0]` (1.0 = exact).
+    pub score: f64,
+}
+
+/// Score how well `query` matches a canonical entity `name`.
+///
+/// Prefers exact, prefix-of-kebab, first-token equality, then Jaro-Winkler
+/// (rapidfuzz) so short nicknames like `danilo` rank `danilo-aguiar-teixeira`
+/// highly.
+pub fn entity_name_similarity(query: &str, name: &str) -> f64 {
+    let q = query.trim().to_ascii_lowercase();
+    let n = name.trim().to_ascii_lowercase();
+    if q.is_empty() || n.is_empty() {
+        return 0.0;
+    }
+    if q == n {
+        return 1.0;
+    }
+    // Prefix of a kebab/snake name: "danilo" ↔ "danilo-aguiar-teixeira"
+    if n.starts_with(&q) {
+        let rest = &n[q.len()..];
+        if rest.is_empty()
+            || rest.starts_with('-')
+            || rest.starts_with('_')
+            || rest.starts_with(' ')
+        {
+            return 0.95;
+        }
+        // Longer shared prefix still strong
+        return 0.88;
+    }
+    if q.starts_with(&n) && n.len() >= 3 {
+        return 0.80;
+    }
+    let first_token = n
+        .split(|c: char| c == '-' || c == '_' || c.is_whitespace())
+        .next()
+        .unwrap_or(n.as_str());
+    if first_token == q {
+        return 0.92;
+    }
+    if n.contains(&q) && q.len() >= 3 {
+        return 0.82;
+    }
+    rapidfuzz::distance::jaro_winkler::normalized_similarity(q.chars(), n.chars())
+}
+
+/// Rank entity names in `namespace` by fuzzy similarity to `query`.
+///
+/// Returns up to `limit` candidates with score ≥ `min_score`, sorted by score
+/// descending (ties break alphabetically).
+pub fn suggest_entity_names(
+    conn: &Connection,
+    namespace: &str,
+    query: &str,
+    limit: usize,
+    min_score: f64,
+) -> Result<Vec<FuzzyEntityMatch>, AppError> {
+    let entities = list_entities(conn, Some(namespace))?;
+    let mut scored: Vec<FuzzyEntityMatch> = entities
+        .into_iter()
+        .filter_map(|e| {
+            let score = entity_name_similarity(query, &e.name);
+            if score >= min_score {
+                Some(FuzzyEntityMatch {
+                    id: e.id,
+                    name: e.name,
+                    score,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    scored.truncate(limit.max(1));
+    Ok(scored)
+}
+
+/// Resolve an entity by exact name, then optionally by fuzzy match.
+///
+/// * Exact match always wins.
+/// * When `auto_fuzzy` is true and exactly one candidate scores ≥ `min_score`
+///   (or the top candidate is ≥ 0.90 and beats the runner-up by ≥ 0.05),
+///   that candidate is returned with a stderr warning.
+/// * When no auto-resolution is possible, returns `Ok(None)` after the caller
+///   can surface suggestions via [`suggest_entity_names`].
+pub fn resolve_entity_fuzzy(
+    conn: &Connection,
+    namespace: &str,
+    name: &str,
+    auto_fuzzy: bool,
+) -> Result<Option<(i64, String, bool)>, AppError> {
+    if let Some(id) = find_entity_id(conn, namespace, name)? {
+        return Ok(Some((id, name.to_string(), false)));
+    }
+    // Case-insensitive exact via list (names are normalized kebab, but callers
+    // may pass mixed case).
+    let normalized = crate::parsers::normalize_entity_name(name);
+    if normalized != name {
+        if let Some(id) = find_entity_id(conn, namespace, &normalized)? {
+            return Ok(Some((id, normalized, false)));
+        }
+    }
+    if !auto_fuzzy {
+        return Ok(None);
+    }
+    let suggestions = suggest_entity_names(conn, namespace, name, 5, 0.75)?;
+    if suggestions.is_empty() {
+        return Ok(None);
+    }
+    let top = &suggestions[0];
+    let clear_winner =
+        top.score >= 0.90 && (suggestions.len() == 1 || top.score - suggestions[1].score >= 0.05);
+    let single_strong = suggestions.len() == 1 && top.score >= 0.85;
+    if clear_winner || single_strong {
+        tracing::warn!(
+            target: "entities",
+            query = %name,
+            resolved = %top.name,
+            score = top.score,
+            "fuzzy entity resolution: exact match failed; using best candidate"
+        );
+        return Ok(Some((top.id, top.name.clone(), true)));
+    }
+    Ok(None)
+}
+
+/// Build a NotFound message that includes fuzzy suggestions when available.
+pub fn entity_not_found_with_suggestions(
+    conn: &Connection,
+    namespace: &str,
+    name: &str,
+) -> AppError {
+    let suggestions = suggest_entity_names(conn, namespace, name, 5, 0.70).unwrap_or_default();
+    if suggestions.is_empty() {
+        return AppError::NotFound(format!(
+            "entity '{name}' not found in namespace '{namespace}'"
+        ));
+    }
+    let list: Vec<String> = suggestions
+        .iter()
+        .map(|s| format!("{} (score={:.2})", s.name, s.score))
+        .collect();
+    AppError::NotFound(format!(
+        "entity '{name}' not found in namespace '{namespace}'. Did you mean: {}? \
+         Re-run with --fuzzy to auto-resolve a clear match, or pass the canonical name.",
+        list.join(", ")
+    ))
 }
 
 /// Upserts an entity and returns its primary key.
@@ -1503,6 +1673,25 @@ mod tests {
     fn validate_entity_name_accepts_mixed_case() {
         assert!(validate_entity_name("FTS5").is_ok()); // 4 chars but has digit
         assert!(validate_entity_name("WAL").is_err()); // 3 chars ALL_CAPS
+    }
+
+    // v1.1.05 Bug 5: pure digit names must be rejected (ghost ID entities).
+    #[test]
+    fn validate_entity_name_rejects_purely_numeric() {
+        assert!(validate_entity_name("89975").is_err());
+        assert!(validate_entity_name("35313").is_err());
+        assert!(validate_entity_name("12").is_err());
+        // Mixed alphanumeric still OK.
+        assert!(validate_entity_name("issue-89975").is_ok());
+        assert!(validate_entity_name("v2").is_ok());
+    }
+
+    #[test]
+    fn entity_name_similarity_prefers_prefix_of_kebab() {
+        let s = entity_name_similarity("danilo", "danilo-aguiar-teixeira");
+        assert!(s >= 0.90, "expected strong prefix score, got {s}");
+        let exact = entity_name_similarity("danilo", "danilo");
+        assert!((exact - 1.0).abs() < f64::EPSILON);
     }
 
     // GAP-SG-52: unlink_memory_entity removes exactly the targeted binding.

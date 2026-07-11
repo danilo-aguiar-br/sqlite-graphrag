@@ -3,6 +3,28 @@ Leia este documento em [inglês (EN)](CHANGELOG.md).
 
 # Changelog
 
+## [1.1.05] - 2026-07-11
+
+Fecha os cinco bugs operacionais do relato de incidente deep-research sobre o sujeito "danilo" (2026-07-08; ver `gaps.md`). Sem migração de schema. Nome oficial do release: v1.1.05; o manifest do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no patch.
+
+### Corrigido
+- Bug 1 — `deep-research` com query de palavra única (ex.: `"danilo"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2 — envelopes JSON grandes deixam de ser frágeis sob redirecionamento de shell: novo `--output PATH` grava o envelope completo via algoritmo atomwrite (tempfile → fsync → rename) e emite um ack curto no stdout com checksum `blake3`; `--quiet`/`-q` global suprime tracing não-erro; o help documenta o contrato stdout-JSON / stderr-logs (nunca `&>` no mesmo arquivo).
+- Bug 3 — `graph traverse --from <nome-curto>` não falha mais de forma opaca: match exato continua prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões ranqueadas (Jaro-Winkler / prefixo) dos nomes canônicos; com `--fuzzy`, um vencedor claro é auto-resolvido com warning em stderr (`rapidfuzz`).
+- Bug 4 — `merge-entities` rejeita merges auto-referenciais (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB, para que erros de word-splitting do zsh não corrompam o grafo sob `--cross-namespace`. Re-checagem em profundidade permanece no resolve.
+- Bug 5 — `link` não trata mais strings puramente numéricas como nomes de entidade sob `--create-missing`. Novos `--from-id` / `--to-id` resolvem por ID; `validate_entity_name` rejeita nomes só de dígitos para impedir entidades fantasma.
+
+### Adicionado
+- `src/atomic_io.rs` — helpers de escrita atômica (`write_atomic`, `write_json_atomic`) usados por `deep-research --output`.
+- `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity`.
+- Suite de integração `tests/v1105_danilo_bugs_regression.rs` cobrindo os cinco bugs na fronteira da CLI.
+
+### Documentação
+- Help longo do `deep-research`: contrato stdout/stderr e exemplos de `--output` / estratégia manual.
+- Notas do `graph traverse`: comportamento de apelidos curtos e `--fuzzy`.
+- Status em `gaps.md` atualizado de pendente → corrigido para Bugs 1–5.
+- Description do `Cargo.toml` atualiza o tamanho do binário para ~19 MiB (bate com o binário de release; restaura o invariante `binary_size_documented_regression`).
+
 ## [1.1.04] - 2026-07-08
 
 Fecha os dois gaps estruturais rastreados em `gaps.md` após a v1.1.03: o panic de runtime Tokio aninhado no `deep-research` (GAP-001) e o enrich de `entity-connect` sem convergência (GAP-002). O schema avança da versão 15 para 16 com uma migração numerada. Nota: o nome oficial do release é v1.1.04; o manifest do crate carrega `version = "1.1.4"` porque o parser SemVer rejeita zero à esquerda no componente patch.

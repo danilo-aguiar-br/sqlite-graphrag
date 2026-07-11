@@ -16,6 +16,36 @@
 
 ## Resumo
 
+## Contrato stdout/stderr e --quiet (v1.1.05)
+
+ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs` (nome da suite **v1105**).
+
+- JSON estruturado SEMPRE no stdout; logs de tracing SEMPRE no stderr
+- Use `--quiet`/`-q` (global) para suprimir tracing não-erro — útil em pipelines headless que parseiam stdout com `jaq`
+- Para envelopes grandes de `deep-research`, prefira `--output PATH` (escrita atômica atomwrite) em vez de redirecionar stdout para arquivo misturado com stderr. Ack no stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Schema: `docs/schemas/deep-research-output-ack.schema.json`
+- Queries de token único em `deep-research` expandem para sub-queries com `source: "aspect"` (fan-out multi-ângulo); estratégia manual via `--sub-query-strategy manual --sub-queries-file`
+- Em scripts headless, use `graph traverse --fuzzy` quando o nome canônico for desconhecido; sem match exato, exit 4 inclui sugestões
+- Prefira `link --from-id`/`--to-id` em automações que só têm IDs; NUNCA passe dígitos puros em `--from`/`--to` com `--create-missing`
+- `merge-entities` rejeita self-ref (`--into-id` em `--ids`) antes do DB — útil sob loops zsh/bash malformados
+- Nunca use `sqlite-graphrag ... &> arquivo` (redireciona stdout+stderr juntos e contamina o JSON)
+
+```bash
+# deep-research headless com saída atômica em arquivo (recomendado para agentes)
+OUTDIR=/tmp/graphrag-out
+mkdir -p "$OUTDIR"
+sqlite-graphrag --quiet \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
+  --output "$OUTDIR/research.json" --json
+# Parseie o ack no stdout; envelope completo no arquivo
+# Facetas manuais opcionais:
+# printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"
+# sqlite-graphrag --quiet deep-research "danilo" \
+#   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
+#   --output "$OUTDIR/research.json" --json
+```
+
+
 - Claude Code OAuth sem MCP usa `--strict-mcp-config --mcp-config '{}'`
 - Codex OAuth sem MCP usa `codex exec -c mcp_servers='{}'`
 - OpenCode OAuth sem MCP usa `OPENCODE_CONFIG_CONTENT` com `enabled` falso por servidor

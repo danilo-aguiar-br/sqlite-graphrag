@@ -1,10 +1,60 @@
-# MIGRANDO PARA v1.1.04 — Correção do Nested-Runtime do deep-research, Convergência do entity-connect, Migração entity_connect_seen
+# MIGRANDO PARA v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (Sem Migração de Schema)
 
-> Este guia cobre a atualização de v1.1.03 para v1.1.04. Uma migração numerada (V016) roda no banco principal — `migrate --json` é OBRIGATÓRIO na primeira abertura. O schema avança de v15 para v16. O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~16 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) estão preservados como seções históricas abaixo.
+- Versão em inglês: [MIGRATION.md](MIGRATION.md)
+- Voltar ao [README.pt-BR.md](../README.pt-BR.md)
+
+> Este guia cobre a atualização de v1.1.04 para v1.1.05. **Nenhuma migração de schema** — o schema permanece em v16 (V016 `entity_connect_seen` da v1.1.04). O nome oficial do release é v1.1.05; o `Cargo.toml` carrega `1.1.5` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → … → v1.1.04) estão preservados como seções históricas abaixo.
+
+## v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
+
+> Upgrade da v1.1.04. O schema do banco principal **PERMANECE em v16** — `migrate` NÃO é necessário. O nome oficial do release é v1.1.05; o `Cargo.toml` carrega `1.1.5`. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+
+ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+
+### O que mudou
+
+- Bug 1 (Fixed): `deep-research` com query de palavra única (ex.: `"danilo"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2 (Fixed): envelopes JSON grandes deixam de ser frágeis sob redirecionamento de shell. Novo `deep-research --output PATH` grava o envelope completo via algoritmo atomwrite (tempfile → fsync → rename) e emite um ack curto no stdout com campos exatos `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms` (schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json)). Flag global `--quiet`/`-q` suprime tracing não-erro. O help documenta o contrato stdout-JSON / stderr-logs — **nunca** use `&>` no mesmo arquivo.
+- Bug 3 (Fixed): `graph traverse --from <nome-curto>` não falha mais de forma opaca. Match exato continua prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões ranqueadas (Jaro-Winkler / prefixo); com `--fuzzy`, um vencedor claro é auto-resolvido com warning em stderr (`rapidfuzz`).
+- Bug 4 (Fixed): `merge-entities` rejeita merges auto-referenciais (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB, para que erros de word-splitting do zsh não corrompam o grafo sob `--cross-namespace`.
+- Bug 5 (Fixed): `link` não trata mais strings puramente numéricas como nomes de entidade sob `--create-missing`. Novos `--from-id` / `--to-id` resolvem por ID; `validate_entity_name` rejeita nomes só de dígitos.
+
+### Ações pós-upgrade
+
+- Reinstale: `cargo install sqlite-graphrag --locked --force`.
+- Pin da API da biblioteca: troque de `=1.1.4` para `=1.1.5`.
+- Prefira `deep-research "query" --output /tmp/dr.json --quiet --json` e leia o ack no stdout (`written`/`bytes`/`blake3`/`sub_queries_total`/`unique_memories_found`/`elapsed_ms`) e o arquivo com `jaq` em vez de redirecionar stdout+stderr juntos.
+- Use `graph traverse --from <apelido> --fuzzy --json` quando o nome canônico for desconhecido.
+- Use `link --from-id <N> --to-id <M> --relation <tipo> --json` para arestas por ID; nunca passe dígitos puros como `--from`/`--to` com `--create-missing`.
+- Regressão opcional: `cargo test --test v1105_danilo_bugs_regression`.
+
+### Exemplos
+
+```bash
+# Bug 1 — token único gera sub-queries aspect
+sqlite-graphrag deep-research "danilo" --k 20 --max-sub-queries 7 --json
+
+# Bug 2 — envelope atômico + ack blake3 no stdout
+sqlite-graphrag --quiet deep-research "auth" --k 20 --output /tmp/dr.json --json
+jaq . /tmp/dr.json
+
+# Bug 3 — traverse fuzzy
+sqlite-graphrag graph traverse --from danilo --depth 2 --fuzzy --json
+
+# Bug 4 — self-ref rejeitado pré-DB (exit 1)
+# sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json   # rejeitado se 3 ∈ ids
+
+# Bug 5 — link por ID
+sqlite-graphrag link --from-id 12 --to-id 34 --relation uses --json
+```
+
+## (histórico) MIGRANDO PARA v1.1.04 — Correção do Nested-Runtime do deep-research, Convergência do entity-connect, Migração entity_connect_seen
+
+> Este guia cobre a atualização de v1.1.03 para v1.1.04. Uma migração numerada (V016) roda no banco principal — `migrate --json` é OBRIGATÓRIO na primeira abertura. O schema avança de v15 para v16. O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) estão preservados como seções históricas abaixo.
 
 ## v1.1.04 — Correção do Nested-Runtime do deep-research, Convergência do entity-connect, Migração entity_connect_seen
 
-> Upgrade da v1.1.03. O schema do banco principal AVANÇA de v15 para v16 — `migrate --json` é OBRIGATÓRIO (aplica a V016, a tabela `entity_connect_seen`). O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4`. Binário ~16 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+> Upgrade da v1.1.03. O schema do banco principal AVANÇA de v15 para v16 — `migrate --json` é OBRIGATÓRIO (aplica a V016, a tabela `entity_connect_seen`). O nome oficial do release é v1.1.04; o `Cargo.toml` carrega `1.1.4`. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
 
 ### O que mudou
 

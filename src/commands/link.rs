@@ -35,17 +35,32 @@ LOCK WAITING:\n  \
     diagnostic when the wait exceeds 5 seconds so operators can correlate\n  \
     cold-start latency with this CLI invocation.\n\n  \
     --from and --to expect ENTITY names (graph nodes), not memory names.\n  \
+    Use --from-id / --to-id when you only have numeric entity IDs (v1.1.05).\n  \
+    Purely numeric names are rejected so --create-missing cannot spawn ghosts.\n  \
     Memory names are managed via remember/read/edit/forget; entities are curated via\n  \
     remember --graph-stdin, created by enrich, or auto-created via --create-missing.")]
 pub struct LinkArgs {
     /// Source ENTITY name (graph node, not memory). Entities are curated via
     /// `remember --graph-stdin`, created by `enrich`, or auto-created via `--create-missing`.
     /// Use `graph entities` to list available entity names. Also accepts the alias `--name`.
-    #[arg(long, alias = "name")]
-    pub from: String,
+    /// Conflicts with `--from-id`.
+    #[arg(
+        long,
+        alias = "name",
+        required_unless_present = "from_id",
+        conflicts_with = "from_id"
+    )]
+    pub from: Option<String>,
+    /// Source entity ID (unambiguous alternative to `--from`). Conflicts with `--from`.
+    #[arg(long, value_name = "ID")]
+    pub from_id: Option<i64>,
     /// Target ENTITY name (graph node, not memory). See `--from` for sourcing entity names.
-    #[arg(long)]
-    pub to: String,
+    /// Conflicts with `--to-id`.
+    #[arg(long, required_unless_present = "to_id", conflicts_with = "to_id")]
+    pub to: Option<String>,
+    /// Target entity ID (unambiguous alternative to `--to`). Conflicts with `--to`.
+    #[arg(long, value_name = "ID")]
+    pub to_id: Option<i64>,
     /// Relation type between entities. Canonical values: applies-to, uses,
     /// depends-on, causes, fixes, contradicts, supports, follows, related,
     /// mentions, replaces, tracked-in. Any kebab-case or snake_case string
@@ -102,27 +117,69 @@ struct LinkResponse {
 
 pub fn run(args: LinkArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
-    tracing::debug!(target: "link", from = %args.from, to = %args.to, relation = %args.relation, "creating relationship");
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
-    // BUG-13 (v1.0.88): validate the ORIGINAL entity names BEFORE
-    // normalization. Normalizing "RUST" to "rust" would silently bypass
-    // the ALL_CAPS short-name guard (>=2 chars, no newlines, no ALL_CAPS
-    // <=4 chars). The test `link_rejects_four_char_all_caps_v1088`
-    // guards against the bypass.
-    if let Err(msg) = crate::storage::entities::validate_entity_name(&args.from) {
-        return Err(AppError::Validation(msg.to_string()));
-    }
-    if let Err(msg) = crate::storage::entities::validate_entity_name(&args.to) {
-        return Err(AppError::Validation(msg.to_string()));
-    }
+    crate::storage::connection::ensure_db_ready(&paths)?;
 
-    let norm_from = crate::parsers::normalize_entity_name(&args.from);
-    let norm_to = crate::parsers::normalize_entity_name(&args.to);
+    let mut conn = open_rw(&paths.db)?;
+
+    // v1.1.05 Bug 5: resolve by name OR by explicit --from-id / --to-id.
+    // Name path still validates BEFORE normalization (BUG-13 ALL_CAPS guard)
+    // and rejects purely numeric names so --create-missing cannot spawn ghosts.
+    let (norm_from, source_id_pre, from_is_id) = match (args.from_id, args.from.as_ref()) {
+        (Some(id), _) => {
+            let (name, _) = resolve_entity_name_by_id(&conn, &namespace, id)?;
+            (name, Some(id), true)
+        }
+        (None, Some(from_name)) => {
+            if let Err(msg) = crate::storage::entities::validate_entity_name(from_name) {
+                return Err(AppError::Validation(msg.to_string()));
+            }
+            let norm = crate::parsers::normalize_entity_name(from_name);
+            (norm, None, false)
+        }
+        (None, None) => {
+            return Err(AppError::Validation(
+                "--from or --from-id is required".to_string(),
+            ));
+        }
+    };
+
+    let (norm_to, target_id_pre, to_is_id) = match (args.to_id, args.to.as_ref()) {
+        (Some(id), _) => {
+            let (name, _) = resolve_entity_name_by_id(&conn, &namespace, id)?;
+            (name, Some(id), true)
+        }
+        (None, Some(to_name)) => {
+            if let Err(msg) = crate::storage::entities::validate_entity_name(to_name) {
+                return Err(AppError::Validation(msg.to_string()));
+            }
+            let norm = crate::parsers::normalize_entity_name(to_name);
+            (norm, None, false)
+        }
+        (None, None) => {
+            return Err(AppError::Validation(
+                "--to or --to-id is required".to_string(),
+            ));
+        }
+    };
+
+    tracing::debug!(
+        target: "link",
+        from = %norm_from,
+        to = %norm_to,
+        relation = %args.relation,
+        "creating relationship"
+    );
 
     if norm_from == norm_to {
         return Err(AppError::Validation(validation::self_referential_link()));
+    }
+    if let (Some(a), Some(b)) = (source_id_pre, target_id_pre) {
+        if a == b {
+            return Err(AppError::Validation(validation::self_referential_link()));
+        }
     }
 
     let weight = args.weight.unwrap_or(DEFAULT_RELATION_WEIGHT);
@@ -144,8 +201,6 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
         );
     }
 
-    crate::storage::connection::ensure_db_ready(&paths)?;
-
     let mut warnings: Vec<String> = Vec::with_capacity(2);
     let is_canonical = crate::parsers::is_canonical_relation(&args.relation);
     if !is_canonical {
@@ -164,7 +219,6 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
     }
     let relation_str = &args.relation;
 
-    let mut conn = open_rw(&paths.db)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
     let mut created_entities: Vec<String> = Vec::with_capacity(2);
@@ -176,39 +230,50 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
         );
     }
 
-    let source_id = match entities::find_entity_id(&tx, &namespace, &norm_from)? {
-        Some(id) => id,
-        None if args.create_missing => {
-            let new_entity = NewEntity {
-                name: norm_from.clone(),
-                entity_type: args.entity_type,
-                description: None,
-            };
-            created_entities.push(norm_from.clone());
-            entities::upsert_entity(&tx, &namespace, &new_entity)?
-        }
-        None => {
-            return Err(AppError::NotFound(errors_msg::entity_not_found(
-                &norm_from, &namespace,
-            )));
+    // ID path never creates missing entities — IDs must already exist.
+    let source_id = if let Some(id) = source_id_pre {
+        let _ = from_is_id;
+        id
+    } else {
+        match entities::find_entity_id(&tx, &namespace, &norm_from)? {
+            Some(id) => id,
+            None if args.create_missing => {
+                let new_entity = NewEntity {
+                    name: norm_from.clone(),
+                    entity_type: args.entity_type,
+                    description: None,
+                };
+                created_entities.push(norm_from.clone());
+                entities::upsert_entity(&tx, &namespace, &new_entity)?
+            }
+            None => {
+                return Err(AppError::NotFound(errors_msg::entity_not_found(
+                    &norm_from, &namespace,
+                )));
+            }
         }
     };
 
-    let target_id = match entities::find_entity_id(&tx, &namespace, &norm_to)? {
-        Some(id) => id,
-        None if args.create_missing => {
-            let new_entity = NewEntity {
-                name: norm_to.clone(),
-                entity_type: args.entity_type,
-                description: None,
-            };
-            created_entities.push(norm_to.clone());
-            entities::upsert_entity(&tx, &namespace, &new_entity)?
-        }
-        None => {
-            return Err(AppError::NotFound(errors_msg::entity_not_found(
-                &norm_to, &namespace,
-            )));
+    let target_id = if let Some(id) = target_id_pre {
+        let _ = to_is_id;
+        id
+    } else {
+        match entities::find_entity_id(&tx, &namespace, &norm_to)? {
+            Some(id) => id,
+            None if args.create_missing => {
+                let new_entity = NewEntity {
+                    name: norm_to.clone(),
+                    entity_type: args.entity_type,
+                    description: None,
+                };
+                created_entities.push(norm_to.clone());
+                entities::upsert_entity(&tx, &namespace, &new_entity)?
+            }
+            None => {
+                return Err(AppError::NotFound(errors_msg::entity_not_found(
+                    &norm_to, &namespace,
+                )));
+            }
         }
     };
 
@@ -267,9 +332,78 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Resolve entity id → (name, namespace) enforcing namespace membership.
+fn resolve_entity_name_by_id(
+    conn: &rusqlite::Connection,
+    namespace: &str,
+    id: i64,
+) -> Result<(String, String), AppError> {
+    let mut stmt = conn
+        .prepare_cached("SELECT name, namespace FROM entities WHERE id = ?1 AND namespace = ?2")?;
+    match stmt.query_row(params![id, namespace], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    }) {
+        Ok(row) => Ok(row),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(format!(
+            "entity id={id} not found in namespace '{namespace}'"
+        ))),
+        Err(e) => Err(AppError::Database(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(clap::Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: LinkArgs,
+    }
+
+    #[test]
+    fn clap_accepts_from_id_to_id() {
+        use clap::Parser;
+        let ok = match TestCli::try_parse_from([
+            "t",
+            "--from-id",
+            "1",
+            "--to-id",
+            "2",
+            "--relation",
+            "supports",
+        ]) {
+            Ok(v) => v,
+            Err(e) => panic!("from-id/to-id must parse: {e}"),
+        };
+        assert_eq!(ok.args.from_id, Some(1));
+        assert_eq!(ok.args.to_id, Some(2));
+    }
+
+    #[test]
+    fn clap_rejects_from_combined_with_from_id() {
+        use clap::Parser;
+        match TestCli::try_parse_from([
+            "t",
+            "--from",
+            "a",
+            "--from-id",
+            "1",
+            "--to",
+            "b",
+            "--relation",
+            "supports",
+        ]) {
+            Ok(_) => panic!("expected argument conflict"),
+            Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
+        }
+    }
+
+    #[test]
+    fn link_rejects_purely_numeric_name_validation() {
+        // Unit-level: validate_entity_name rejects digit-only names.
+        assert!(crate::storage::entities::validate_entity_name("89975").is_err());
+    }
 
     #[test]
     fn link_response_without_redundant_aliases() {

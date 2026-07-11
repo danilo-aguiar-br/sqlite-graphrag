@@ -27,6 +27,7 @@
 | `restore` | `restore.schema.json` |
 | `hybrid-search` (updated v1.0.84, ADR-0042 / v1.0.85, ADR-0043 enum 7 variants) | `hybrid-search.schema.json` |
 | `deep-research` | `deep-research.schema.json` |
+| `deep-research --output` (v1.1.05) | `deep-research-output-ack.schema.json` |
 | `health` | `health.schema.json` |
 | `migrate` | `migrate.schema.json` |
 | `migrate --rehash` (v1.0.76, updated v1.0.77, v1.0.78) | `migrate-rehash.schema.json` |
@@ -176,6 +177,14 @@
 - The `entity_connect` enrich operation is promoted from scan-only to fully-implemented
 - No new output schema file: `entity_connect_seen` is an internal table (implicit schema via the V016 migration), not a subcommand stdout contract
 
+### Schema Changes in v1.1.05 (ADR-0065)
+- **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
+- `deep-research` — `sub_queries[].source` now also emits `aspect` (single-token facet fan-out) and `manual` (`--sub-query-strategy manual --sub-queries-file PATH`). `deep-research.schema.json` enum is updated in v1.1.05 to `original | decomposed | aspect | manual`. No new *required* output fields on the full envelope.
+- `deep-research --output PATH` — when set, stdout is a short **ack** after atomwrite (tempfile same dir → fsync → rename); the full research envelope is on disk. Dedicated schema: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Required fields: `written` (string path), `bytes` (u64 file size), `blake3` (hex digest of written bytes), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
+- `link --from-id` / `--to-id` — **CLI input flags only**. The `link.schema.json` **output** envelope is unchanged (`from`/`to` remain entity **names** after resolution). Digit-only strings are rejected as names (`validate_entity_name`); that is validation behaviour, not a new JSON property. Schema description notes the ID flags.
+- `graph traverse --fuzzy` — resolution UX: with `--fuzzy`, the `from` field in `graph-traverse.schema.json` is the **resolved canonical name** (may differ from the CLI `--from` argument). NotFound name suggestions remain error UX only.
+- Global `--quiet` / `-q` — affects stderr tracing volume only; no stdout schema impact.
+
 ### Schema Changes in v1.0.96 → v1.0.97 (ADR-0055, GAP-SG-15/16/41/43)
 - v1.0.96 (ADR-0055): `enrich-status.schema.json` for the read-only `enrich --status` report (`unbound_backlog`, per-operation `scan_backlog` (GAP-SG-77, v1.1.0), queue `pending`/`done`/`failed`/`dead`/`skipped`, `eligible_now`, `waiting`); the `.enrich-queue.sqlite` sidecar gains the `error_class`/`next_retry_at` columns and the `dead` terminal status via an idempotent `ALTER TABLE`
 - v1.0.97 (GAP-SG-15/16): `enrich-summary.schema.json` gains the `dead` and `waiting` count fields so the summary distinguishes terminal failures and cooldown from an empty backlog
@@ -219,6 +228,7 @@
 | `restore` | `restore.schema.json` |
 | `hybrid-search` (atualizado v1.0.84, ADR-0042 / v1.0.85, ADR-0043 enum 7 variantes) | `hybrid-search.schema.json` |
 | `deep-research` | `deep-research.schema.json` |
+| `deep-research --output` (v1.1.05) | `deep-research-output-ack.schema.json` |
 | `health` | `health.schema.json` |
 | `migrate` | `migrate.schema.json` |
 | `migrate --rehash` (v1.0.76, atualizado v1.0.77, v1.0.78) | `migrate-rehash.schema.json` |
@@ -274,3 +284,11 @@
 | `embedding list` (v1.0.82, GAP-005) | `embedding-list.schema.json` |
 | envelope de shutdown (v1.0.82, GAP-002) | `shutdown-envelope.schema.json` |
 | envelope de erro (todos os comandos) | `error-envelope.schema.json` |
+
+### Mudanças de Schema na v1.1.05 (ADR-0065)
+- **Sem migração de banco obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Operadores **não** precisam de `migrate` nesta release.
+- `deep-research` — `sub_queries[].source` também emite `aspect` (fan-out de facetas em token único) e `manual` (`--sub-query-strategy manual --sub-queries-file PATH`). O enum em `deep-research.schema.json` na v1.1.05 é `original | decomposed | aspect | manual`. Nenhum campo *obrigatório* novo no envelope completo.
+- `deep-research --output PATH` — quando definido, o stdout é um **ack** curto após atomwrite (tempfile no mesmo diretório → fsync → rename); o envelope completo fica em disco. Schema dedicado: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Campos obrigatórios: `written` (caminho string), `bytes` (tamanho u64 do arquivo), `blake3` (digest hex dos bytes gravados), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
+- `link --from-id` / `--to-id` — **apenas flags de entrada CLI**. O envelope de **saída** de `link.schema.json` permanece inalterado (`from`/`to` continuam sendo **nomes** de entidade após resolução). Strings só de dígitos são rejeitadas como nomes (`validate_entity_name`); isso é comportamento de validação, não uma nova propriedade JSON. A descrição do schema menciona as flags por ID.
+- `graph traverse --fuzzy` — UX de resolução: com `--fuzzy`, o campo `from` em `graph-traverse.schema.json` é o **nome canônico resolvido** (pode diferir do argumento CLI `--from`). Sugestões de nome em NotFound permanecem apenas UX de erro.
+- Global `--quiet` / `-q` — afeta apenas o volume de tracing em stderr; sem impacto no schema de stdout.

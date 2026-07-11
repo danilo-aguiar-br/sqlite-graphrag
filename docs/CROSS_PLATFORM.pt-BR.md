@@ -14,6 +14,14 @@
 - Volte ao [README.md](../README.md) principal para referência completa de comandos
 
 
+## Notas de operador da v1.1.05 (todas as plataformas)
+- O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"`; sem migração de schema (permanece em v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
+- **Bug 1 (fan-out de aspectos)**: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`) em todo SO; caminho manual opcional `--sub-query-strategy manual --sub-queries-file PATH` é seguro quanto ao separador de caminho (passe um path normal do filesystem da plataforma).
+- **Bug 2 (atomwrite + ack)**: prefira `deep-research --output PATH` mais `--quiet`/`-q` global para envelopes multi-MB não serem truncados por redirecionamento de shell; nunca misture stderr no arquivo JSON com `&>`. Escrita atômica de JSON (`atomwrite`: tempfile no mesmo diretório → fsync → rename) funciona em Linux, macOS e Windows; fsync do diretório pai aplica-se em Unix. Campos do ack no stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`.
+- **Bug 4 (self-ref no merge)**: no zsh/bash/PowerShell, prefira arrays explícitos em vez de word splitting sem aspas ao scriptar loops de `merge-entities`; a CLI rejeita `--ids`/`--into-id` (ou nomes) auto-referenciais **antes** de qualquer trabalho no DB em todos os targets.
+- `graph traverse --fuzzy` e `link --from-id`/`--to-id` comportam-se de forma idêntica em todos os targets
+
+
 ## Nota Arquitetural da v1.0.76
 - O build padrão é apenas LLM e one-shot. Não há runtime ONNX para distribuir, não há `libonnxruntime.so` para empacotar, e não há modelo `multilingual-e5-small` para baixar. A geração de embedding delega para um subprocesso headless `claude code`, `codex` ou `opencode` (OAuth) spawnado por chamada. Desde a v1.0.90, opencode é o terceiro backend com prioridade de auto-detect `codex > claude > opencode > none`. Desde a v1.0.95, o `enrich --mode openrouter` também extrai entidades pelo endpoint REST OpenRouter `/chat/completions`, sem exigir nenhuma CLI local — eliminando a dependência de subprocesso para o enrichment, não apenas para o embedding.
 - A feature `embedding-legacy` foi REMOVIDA na v1.0.79 (antecipando o cronograma da v1.1.0). Todo build é LLM-only; o pipeline fastembed + ort + tokenizers e o contrato ONNX ARM64 GNU não se aplicam mais.

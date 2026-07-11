@@ -1,10 +1,41 @@
+# MIGRATING TO v1.1.05 — Five Danilo Incident Bugs Fixed (No Schema Migration)
+
+- Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
+- Back to [README.md](../README.md)
+
+> This guide covers upgrading from v1.1.04 to v1.1.05. **No numbered database migration** — the schema stays at v16 from v1.1.04. The official release name is v1.1.05; `Cargo.toml` carries `1.1.5` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Library consumers pin `=1.1.5`. Earlier upgrade paths (v1.1.0 → … → v1.1.04) are preserved as historical sections below.
+
+## v1.1.05 — Five Operator-Blocking Bugs (No Migration)
+
+> Upgrade from v1.1.04. The main database schema STAYS at v16 — `migrate` is NOT required. The official release name is v1.1.05; `Cargo.toml` carries `1.1.5`. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+
+Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+
+### What changed (behaviour only)
+
+- Bug 1: `deep-research` single-token queries expand to multi-aspect sub-queries (`source: "aspect"`, EN/PT facets). Manual strategy via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2: `deep-research --output PATH` writes the full JSON envelope via atomwrite (tempfile same dir → fsync → rename) and prints a short stdout ack with exact fields `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms` (schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json)). Global `--quiet`/`-q` suppresses non-error tracing. Never mix stderr into JSON with `&>`.
+- Bug 3: `graph traverse --fuzzy` auto-resolves a clear short-name winner; without `--fuzzy`, NotFound includes ranked Jaro-Winkler / prefix suggestions.
+- Bug 4: `merge-entities` rejects self-referential merges (`--into-id` in `--ids`, or `--into` in `--names`) BEFORE any DB work.
+- Bug 5: `link --from-id`/`--to-id` resolve by ID; pure digit names rejected by `validate_entity_name` so `--create-missing` cannot create ghost numeric entities.
+
+### Operator action
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect 1.1.5 / v1.1.05 branding in docs).
+- Library API pin: change from `=1.1.4` to `=1.1.5`.
+- Optional smoke: `deep-research "danilo" --max-sub-queries 7 --json` (expect more than one sub-query with `source: "aspect"`); `deep-research "danilo" --output /tmp/dr.json --quiet --json` then parse the stdout ack (`written`/`bytes`/`blake3`/`sub_queries_total`/`unique_memories_found`/`elapsed_ms`) and the file.
+- Optional regression: `cargo test --test v1105_danilo_bugs_regression`.
+
+---
+
 # MIGRATING TO v1.1.04 — deep-research Nested-Runtime Fix, entity-connect Convergence, entity_connect_seen Migration
 
-> This guide covers upgrading from v1.1.03 to v1.1.04. A numbered database migration (V016) runs on the main database — `migrate --json` is REQUIRED on first open. The schema advances from v15 to v16. The official release name is v1.1.04; `Cargo.toml` carries `1.1.4` because SemVer rejects a leading zero in the patch segment. Binary ~16 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) are preserved as historical sections below.
+> This guide covers upgrading from v1.1.03 to v1.1.04. A numbered database migration (V016) runs on the main database — `migrate --json` is REQUIRED on first open. The schema advances from v15 to v16. The official release name is v1.1.04; `Cargo.toml` carries `1.1.4` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Earlier upgrade paths (v1.1.0 → v1.1.01 → v1.1.02 → v1.1.03) are preserved as historical sections below.
 
 ## v1.1.04 — deep-research Nested-Runtime Fix, entity-connect Convergence, entity_connect_seen Migration
 
-> Upgrade from v1.1.03. The main database schema ADVANCES from v15 to v16 — `migrate --json` is REQUIRED (it applies V016, the `entity_connect_seen` table). The official release name is v1.1.04; `Cargo.toml` carries `1.1.4`. Binary ~16 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+> Upgrade from v1.1.03. The main database schema ADVANCES from v15 to v16 — `migrate --json` is REQUIRED (it applies V016, the `entity_connect_seen` table). The official release name is v1.1.04; `Cargo.toml` carries `1.1.4`. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`.
 
 ### What changed
 

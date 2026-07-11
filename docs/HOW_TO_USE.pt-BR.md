@@ -1,3 +1,55 @@
+# COMO USAR sqlite-graphrag (v1.1.05 — cinco bugs do incidente deep-research "danilo", schema v16)
+
+> Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
+
+- English version: [HOW_TO_USE.md](HOW_TO_USE.md)
+- Voltar ao [README.pt-BR.md](../README.pt-BR.md) para referência de comandos
+
+## O Que Mudou na v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
+- O nome oficial da release é **v1.1.05**; o `Cargo.toml` carrega `1.1.5` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v16 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.5`. User-Agent `sqlite-graphrag/1.1.5`.
+- **Bug 1**: `deep-research` com query de palavra única (ex.: `"danilo"`) expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT). Estratégia manual: `--sub-query-strategy manual --sub-queries-file <PATH>`.
+- **Bug 2**: `deep-research --output PATH` grava o envelope completo via atomwrite (tempfile → fsync → rename) e emite ack curto no stdout com checksum `blake3`. Flag global `--quiet`/`-q` suprime tracing não-erro. Contrato: JSON no stdout, logs no stderr — **nunca** `&>` no mesmo arquivo.
+- **Bug 3**: `graph traverse --from <nome-curto>` — match exato prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões ranqueadas (Jaro-Winkler / prefixo); com `--fuzzy`, auto-resolve vencedor claro com warning em stderr.
+- **Bug 4**: `merge-entities` rejeita self-ref (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB.
+- **Bug 5**: `link --from-id` / `--to-id` resolvem por ID; nomes só de dígitos são rejeitados por `validate_entity_name` (impede entidades fantasma sob `--create-missing`).
+- Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
+- Consulte [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
+
+```bash
+# Token único → fan-out aspect
+sqlite-graphrag deep-research "danilo" --k 20 --max-sub-queries 7 --json
+
+# Envelope atômico: ack curto no stdout; envelope completo no arquivo
+sqlite-graphrag --quiet deep-research "auth" --output /tmp/dr.json --json
+# stdout: {written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}
+# arquivo: jaq '.stats' /tmp/dr.json
+jaq '.stats' /tmp/dr.json
+
+# Traverse fuzzy
+sqlite-graphrag graph traverse --from danilo --depth 2 --fuzzy --json
+
+# Link por ID
+sqlite-graphrag link --from-id 12 --to-id 34 --relation uses --json
+
+# Merge self-ref rejeitado cedo (exit non-zero ANTES de abrir/escrever o DB)
+sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json
+```
+
+## Custom Providers (v1.0.83+)
+- O sqlite-graphrag suporta providers Anthropic-compatíveis (Minimax/api.minimax.io, OpenRouter, AWS Bedrock, gateways corporativos) preservando as seguintes env vars ao spawnar `claude -p` ou `codex exec`
+- Vars preservadas: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT`
+- O mandato OAuth-only permanece ativo: `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` ainda abortam o spawn com exit 1
+- Os quatro guards OAuth-only em `claude_runner.rs:273`, `codex_spawn.rs:259`, `ingest_claude.rs:282`, `extract/llm_embedding.rs:237-253` não foram alterados; apenas o whitelist env-clear foi estendido
+- Helper compartilhado `src/spawn/env_whitelist.rs` expõe `apply_env_whitelist(cmd, strict)`; os três spawners delegam em vez de inlinear o array
+- Para ambientes compliance que exigem env_clear estrito (PCI-DSS, SOC2, HIPAA), setar `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` ou passar `--strict-env-clear`; modo estrito preserva apenas `PATH`
+- Sem telemetria nova: o fix é silencioso. Nenhum macro `tracing::info!` registra qual provider está em uso. O teste de auditoria no-leak `audit_no_token_leak_in_subprocess_stderr` em `tests/claude_runner_env.rs` garante que o valor literal do token NUNCA aparece em stdout ou stderr mesmo com `RUST_LOG=trace`
+- Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` e `docs/COOKBOOK.pt-BR.md#como-usar-providers-anthropic-compativeis-customizados-v1083` para a receita completa
+- Resolve GAP-058 parcialmente: env vars de custom-provider roteiam em torno de contenção de quota OAuth; `recall`/`hybrid-search` permanecem determinísticos sob fadiga OAuth oficial
+
+## O Que Mudou na v1.1.04 — Nested-Runtime Fix + entity-connect Convergence
+
+- Veja [docs/MIGRATION.pt-BR.md](MIGRATION.pt-BR.md) para o caminho de upgrade V016 a partir da v1.1.03. O schema avança v15→v16. Fixe `=1.1.4` apenas se precisar permanecer nessa release.
+
 ## O Que Mudou na v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Regressão Re-Embed, Prune de Órfãos de Entidade (ADR-0062)
 - O nome oficial da release é **v1.1.02**; o `Cargo.toml` carrega `1.1.2` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v15 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.2`. User-Agent `sqlite-graphrag/1.1.2`.
 - **Gap 1 (BREAKING)**: `--gliner-variant` e o enum `GlinerVariant` foram REMOVIDOS do parser — clap rejeita `--gliner-variant` com exit 2 (precedente: `--max-entity-degree` da v1.0.99); `--mode gliner` também foi REMOVIDO (o enum `IngestMode` agora tem apenas `none`, `claude-code`, `codex`, `opencode`); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas.
@@ -111,24 +163,6 @@ sqlite-graphrag --embedding-backend openrouter \
   ingest ./docs --pattern "*.md" --recursive \
   --enrich-after --llm-backend codex --json
 ```
-
-
-## Custom Providers (v1.0.83+)
-- O sqlite-graphrag suporta providers Anthropic-compatíveis (Minimax/api.minimax.io, OpenRouter, AWS Bedrock, gateways corporativos) preservando as seguintes env vars ao spawnar `claude -p` ou `codex exec`
-- Vars preservadas: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT`
-- O mandato OAuth-only permanece ativo: `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` ainda abortam o spawn com exit 1
-- Os quatro guards OAuth-only em `claude_runner.rs:273`, `codex_spawn.rs:259`, `ingest_claude.rs:282`, `extract/llm_embedding.rs:237-253` não foram alterados; apenas o whitelist env-clear foi estendido
-- Helper compartilhado `src/spawn/env_whitelist.rs` expõe `apply_env_whitelist(cmd, strict)`; os três spawners delegam em vez de inlinear o array
-- Para ambientes compliance que exigem env_clear estrito (PCI-DSS, SOC2, HIPAA), setar `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` ou passar `--strict-env-clear`; modo estrito preserva apenas `PATH`
-- Sem telemetria nova: o fix é silencioso. Nenhum macro `tracing::info!` registra qual provider está em uso. O teste de auditoria no-leak `audit_no_token_leak_in_subprocess_stderr` em `tests/claude_runner_env.rs` garante que o valor literal do token NUNCA aparece em stdout ou stderr mesmo com `RUST_LOG=trace`
-- Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` e `docs/COOKBOOK.pt-BR.md#como-usar-providers-anthropic-compativeis-customizados-v1083` para a receita completa
-- Resolve GAP-058 parcialmente: env vars de custom-provider roteiam em torno de contenção de quota OAuth; `recall`/`hybrid-search` permanecem determinísticos sob fadiga OAuth oficial
-# COMO USAR sqlite-graphrag (v1.1.02 — Remoção do GLiNER, TooManyTokens Tipado, Prune de Órfãos de Entidade, schema v15)
-
-> Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
-
-- Versão em inglês: [HOW_TO_USE.md](HOW_TO_USE.md)
-- Voltar ao [README.md](../README.md) para referência de comandos
 
 
 ## O Que Mudou na v1.0.90, v1.0.91

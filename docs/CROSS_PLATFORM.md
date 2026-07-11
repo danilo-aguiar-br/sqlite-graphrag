@@ -15,6 +15,14 @@
 - Return to the main [README.md](../README.md) for the full command reference
 
 
+## v1.1.05 operator notes (all platforms)
+- Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"`; no schema migration (stays at v16). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
+- **Bug 1 (aspect fan-out)**: single-token `deep-research` expands to multi-aspect sub-queries (`source: "aspect"`) on every OS; optional manual path `--sub-query-strategy manual --sub-queries-file PATH` is path-separator-safe (pass a normal filesystem path per platform).
+- **Bug 2 (atomwrite + ack)**: prefer `deep-research --output PATH` plus global `--quiet`/`-q` so multi-MB envelopes are not truncated by shell redirects; never merge stderr into the JSON file with `&>`. Atomic JSON write (`atomwrite`: tempfile in the same directory → fsync → rename) works on Linux, macOS and Windows; parent-directory fsync is applied on Unix. Stdout ack fields: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`.
+- **Bug 4 (merge self-ref)**: on zsh/bash/PowerShell, prefer explicit arrays over unquoted word splitting when scripting `merge-entities` loops; the CLI rejects self-referential `--ids`/`--into-id` (or names) **before** any DB work on all targets.
+- `graph traverse --fuzzy` and `link --from-id`/`--to-id` behave identically across targets
+
+
 ## v1.0.76 Architectural Note
 - The default build is LLM-only and one-shot. There is no ONNX runtime to ship, no `libonnxruntime.so` to bundle, and no `multilingual-e5-small` model to download. Embedding generation delegates to a headless `claude code`, `codex`, or `opencode` subprocess (OAuth) spawned per call. Since v1.0.90, opencode is the third backend with auto-detect priority `codex > claude > opencode > none`. Since v1.0.95, `enrich --mode openrouter` also extracts entities over the REST OpenRouter `/chat/completions` endpoint, requiring no local CLI — removing the subprocess dependency for enrichment, not just for embedding.
 - The `embedding-legacy` feature was REMOVED in v1.0.79 (ahead of the v1.1.0 schedule). Every build is LLM-only; the fastembed + ort + tokenizers pipeline and the ARM64 GNU ONNX contract no longer apply.

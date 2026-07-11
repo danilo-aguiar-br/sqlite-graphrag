@@ -107,6 +107,16 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99. Suite totals were not re-baselined in this documentation pass — run `cargo nextest -P ci` for the live count.
 
 
+## v1.1.05 — Danilo Incident Regression Suite
+
+- Suite file: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) (CLI boundary via `assert_cmd`). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md).
+- **Bug 1** — `bug1_single_token_deep_research_fans_out_sub_queries`: `deep-research "danilo"` emits more than one sub-query; first is `source: "original"`, later entries include `source: "aspect"`. Manual path (operator/optional, not a separate suite case): `--sub-query-strategy manual --sub-queries-file PATH`.
+- **Bug 2** — `bug2_output_writes_atomic_json_with_blake3_ack`: `deep-research ... --output PATH` writes a full envelope via **atomwrite** (tempfile → fsync → rename) and prints a short stdout ack (`written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`); pairs with global **`--quiet`** / `-q` so non-error tracing stays off stderr.
+- **Bug 3** — `bug3_traverse_short_name_suggests_and_fuzzy_resolves`: `graph traverse --from <short-name>` without `--fuzzy` returns NotFound with ranked suggestions; with `--fuzzy` auto-resolves a clear winner.
+- **Bug 4** — `bug4_merge_self_referential_ids_rejected` (and unit `self_referential_ids_rejected_before_db`): `merge-entities` **self-ref** rejection when `--into-id` appears in `--ids` (or names) **before any DB work**.
+- **Bug 5** — `bug5_link_rejects_numeric_name_and_accepts_from_id`: pure digit names rejected; `--from-id`/`--to-id` accept entity IDs.
+- No schema migration in this release (schema stays at v16). Run with `cargo test --test v1105_danilo_bugs_regression`.
+
 ## v1.1.04 — GAP Closure Tests (ADR-0064)
 
 - **GAP-001 (nested tokio runtime)**: regression test covers the "Cannot start a runtime from within a runtime" panic that `deep-research` hit when its sync entry point built a dedicated Tokio runtime while OpenRouter embedding calls were already on a runtime. The fix moves per-sub-query embedding computation into the new `compute_sub_embeddings` helper (run before the runtime is built) and the three OpenRouter paths in `embedder.rs` (single, serial batch, JoinSet fan-out) adopt the canonical `Handle::try_current` + `block_in_place` reentry pattern. `ingest_opencode` is guarded by the same pattern. `recall`/`hybrid-search` were never affected (they never create their own runtime) and need no new coverage.
@@ -150,7 +160,7 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 
 ## Current Test Suite Size
 
-~1072 lib tests passing as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
+~1072+ lib tests plus `tests/v1105_danilo_bugs_regression.rs` (5 CLI boundary tests) as of v1.1.05; ~1072 lib tests as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
 
 ## What Changed in v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: OpenCode backend tests (875 lib tests)

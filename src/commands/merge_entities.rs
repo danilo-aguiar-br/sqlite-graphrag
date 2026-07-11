@@ -135,6 +135,25 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
         ));
     }
 
+    // v1.1.05 Bug 4: reject self-referential merge at the earliest possible
+    // point (before any DB work), so shell word-splitting mistakes fail loud.
+    if let Some(target_id) = args.into_id {
+        if args.ids.contains(&target_id) {
+            return Err(AppError::Validation(format!(
+                "source entity id={target_id} equals target id={target_id} — \
+                 self-referential merge is not allowed (remove target from --ids)"
+            )));
+        }
+    }
+    if let Some(ref target_name) = args.into {
+        if args.names.iter().any(|n| n == target_name) {
+            return Err(AppError::Validation(format!(
+                "source entity '{target_name}' equals target '{target_name}' — \
+                 self-referential merge is not allowed (remove target from --names)"
+            )));
+        }
+    }
+
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -166,6 +185,7 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
 
     // Resolve source entity IDs — reject self-referential merge (G21),
     // by ID (v1.1.1 P5) or by name. All lookups happen BEFORE the transaction.
+    // Defense-in-depth: re-check even after early parse-time guard (Bug 4).
     let mut source_ids: Vec<i64> = Vec::with_capacity(args.names.len() + args.ids.len());
     let mut source_names: Vec<String> = Vec::with_capacity(source_ids.capacity());
     if !args.ids.is_empty() {
@@ -439,6 +459,48 @@ mod tests {
                 Err(e) => e,
             };
         assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    /// v1.1.05 Bug 4: clap value_delimiter must keep target id out of sources
+    /// when the operator writes `--ids 35575,35340 --into-id 35340` — the
+    /// early self-ref guard must fire without needing a live database.
+    #[test]
+    fn self_referential_ids_rejected_before_db() {
+        let args = MergeEntitiesArgs {
+            names: vec![],
+            ids: vec![35575, 35340],
+            into: None,
+            into_id: Some(35340),
+            namespace: Some("global".into()),
+            format: OutputFormat::Json,
+            json: false,
+            db: Some("/nonexistent/no-db.sqlite".into()),
+            cross_namespace: true,
+        };
+        let err = run(args).expect_err("self-ref must fail");
+        assert_eq!(err.exit_code(), 1, "validation exit");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("self-referential") || msg.contains("35340"),
+            "expected self-ref message, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn clap_parses_ids_with_target_in_list() {
+        use clap::Parser;
+        let ok = TestCli::try_parse_from([
+            "t",
+            "--ids",
+            "35575,35340",
+            "--into-id",
+            "35340",
+            "--cross-namespace",
+        ])
+        .expect("must parse");
+        assert_eq!(ok.args.ids, vec![35575, 35340]);
+        assert_eq!(ok.args.into_id, Some(35340));
+        assert!(ok.args.cross_namespace);
     }
 
     #[test]

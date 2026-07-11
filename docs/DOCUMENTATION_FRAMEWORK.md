@@ -110,6 +110,25 @@ This section updates the framework to cover the documentation generated for the 
 - **Docs**: 4 pre-existing rustdoc warnings resolved (HTML backticks, cfg(test) intra-doc links).
 - Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, MIGRATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION (EN+PT); DOCUMENTATION_FRAMEWORK; docs/decisions/INDEX.md + ADR-0062 (EN+PT).
 
+### v1.1.05 — Five Danilo Incident Bugs (No Migration)
+
+- Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` (SemVer rejects a leading zero in the patch component). Schema stays at v16 (no migration). Library consumers pin `=1.1.5`.
+- **Bug 1**: `deep-research` single-token aspect fan-out (`source: "aspect"`, EN/PT facets); `--sub-query-strategy manual --sub-queries-file`.
+- **Bug 2**: `deep-research --output PATH` atomwrite + stdout ack with `blake3`; global `--quiet`/`-q`; stdout JSON / stderr logs contract (never `&>`).
+- **Bug 3**: `graph traverse --fuzzy`; without `--fuzzy`, NotFound Jaro-Winkler + prefix suggestions.
+- **Bug 4**: `merge-entities` self-ref pre-DB rejection (`--into-id` in `--ids`, or names).
+- **Bug 5**: `link --from-id`/`--to-id`; pure digit names rejected by `validate_entity_name`.
+- Tests: `tests/v1105_danilo_bugs_regression.rs`.
+- ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md) (EN) + [PT-BR](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
+- Documented in (complete coverage):
+  - **Root EN+PT**: README, CHANGELOG, AGENTS, INTEGRATIONS, SECURITY, CONTRIBUTING; `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`
+  - **docs EN+PT**: AGENTS, HOW_TO_USE, COOKBOOK, MIGRATION, TESTING, TEST_PLAN, HEADLESS_INVOCATION, CROSS_PLATFORM
+  - **docs/schemas/**: README + `deep-research.schema.json` (`source` enum `original | decomposed | aspect | manual`) + `deep-research-output-ack.schema.json` (`written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`)
+  - **docs/decisions/**: INDEX + ADR-0065 EN+PT
+  - **skill EN+PT**: `skill/sqlite-graphrag-en/SKILL.md`, `skill/sqlite-graphrag-pt/SKILL.md`
+  - **Note**: `DOCUMENTATION_FRAMEWORK.md` itself is the EN-canonical meta-doc (no mandatory PT pair per inventário — historical exception; do not require `DOCUMENTATION_FRAMEWORK.pt-BR.md`)
+- Bilingual rule: English is canonical; PT-BR teammates update mirror files separately.
+
 ### v1.1.04 — Two Structural Gaps Closure (ADR-0064)
 
 - Official release name is v1.1.04; the crate manifest carries `version = "1.1.4"` (SemVer rejects a leading zero in the patch component). Database migration REQUIRED: V016 (`entity_connect_seen` table). Schema advances from v15 to v16. Binary ~19 MiB. Library consumers pin `=1.1.4`; User-Agent is `sqlite-graphrag/1.1.4`.
@@ -141,24 +160,26 @@ This section updates the framework to cover the documentation generated for the 
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69) | v1.0.99 (espelhado) | Current |
-| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.0.99 (100%) | v1.0.99 (100%) | Current |
-| `AGENTS.md` / `AGENTS.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69) | v1.0.99 (espelhado) | Current |
-| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69) | v1.0.99 (espelhado) | Current |
-| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.0.96 (no v1.0.99 exit code/env var change) | v1.0.96 (espelhado) | Current |
-| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.0.96 (no v1.0.99 contributor-flow change) | v1.0.96 (espelhado) | Current |
-| `llms.txt` / `llms.pt-BR.txt` | v1.0.99 (GAP-SG-67/68/69) | v1.0.99 (espelhado) | Current |
-| `llms-full.txt` | v1.0.99 (GAP-SG-67/68/69) | N/A | Current |
-| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.0.99 (GAP-SG-67 upgrade recipe) | v1.0.99 (espelhado) | Current |
-| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69) | v1.0.99 (espelhado) | Current |
-| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.0.99 (--max-entity-degree removal, GAP-SG-67) | v1.0.99 (espelhado) | Current |
-| `TESTING.md` / `TESTING.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69 test changes) | v1.0.99 (espelhado) | Current |
-| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.0.97 (no v1.0.99 platform change) | v1.0.97 (espelhado) | Current |
-| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.0.97 (no v1.0.99 change) | v1.0.97 (espelhado) | Current |
-| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.0.99 (GAP-SG-67/68/69 test plan) | v1.0.99 (espelhado) | Current |
-| `skill/sqlite-graphrag-en` / `skill/sqlite-graphrag-pt` | v1.0.97 (post-sealing audit) | v1.0.97 (espelhado) | Current |
-| `docs/decisions/` (52 ADRs) | 100% (52/52) | 77% (40/52) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
-| `docs/schemas/` (70+ schemas) | 100% (backend_invoked includes openrouter) | N/A | Current |
+| `README.md` / `README.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.1.05 (100%) | v1.1.05 (100%) | Current |
+| `AGENTS.md` / `AGENTS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.1.05 (atomwrite + blake3 ack) | v1.1.05 (espelhado) | Current |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.1.05 (v1105 suite) | v1.1.05 (espelhado) | Current |
+| `llms.txt` / `llms.pt-BR.txt` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `llms-full.txt` | v1.1.05 (danilo bugs 1–5) | N/A | Current |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.1.05 (upgrade + recipes) | v1.1.05 (espelhado) | Current |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.1.05 (no-migration upgrade) | v1.1.05 (espelhado) | Current |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.1.05 (v1105 regression suite) | v1.1.05 (espelhado) | Current |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.1.05 (atomwrite all OS) | v1.1.05 (espelhado) | Current |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.1.05 (`--quiet` / `--output`) | v1.1.05 (espelhado) | Current |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.1.05 (danilo regression gate) | v1.1.05 (espelhado) | Current |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.1.05 (EN-canonical meta-doc) | N/A (historical exception — no mandatory PT pair) | Current |
+| `skill/sqlite-graphrag-en` / `skill/sqlite-graphrag-pt` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
+| `docs/decisions/` (59 ADRs, 0007–0065) | 100% (59/59) incl. ADR-0065 | 80% (47/59) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
+| `docs/schemas/` (70+ schemas) | 100% (`deep-research` aspect\|manual + `deep-research-output-ack`) | N/A | Current |
 
 ### Framework Update — Mandatory Coverage of v1.0.86+
 
@@ -361,7 +382,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - `docs/MIGRATION.md` + `docs/MIGRATION.pt-BR.md` — Guia de migração entre versões
 - `docs/TESTING.md` + `docs/TESTING.pt-BR.md` — Guia de testes e estratégia de QA
 - `docs/HEADLESS_INVOCATION.md` + `docs/HEADLESS_INVOCATION.pt-BR.md` — Referência canônica de invocação headless OAuth-safe (adicionado na v1.0.76)
-- `docs/DOCUMENTATION_FRAMEWORK.md` — Este próprio framework (versão única EN, referencia regras de PT-BR indiretamente)
+- `docs/DOCUMENTATION_FRAMEWORK.md` — Este próprio framework (versão única EN, referencia regras de PT-BR indiretamente). **Exceção histórica do inventário bilíngue**: meta-doc EN-canonical; **não** há par obrigatório `DOCUMENTATION_FRAMEWORK.pt-BR.md` (não gerar tradução integral)
 - `docs/schemas/README.md` — Índice e documentação dos JSON Schemas (bilíngue inline)
 - `docs/schemas/*.schema.json` — Um schema JSON Draft 2020-12 por subcomando
 - `docs/decisions/adr-NNNN-*.md` — Architectural Decision Records (ADRs) documentando decisões de design v1.0.x

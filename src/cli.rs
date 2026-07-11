@@ -221,6 +221,15 @@ pub struct Cli {
     #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
+    /// Suppress non-error tracing on stderr (sets log level to `error`).
+    ///
+    /// Prefer this in pipelines that capture stdout JSON (`> out.json`).
+    /// Never combine stdout and stderr into the same file (`&>` / `2>&1`) —
+    /// that contaminates the JSON envelope (v1.1.05 Bug 2). Conflicts with
+    /// `-v` / `--verbose` only in spirit: quiet wins when both are present.
+    #[arg(short = 'q', long, global = true, default_value_t = false)]
+    pub quiet: bool,
+
     /// v1.0.75 (G21 solution): extraction backend selector. Accepts
     /// `llm` (default), `embedding` (legacy), `none`, or `both` (composite).
     /// The `llm` backend invokes claude code / codex CLI headless to extract

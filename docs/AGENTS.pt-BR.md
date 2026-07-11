@@ -9,14 +9,27 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.1.04 — fix de nested-runtime no deep-research, convergência do entity-connect, schema v16)
+# sqlite-graphrag para Agentes de IA (v1.1.05 — cinco bugs do incidente deep-research "danilo", sem migração de schema)
 
+- Versão em inglês: [AGENTS.md](AGENTS.md)
+- Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
-> Memória persistente para 27 agentes de IA em um único binário Rust de 14.6 MiB.
+> Memória persistente para 27 agentes de IA em um único binário Rust de ~19 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> Novo na v1.1.04 (release corrente): dois gaps estruturais fechados (GAP-001 panic de nested-runtime no deep-research, GAP-002 convergência do entity-connect); migração V016 (schema v15→v16); entity-connect promovido a fully-implemented.
-> Releases anteriores: v1.1.03 (split-body, stale-claims, literal-to, merge cross-namespace); v1.1.02 (remoção do GLiNER, TooManyTokens tipado, prune de órfãos de entidade).
+> Novo na v1.1.05 (release corrente): cinco bugs do incidente deep-research "danilo" fechados — aspect fan-out em token único, `--output` atomwrite + `--quiet`, `graph traverse --fuzzy` + sugestões, `merge-entities` self-ref pré-DB, `link --from-id`/`--to-id` + rejeição de nomes só dígitos; sem migração (schema permanece v16).
+> Releases anteriores: v1.1.04 (dois gaps estruturais, V016 entity_connect_seen, schema v15→v16); v1.1.03 (split-body, stale-claims, literal-to, merge cross-namespace); v1.1.02 (remoção do GLiNER, TooManyTokens tipado, prune de órfãos de entidade).
 > Novo na v1.1.01 (release anterior): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
+
+## Novidades na v1.1.05 — Bugs 1–5 do Incidente danilo (Sem Migração)
+
+- USE `deep-research "<token>" --json` para sujeitos de token único: a decomposição heurística expande em sub-queries multi-aspecto com `source: "aspect"` (facetas EN/PT cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos, contexto). PASSE `--sub-query-strategy manual --sub-queries-file <path>` quando precisar de controle total da lista de sub-queries.
+- GRAVE envelopes grandes de deep-research com `deep-research ... --output PATH` (atomwrite: tempfile no mesmo diretório → fsync → rename). PARSE o ack curto no stdout `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` — NÃO espere o envelope completo no stdout quando `--output` estiver definido. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
+- PASSE o global `--quiet` / `-q` em pipelines headless de agentes para suprimir tracing que não é erro. NUNCA redirecione stdout e stderr para o mesmo arquivo com `&>` — JSON fica no stdout, logs no stderr.
+- USE `graph traverse --from <nome-curto> --fuzzy --json` quando o nome canônico da entidade for desconhecido; sem `--fuzzy`, trate as sugestões de NotFound (exit 4, Jaro-Winkler + prefixo ranqueados) como lista de candidatos.
+- REJEITE merges auto-referenciais: NUNCA coloque o valor de `--into-id` dentro de `--ids` (nem `--into` dentro de `--names`). A CLI rejeita isso ANTES de qualquer trabalho no DB (v1.1.05), inclusive sob `--cross-namespace`.
+- PREFIRA `link --from-id <N> --to-id <M>` quando tiver IDs de entidade. NUNCA passe só dígitos como nomes em `--from`/`--to` — `validate_entity_name` rejeita nomes só numéricos para que `--create-missing` não crie entidades fantasma numéricas.
+- EXECUTE `tests/v1105_danilo_bugs_regression.rs` ao alterar o comportamento de deep-research, traverse, merge-entities ou link.
+- VEJA `docs/decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md` (ADR-0065) para a justificativa completa.
 
 ## Novo na v1.0.93 — Backend de Embedding OpenRouter (GAP-OR-INGEST)
 - Novo backend de embedding: API REST do OpenRouter via `--embedding-backend openrouter --embedding-model MODELO`
@@ -1677,6 +1690,19 @@ cargo install --path . && sqlite-graphrag init
 - NÃO existe fix definitivo upstream; mitigação depende de `codex login` dirigido pelo operador
 
 
+
+
+## Novidades na v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (histórico)
+
+> **Ver seção imperativa no topo:** [Novidades na v1.1.05 — Bugs 1–5 do Incidente danilo (Sem Migração)](#novidades-na-v1105--bugs-15-do-incidente-danilo-sem-migração). ADR-0065: `docs/decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md`. Schema do ack: `docs/schemas/deep-research-output-ack.schema.json`.
+
+- Nome oficial da release é v1.1.05; o manifest do crate carrega `version = "1.1.5"` (SemVer rejeita zero à esquerda no componente patch). **Sem migração de schema** — permanece em v16. Binário ~19 MiB. Consumidores de biblioteca pinam `=1.1.5`; User-Agent é `sqlite-graphrag/1.1.5`.
+- **Bug 1 (CORREÇÃO)**: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT). Manual: `--sub-query-strategy manual --sub-queries-file`.
+- **Bug 2 (NOVA FLAG + CONTRATO)**: `deep-research --output PATH` grava via atomwrite (tempfile → fsync → rename) e emite ack `blake3` no stdout; global `--quiet`/`-q` suprime tracing não-erro; contrato stdout-JSON / stderr-logs (nunca `&>` no mesmo arquivo). Helpers em `src/atomic_io.rs`. Schema: `deep-research-output-ack.schema.json`.
+- **Bug 3 (NOVA FLAG + COMPORTAMENTO)**: `graph traverse --from <nome-curto>` — match exato prioritário; sem `--fuzzy`, NotFound (exit 4) com sugestões Jaro-Winkler/prefixo; com `--fuzzy`, auto-resolve vencedor claro com warning em stderr (`rapidfuzz`). APIs: `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity`.
+- **Bug 4 (CORREÇÃO)**: `merge-entities` rejeita self-ref (`--ids` ∋ `--into-id` ou `--names` ∋ `--into`) **antes** de qualquer trabalho no DB.
+- **Bug 5 (NOVAS FLAGS)**: `link --from-id` / `--to-id`; `validate_entity_name` rejeita nomes só de dígitos.
+- Suíte de regressão: `tests/v1105_danilo_bugs_regression.rs` cobre os cinco bugs na fronteira da CLI.
 
 ## Novidades na v1.1.04 — Fechamento de Dois Gaps Estruturais (ADR-0064)
 

@@ -222,6 +222,18 @@ sqlite-graphrag --embedding-backend openrouter \
 - Recipe "How to benchmark hybrid-search against pure vec search"
 
 
+## How To Upgrade To v1.1.05 (Five Danilo Incident Bugs — No Migration)
+
+- No database migration; schema stays at v16 from v1.1.04. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.05; `Cargo.toml` version is `1.1.5`; SemVer rejects a leading zero in the patch component).
+- Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+- Bug 1: single-token `deep-research` expands to multi-aspect sub-queries (`source: "aspect"`); optional `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2: `deep-research --output PATH` atomwrite + stdout ack `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}`; global `--quiet`/`-q`. Schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json).
+- Bug 3: `graph traverse --fuzzy` + NotFound name suggestions.
+- Bug 4: `merge-entities` self-ref rejected before DB work.
+- Bug 5: `link --from-id`/`--to-id`; pure digit names rejected.
+- Library consumers pin `=1.1.5`.
+- See "Recipes added in v1.1.05" below.
+
 ## How To Upgrade To v1.1.04 (Deep-Research Nested-Runtime Fix + entity-connect Convergence + Schema v16)
 
 - Database migration REQUIRED: `migrate --json` applies V016 (`entity_connect_seen` table). Schema advances from v15 to v16.
@@ -2702,6 +2714,77 @@ Switching models mid-project requires re-embedding existing memories.
   Backend (GAP-OR-INGEST)"
 - Recipe "How to ingest a directory of markdown files into the graph"
 
+
+## Recipes added in v1.1.05
+
+See [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md) and [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+
+### Recipe — Single-Token Deep-Research Aspect Fan-Out (Bug 1)
+
+#### Problem
+- A single subject token such as `"danilo"` used to degrade to one hybrid search with no multi-aspect coverage.
+
+#### Solution
+```bash
+sqlite-graphrag deep-research "danilo" --max-sub-queries 7 --k 20 --json | jaq '.sub_queries'
+# Expect source: "original" plus multiple source: "aspect" facets (EN/PT)
+# Manual strategy:
+# printf '%s\n' 'danilo patrimony' 'danilo stack' > /tmp/subs.txt
+# sqlite-graphrag deep-research "danilo" --sub-query-strategy manual --sub-queries-file /tmp/subs.txt --json
+```
+
+### Recipe — Atomic Deep-Research Output For Agent Pipelines (Bug 2)
+
+#### Problem
+- Large JSON envelopes were fragile under shell redirects; stderr could contaminate stdout when using `&>`.
+
+#### Solution
+```bash
+sqlite-graphrag --quiet deep-research "auth architecture" --k 20 --with-bodies \
+  --output /tmp/research.json --json
+# stdout ack (exact fields):
+# { "written", "bytes", "blake3", "sub_queries_total", "unique_memories_found", "elapsed_ms" }
+# Schema: docs/schemas/deep-research-output-ack.schema.json
+jaq . /tmp/research.json
+# NEVER: sqlite-graphrag deep-research ... &> /tmp/mixed.json
+```
+
+### Recipe — Fuzzy Graph Traverse For Short Nicknames (Bug 3)
+
+#### Problem
+- `graph traverse --from <short-name>` failed opaquely when the canonical entity was a longer kebab-case name.
+
+#### Solution
+```bash
+# Ranked suggestions on exact miss (exit 4)
+sqlite-graphrag graph traverse --from danilo --depth 2 --json
+# Auto-resolve clear single winner
+sqlite-graphrag graph traverse --from danilo --fuzzy --depth 2 --json
+```
+
+### Recipe — Reject Self-Referential Merge Before DB Work (Bug 4)
+
+#### Problem
+- Shell word-splitting could put the target ID inside `--ids`, risking graph corruption under `--cross-namespace`.
+
+#### Solution
+```bash
+# Fails immediately if 3 is both source and target — no DB mutation
+sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json
+# Correct form: sources only, distinct target
+sqlite-graphrag merge-entities --ids 1,2 --into-id 3 --json
+```
+
+### Recipe — Link By Entity ID, Never Pure Digits As Names (Bug 5)
+
+#### Problem
+- Passing a numeric ID as `--from`/`--to` with `--create-missing` could create ghost numeric entities.
+
+#### Solution
+```bash
+sqlite-graphrag link --from-id 42 --to-id 77 --relation related --weight 0.8 --json
+# Pure digits as names are rejected by validate_entity_name
+```
 
 ## Recipes added in v1.1.04
 

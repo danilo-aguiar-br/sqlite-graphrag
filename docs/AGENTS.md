@@ -9,17 +9,31 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.04 — deep-research nested-runtime fix, entity-connect convergence, schema v16)
+# sqlite-graphrag for AI Agents (v1.1.05 — five danilo-incident bugs fixed, schema stays v16)
 
-> Persistent memory for 27 AI agents in a single 14.6 MiB Rust binary.
+- Portuguese version: [AGENTS.pt-BR.md](AGENTS.pt-BR.md)
+- Back to [README.md](../README.md)
+
+> Persistent memory for 27 AI agents in a single ~19 MiB Rust binary.
 > v1.0.93 is **LLM-only and one-shot**: every `remember` / `ingest`
 > spawns a headless claude code, codex, or opencode CLI subprocess
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> New in v1.1.04 (current release): two structural gaps closed (GAP-001 deep-research nested-runtime panic, GAP-002 entity-connect convergence); migration V016 (schema v15→v16); entity-connect promoted to fully-implemented.
-> Previous releases: v1.1.03 (split-body, stale-claims, literal-to, cross-namespace merge); v1.1.02 (GLiNER removal, TooManyTokens typed, entity orphan prune).
+> New in v1.1.05 (current release): five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident closed (no schema migration; schema stays at v16). Single-token deep-research aspect fan-out; `--output` atomwrite + `--quiet`; `graph traverse --fuzzy`; merge self-ref pre-DB rejection; `link --from-id`/`--to-id` + pure-numeric name rejection.
+> Previous releases: v1.1.04 (two structural gaps closed — GAP-001 deep-research nested-runtime panic, GAP-002 entity-connect convergence; migration V016 schema v15→v16; entity-connect fully-implemented); v1.1.03 (split-body, stale-claims, literal-to, cross-namespace merge); v1.1.02 (GLiNER removal, TooManyTokens typed, entity orphan prune).
 > New in v1.1.01 (previous release): entity embedding via OpenRouter REST even with `--llm-backend none`; `enrich --operation re-embed --target`; new `graph recompute-degree`; `ingest --name-prefix`.
+
+## New in v1.1.05 — Danilo Incident Bugs 1–5 (No Migration)
+
+- USE `deep-research "<token>" --json` for single-token subjects: heuristic decomposition expands to multi-aspect sub-queries with `source: "aspect"` (EN/PT facets covering patrimony, stack, stakeholders, projects, decisions, relationships, context). PASS `--sub-query-strategy manual --sub-queries-file <path>` when you need full control of the sub-query list.
+- WRITE large deep-research envelopes with `deep-research ... --output PATH` (atomwrite: tempfile same dir → fsync → rename). PARSE the short stdout ack `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` — do NOT expect the full envelope on stdout when `--output` is set. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
+- PASS global `--quiet` / `-q` in headless agent pipelines to suppress non-error tracing. NEVER redirect stdout and stderr to the same file with `&>` — JSON lives on stdout, logs on stderr.
+- USE `graph traverse --from <short-name> --fuzzy --json` when the canonical entity name is unknown; without `--fuzzy`, treat exit 4 NotFound suggestions (ranked Jaro-Winkler + prefix) as the candidate list.
+- REJECT self-referential merges: NEVER put the `--into-id` value inside `--ids` (or `--into` inside `--names`). The CLI rejects this BEFORE any DB work (v1.1.05), including under `--cross-namespace`.
+- PREFER `link --from-id <N> --to-id <M>` when you hold entity IDs. NEVER pass pure digits as `--from`/`--to` names — `validate_entity_name` rejects digit-only names so `--create-missing` cannot create ghost numeric entities.
+- RUN `tests/v1105_danilo_bugs_regression.rs` when changing deep-research, traverse, merge-entities, or link behaviour.
+- SEE `docs/decisions/adr-0065-v1-1-05-danilo-bugs.md` (ADR-0065) for full rationale.
 
 ## New in v1.0.93 — OpenRouter Embedding Backend (GAP-OR-INGEST)
 - New embedding backend: OpenRouter REST API via `--embedding-backend openrouter --embedding-model MODEL`

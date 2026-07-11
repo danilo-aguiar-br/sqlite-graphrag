@@ -24,13 +24,25 @@ use tokio::task::JoinSet;
 #[derive(clap::Args)]
 #[command(
     about = "Deep parallel multi-hop GraphRAG research via query decomposition",
-    after_long_help = "EXAMPLES:\n  \
-        # Basic deep research\n  \
-        sqlite-graphrag deep-research \"auth architecture decisions\"\n\n  \
+    after_long_help = "CONTRACT:\n  \
+        stdout = pretty JSON envelope only (machine-readable).\n  \
+        stderr = tracing / progress / diagnostics only.\n  \
+        Never redirect with `&>` or `2>&1` into the same file as stdout — that\n  \
+        contaminates the JSON and breaks jaq/jq. Prefer:\n  \
+        sqlite-graphrag deep-research \"q\" > out.json 2>/dev/null\n  \
+        or --output out.json (atomic write via atomwrite algorithm).\n\n\
+EXAMPLES:\n  \
+        # Basic deep research (single-token queries auto-expand into aspects)\n  \
+        sqlite-graphrag deep-research \"danilo\"\n\n  \
         # With custom parameters\n  \
         sqlite-graphrag deep-research \"auth\" --k 20 --max-hops 3 --max-sub-queries 7\n\n  \
         # Include full memory bodies in output\n  \
         sqlite-graphrag deep-research \"auth\" --with-bodies\n\n  \
+        # Manual sub-queries (one query per line)\n  \
+        sqlite-graphrag deep-research \"danilo\" --sub-query-strategy manual \\\n  \
+          --sub-queries-file aspects.txt\n\n  \
+        # Atomic JSON file (crash-safe; preferred for large --with-bodies runs)\n  \
+        sqlite-graphrag deep-research \"auth\" --output /tmp/dr.json\n\n  \
         # Tune RRF and graph scoring\n  \
         sqlite-graphrag deep-research \"auth and deployment\" --rrf-k 60 --graph-decay 0.7"
 )]
@@ -141,6 +153,33 @@ pub struct DeepResearchArgs {
     /// Database path.
     #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
     pub db: Option<String>,
+    /// Sub-query strategy: `heuristic` (default, syntactic + single-token aspects)
+    /// or `manual` (requires `--sub-queries-file`).
+    #[arg(
+        long,
+        default_value = "heuristic",
+        value_parser = ["heuristic", "manual"],
+        help = "Sub-query strategy: heuristic (default) or manual"
+    )]
+    pub sub_query_strategy: String,
+    /// Path to a UTF-8 text file with one sub-query per line (required when
+    /// `--sub-query-strategy manual`). Empty lines and `#` comments are ignored.
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "File with one sub-query per line (manual strategy)"
+    )]
+    pub sub_queries_file: Option<std::path::PathBuf>,
+    /// Write the JSON envelope atomically to this path (tempfile→fsync→rename).
+    /// When set, stdout receives a short confirmation JSON
+    /// `{ "written": "<path>", "bytes": N, "blake3": "..." }` instead of the full
+    /// envelope — preventing shell redirect truncation of multi-MB payloads.
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Atomic JSON output path (atomwrite algorithm)"
+    )]
+    pub output: Option<std::path::PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -264,7 +303,9 @@ pub fn run(
     // synchronously here removes the nesting entirely.
     let paths = AppPaths::resolve(args.db.as_deref())?;
     crate::storage::connection::ensure_db_ready(&paths)?;
-    let sub_query_texts = decompose_query(&args.query, args.max_sub_queries);
+    // Resolve sub-queries once (shared by embedding precompute + fan-out).
+    let sub_query_plan = resolve_sub_queries(&args)?;
+    let sub_query_texts: Vec<String> = sub_query_plan.iter().map(|s| s.text.clone()).collect();
     let (sub_embeddings, vec_degraded) =
         compute_sub_embeddings(&paths, &sub_query_texts, embedding_backend, llm_backend);
 
@@ -277,6 +318,7 @@ pub fn run(
         args,
         llm_backend,
         embedding_backend,
+        sub_query_plan,
         sub_embeddings,
         vec_degraded,
     ))
@@ -325,10 +367,13 @@ fn compute_sub_embeddings(
 /// `sub_embeddings` and `vec_degraded` are computed synchronously in
 /// [`run`] before the tokio runtime is built (GAP-001, v1.1.04) to avoid
 /// a nested-runtime panic on the OpenRouter embedding path.
+/// `sub_queries` is also resolved in [`run`] so embedding precompute and
+/// fan-out share one plan (v1.1.05).
 async fn run_async(
     args: DeepResearchArgs,
     _llm_backend: crate::cli::LlmBackendChoice,
     _embedding_backend: crate::cli::EmbeddingBackendChoice,
+    sub_queries: Vec<SubQuery>,
     sub_embeddings: Vec<Option<Arc<Vec<f32>>>>,
     vec_degraded: bool,
 ) -> Result<(), AppError> {
@@ -346,21 +391,8 @@ async fn run_async(
     let paths = AppPaths::resolve(args.db.as_deref())?;
     crate::storage::connection::ensure_db_ready(&paths)?;
 
-    // Phase 1: Query decomposition (sync, pure logic).
-    let sub_query_texts = decompose_query(&args.query, args.max_sub_queries);
-    let sub_queries: Vec<SubQuery> = sub_query_texts
-        .iter()
-        .enumerate()
-        .map(|(i, text)| SubQuery {
-            id: i,
-            text: text.clone(),
-            source: if sub_query_texts.len() == 1 {
-                "original"
-            } else {
-                "decomposed"
-            },
-        })
-        .collect();
+    // Phase 1: sub-queries already resolved in `run` (heuristic / manual / aspects).
+    let sub_query_texts: Vec<String> = sub_queries.iter().map(|s| s.text.clone()).collect();
 
     // GAP-001 (v1.1.04): sub-query embeddings were already resolved in
     // `run` before the tokio runtime was built. Using them here keeps the
@@ -643,8 +675,8 @@ async fn run_async(
         "assembly complete"
     );
 
-    // Phase 4: JSON output.
-    output::emit_json(&DeepResearchResponse {
+    // Phase 4: JSON output (stdout and/or atomic --output).
+    let response = DeepResearchResponse {
         query: args.query,
         sub_queries,
         results,
@@ -660,19 +692,121 @@ async fn run_async(
             elapsed_ms: start.elapsed().as_millis() as u64,
             vec_degraded,
         },
-    })?;
+    };
+
+    if let Some(path) = args.output.as_ref() {
+        // v1.1.05 Bug 2: atomic write avoids truncated envelopes under SIGTERM /
+        // shell redirect races. Full envelope goes to the file; stdout gets a
+        // small confirmation so pipelines can still check exit 0 + path.
+        crate::atomic_io::write_json_atomic(path, &response)?;
+        let meta = std::fs::metadata(path).map_err(AppError::Io)?;
+        let file_bytes = std::fs::read(path).map_err(AppError::Io)?;
+        let digest = blake3::hash(&file_bytes).to_hex().to_string();
+        #[derive(Serialize)]
+        struct WrittenAck {
+            written: String,
+            bytes: u64,
+            blake3: String,
+            sub_queries_total: usize,
+            unique_memories_found: usize,
+            elapsed_ms: u64,
+        }
+        output::emit_json(&WrittenAck {
+            written: path.display().to_string(),
+            bytes: meta.len(),
+            blake3: digest,
+            sub_queries_total: response.stats.sub_queries_total,
+            unique_memories_found: response.stats.unique_memories_found,
+            elapsed_ms: response.stats.elapsed_ms,
+        })?;
+    } else {
+        output::emit_json(&response)?;
+    }
 
     Ok(())
 }
 
-/// Heuristic query decomposition: splits by conjunctions, commas, semicolons,
-/// relational phrases, and extracts explicit entities (kebab-case or quoted).
-fn decompose_query(query: &str, max: usize) -> Vec<String> {
+/// Build the sub-query plan from CLI strategy (heuristic or manual file).
+fn resolve_sub_queries(args: &DeepResearchArgs) -> Result<Vec<SubQuery>, AppError> {
+    if args.query.trim().is_empty() {
+        return Err(AppError::Validation(crate::i18n::validation::empty_query()));
+    }
+    match args.sub_query_strategy.as_str() {
+        "manual" => {
+            let path = args.sub_queries_file.as_ref().ok_or_else(|| {
+                AppError::Validation(
+                    "--sub-query-strategy manual requires --sub-queries-file PATH".to_string(),
+                )
+            })?;
+            let raw = std::fs::read_to_string(path).map_err(AppError::Io)?;
+            let mut texts: Vec<String> = raw
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(str::to_string)
+                .collect();
+            if texts.is_empty() {
+                return Err(AppError::Validation(format!(
+                    "sub-queries file '{}' has no usable lines",
+                    path.display()
+                )));
+            }
+            texts.truncate(args.max_sub_queries);
+            Ok(texts
+                .into_iter()
+                .enumerate()
+                .map(|(i, text)| SubQuery {
+                    id: i,
+                    text,
+                    source: "manual",
+                })
+                .collect())
+        }
+        _ => {
+            let planned = decompose_query_with_sources(&args.query, args.max_sub_queries);
+            Ok(planned
+                .into_iter()
+                .enumerate()
+                .map(|(i, (text, source))| SubQuery {
+                    id: i,
+                    text,
+                    source,
+                })
+                .collect())
+        }
+    }
+}
+
+/// Aspect facets applied when a single-token query cannot be split syntactically.
+///
+/// Covers the angles operators expect for person/org subjects (patrimony, stack,
+/// stakeholders, projects, decisions, relationships, context) in EN and PT so
+/// FTS/hybrid retrieval fans out beyond the literal token (v1.1.05 Bug 1).
+const SINGLE_TOKEN_ASPECTS: &[&str] = &[
+    "patrimonio",
+    "stack",
+    "tecnologia",
+    "stakeholders",
+    "pessoas",
+    "projeto",
+    "decisao",
+    "relacionamento",
+    "contexto",
+    "architecture",
+    "history",
+];
+
+/// Heuristic query decomposition with per-sub-query source labels.
+///
+/// Splits by conjunctions, commas, semicolons, relational phrases, word-pairs
+/// for multi-word queries, and **single-token aspect expansion** when none of
+/// the syntactic branches fire (v1.1.05 Bug 1).
+fn decompose_query_with_sources(query: &str, max: usize) -> Vec<(String, &'static str)> {
     if query.is_empty() {
-        return vec![query.to_string()];
+        return vec![(query.to_string(), "original")];
     }
 
-    let mut parts: Vec<String> = Vec::with_capacity(max);
+    let mut parts: Vec<(String, &'static str)> = Vec::with_capacity(max);
 
     // Split by relational phrases first (most specific).
     let relational = [
@@ -693,7 +827,7 @@ fn decompose_query(query: &str, max: usize) -> Vec<String> {
                 let left = text[..pos].trim().to_string();
                 let right = text[pos + phrase.len()..].trim().to_string();
                 if !left.is_empty() {
-                    parts.push(left);
+                    parts.push((left, "decomposed"));
                 }
                 if !right.is_empty() {
                     text = right;
@@ -703,23 +837,20 @@ fn decompose_query(query: &str, max: usize) -> Vec<String> {
         }
     }
     if did_relational_split && !text.is_empty() {
-        parts.push(text.clone());
+        parts.push((text.clone(), "decomposed"));
     }
 
     // If no relational split, try conjunctions and delimiters.
     if parts.is_empty() {
-        // Split by semicolons first.
         let semi_parts: Vec<&str> = query.split(';').collect();
         if semi_parts.len() > 1 {
             for p in &semi_parts {
                 let trimmed = p.trim();
                 if !trimmed.is_empty() {
-                    parts.push(trimmed.to_string());
+                    parts.push((trimmed.to_string(), "decomposed"));
                 }
             }
         } else {
-            // Split by commas and conjunctions.
-            // Replace " and " and " e " (Portuguese) with comma, then split.
             let normalized = query
                 .replace(" and ", ", ")
                 .replace(" AND ", ", ")
@@ -730,7 +861,7 @@ fn decompose_query(query: &str, max: usize) -> Vec<String> {
                 for p in &comma_parts {
                     let trimmed = p.trim();
                     if !trimmed.is_empty() {
-                        parts.push(trimmed.to_string());
+                        parts.push((trimmed.to_string(), "decomposed"));
                     }
                 }
             }
@@ -741,23 +872,43 @@ fn decompose_query(query: &str, max: usize) -> Vec<String> {
     if parts.is_empty() {
         let words: Vec<&str> = query.split_whitespace().filter(|w| w.len() > 2).collect();
         if words.len() >= 3 {
-            parts.push(query.to_string());
-            parts.push(format!("{} {}", words[0], words[1]));
-            parts.push(format!(
-                "{} {}",
-                words[words.len() - 2],
-                words[words.len() - 1]
+            parts.push((query.to_string(), "original"));
+            parts.push((format!("{} {}", words[0], words[1]), "decomposed"));
+            parts.push((
+                format!("{} {}", words[words.len() - 2], words[words.len() - 1]),
+                "decomposed",
             ));
         }
     }
 
+    // v1.1.05 Bug 1: single-token (or unsplittable) queries get aspect fan-out.
     if parts.is_empty() {
-        return vec![query.to_string()];
+        let token_count = query.split_whitespace().filter(|w| !w.is_empty()).count();
+        if token_count == 1 {
+            let token = query.trim();
+            parts.push((token.to_string(), "original"));
+            for aspect in SINGLE_TOKEN_ASPECTS {
+                if parts.len() >= max {
+                    break;
+                }
+                parts.push((format!("{token} {aspect}"), "aspect"));
+            }
+        } else {
+            return vec![(query.to_string(), "original")];
+        }
     }
 
-    // Cap at max.
     parts.truncate(max);
     parts
+}
+
+/// Heuristic query decomposition (text-only; unit tests).
+#[cfg(test)]
+fn decompose_query(query: &str, max: usize) -> Vec<String> {
+    decompose_query_with_sources(query, max)
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect()
 }
 
 /// Reconstruct a directed path from `target_entity_id` back to a seed using the
@@ -1131,9 +1282,31 @@ mod tests {
     }
 
     #[test]
-    fn test_decompose_no_split() {
+    fn test_decompose_no_split_multiword_stays_single() {
+        // Two-word queries without delimiters stay as one sub-query (not
+        // single-token aspect expansion).
         let result = decompose_query("simple query", 7);
         assert_eq!(result, vec!["simple query"]);
+    }
+
+    /// v1.1.05 Bug 1: single-token queries must fan out into aspects.
+    #[test]
+    fn test_decompose_single_token_danilo_fans_out() {
+        let result = decompose_query("danilo", 7);
+        assert!(
+            result.len() > 1,
+            "expected aspect fan-out for single token, got {result:?}"
+        );
+        assert_eq!(result[0], "danilo");
+        assert!(
+            result
+                .iter()
+                .any(|s| s.contains("stack") || s.contains("patrimonio")),
+            "expected aspect facets in {result:?}"
+        );
+        let with_src = decompose_query_with_sources("danilo", 7);
+        assert_eq!(with_src[0].1, "original");
+        assert!(with_src.iter().skip(1).all(|(_, s)| *s == "aspect"));
     }
 
     #[test]

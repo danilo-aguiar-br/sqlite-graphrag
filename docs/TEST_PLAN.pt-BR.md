@@ -17,6 +17,18 @@
 - Exclui teste exploratório manual e projetos consumidores downstream
 
 
+## Gate de regressão v1.1.05 (incidente danilo)
+- Comando: `/usr/bin/timeout 300 cargo test --test v1105_danilo_bugs_regression`
+- Escopo: cobertura na fronteira da CLI dos cinco bugs de operador fechados na v1.1.05
+- Bug 1: `deep-research` de token único emite fan-out com `source: "aspect"`; caminho manual opcional `--sub-query-strategy manual --sub-queries-file PATH` (smoke de operador, não é caso separado da suite)
+- Bug 2: `deep-research --output` grava JSON atômico via **atomwrite** e devolve ack no stdout (`written`, `bytes`, `blake3`, …); **`--quiet`** global acompanha o contrato de stderr
+- Bug 3: `graph traverse` com nome curto sugere ou resolve com `--fuzzy`
+- Bug 4: `merge-entities` rejeita `--ids`/`--into-id` auto-referenciais antes do DB
+- Bug 5: `link` rejeita nomes puramente numéricos e aceita `--from-id`/`--to-id`
+- Critério: ZERO falhas (5 testes)
+- Docs complementares: [TESTING.pt-BR.md](TESTING.pt-BR.md), [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md), arquivo da suite [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs)
+
+
 ## Matriz de Camadas de Teste
 ### Camada 1 — Testes Unitários (por commit)
 - Comando: `/usr/bin/timeout 300 cargo nextest run --profile default`

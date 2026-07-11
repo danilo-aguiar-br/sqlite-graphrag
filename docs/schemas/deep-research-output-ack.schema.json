@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/deep-research-output-ack.schema.json",
+  "title": "DeepResearchOutputAck",
+  "description": "v1.1.05 (ADR-0065, Bug 2): short stdout ack emitted by `sqlite-graphrag deep-research --output PATH` after the full research envelope is written atomically to PATH (tempfile → fsync → rename via `atomic_io::write_json_atomic`). When `--output` is omitted, stdout is the full DeepResearchResponse instead (see deep-research.schema.json).",
+  "type": "object",
+  "required": [
+    "written",
+    "bytes",
+    "blake3",
+    "sub_queries_total",
+    "unique_memories_found",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "written": {
+      "type": "string",
+      "description": "Path string of the file that received the full deep-research JSON envelope."
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "On-disk size of the written envelope file in bytes."
+    },
+    "blake3": {
+      "type": "string",
+      "description": "Hex-encoded BLAKE3 checksum of the envelope file bytes (integrity check for agent pipelines)."
+    },
+    "sub_queries_total": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of sub-queries generated for this run (mirrors stats.sub_queries_total)."
+    },
+    "unique_memories_found": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Count of unique memories found across all sub-queries (mirrors stats.unique_memories_found)."
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall-clock duration of the deep-research handler in milliseconds."
+    }
+  },
+  "examples": [
+    {
+      "written": "/tmp/research.json",
+      "bytes": 18432,
+      "blake3": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+      "sub_queries_total": 7,
+      "unique_memories_found": 42,
+      "elapsed_ms": 812
+    }
+  ]
+}

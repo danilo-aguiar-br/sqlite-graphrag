@@ -1,9 +1,9 @@
 [package]
 name = "sqlite-graphrag"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2021"
 rust-version = "1.88"
-description = "Persistent GraphRAG memory for Claude Code, Codex, Cursor, and 24+ AI agents — one self-contained ~16 MiB Rust binary, zero daemon. Never re-explain your codebase again. Hybrid retrieval (FTS5 BM25 + cosine similarity + multi-hop graph traversal) surfaces the right memory in milliseconds. Embedding and entity enrichment run as parallel REST calls against your cloud LLM — no fragile headless subprocesses, no ONNX runtime, no model downloads. Soft-delete with full version history, transactional atomic writes, BLAKE3-tracked mutations. OAuth-only: raw API keys ABORT the spawn."
+description = "Persistent GraphRAG memory for Claude Code, Codex, Cursor, and 24+ AI agents — one self-contained ~19 MiB Rust binary, zero daemon. Never re-explain your codebase again. Hybrid retrieval (FTS5 BM25 + cosine similarity + multi-hop graph traversal) surfaces the right memory in milliseconds. Embedding and entity enrichment run as parallel REST calls against your cloud LLM — no fragile headless subprocesses, no ONNX runtime, no model downloads. Soft-delete with full version history, transactional atomic writes, BLAKE3-tracked mutations. OAuth-only: raw API keys ABORT the spawn."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/daniloaguiarbr/sqlite-graphrag"
 homepage = "https://docs.rs/sqlite-graphrag"
@@ -214,6 +214,7 @@ llm_json = "1.0.3"
 # v1.0.97: tiktoken-rs (cl100k_base BPE) for exact token counts — used as a
 # conservative proxy for the qwen3-embedding-8b ~32K-token context ceiling.
 tiktoken-rs = "0.12"
+rapidfuzz = "0.5"
 
 [target.'cfg(windows)'.dependencies]
 # G29 (v1.0.68): pinned exact to 0.59.0 because HANDLE type changed
@@ -235,6 +236,7 @@ mockall = "0.13"
 wiremock = "0.6"
 libc = "0.2"
 jsonschema = "0.29"
+blake3 = "1"
 [target.'cfg(sqlite_graphrag_loom)'.dev-dependencies]
 # Só compila quando RUSTFLAGS="--cfg sqlite_graphrag_loom" é passado — previne livelock térmico.
 # Incidente 2026-04-19: loom ativado sem gate saturou i9-14900KF em Tjmax 100°C.

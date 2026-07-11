@@ -504,9 +504,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2134,6 +2134,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapidfuzz"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "270e04e5ea61d40841942bb15e451c29ee1618637bcf97fc7ede5dd4a9b1601b"
+
+[[package]]
 name = "rayon"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2702,7 +2708,7 @@ dependencies = [
 
 [[package]]
 name = "sqlite-graphrag"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2730,6 +2736,7 @@ dependencies = [
  "parking_lot",
  "predicates",
  "proptest",
+ "rapidfuzz",
  "rayon",
  "refinery",
  "regex",

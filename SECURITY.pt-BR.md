@@ -15,6 +15,16 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
 
 
+
+## v1.1.05 Nota de Integridade — Escrita Atômica de Envelopes e Grafo (`--output`, merge, link)
+- A v1.1.05 introduz `deep-research --output PATH` que grava o envelope JSON completo via algoritmo atomwrite (tempfile → fsync → rename) e emite um ack curto no stdout com checksum `blake3`
+- O contrato de I/O permanece: JSON no stdout, logs no stderr. Nunca redirecione ambos para o mesmo arquivo com `&>` — isso contamina o parse JSON
+- A flag global `--quiet`/`-q` suprime tracing não-erro no stderr, reduzindo ruído em pipelines agent/CI sem alterar o envelope
+- Prefira `link --from-id`/`--to-id` quando a identidade for um ID numérico de entidade; nomes puramente numéricos são rejeitados por `validate_entity_name` (v1.1.05) para que `--create-missing` não crie entidades fantasma
+- Merges auto-referenciais em `merge-entities` (target ID/nome também listado como source) são rejeitados ANTES de qualquer trabalho no DB (v1.1.05), protegendo a integridade do grafo contra word-splitting de shell
+- Helpers compartilhados em `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) são unit-tested; a suite `tests/v1105_danilo_bugs_regression.rs` cobre o caminho CLI
+- Integridade do arquivo de saída: confira o checksum `blake3` do ack do stdout contra o conteúdo gravado se o pipeline exigir verificação ponta a ponta
+
 ## Reportando uma Vulnerabilidade
 - OBRIGATÓRIO reportar questões de segurança via GitHub Security Advisories no repositório público `sqlite-graphrag` como canal privado preferencial
 - Use o email daniloaguiarbr@gmail.com apenas como fallback quando o reporte privado do GitHub estiver indisponível

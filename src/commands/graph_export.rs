@@ -82,7 +82,10 @@ pub struct GraphArgs {
     sqlite-graphrag graph traverse --from acme-corp --namespace project-x\n\n  \
 NOTES:\n  \
     Output is always JSON. The `hops` array contains each reachable entity\n  \
-    with its relation, direction (inbound/outbound), weight, and depth level.")]
+    with its relation, direction (inbound/outbound), weight, and depth level.\n  \
+    Short nicknames (e.g. `danilo` vs `danilo-aguiar-teixeira`) do not exact-match;\n  \
+    without `--fuzzy` the error includes ranked suggestions (v1.1.05). With\n  \
+    `--fuzzy`, a clear single winner is auto-resolved and warned on stderr.")]
 pub struct GraphTraverseArgs {
     /// Root entity name for the traversal.
     #[arg(long)]
@@ -90,6 +93,11 @@ pub struct GraphTraverseArgs {
     /// Maximum traversal depth.
     #[arg(long, default_value_t = 2u32)]
     pub depth: u32,
+    /// When exact name match fails, auto-resolve a clear fuzzy match
+    /// (prefix / first-token / Jaro-Winkler). Without this flag, NotFound
+    /// (exit 4) includes ranked suggestions of canonical names (v1.1.05 Bug 3).
+    #[arg(long, default_value_t = false)]
+    pub fuzzy: bool,
     #[arg(long)]
     pub namespace: Option<String>,
     #[arg(long, value_enum, default_value = "json")]
@@ -564,8 +572,27 @@ fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
     let conn = open_ro(&paths.db)?;
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
 
-    let from_id = entities::find_entity_id(&conn, &namespace, &args.from)?
-        .ok_or_else(|| AppError::NotFound(format!("entity '{}' not found", args.from)))?;
+    // v1.1.05 Bug 3: exact match first; with --fuzzy auto-resolve clear
+    // nickname/prefix hits; without it, NotFound includes ranked suggestions.
+    let (from_id, resolved_name) =
+        match entities::resolve_entity_fuzzy(&conn, &namespace, &args.from, args.fuzzy)? {
+            Some((id, name, was_fuzzy)) => {
+                if was_fuzzy {
+                    tracing::warn!(
+                        target: "graph_export",
+                        query = %args.from,
+                        resolved = %name,
+                        "traverse: fuzzy-resolved entity name"
+                    );
+                }
+                (id, name)
+            }
+            None => {
+                return Err(entities::entity_not_found_with_suggestions(
+                    &conn, &namespace, &args.from,
+                ));
+            }
+        };
 
     let all_rels = entities::list_relationships_by_namespace(&conn, Some(&namespace))?;
     let all_entities = entities::list_entities(&conn, Some(&namespace))?;
@@ -613,7 +640,7 @@ fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
     }
 
     output::emit_json(&GraphTraverseResponse {
-        from: args.from,
+        from: resolved_name,
         namespace,
         depth: args.depth,
         hops,

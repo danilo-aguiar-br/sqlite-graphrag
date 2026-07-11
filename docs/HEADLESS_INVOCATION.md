@@ -286,6 +286,33 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"server-name-1":{"enabled":false},"server-name-
 
 
 
+### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output`)
+
+Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs` (suite name **v1105**).
+
+- Global `--quiet` / `-q` suppresses non-error tracing on stderr so agent harnesses can parse stdout as pure JSON without log noise.
+- `deep-research --output PATH` writes the full research envelope via atomwrite (tempfile in the same directory → fsync → rename) and prints only a short stdout ack: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Prefer this for large `--with-bodies` jobs under CI or agent orchestrators. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
+- Contract: **stdout = JSON** (envelope or ack), **stderr = logs**. NEVER redirect both to the same file with `&>` or `2>&1` into a JSON consumer.
+- Single-token queries (e.g. a person name) expand to multi-aspect sub-queries (`source: "aspect"`) so headless research on a subject token is no longer a single hybrid hit. Manual override for orchestrators: `--sub-query-strategy manual --sub-queries-file PATH`.
+- `graph traverse --fuzzy` is safe for headless nickname resolution; without `--fuzzy`, exit 4 NotFound includes ranked suggestions for the orchestrator to pick.
+- `link --from-id`/`--to-id` and merge self-ref pre-DB rejection reduce silent graph corruption in scripted maintenance.
+
+```bash
+# Headless deep-research with atomic file output (recommended for agents)
+OUTDIR=/tmp/graphrag-out
+mkdir -p "$OUTDIR"
+sqlite-graphrag --quiet \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
+  --output "$OUTDIR/research.json" --json
+# Parse ack from stdout; full envelope from the file
+# Optional manual facets:
+# printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"
+# sqlite-graphrag --quiet deep-research "danilo" \
+#   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
+#   --output "$OUTDIR/research.json" --json
+```
+
 ### v1.1.04 Update — Deep-Research Stability + entity-connect Convergence (ADR-0064)
 
 - GAP-001: `deep-research` no longer panics with "Cannot start a runtime from within a runtime" when invoked headless (agent harnesses, CI runners, scheduled jobs). The sync entry point `deep_research::run` now computes per-sub-query embeddings BEFORE building its dedicated Tokio runtime via the new `compute_sub_embeddings` helper, and the three OpenRouter embedding paths in `embedder.rs` (single, serial batch, JoinSet fan-out) adopt the canonical `Handle::try_current` + `block_in_place` reentry pattern already used by the batch path. `ingest_opencode` is also guarded. For headless orchestrators this means long-running `deep-research --with-bodies` jobs that previously crashed mid-flight now complete reliably.

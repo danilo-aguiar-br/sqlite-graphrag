@@ -76,6 +76,8 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ## Testes
 - Execute a suíte padrão com `cargo nextest run --profile ci` para o runner rápido alinhado ao CI
 - Execute a suíte lenta separadamente com `cargo nextest run --profile heavy --features slow-tests`
+- A regressão v1.1.05 dos cinco bugs "danilo" vive em `tests/v1105_danilo_bugs_regression.rs` — rode-a ao tocar `deep-research`, `graph traverse`, `merge-entities`, `link` ou `atomic_io`
+- Cobertura da suíte v1105: (1) fan-out `source: "aspect"` em token único; (2) `--output` atomwrite + ack `blake3`; (3) `--fuzzy` / sugestões no traverse; (4) rejeição self-ref pré-DB em `merge-entities`; (5) `--from-id`/`--to-id` e rejeição de nomes só dígitos em `link`
 - Meça a cobertura de auditoria profunda com `cargo llvm-cov nextest --profile heavy --features slow-tests --summary-only`
 - Mantenha o piso da cobertura de auditoria profunda em 80 por cento ou acima
 - Testes unitários vivem dentro de blocos `#[cfg(test)] mod tests` no próprio arquivo de implementação

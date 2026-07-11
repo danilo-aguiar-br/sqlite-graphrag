@@ -17,6 +17,18 @@
 - Excludes manual exploratory testing and downstream consumer projects
 
 
+## v1.1.05 regression gate (danilo incident)
+- Command: `/usr/bin/timeout 300 cargo test --test v1105_danilo_bugs_regression`
+- Scope: CLI-boundary coverage for the five operator bugs closed in v1.1.05
+- Bug 1: single-token `deep-research` emits `source: "aspect"` fan-out; optional manual path `--sub-query-strategy manual --sub-queries-file PATH` (operator/smoke, not a separate suite case)
+- Bug 2: `deep-research --output` writes atomic JSON via **atomwrite** and returns a stdout ack (`written`, `bytes`, `blake3`, …); global **`--quiet`** pairs with the stderr contract
+- Bug 3: `graph traverse` short name suggests or resolves with `--fuzzy`
+- Bug 4: `merge-entities` rejects self-referential `--ids`/`--into-id` before DB work
+- Bug 5: `link` rejects pure-numeric names and accepts `--from-id`/`--to-id`
+- Pass criterion: ZERO failures (5 tests)
+- Companion docs: [TESTING.md](TESTING.md), [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md), suite file [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs)
+
+
 ## Test Layer Matrix
 ### Layer 1 — Unit Tests (per commit)
 - Command: `/usr/bin/timeout 300 cargo nextest run --profile default`

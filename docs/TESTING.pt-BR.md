@@ -109,6 +109,17 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99. Os totais da suíte não foram re-aferidos nesta passagem de documentação — rode `cargo nextest -P ci` para a contagem ao vivo.
 
 
+## v1.1.05 — Testes de Regressão dos Cinco Bugs "danilo"
+
+- Suite de integração [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) cobre os cinco bugs na fronteira da CLI. ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
+  - **Bug 1**: `deep-research "danilo"` emite mais de uma sub-query; a primeira é o token original e as demais têm `source: "aspect"`. Caminho manual opcional (operador): `--sub-query-strategy manual --sub-queries-file PATH`.
+  - **Bug 2**: `--output PATH` grava o envelope completo via **atomwrite** (tempfile → fsync → rename); o stdout carrega o ack com `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`; **`--quiet`** / `-q` suprime tracing não-erro.
+  - **Bug 3**: `graph traverse --from <nome-curto>` sem `--fuzzy` retorna NotFound (exit 4) com sugestões; com `--fuzzy`, resolve o vencedor canônico.
+  - **Bug 4**: `merge-entities` com **self-ref** (`--ids` contendo `--into-id`, ou nomes) é rejeitado **pré-DB** com exit de validação.
+  - **Bug 5**: `link --from-id`/`--to-id` aceitos pelo clap; nomes só de dígitos rejeitados sob `--create-missing`.
+- Helpers cobertos por testes unitários: `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`); `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity` (Jaro-Winkler + prefixo kebab).
+- Sem migração de schema (permanece v16). Nome oficial v1.1.05; crate `1.1.5`. Rode com `cargo test --test v1105_danilo_bugs_regression`.
+
 ## v1.1.04 — Testes de Fechamento de GAPs (ADR-0064)
 
 - **GAP-001 (runtime tokio aninhado)**: teste de regressão cobre o panic "Cannot start a runtime from within a runtime" que o `deep-research` atingia quando seu entry point síncrono construía um runtime Tokio dedicado enquanto chamadas de embedding do OpenRouter já estavam em um runtime. O fix move a computação de embeddings por sub-query para o novo helper `compute_sub_embeddings` (executado antes da construção do runtime) e os três caminhos OpenRouter em `embedder.rs` (single, batch serial, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place`. O `ingest_opencode` recebe o mesmo guard. `recall`/`hybrid-search` nunca foram afetados (nunca criam seu próprio runtime) e não precisam de cobertura nova.
@@ -152,7 +163,7 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 
 ## Tamanho Atual da Suite de Testes
 
-~1072 testes de lib passando a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
+A v1.1.05 adiciona a suite `tests/v1105_danilo_bugs_regression.rs` (cinco bugs do incidente deep-research "danilo"). ~1072+ testes de lib a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
 
 ## O Que Mudou nas versões v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: testes do backend OpenCode (875 testes de lib)

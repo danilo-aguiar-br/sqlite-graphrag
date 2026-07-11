@@ -1,3 +1,56 @@
+# HOW TO USE sqlite-graphrag (v1.1.05 — five danilo-incident bugs fixed, schema v16)
+
+> Ship persistent memory to any AI agent with one local binary, a
+> single SQLite file, and the LLM CLI you already trust.
+
+- Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
+- Voltar ao [README.md](../README.md) para referência de comandos
+
+## What Changed in v1.1.05 — Five Danilo Incident Bugs (No Migration)
+
+- The official release name is **v1.1.05**; `Cargo.toml` carries `1.1.5` because SemVer rejects a leading zero in the patch segment. Schema is UNCHANGED at **v16** (from v1.1.04) — upgrading does NOT require `migrate`. Binary ~19 MiB. Library consumers pin `=1.1.5`.
+- Just `cargo install sqlite-graphrag --locked --force`.
+- Bug 1: single-token `deep-research` expands to multi-aspect sub-queries (`source: "aspect"`, EN/PT facets); manual via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 2: `deep-research --output PATH` atomwrite (tempfile → fsync → rename) + short stdout ack with `blake3`; global `--quiet`/`-q`.
+- Bug 3: `graph traverse --fuzzy` for short nicknames; NotFound suggests canonical names without `--fuzzy`.
+- Bug 4: `merge-entities` rejects self-ref (`--into-id` in `--ids`) before any DB work.
+- Bug 5: `link --from-id`/`--to-id`; pure digit names rejected.
+- Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
+- See [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md).
+
+### Recipe — Single-token deep-research with atomic `--output`
+
+```bash
+# Single subject token fans out to aspect sub-queries; full envelope lands on disk
+sqlite-graphrag --quiet deep-research "danilo" --max-sub-queries 7 --k 20 \
+  --output /tmp/danilo-research.json --json
+# stdout is a short ack: {written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}
+# full envelope: jaq . /tmp/danilo-research.json
+```
+
+### Recipe — Fuzzy graph traverse for short names
+
+```bash
+# Suggestions only (exact miss → exit 4 with ranked candidates)
+sqlite-graphrag graph traverse --from danilo --depth 2 --json
+# Auto-resolve a clear winner
+sqlite-graphrag graph traverse --from danilo --fuzzy --depth 2 --json
+```
+
+### Recipe — Link by entity ID (never pure digits as names)
+
+```bash
+sqlite-graphrag link --from-id 42 --to-id 77 --relation related --json
+# Pure digits as --from/--to names are rejected (no ghost entities)
+```
+
+### Recipe — Merge self-ref is rejected early
+
+```bash
+# Exit non-zero BEFORE opening/writing the DB when target is also a source
+sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json
+```
+
 ## Custom Providers (v1.0.83+)
 - sqlite-graphrag supports Anthropic-compatible providers (Minimax/api.minimax.io, OpenRouter, AWS Bedrock, corporate gateways) by preserving the following env vars when spawning `claude -p` or `codex exec`
 - Preserved vars: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT`
@@ -8,13 +61,10 @@
 - No new telemetry: the fix is silent. No `tracing::info!` macro logs which provider is in use. The no-leak audit test `audit_no_token_leak_in_subprocess_stderr` in `tests/claude_runner_env.rs` enforces that the literal token value NEVER appears in stdout or stderr even with `RUST_LOG=trace`
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` and `docs/COOKBOOK.md#how-to-use-custom-anthropic-compatible-providers-v1083` for the full recipe
 - Resolves GAP-058 partially: custom-provider env vars route around OAuth quota contention; `recall`/`hybrid-search` stay deterministic under official OAuth fatigue
-# HOW TO USE sqlite-graphrag (v1.1.02 — GLiNER Removal, TooManyTokens Typed, Entity Orphan Prune, schema v15)
 
-> Ship persistent memory to any AI agent with one local binary, a
-> single SQLite file, and the LLM CLI you already trust.
+## What Changed in v1.1.04 — Nested-Runtime Fix + entity-connect Convergence
 
-- Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
-- Voltar ao [README.md](../README.md) para referência de comandos
+- See [docs/MIGRATION.md](MIGRATION.md) for the V016 upgrade path from v1.1.03. Schema advances v15→v16. Pin `=1.1.4` only if you must stay on that release.
 
 ## What Changed in v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
 - The official release name is **v1.1.02**; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Schema is UNCHANGED at v15 — upgrading does NOT require `migrate`. Binary ~19 MiB. Library consumers pin `=1.1.2`. User-Agent is `sqlite-graphrag/1.1.2`.

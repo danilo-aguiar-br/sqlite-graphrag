@@ -11,7 +11,7 @@
       "properties": {
         "id":     { "type": "integer", "minimum": 0, "description": "Zero-based sub-query index." },
         "text":   { "type": "string",  "description": "Sub-query text derived from the original query." },
-        "source": { "type": "string",  "enum": ["original", "decomposed"], "description": "Whether this sub-query is the original or a decomposed fragment." }
+        "source": { "type": "string",  "enum": ["original", "decomposed", "aspect", "manual"], "description": "Origin of the sub-query: original input, syntactic decomposition, single-token aspect fan-out (v1.1.05), or manual file strategy (v1.1.05)." }
       }
     },
     "DeepResult": {

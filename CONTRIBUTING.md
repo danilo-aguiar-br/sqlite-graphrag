@@ -132,6 +132,10 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 ## Recent Releases
 
+### v1.1.05 - 2026-07-11 — Danilo deep-research incident (Bugs 1–5)
+- Integration suite `tests/v1105_danilo_bugs_regression.rs` covers all five operator-blocking bugs at the CLI boundary: single-token deep-research aspect fan-out, `--output` atomwrite + blake3 ack, `graph traverse` fuzzy/suggestions, `merge-entities` self-ref pre-DB rejection, `link --from-id`/`--to-id` plus pure-numeric name rejection.
+- No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.05]` and `gaps.md` Status v1.1.05.
+
 ### v1.0.96 - 2026-06-27 — Enrich Dead-letter and Bounded REST Fan-out (ADR-0055)
 - GAP-ENRICH-BACKLOG-CONVERGE: the `.enrich-queue.sqlite` queue gains `error_class` and `next_retry_at` columns (idempotent ALTER TABLE) plus a terminal `dead` status; Transient failures reschedule with exponential backoff (reusing `AttemptOutcome`/`compute_delay` from `src/retry.rs`), HardFailures go terminal immediately, and an item becomes `dead` after `--max-attempts` (default 5) retries. New `enrich --until-empty` runs an internal scan→drain loop (capped by `--max-runtime`, default 3600s) that replaces the external bash retry loop; `enrich --status` is a read-only JSON queue report that never calls the LLM nor acquires the singleton.
 - GAP-OPENROUTER-REST-CONCURRENCY: `embed_passages_parallel_with_embedding_choice` fans out the OpenRouter embedding REST calls via a bounded `tokio::task::JoinSet` (`--rest-concurrency`, clamp 1..=16, default 8, no new dependency); batches of 32 with chunk-index ordering preserved, SQLite writes still serialized via WAL + atomic claim (single-writer intact).

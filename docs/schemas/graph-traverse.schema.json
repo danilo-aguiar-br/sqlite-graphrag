@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/graph-traverse.schema.json",
   "title": "GraphTraverseResponse",
-  "description": "Response emitted by `sqlite-graphrag graph traverse` on stdout as a single JSON line. BFS traversal from a starting entity up to a configurable depth.",
+  "description": "Response emitted by `sqlite-graphrag graph traverse` on stdout as a single JSON line. BFS traversal from a starting entity up to a configurable depth. With `--fuzzy` (v1.1.05), `from` is the resolved canonical entity name and may differ from the CLI `--from` argument.",
   "$defs": {
     "TraverseHop": {
       "type": "object",
@@ -21,7 +21,7 @@
   "required": ["from", "namespace", "depth", "hops", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
-    "from":       { "type": "string",  "description": "Name of the starting entity passed via --from." },
+    "from":       { "type": "string",  "description": "Canonical name of the starting entity. Equals the `--from` argument on exact match; with `--fuzzy` (v1.1.05) this is the resolved canonical name and may differ from the CLI argument." },
     "namespace":  { "type": "string",  "description": "Namespace used for the traversal." },
     "depth":      { "type": "integer", "minimum": 1, "description": "Maximum BFS depth requested via --depth." },
     "hops":       { "type": "array",   "items": { "$ref": "#/$defs/TraverseHop" }, "description": "Ordered list of hops discovered during BFS traversal." },
