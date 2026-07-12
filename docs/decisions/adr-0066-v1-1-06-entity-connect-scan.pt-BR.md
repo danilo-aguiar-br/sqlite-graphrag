@@ -34,3 +34,10 @@ Em namespaces `global` grandes (~96 209 entidades no incidente) `scan_isolated
 ## Validação
 
 Testes unitários + `tests/v1106_entity_connect_scan_regression.rs` + smoke dry-run.
+
+
+## Follow-ups da auditoria (mesma release)
+
+- `scan_start.operation` usa o nome CLI real (`entity-connect` ou `cross-domain-bridges`).
+- Campos dual backlog: `backlog_degree0_proxy` vs `pairs_enqueued_this_scan`.
+- Testes de interrupt / deadline / nome CLI.
