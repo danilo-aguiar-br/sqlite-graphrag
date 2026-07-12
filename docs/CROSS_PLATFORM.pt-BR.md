@@ -6,7 +6,7 @@
 - O teste de auditoria no-leak `audit_no_token_leak_in_subprocess_stderr` roda apenas em Linux; a mesma asserção se aplica no Windows por construção (propagação de env é agnóstica de plataforma no helper)
 - Flag `--strict-env-clear` e env var `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` funcionam identicamente no Windows; apenas `PATH` (ou `Path` no Windows, que o helper normaliza) é encaminhado em modo estrito
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` e `docs/COOKBOOK.pt-BR.md#como-usar-providers-anthropic-compativeis-customizados-v1083` para a receita completa
-# SUPORTE CROSS PLATFORM (v1.0.97 — Sidecar de Fila Derivado do `--db`)
+# SUPORTE CROSS PLATFORM (atual: v1.1.06; notas desde v1.0.97+)
 
 > Um binário de 14.6 MiB, cinco targets, zero download de modelo em todo sistema operacional moderno (v1.0.76 Apenas LLM)
 
@@ -15,10 +15,12 @@
 
 
 ## Notas de operador da v1.1.06 (todas as plataformas)
-- Nome oficial **v1.1.06**; crate `1.1.6`; sem migração (v16). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
-- **entity-connect** seguro em grafos grandes em todo SO: coocorrência + hub×ilha (sem hang cartesiano).
-- Teto soft 120s + `--max-runtime` usam `InterruptHandle` (Timeout exit 1) em Linux/macOS/Windows.
-- Campos NDJSON `scan_start` / `scan_meta` estáveis para hooks em todas as plataformas.
+- Nome oficial **v1.1.06**; crate `1.1.6`; **sem migração de schema** (`CURRENT_SCHEMA_VERSION` permanece **16**). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: candidatos por **coocorrência** em `memory_entities` + fill **hub × ilha grau-0** (O(k); nunca cartesiano `entities × entities` com ORDER BY global).
+- Chaves da fila `pair:{id1}:{id2}` com `item_type=entity_pair`; **drain resolve por chave primária** sem re-scan por item.
+- Teto soft 120s + `--max-runtime` usam `InterruptHandle` no **primeiro** scan em Linux/macOS/Windows → Timeout exit **1**. Orquestradores NÃO DEVEM tratar timeout de scan como singleton exit **75**.
+- NDJSON: `scan_start` **antes** do SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`) depois `scan_meta` (`pairs_enqueued_this_scan`, `scan_elapsed_ms`) — campos de backlog dual estáveis para hooks em todas as plataformas; não equacione-os.
+- `cross-domain-bridges` compartilha o **mesmo** path O(k) + `entity_connect_seen`; convergência **GAP-002** preservada.
 
 ## Notas de operador da v1.1.05 (todas as plataformas)
 - O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"`; sem migração de schema (permanece em v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.

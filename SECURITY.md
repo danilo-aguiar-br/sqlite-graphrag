@@ -11,7 +11,8 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.0.x   | Supported   | Yes, receives fixes      |
+| 1.1.x   | Supported   | Yes, receives fixes (current line; latest v1.1.06 / crate 1.1.6) |
+| 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.1.x recommended |
 | 0.x     | Unsupported | No patches provided      |
 
 
@@ -123,6 +124,7 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 - JAMAIS rely on `ANTHROPIC_AUTH_TOKEN` forwarding when the host is shared with untrusted processes; prefer `--strict-env-clear` so credentials stay in the parent process only
 - Prefer `link --from-id`/`--to-id` over name-based linking when the identity is an integer entity ID; pure-numeric entity names are rejected by `validate_entity_name` (v1.1.05) so `--create-missing` cannot create ghost numeric entities
 - Self-referential `merge-entities` (target ID/name also listed as a source) is rejected BEFORE any DB work (v1.1.05), protecting graph integrity against shell word-splitting mistakes
+- v1.1.06: first-scan wall-clock for `enrich --operation entity-connect` / `cross-domain-bridges` uses `InterruptHandle` and returns Timeout exit **1** (not singleton exit **75**). Orchestrators must not treat scan timeout as a lock contention signal. See ADR-0066 and `docs/HEADLESS_INVOCATION.md`.
 
 
 ## v1.0.94 Headless Mode Hardening (ADR-0053)

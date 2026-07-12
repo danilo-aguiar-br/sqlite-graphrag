@@ -316,6 +316,27 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"nome-do-server-1":{"enabled":false},"nome-do-s
 
 
 
+### Atualização v1.1.06 — entity-connect headless em namespaces grandes (ADR-0066)
+
+Registro de decisão: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.pt-BR.md). Suite de regressão: `tests/v1106_entity_connect_scan_regression.rs` (nome **v1106**).
+
+- Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: `enrich --operation entity-connect` (e `cross-domain-bridges`) headless no `global` grande não trava mais a 100% de CPU antes de `phase: scan`. O scan de pares é O(k) (coocorrência + hub×ilha), não cartesiano O(n²).
+- Chaves da fila `pair:{id1}:{id2}` com `item_type=entity_pair`; drain por chave primária (sem re-scan por item). GAP-002 `entity_connect_seen` permanece em vigor.
+- **Wall-clock do primeiro scan** coberto por `--max-runtime` e teto soft de 120s via `InterruptHandle`. Timeout → `AppError::Timeout` exit **1**. Orquestradores NÃO DEVEM tratar timeout de scan como exit **75** (singleton/slot).
+- NDJSON para hooks: espere `phase: "scan_start"` **antes** do SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`), depois `scan` / `scan_meta` (`pairs_enqueued_this_scan`, `scan_elapsed_ms`). Não equacione os dois campos de backlog.
+- Prefira dry-run antes de jobs longos `--until-empty` em grafos densos.
+- Sem migração de schema na v1.1.06 (permanece v16). Pin `=1.1.6`.
+
+```bash
+# Dry-run headless deve terminar rápido e emitir scan_start (sem hang cartesiano)
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+
+# Convergência longa: --max-runtime também cobre o PRIMEIRO scan
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+```
+
 ### Atualização v1.1.04 — Estabilidade do deep-research + Convergência do entity-connect (ADR-0064)
 
 - GAP-001: o `deep-research` não entra mais em panic com "Cannot start a runtime from within a runtime" quando invocado em modo headless (agent harnesses, runners de CI, jobs agendados). O entry point síncrono `deep_research::run` agora computa os embeddings por sub-query ANTES de construir seu runtime Tokio dedicado via o novo helper `compute_sub_embeddings`, e os três caminhos de embedding OpenRouter em `embedder.rs` (single, batch serial, fan-out JoinSet) adotam o padrão canônico de reentrada `Handle::try_current` + `block_in_place` já usado pelo path batch. O `ingest_opencode` também recebeu o guard. Para orquestradores headless isso significa que jobs `deep-research --with-bodies` de longa duração que antes crashavam no meio agora completam de forma confiável.

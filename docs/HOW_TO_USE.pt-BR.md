@@ -1,4 +1,4 @@
-# COMO USAR sqlite-graphrag (v1.1.05 — cinco bugs do incidente deep-research "danilo", schema v16)
+# COMO USAR sqlite-graphrag (v1.1.06 — scan O(k) do entity-connect, schema v16)
 
 > Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
 
@@ -9,10 +9,30 @@
 
 - Nome oficial **v1.1.06**; manifesto `1.1.6`. Schema **inalterado** em **v16**.
 - Fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (hang P0 no `global` grande).
-- Candidatos: **coocorrência** + **hub × ilha grau-0**; chaves `pair:{id1}:{id2}`.
-- Primeiro scan coberto por `--max-runtime` / teto soft 120s (`InterruptHandle` → Timeout exit 1).
-- NDJSON: `scan_start` / `scan_meta` com backlog dual. Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
-- Pin `=1.1.6`.
+- Candidatos: **coocorrência** em `memory_entities` + **hub × ilha grau-0**.
+- Chaves da fila `pair:{id1}:{id2}`; `item_type=entity_pair`; drain por chave primária (sem re-scan).
+- Primeiro scan coberto por `--max-runtime` / teto soft 120s (`InterruptHandle` → Timeout exit **1**, não 75).
+- NDJSON: `scan_start` (antes do SQL) com `operation`, `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` com `pairs_enqueued_this_scan`.
+- `cross-domain-bridges` usa o **mesmo** caminho fully-implemented + `entity_connect_seen`.
+- Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066. Pin `=1.1.6`.
+
+### Receita — Dry-run seguro em namespace grande
+
+```bash
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+# Espere: validate → scan_start → scan → scan_meta (ms–s, não minutos a 100% CPU)
+# scan_start.backlog_degree0_proxy ≠ scan_meta.pairs_enqueued_this_scan (backlog dual)
+```
+
+### Receita — Convergir com teto de wall-clock no primeiro scan
+
+```bash
+# --max-runtime cobre o PRIMEIRO scan (InterruptHandle). Timeout → exit 1, não 75.
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+# cross-domain-bridges usa o mesmo path O(k) + entity_connect_seen (GAP-002 preservado)
+```
 
 ## O Que Mudou na v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
 - O nome oficial da release é **v1.1.05**; o `Cargo.toml` carrega `1.1.5` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v16 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.5`. User-Agent `sqlite-graphrag/1.1.5`.
@@ -437,8 +457,8 @@ A LLM devolve JSON estruturado com entidades e relacionamentos no mesmo prompt q
 
 ## Ferramentas de Qualidade LLM (herdadas da v1.0.69)
 ### `enrich` — Qualidade do Grafo Aumentada por LLM
-- O subcomando `enrich` executa operações de qualidade do grafo curadas por LLM. Quatro estão totalmente implementadas: `memory-bindings` (extrai entidades de memórias órfãs), `entity-descriptions` (preenche descrições de entidade NULL ou vazias), `body-enrich` (expande corpos curtos de memória em conteúdo mais rico), e `entity-connect` (v1.1.04 — agora convergente: persiste o veredito do LLM por par avaliado na nova tabela `entity_connect_seen`, então o `--until-empty` atinge `eligible_remaining == 0` em vez de re-avaliar os pares rejeitados infinitamente).
-- Nove operações permanecem apenas de varredura e exibem listas candidatas sem reescrever: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `cross-domain-bridges`, `domain-classify`, `graph-audit`, `deep-research-synth`, `body-extract`.
+- O subcomando `enrich` executa operações de qualidade do grafo curadas por LLM. Totalmente implementadas (persistem): `memory-bindings` (extrai entidades de memórias órfãs), `augment-bindings` (vínculos extras em já vinculadas; exige `--names`/`--names-file`), `entity-descriptions` (preenche descrições NULL/vazias), `body-enrich` (expande corpos curtos), `re-embed` (só vetores), `entity-connect` (v1.1.04+ convergente via `entity_connect_seen`; **v1.1.06** scan O(k) coocorrência + hub×ilha, chaves `pair:{id1}:{id2}` / `item_type=entity_pair`, primeiro scan com InterruptHandle → Timeout exit 1), `cross-domain-bridges` (mesmo caminho fully-implemented de entity-connect / `entity_connect_seen`), e `body-extract` com `--body-extract-graph-only` (só grafo, sem reescrever o corpo).
+- Operações restantes apenas de varredura exibem listas candidatas sem reescrever: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth` (e `body-extract` sem `--body-extract-graph-only` quando usado de forma consultiva).
 - `--mode <claude-code|codex|opencode|openrouter>` seleciona o provedor do JUDGE e é **OBRIGATÓRIA** — NÃO há default (o default `claude-code` foi removido na v1.0.94). `claude-code`, `codex` e `opencode` são CLIs locais OAuth-only; `openrouter` (v1.0.95) chama o endpoint REST `/chat/completions` sem subprocesso.
 - Com `--mode openrouter` (v1.0.95): `--openrouter-model` é OBRIGATÓRIA (SEM default; omiti-la → exit 1 antes de qualquer chamada de rede). `--openrouter-api-key` lê da env `OPENROUTER_API_KEY` ou de `config add-key --provider openrouter`. `--openrouter-timeout` tem default de 300s. `--openrouter-base-url` é opcional. Exemplo: `enrich --operation memory-bindings --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json`.
 - `--preflight-check` emite um ping de 1 turno ANTES de varrer o conjunto candidato. Em rate limit OAuth do Claude, a sondagem aborta com erro claro (ou troca para `--fallback-mode` quando fornecido). Padrão desligado para manter `--dry-run` e fluxos de CI com custo zero.

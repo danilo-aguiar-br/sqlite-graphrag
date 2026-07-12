@@ -76,6 +76,8 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ## Testes
 - Execute a suíte padrão com `cargo nextest run --profile ci` para o runner rápido alinhado ao CI
 - Execute a suíte lenta separadamente com `cargo nextest run --profile heavy --features slow-tests`
+- A regressão v1.1.06 do scan O(k) do entity-connect vive em `tests/v1106_entity_connect_scan_regression.rs` — rode-a ao tocar `src/commands/enrich/scan.rs`, `queue.rs`, drain de pares ou NDJSON `scan_start`/`scan_meta`
+- Cobertura da suíte v1106: (1) scan O(k) coocorrência + hub×ilha; (2) chaves `pair:{id1}:{id2}` / `item_type=entity_pair`; (3) InterruptHandle no primeiro scan → Timeout exit 1 (não 75); (4) backlog dual `backlog_degree0_proxy` vs `pairs_enqueued_this_scan`; (5) drain por PK sem re-scan; GAP-002 `entity_connect_seen` preservado
 - A regressão v1.1.05 dos cinco bugs "danilo" vive em `tests/v1105_danilo_bugs_regression.rs` — rode-a ao tocar `deep-research`, `graph traverse`, `merge-entities`, `link` ou `atomic_io`
 - Cobertura da suíte v1105: (1) fan-out `source: "aspect"` em token único; (2) `--output` atomwrite + ack `blake3`; (3) `--fuzzy` / sugestões no traverse; (4) rejeição self-ref pré-DB em `merge-entities`; (5) `--from-id`/`--to-id` e rejeição de nomes só dígitos em `link`
 - Meça a cobertura de auditoria profunda com `cargo llvm-cov nextest --profile heavy --features slow-tests --summary-only`
@@ -126,6 +128,15 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 ## Releases Recentes
 
+### v1.1.06 - 2026-07-12 — Scan O(k) do entity-connect (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)
+- Suite de integração `tests/v1106_entity_connect_scan_regression.rs` mais unitários em `src/commands/enrich/` cobrem scan O(k) por coocorrência + hub×ilha, chaves `pair:{id1}:{id2}` / `entity_pair`, primeiro scan com InterruptHandle → Timeout exit 1, NDJSON `scan_start` / backlog dual, e drain por PK sem re-scan.
+- Sem migração de schema (permanece em v16). Veja `CHANGELOG.pt-BR.md` `[1.1.06]`, `gaps.md` (GAP Fechado) e ADR-0066.
+- Ao tocar `scan.rs`, `queue.rs` ou paths de drain do enrich: rode `cargo test --test v1106_entity_connect_scan_regression` e `cargo test --lib commands::enrich`. Não trate timeout de wall-clock do scan como exit 75.
+
+### v1.1.05 - 2026-07-11 — Incidente deep-research "danilo" (Bugs 1–5)
+- Suite de integração `tests/v1105_danilo_bugs_regression.rs` cobre os cinco bugs de operador na fronteira da CLI: fan-out aspect de token único, atomwrite `--output` + ack blake3, `graph traverse` fuzzy/sugestões, rejeição self-ref pré-DB no merge, `link --from-id`/`--to-id` + rejeição de nomes só dígitos.
+- Sem migração de schema (permanece em v16). Veja `CHANGELOG.pt-BR.md` `[1.1.05]` e Status v1.1.05 em `gaps.md`.
+
 ### v1.0.96 - 2026-06-27 — Dead-letter no Enrich e Fan-out REST Bounded (ADR-0055)
 - GAP-ENRICH-BACKLOG-CONVERGE: a fila `.enrich-queue.sqlite` ganha colunas `error_class` e `next_retry_at` (ALTER TABLE idempotente) mais o status terminal `dead`; falhas Transient reagendam com backoff exponencial (reusando `AttemptOutcome`/`compute_delay` de `src/retry.rs`), HardFailures vão a terminal imediatamente, e um item vira `dead` após `--max-attempts` (padrão 5) retries. Novo `enrich --until-empty` roda um loop interno scan→drain (limitado por `--max-runtime`, padrão 3600s) que substitui o loop de retry externo em bash; `enrich --status` é um relatório read-only JSON da fila que jamais chama o LLM nem adquire o singleton.
 - GAP-OPENROUTER-REST-CONCURRENCY: `embed_passages_parallel_with_embedding_choice` faz fan-out das chamadas REST de embedding OpenRouter via `tokio::task::JoinSet` bounded (`--rest-concurrency`, clamp 1..=16, padrão 8, sem nova dependência); lotes de 32 com ordem por índice de chunk preservada, escritas SQLite ainda serializadas via WAL + claim atômico (single-writer intacto).
@@ -150,7 +161,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ### v1.0.76 - 2026-06-07 — Apenas LLM One-Shot, Credencial LLM Apenas OAuth
 - **MUDANÇA ARQUITETURAL QUEBRANTE**: o build padrão não embute mais nenhum modelo local. Toda geração de embedding, NER e busca vetorial delega para `claude -p` ou `codex exec` headless (OAuth, sem MCP, sem hooks). A CLI é one-shot. Binário cai de 39 MB para ~6 MB.
 - **Crates removidos**: `fastembed 5.13.4`, `ort 2.0.0-rc.12`, `ndarray 0.16`, `tokenizers 0.22`, `huggingface-hub 0.4`, `sqlite-vec 0.1.9`
-- **Features removidas**: `daemon` (como otimização de performance, mantido para compatibilidade de fonte até v1.1.0), caminho `--enable-ner` GLiNER ONNX (movido para feature `ner-legacy`)
+- **Features removidas**: `daemon` (removido com a arquitetura LLM-only one-shot; não existe mais em nenhum build), caminho `--enable-ner` GLiNER ONNX (movido e depois removido com `ner-legacy`)
 - **Adicionado**: trait `ExtractionBackend` com `LlmBackend` / `EmbeddingBackend` / `NoneBackend` / `CompositeBackend`; trait `VersionAdapter` com `CodexAdapter` / `ClaudeAdapter` / `OpencodeAdapter`; `migrate --rehash` e `migrate --to-llm-only --drop-vec-tables`; tabelas BLOB-backed `memory_embeddings` / `entity_embeddings` / `chunk_embeddings`; cosseno em Rust puro em `src/similarity.rs`; fluxo de credencial LLM OAuth-only com aborto `AppError::Validation` quando `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estão no env
 - **Migração V013** dropa as virtual tables `vec_memories` / `vec_entities` / `vec_chunks`; embeddings antigos são recomputados lazy na próxima escrita
 - **Matriz CI**: `default` e `llm-only` desde a v1.0.79 (`embedding-legacy` removida); mock LLM CLI cabeada em 26 arquivos de teste; 107/115 testes previamente lentos corrigidos
@@ -167,7 +178,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - **G28-D** Helper `retry::CircuitBreaker` com `AttemptOutcome::{Success, Transient, HardFailure}`; erros rate-limited e timeout são explicitamente excluídos da contagem de falhas; `enrich` emite `tracing::warn!` quando `--llm-parallelism > 4`
 - **G29** `src/terminal.rs` reescrito com `!handle.is_null() && handle != INVALID_HANDLE_VALUE` para que `cargo install sqlite-graphrag` compile no Windows; `windows-sys` fixado em `=0.59.0` exato; novo job de CI `windows-build-check` roda `cargo check --target x86_64-pc-windows-msvc --lib --all-features` em todo push
 - **Correções de Testes** três falhas pré-existentes de timezone-leak em `src/commands/{history,list,read}.rs` corrigidas via `chrono::DateTime::parse_from_rfc3339` + comparação com `DateTime::UNIX_EPOCH`
-- **Documentação** novos ADRs `adr-008-process-lifecycle-singleton`, `adr-009-windows-sys-handle-pinning`, `adr-010-mcp-isolation-claude-config-dir`; `SKILL.md` EN+PT, `AGENTS.md` EN+PT, `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`, `INTEGRATIONS.md` EN+PT, `MIGRATION.md` EN+PT, `TESTING.md` EN+PT, `HOW_TO_USE.md` EN+PT, `CROSS_PLATFORM.md` EN+PT, `COOKBOOK.md` EN+PT atualizados com a seção v1.0.68; `docs/schemas/error-envelope.schema.json` atualizado para documentar o segundo template `code: 75`
+- **Documentação** novos ADRs `adr-0008-process-lifecycle-singleton`, `adr-0009-windows-sys-handle-pinning`, `adr-0010-mcp-isolation-claude-config-dir`; `SKILL.md` EN+PT, `AGENTS.md` EN+PT, `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`, `INTEGRATIONS.md` EN+PT, `MIGRATION.md` EN+PT, `TESTING.md` EN+PT, `HOW_TO_USE.md` EN+PT, `CROSS_PLATFORM.md` EN+PT, `COOKBOOK.md` EN+PT atualizados com a seção v1.0.68; `docs/schemas/error-envelope.schema.json` atualizado para documentar o segundo template `code: 75`
 - **CI** novo job `windows-build-check`; job `language-check` mantido do release anterior
 - 692 testes de lib + 2 testes de integração passam; 0 warnings em `clippy -- -D warnings` e `cargo doc --no-deps --all-features` com `RUSTDOCFLAGS="-D warnings"`
 - Veja `gaps.md` para o histórico de resolução completo e `CHANGELOG.pt-BR.md` para a entrada v1.0.68

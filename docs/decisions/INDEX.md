@@ -96,7 +96,7 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 - **v1.1.03**: 1 ADR (0063) — six operator-blocking bugs + split-body: batched scan-enqueue, --literal-to, --cross-namespace merge, claimed_at + --reset-stale-claims, status doc clarification, LEFT JOIN chunk re-embed, split-body subcommand
 - **v1.1.04**: 1 ADR (0064) — deep-research nested-runtime panic (GAP-001) + entity-connect convergence via V016 `entity_connect_seen` (GAP-002)
 - **v1.1.05**: 1 ADR (0065) — five "danilo" deep-research incident bugs: single-token aspect fan-out, atomic --output + --quiet, graph traverse fuzzy, pre-DB self-merge guard, link --from-id/--to-id + digit-name reject
-- **v1.1.06**: 1 ADR (0066) — entity-connect O(k) scan (co-occurrence + hub×island), pair keys, first-scan timeout, GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed
+- **v1.1.06**: 1 ADR (0066) — entity-connect O(k) scan (co-occurrence + hub×island), pair keys `pair:{id1}:{id2}` / `entity_pair`, first-scan InterruptHandle Timeout exit 1, NDJSON `scan_start`/`scan_meta`, GAP-002 preserved; suite `tests/v1106_entity_connect_scan_regression.rs`; GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed
 
 ## Bilíngue Status
 
@@ -115,10 +115,10 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 
 ## Adding a New ADR
 
-1. Choose the next sequential number (next is ADR-0066)
-2. Create `adr-0066-slug.md` following the canonical structure
+1. Choose the next sequential number (next is ADR-0067)
+2. Create `adr-0067-slug.md` following the canonical structure
 3. Add entry to this INDEX.md (EN row)
-4. After EN stabilizes (typically 1+ release), create `adr-0066-slug.pt-BR.md`
+4. After EN stabilizes (typically 1+ release), create `adr-0067-slug.pt-BR.md`
 5. Add PT-BR column link
 6. Update the "Coverage by Version" section
 7. Reference the new ADR from `gaps.md` if it closes a documented gap

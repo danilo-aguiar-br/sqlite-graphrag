@@ -95,7 +95,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - The `default` and `llm-only` jobs install a stub `mock-llm` CLI on `PATH` so embedding round-trip tests can run without real OAuth credentials
 
 - New code that touches `src/extract/llm_embedding.rs` MUST be exercised via the mock LLM contract in `tests/fixtures/mock-llm/`
-- New code that depends on the daemon MUST NOT depend on daemon autostart; the daemon is deprecated and will be removed in v1.1.0
+- New code MUST NOT depend on the daemon: the daemon was fully removed in the LLM-only one-shot architecture (v1.0.76+; feature deleted before v1.1.0). Every build is one-shot with no in-process model runtime
 - New code that introduces a new migration version MUST round-trip through `migrate --rehash` and `migrate --to-llm-only` integration tests to validate the SipHasher13 checksum rewrite path
 
 
@@ -132,6 +132,11 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 ## Recent Releases
 
+### v1.1.06 - 2026-07-12 — Entity-connect scan O(k) (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)
+- Integration suite `tests/v1106_entity_connect_scan_regression.rs` plus unit tests under `src/commands/enrich/` cover O(k) co-occurrence + hub×island scan, `pair:{id1}:{id2}` / `entity_pair` queue typing, first-scan InterruptHandle → Timeout exit 1, NDJSON `scan_start` / dual backlog fields, and drain-by-PK without re-scan.
+- No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.06]`, `gaps.md` (GAP Fechado), and ADR-0066.
+- When touching `scan.rs`, `queue.rs`, or enrich drain paths: run `cargo test --test v1106_entity_connect_scan_regression` and `cargo test --lib commands::enrich`. Do not treat scan wall-clock timeout as exit 75.
+
 ### v1.1.05 - 2026-07-11 — Danilo deep-research incident (Bugs 1–5)
 - Integration suite `tests/v1105_danilo_bugs_regression.rs` covers all five operator-blocking bugs at the CLI boundary: single-token deep-research aspect fan-out, `--output` atomwrite + blake3 ack, `graph traverse` fuzzy/suggestions, `merge-entities` self-ref pre-DB rejection, `link --from-id`/`--to-id` plus pure-numeric name rejection.
 - No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.05]` and `gaps.md` Status v1.1.05.
@@ -160,7 +165,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ### v1.0.76 - 2026-06-07 — LLM-Only One-Shot, OAuth-Only Embedding
 - **BREAKING ARCHITECTURAL CHANGE**: the default build no longer bundles any local model. All embedding generation, NER, and vector search delegate to `claude -p` or `codex exec` headless (OAuth, no MCP, no hooks). The CLI is one-shot. Binary drops from 39 MB to ~6 MB.
 - **Removed crates**: `fastembed 5.13.4`, `ort 2.0.0-rc.12`, `ndarray 0.16`, `tokenizers 0.22`, `huggingface-hub 0.4`, `sqlite-vec 0.1.9`
-- **Removed features**: `daemon` (as a performance optimization, kept for source compatibility until v1.1.0), `--enable-ner` GLiNER ONNX path (moved to `ner-legacy` feature)
+- **Removed features**: `daemon` (removed with the LLM-only one-shot architecture; no longer present in any build), `--enable-ner` GLiNER ONNX path (moved then fully removed with `ner-legacy`)
 - **Added**: `ExtractionBackend` trait with `LlmBackend` / `EmbeddingBackend` / `NoneBackend` / `CompositeBackend`; `VersionAdapter` trait with `CodexAdapter` / `ClaudeAdapter` / `OpencodeAdapter`; `migrate --rehash` and `migrate --to-llm-only --drop-vec-tables`; BLOB-backed `memory_embeddings` / `entity_embeddings` / `chunk_embeddings` tables; pure-Rust cosine in `src/similarity.rs`; OAuth-only LLM credential flow with `AppError::Validation` abort on `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in env
 - **Migration V013** drops the `vec_memories` / `vec_entities` / `vec_chunks` virtual tables; old embeddings are recomputed lazily on next write
 - **CI matrix**: `default` and `llm-only` since v1.0.79 (`embedding-legacy` removed); mock LLM CLI wired into 26 test files; 107/115 previously-slow tests fixed
@@ -177,7 +182,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - **G28-D** `retry::CircuitBreaker` helper with `AttemptOutcome::{Success, Transient, HardFailure}`; rate-limited and timeout errors are explicitly excluded from the failure count; `enrich` emits a `tracing::warn!` when `--llm-parallelism > 4`
 - **G29** `src/terminal.rs` rewritten with `!handle.is_null() && handle != INVALID_HANDLE_VALUE` so `cargo install sqlite-graphrag` succeeds on Windows; `windows-sys` pinned to `=0.59.0` exact; new CI job `windows-build-check` runs `cargo check --target x86_64-pc-windows-msvc --lib --all-features` on every push
 - **Test Fixes** three pre-existing timezone-leak failures in `src/commands/{history,list,read}.rs` fixed via `chrono::DateTime::parse_from_rfc3339` + `DateTime::UNIX_EPOCH` comparison
-- **Documentation** new ADRs `adr-008-process-lifecycle-singleton`, `adr-009-windows-sys-handle-pinning`, `adr-010-mcp-isolation-claude-config-dir`; `SKILL.md` EN+PT, `AGENTS.md` EN+PT, `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`, `INTEGRATIONS.md` EN+PT, `MIGRATION.md` EN+PT, `TESTING.md` EN+PT, `HOW_TO_USE.md` EN+PT, `CROSS_PLATFORM.md` EN+PT, `COOKBOOK.md` EN+PT updated with the v1.0.68 section; `docs/schemas/error-envelope.schema.json` updated to document the second `code: 75` template
+- **Documentation** new ADRs `adr-0008-process-lifecycle-singleton`, `adr-0009-windows-sys-handle-pinning`, `adr-0010-mcp-isolation-claude-config-dir`; `SKILL.md` EN+PT, `AGENTS.md` EN+PT, `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`, `INTEGRATIONS.md` EN+PT, `MIGRATION.md` EN+PT, `TESTING.md` EN+PT, `HOW_TO_USE.md` EN+PT, `CROSS_PLATFORM.md` EN+PT, `COOKBOOK.md` EN+PT updated with the v1.0.68 section; `docs/schemas/error-envelope.schema.json` updated to document the second `code: 75` template
 - **CI** new `windows-build-check` job; `language-check` job retained from prior release
 - 692 lib tests + 2 integration tests pass; 0 warnings under `clippy -- -D warnings` and `cargo doc --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"`
 - See `gaps.md` for the full resolution history and `CHANGELOG.md` for the v1.0.68 entry

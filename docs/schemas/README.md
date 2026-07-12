@@ -177,6 +177,13 @@
 - The `entity_connect` enrich operation is promoted from scan-only to fully-implemented
 - No new output schema file: `entity_connect_seen` is an internal table (implicit schema via the V016 migration), not a subcommand stdout contract
 
+### Schema Changes in v1.1.06 (ADR-0066)
+- **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
+- Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: `enrich --operation entity-connect` / `cross-domain-bridges` no longer use a cartesian pair scan. Queue `item_key` is `pair:{id1}:{id2}` with `item_type=entity_pair` (sidecar queue contract; not a main-DB migration). Drain resolves by entity primary key.
+- NDJSON phases for operators/hooks: `scan_start` **before** SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`) and `scan_meta` (`pairs_enqueued_this_scan`, `scan_elapsed_ms`). Existing `enrich-phase.schema.json` / `enrich-item-event.schema.json` remain the phase envelopes; field additions are additive observational payloads on those phases.
+- First-scan wall-clock uses `InterruptHandle` → Timeout exit **1** (not singleton **75**). No new stdout summary schema file.
+- Regression suite: `tests/v1106_entity_connect_scan_regression.rs`. Decision: [ADR-0066](../decisions/adr-0066-v1-1-06-entity-connect-scan.md).
+
 ### Schema Changes in v1.1.05 (ADR-0065)
 - **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
 - `deep-research` — `sub_queries[].source` now also emits `aspect` (single-token facet fan-out) and `manual` (`--sub-query-strategy manual --sub-queries-file PATH`). `deep-research.schema.json` enum is updated in v1.1.05 to `original | decomposed | aspect | manual`. No new *required* output fields on the full envelope.

@@ -3,7 +3,7 @@
 > Leia este documento em [inglês (EN)](INTEGRATIONS.md)
 
 
-> 21 agentes e 20+ plataformas em um único contrato de CLI
+> 27 agentes de IA e 20+ plataformas em um único contrato de CLI (21 catalogados + 6 community)
 
 - Leia a versão em inglês em [INTEGRATIONS.md](INTEGRATIONS.md)
 - Cada receita abaixo está pronta para copiar e custa zero para executar
@@ -27,8 +27,10 @@
 - Para extração de entidades/relacionamentos curada por LLM use `ingest --mode claude-code` ou `ingest --mode codex`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
-- Nome oficial **v1.1.06**; crate `version = "1.1.6"` — pin `=1.1.6`. Sem migração (v16). Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: scan O(k), chaves `pair:{id1}:{id2}`, deadline no primeiro scan (`InterruptHandle`, Timeout exit 1), NDJSON `scan_start`/`scan_meta`. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
-- `enrich --operation entity-connect|cross-domain-bridges` é seguro em namespaces `global` grandes (sem hang cartesiano).
+## Novos Comandos e Flags (desde v1.1.06)
+
+- Nome oficial **v1.1.06**; crate `version = "1.1.6"` — pin `=1.1.6`. Sem migração (v16). Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: scan O(k) (coocorrência + hub×ilha), chaves `pair:{id1}:{id2}`, `item_type=entity_pair`, deadline no primeiro scan (`InterruptHandle`, Timeout exit 1 ≠ 75), NDJSON `scan_start`/`scan_meta` com `operation` real e backlog dual `backlog_degree0_proxy` + `pairs_enqueued_this_scan`. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- `enrich --operation entity-connect|cross-domain-bridges` é seguro em namespaces `global` grandes (sem hang cartesiano); ambos compartilham o caminho fully-implemented de `entity_connect_seen`.
 
 ## Novos Comandos e Flags (desde v1.1.05)
 - O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.5`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.5`; o binário de release tem aproximadamente 19 MiB. **Sem migração de schema** (permanece em v16 após a V016 da v1.1.04). Fecha os cinco bugs operacionais do relato de incidente deep-research "danilo" (`gaps.md`)
@@ -102,7 +104,7 @@
 - Os spawns de `claude -p` e `codex exec` agora ABORTAM com `AppError::Validation` se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiverem presentes no ambiente.  OAuth (Claude Pro/Max ou ChatGPT Pro) é o ÚNICO fluxo de credencial aceito.  Veja `docs/decisions/adr-0011-oauth-only-enforcement.md` para a justificativa completa.
 - A flag `--bare` (que exige uma chave de API e desabilita OAuth) foi REMOVIDA de todo caminho executável.  Ambas as variáveis de chave de API também são excluídas da whitelist de `env_clear` como defesa em profundidade.
 ### `enrich` — Novo Subcomando (G29 + G35 + G37)
-- `enrich --operation <op> --mode <claude-code|codex> --json` roda qualidade do grafo curada por LLM.  Três operações estão totalmente implementadas: `memory-bindings` (extrai entidades de memórias órfãs), `entity-descriptions` (preenche descrições de entidade NULL ou vazias) e `body-enrich` (expande corpos curtos de memória, agora com sucesso 100% após o hotfix do G29 na CHECK constraint de `source` e a trilha de auditoria do G29 via `memory_versions`).
+- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` roda qualidade do grafo curada por LLM. Na introdução (v1.0.69) três ops chegaram primeiro: `memory-bindings`, `entity-descriptions`, `body-enrich` (G29 CHECK de `source` + auditoria `memory_versions`). **Conjunto FULLY-IMPLEMENTED atual** também inclui `re-embed`, `augment-bindings`, `body-extract`, `entity-connect` (v1.1.04 `entity_connect_seen` + **v1.1.06** O(k) coocorrência+hub×ilha, chaves `pair:{id1}:{id2}` / `entity_pair`, drain por PK, primeiro scan InterruptHandle → Timeout exit **1** ≠ 75, NDJSON `scan_start`/`scan_meta`) e `cross-domain-bridges` (mesmo path O(k)). Veja “Novos Comandos e Flags (desde v1.1.06)” acima.
 - `--preserve-threshold <FLOAT>` (padrão 0.7) controla o portão de preservação trigrama Jaccard de `src/preservation.rs` (10 testes).  Scores abaixo do threshold são rejeitados e emitidos como `EnrichItemResult::PreservationFailed`.
 - `--preflight-check`, `--fallback-mode <claude-code|codex>` e `--rate-limit-buffer <SEGUNDOS>` (padrão 300) evitam perda de batch quando a janela OAuth de 5 horas do Claude fecha no meio do run.  A sondagem de preflight emite um ping de 1 turno; em rate limit aborta com erro claro ou troca para `--fallback-mode`.
 - `--names <a,b,c>` e `--names-file <CAMINHO>` selecionam um subconjunto específico de nomes de memória.  `--names-file` aceita comentários `#` e linhas em branco.  As duas flags se combinam como união.
@@ -202,7 +204,7 @@
 ## Novos Comandos e Flags (desde v1.0.65)
 - `reclassify-relation --from-relation <antigo> --to-relation <novo> --batch` renomeia tipos de relação em massa; modo individual via `--source`/`--target`; trata colisões UNIQUE via `UPDATE OR IGNORE` + `DELETE`; `--dry-run` faz preview; filtros opcionais `--filter-source-type`/`--filter-target-type`
 - `normalize-entities --yes` normaliza todos os nomes de entidade para kebab-case ASCII minúsculo; mescla colisões automaticamente; `--dry-run` faz preview
-- `enrich --operation <op> --mode claude-code` qualidade do grafo aumentada por LLM; operações: `memory-bindings`, `entity-descriptions`, `body-enrich`; `--dry-run` faz preview sem LLM; `--max-cost-usd`, `--resume`, `--retry-failed`
+- `enrich --operation <op> --mode claude-code|codex|opencode|openrouter` qualidade do grafo aumentada por LLM; ops FULLY-IMPLEMENTED atuais: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`, `entity-connect` (v1.1.06 O(k) + pair keys), `cross-domain-bridges`; `--dry-run` faz preview sem LLM; `--max-cost-usd`, `--resume`, `--retry-failed`, `--until-empty`, `--max-runtime`
 - `deep-research` novas flags: `--rrf-k` (padrão 60), `--graph-decay` (padrão 0.7), `--graph-min-score` (padrão 0.05), `--max-neighbors-per-hop`
 - flag `--max-entity-degree` REMOVIDA de `link` e `remember` na v1.0.99 — a escrita agora é puramente aditiva e NUNCA poda, deleta arestas nem emite warn de grau (passar a flag agora resulta em clap exit 2)
 - `health` reporta `top_relation`, `top_relation_ratio`, `applies_to_ratio`, `relation_concentration_warning` quando qualquer relação excede 40%

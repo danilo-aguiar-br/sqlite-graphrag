@@ -11,9 +11,10 @@
 - Official release name **v1.1.06**; `Cargo.toml` carries `1.1.6`. Schema **unchanged** at **v16**.
 - Closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0 hang on large `global`).
 - Pair candidates: **co-occurrence** in `memory_entities` + **hub × degree-0 island** fill.
-- Queue keys `pair:{id1}:{id2}`; drain by primary key (no re-scan).
-- First scan covered by `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1**.
-- NDJSON: `scan_start` (before SQL) with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` with `pairs_enqueued_this_scan`.
+- Queue keys `pair:{id1}:{id2}` with `item_type=entity_pair`; drain by primary key (no re-scan per item).
+- First scan covered by `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1** (not singleton exit **75**).
+- NDJSON: `scan_start` (before SQL) with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` with `pairs_enqueued_this_scan` — do not equate the dual backlog fields.
+- `cross-domain-bridges` uses the **same** fully-implemented O(k) path + `entity_connect_seen`; **GAP-002** convergence preserved.
 - Suite: `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
 - Pin library consumers to `=1.1.6`.
 
@@ -23,6 +24,16 @@
 sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
 # Expect: validate → scan_start → scan → scan_meta (ms–s, not minutes of 100% CPU)
+# scan_start.backlog_degree0_proxy ≠ scan_meta.pairs_enqueued_this_scan (dual backlog)
+```
+
+### Recipe — Converge with wall-clock ceiling on the first scan
+
+```bash
+# --max-runtime covers the FIRST scan (InterruptHandle). Timeout → exit 1, not 75.
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+# cross-domain-bridges uses the same O(k) path + entity_connect_seen
 ```
 
 ## What Changed in v1.1.05 — Five Danilo Incident Bugs (No Migration)
@@ -535,8 +546,8 @@ includes the schema and the response is larger).
 
 ## LLM Quality Tools (inherited from v1.0.69)
 ### `enrich` — LLM-Augmented Graph Quality
-- The `enrich` subcommand runs LLM-curated graph-quality operations. Four are fully implemented: `memory-bindings` (extract entities from orphan memories), `entity-descriptions` (fill NULL/empty entity descriptions), `body-enrich` (expand short memory bodies into richer content), and `entity-connect` (v1.1.04 — now convergent: persists the LLM verdict per evaluated pair into the new `entity_connect_seen` table, so `--until-empty` reaches `eligible_remaining == 0` instead of re-evaluating rejected pairs forever).
-- Nine operations remain scan-only and surface candidate lists without rewriting: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `cross-domain-bridges`, `domain-classify`, `graph-audit`, `deep-research-synth`, `body-extract`.
+- The `enrich` subcommand runs LLM-curated graph-quality operations. Fully implemented (persist): `memory-bindings` (extract entities from orphan memories), `augment-bindings` (extra bindings on already-bound memories; requires `--names`/`--names-file`), `entity-descriptions` (fill NULL/empty entity descriptions), `body-enrich` (expand short memory bodies), `re-embed` (vectors only), `entity-connect` (v1.1.04+ convergent via `entity_connect_seen`; **v1.1.06** O(k) co-occurrence + hub×island scan, keys `pair:{id1}:{id2}` / `item_type=entity_pair`, first-scan InterruptHandle → Timeout exit 1), `cross-domain-bridges` (same fully-implemented path as entity-connect / `entity_connect_seen`), and `body-extract` with `--body-extract-graph-only` (graph only, no body rewrite).
+- Remaining scan-only operations surface candidate lists without rewriting: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth` (and `body-extract` without `--body-extract-graph-only` when used as advisory).
 - `--mode <claude-code|codex|opencode|openrouter>` selects the JUDGE provider and is **REQUIRED** — there is NO default (the `claude-code` default was removed in v1.0.94). `claude-code`, `codex` and `opencode` are OAuth-only local CLIs; `openrouter` (v1.0.95) calls the `/chat/completions` REST endpoint with no subprocess.
 - With `--mode openrouter` (v1.0.95): `--openrouter-model` is REQUIRED (NO default; omitting it → exit 1 before any network call). `--openrouter-api-key` reads from env `OPENROUTER_API_KEY` or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional. Example: `enrich --operation memory-bindings --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json`.
 - `--preflight-check` issues a 1-turn ping BEFORE scanning the candidate set. On a Claude OAuth rate limit the probe aborts with a clear error (or switches to `--fallback-mode` when supplied). Default off to keep `--dry-run` and CI flows zero-cost.

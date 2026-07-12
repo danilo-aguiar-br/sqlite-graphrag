@@ -109,6 +109,17 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - Sem migração; schema permanece v15; `Cargo.toml` é 1.0.99. Os totais da suíte não foram re-aferidos nesta passagem de documentação — rode `cargo nextest -P ci` para a contagem ao vivo.
 
 
+## v1.1.06 — Suite de Regressão do Scan O(k) do entity-connect
+
+- Suite de integração [`tests/v1106_entity_connect_scan_regression.rs`](../tests/v1106_entity_connect_scan_regression.rs) (fronteira CLI via `assert_cmd`). ADR: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.pt-BR.md). Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**.
+- **Scan O(k)** — `scan_isolated_entity_pairs` gera pares por coocorrência em `memory_entities` mais preenchimento hub × ilha grau-0; nunca o produto cartesiano `entities × entities` com `ORDER BY` global que travava o `global` grande.
+- **Tipagem da fila** — chaves `pair:{id1}:{id2}`, `item_type=entity_pair`; drain por chave primária sem re-scan por item.
+- **Deadline no primeiro scan** — `InterruptHandle` + `--max-runtime` / teto soft 120s cobre o primeiro SQL; timeout de wall-clock → `AppError::Timeout` exit **1** (não exit 75 de singleton).
+- **Backlog dual NDJSON** — `scan_start` antes do SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`); `scan_meta` com `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Nome real de `operation` para entity-connect **e** cross-domain-bridges.
+- **GAP-002 preservado** — convergência via `entity_connect_seen` (v1.1.04) permanece verde; `--until-empty` ainda converge.
+- Cobertura unitária também em `src/commands/enrich/scan.rs`, `queue.rs` e testes de interrupt/deadline em `mod.rs`. Rode com `cargo test --test v1106_entity_connect_scan_regression` e `cargo test --lib commands::enrich`.
+- Sem migração de schema (permanece v16). Nome oficial v1.1.06; crate `1.1.6`.
+
 ## v1.1.05 — Testes de Regressão dos Cinco Bugs "danilo"
 
 - Suite de integração [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) cobre os cinco bugs na fronteira da CLI. ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
@@ -163,7 +174,7 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 
 ## Tamanho Atual da Suite de Testes
 
-A v1.1.05 adiciona a suite `tests/v1105_danilo_bugs_regression.rs` (cinco bugs do incidente deep-research "danilo"). ~1072+ testes de lib a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
+A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / scan O(k), chaves pair, interrupt no primeiro scan, NDJSON de backlog dual) mais unitários de enrich. A v1.1.05 adiciona `tests/v1105_danilo_bugs_regression.rs` (cinco bugs do incidente deep-research "danilo"). ~1072+ testes de lib a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
 
 ## O Que Mudou nas versões v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: testes do backend OpenCode (875 testes de lib)

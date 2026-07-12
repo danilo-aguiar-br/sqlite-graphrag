@@ -11,7 +11,8 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 | Versão  | Status        | Correções de Segurança     |
 | ------- | ------------- | -------------------------- |
-| 1.0.x   | Suportada     | Sim, recebe correções      |
+| 1.1.x   | Suportada     | Sim, recebe correções (linha atual; última v1.1.06 / crate 1.1.6) |
+| 1.0.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.1.x recomendado |
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
 
 
@@ -133,6 +134,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - JAMAIS dependa do encaminhamento de `ANTHROPIC_AUTH_TOKEN` quando o host é compartilhado com processos não confiáveis; prefira `--strict-env-clear` para que credenciais permaneçam apenas no processo pai
 - JAMAIS faça commit de valores `OPENROUTER_API_KEY` no repositório ou em forks derivados
 - SEMPRE use a flag `--openrouter-api-key` em vez da variável de ambiente em hosts compartilhados
+- v1.1.06: o wall-clock do primeiro scan de `enrich --operation entity-connect` / `cross-domain-bridges` usa `InterruptHandle` e devolve Timeout exit **1** (não exit **75** de singleton). Orquestradores não devem tratar timeout de scan como contenção de lock. Veja ADR-0066 e `docs/HEADLESS_INVOCATION.pt-BR.md`.
 
 
 ## v1.0.94 Hardening do Modo Headless (ADR-0053)

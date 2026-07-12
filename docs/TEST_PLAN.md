@@ -17,6 +17,20 @@
 - Excludes manual exploratory testing and downstream consumer projects
 
 
+## v1.1.06 regression gate (entity-connect O(k) scan)
+- Command: `/usr/bin/timeout 300 cargo test --test v1106_entity_connect_scan_regression`
+- Scope: CLI-boundary + unit coverage for GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed in v1.1.06
+- **No schema migration** for this release: `CURRENT_SCHEMA_VERSION` stays **16**
+- O(k) pair scan: co-occurrence + hub×island (never cartesian `entities × entities` with global ORDER BY)
+- Queue keys `pair:{id1}:{id2}`, `item_type=entity_pair`; drain by PK without re-scan
+- First-scan deadline: InterruptHandle / `--max-runtime` / soft 120s → Timeout exit 1 (not 75)
+- NDJSON: `scan_start` before SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`); `scan_meta` (`pairs_enqueued_this_scan`)
+- `cross-domain-bridges` shares the same scan path; GAP-002 `entity_connect_seen` preserved
+- Pass criterion: ZERO failures
+- Companion docs: [TESTING.md](TESTING.md), [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md), suite file [`tests/v1106_entity_connect_scan_regression.rs`](../tests/v1106_entity_connect_scan_regression.rs)
+- Also run unit tests in enrich: `/usr/bin/timeout 300 cargo test --lib commands::enrich`
+
+
 ## v1.1.05 regression gate (danilo incident)
 - Command: `/usr/bin/timeout 300 cargo test --test v1105_danilo_bugs_regression`
 - Scope: CLI-boundary coverage for the five operator bugs closed in v1.1.05

@@ -107,6 +107,17 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - No migration; schema stays v15; `Cargo.toml` is 1.0.99. Suite totals were not re-baselined in this documentation pass — run `cargo nextest -P ci` for the live count.
 
 
+## v1.1.06 — Entity-Connect Scan O(k) Regression Suite
+
+- Suite file: [`tests/v1106_entity_connect_scan_regression.rs`](../tests/v1106_entity_connect_scan_regression.rs) (CLI boundary via `assert_cmd`). Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**.
+- **O(k) scan** — `scan_isolated_entity_pairs` generates pairs from co-occurrence in `memory_entities` plus hub × degree-0 island fill; never the cartesian `entities × entities` product with global `ORDER BY` that hung large `global` namespaces.
+- **Queue typing** — keys `pair:{id1}:{id2}`, `item_type=entity_pair`; drain by primary key without re-scan per item.
+- **First-scan deadline** — `InterruptHandle` + `--max-runtime` / soft 120s ceiling covers the first SQL; wall-clock timeout → `AppError::Timeout` exit **1** (not singleton exit 75).
+- **NDJSON dual backlog** — `scan_start` before SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`); `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Real CLI `operation` for entity-connect **and** cross-domain-bridges.
+- **GAP-002 preserved** — `entity_connect_seen` convergence (v1.1.04) remains green; `--until-empty` still converges.
+- Unit coverage also lives in `src/commands/enrich/scan.rs`, `queue.rs`, and interrupt/deadline tests in `mod.rs`. Run with `cargo test --test v1106_entity_connect_scan_regression` and `cargo test --lib commands::enrich`.
+- No schema migration (schema stays at v16). Official name v1.1.06; crate `1.1.6`.
+
 ## v1.1.05 — Danilo Incident Regression Suite
 
 - Suite file: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) (CLI boundary via `assert_cmd`). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md).
@@ -160,7 +171,7 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 
 ## Current Test Suite Size
 
-~1072+ lib tests plus `tests/v1105_danilo_bugs_regression.rs` (5 CLI boundary tests) as of v1.1.05; ~1072 lib tests as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
+As of v1.1.06: lib enrich unit tests plus `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / O(k) scan, pair keys, first-scan interrupt, dual backlog NDJSON). As of v1.1.05: `tests/v1105_danilo_bugs_regression.rs` (5 CLI boundary tests). ~1072+ lib tests as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
 
 ## What Changed in v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: OpenCode backend tests (875 lib tests)

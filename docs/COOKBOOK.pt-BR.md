@@ -218,6 +218,15 @@ sqlite-graphrag --embedding-backend openrouter \
 - Receita "Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro"
 
 
+## Como Atualizar Para a v1.1.06 (Scan O(k) do entity-connect — Sem Migração)
+
+- Nenhuma migração de banco; schema permanece em **v16**. Basta `cargo install sqlite-graphrag --locked --force` (nome oficial **v1.1.06**; versão no `Cargo.toml` é `1.1.6`; SemVer rejeita zero à esquerda no patch).
+- Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: scan O(k) por coocorrência + hub×ilha; chaves `pair:{id1}:{id2}` / `item_type=entity_pair`; **drain por PK sem re-scan**; primeiro scan com `--max-runtime` / teto soft 120s via `InterruptHandle` → Timeout exit **1** (não 75); NDJSON `scan_start` / `scan_meta` com backlog dual; GAP-002 preservado; `cross-domain-bridges` no mesmo path.
+- Consumidores de biblioteca pinam `=1.1.6`. ADR-0066. Suite: `tests/v1106_entity_connect_scan_regression.rs`.
+- Veja a receita unificada "entity-connect Convergente (GAP-002, ADR-0064 + v1.1.06 scan O(k))" abaixo (mesma narrativa do COOKBOOK EN).
+- Smoke: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODELO>` deve terminar em ms–s com `scan_start` depois `scan`.
+- Se `--max-runtime` for omitido, o teto soft de 120s ainda cobre o primeiro scan.
+
 ## Como Atualizar Para a v1.1.05 (Cinco Bugs do Incidente deep-research "danilo" — Sem Migração)
 
 - Nenhuma migração de banco; o schema permanece em v16 (V016 da v1.1.04). Basta `cargo install sqlite-graphrag --locked --force`.
@@ -2771,20 +2780,27 @@ sqlite-graphrag deep-research "decisões de arquitetura de autenticação e inci
 
 - O pânico de runtime Tokio aninhado está corrigido: `deep_research::run` computa os embeddings das sub-queries antes de construir T1, e os três caminhos OpenRouter de `embedder.rs` usam `Handle::try_current()` + `block_in_place`.
 
-### Receita — entity-connect Convergente (GAP-002, ADR-0064)
+### Receita — entity-connect Convergente (GAP-002, ADR-0064 + v1.1.06 scan O(k))
 
 ```bash
-# 1. Inspecione o backlog real (era sempre 0 antes da v1.1.04)
+# 0. Dry-run primeiro no `global` grande (deve terminar em segundos, emitir scan_start depois scan)
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+
+# 1. Inspecione o backlog real (proxy grau-0; era sempre 0 antes da v1.1.04)
 sqlite-graphrag enrich --operation entity-connect --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 
-# 2. Rode até convergir (cada par avaliado UMA VEZ, veredito persistido em entity_connect_seen)
-sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+# 2. Rode até convergir (cada par avaliado UMA VEZ, veredito em entity_connect_seen)
+#    --max-runtime também cobre o PRIMEIRO scan (v1.1.06 InterruptHandle → Timeout exit 1)
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 
 # 3. Verifique se novas arestas apareceram
 sqlite-graphrag graph stats --json
 ```
 
-- entity-connect agora é fully-implemented (era scan-only). A tabela `entity_connect_seen` (migração V016) registra o veredito do LLM por par, então re-scans pulam pares já avaliados.
+- entity-connect é fully-implemented (v1.1.04): `entity_connect_seen` (V016) registra vereditos do LLM para que re-scans pulem pares já avaliados (**GAP-002** preservado).
+- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN):** candidatos são pares por **coocorrência** em `memory_entities` mais preenchimento **hub × ilha grau-0** — nunca o cartesiano `entities × entities` com `ORDER BY` global que travava o `global` grande. Chaves da fila `pair:{id1}:{id2}` (`item_type=entity_pair`). **O drain resolve cada par enfileirado por chave primária** sem reexecutar o scan O(k)/cartesiano por item. NDJSON emite `scan_start` (com `operation`, `entities_in_namespace`, `backlog_degree0_proxy`) **antes** do SQL, depois `scan_meta` com `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Teto soft de 120s no scan quando `--max-runtime` é omitido (Timeout exit **1**, não 75). `cross-domain-bridges` compartilha o mesmo path. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
 
 ### Receita — Aplicar Migração V016
 
@@ -2793,24 +2809,6 @@ sqlite-graphrag migrate --dry-run --json   # prévia da V016
 sqlite-graphrag migrate --json              # aplicar
 sqlite-graphrag health --json               # confirmar schema_version >= 16
 ```
-
-
-### Receita — entity-connect seguro em namespace grande (v1.1.06, ADR-0066)
-
-```bash
-# Dry-run: deve terminar em segundos e emitir scan_start → scan (nunca hang em CPU 100%)
-sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
-  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
-
-# Convergência: --max-runtime cobre o PRIMEIRO scan (InterruptHandle → Timeout exit 1)
-sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
-  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
-```
-
-- Candidatos por **coocorrência** + **hub × ilha grau-0** (nunca produto cartesiano O(n²)).
-- Chaves da fila `pair:{id1}:{id2}`; `item_type=entity_pair`.
-- NDJSON: `scan_start` / `scan_meta` com `backlog_degree0_proxy` e `pairs_enqueued_this_scan`.
-- GAP-002 (entity_connect_seen / convergência) permanece válido.
 
 ## Receitas adicionadas na v1.1.03
 ### Receita — Migrar Relações Legadas Com Underscore Para A Forma Canônica Com Hífen (Bug 2)

@@ -1,9 +1,48 @@
-# MIGRANDO PARA v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (Sem Migração de Schema)
+# MIGRANDO PARA v1.1.06 — Scan O(k) do entity-connect (Sem Migração de Schema)
 
 - Versão em inglês: [MIGRATION.md](MIGRATION.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
-> Este guia cobre a atualização de v1.1.04 para v1.1.05. **Nenhuma migração de schema** — o schema permanece em v16 (V016 `entity_connect_seen` da v1.1.04). O nome oficial do release é v1.1.05; o `Cargo.toml` carrega `1.1.5` porque o SemVer rejeita zero à esquerda no segmento de patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`. Caminhos de upgrade anteriores (v1.1.0 → … → v1.1.04) estão preservados como seções históricas abaixo.
+> Este guia cobre a atualização de v1.1.05 (ou qualquer instalação v1.1.04+ já em schema v16) para a **v1.1.06**. **Nenhuma migração de schema numerada** — `CURRENT_SCHEMA_VERSION` permanece em **16**. Nome oficial do release: v1.1.06; o `Cargo.toml` carrega `version = "1.1.6"` porque o SemVer rejeita zero à esquerda no patch. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.1.6`. Caminhos de upgrade anteriores (v1.1.0 → … → v1.1.05) estão preservados como seções históricas abaixo.
+
+## v1.1.06 — Scan O(k) do entity-connect / GAP-ENTITY-CONNECT-SCAN-CARTESIAN (Sem Migração)
+
+> Upgrade a partir da v1.1.05 (ou qualquer build já em schema v16). O schema do banco principal **PERMANECE em v16** — `migrate` NÃO é necessário. Nome oficial v1.1.06; crate `1.1.6`. Reinstale com `cargo install sqlite-graphrag --locked --force`.
+
+Registro de decisão: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.pt-BR.md). Suite de regressão: [`tests/v1106_entity_connect_scan_regression.rs`](../tests/v1106_entity_connect_scan_regression.rs). Gap: `gaps.md` → **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** (Fechado).
+
+### O que mudou (apenas comportamento — sem schema)
+
+- **Causa raiz corrigida** — `enrich --operation entity-connect` (e `cross-domain-bridges`) deixa de montar o produto cartesiano `entities × entities` com `ORDER BY` global que travava o `global` grande (~10⁵ entidades, 100% CPU, sem `phase: scan`).
+- **Candidatos O(k)** — coocorrência em `memory_entities` (primário) + preenchimento hub × ilha grau-0 (secundário).
+- **Tipagem da fila** — chaves `pair:{id1}:{id2}`, `item_type=entity_pair`; drain por chave primária sem re-scan. GAP-002 `entity_connect_seen` (v1.1.04) **preservado**.
+- **Deadline no primeiro scan** — `--max-runtime` / teto soft de 120s cobre o **primeiro** SQL via `InterruptHandle` → `AppError::Timeout` exit **1** (não exit 75 de singleton).
+- **Observabilidade** — NDJSON `phase: scan_start` antes do SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`); `scan_meta` com `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Nome real da operação CLI para entity-connect e cross-domain-bridges.
+
+### Ações do operador
+
+- Reinstale: `cargo install sqlite-graphrag --locked --force`.
+- Confirme a versão: `sqlite-graphrag --version` (espere crate `1.1.6` / branding v1.1.06 na docs).
+- Pin da API de biblioteca: troque de `=1.1.5` para `=1.1.6`.
+- **Não** rode `migrate` só por este upgrade se já estiver em schema v16 (desde v1.1.04+).
+- Smoke de segurança em namespace grande (sem custo de LLM no dry-run):
+  ```bash
+  sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+    --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+  # Espere: validate → scan_start → scan → scan_meta em ms–s (não minutos a 100% CPU)
+  ```
+- Convergência opcional: `enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model <MODELO> --json`
+- Regressão opcional: `cargo test --test v1106_entity_connect_scan_regression`
+
+### Se ainda estiver em schema v15 ou anterior
+
+- Aplique primeiro o caminho da **v1.1.04** abaixo (`migrate --json` para V016 `entity_connect_seen`), depois instale a v1.1.06.
+
+---
+
+# MIGRANDO PARA v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (Sem Migração de Schema)
+
+> Histórico: upgrade de v1.1.04 para v1.1.05. **Nenhuma migração de schema** — o schema permanece em v16. Nome oficial v1.1.05; crate `1.1.5`. Reinstale com `cargo install sqlite-graphrag --locked --force`. Consumidores de biblioteca pinam `=1.1.5`.
 
 ## v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
 

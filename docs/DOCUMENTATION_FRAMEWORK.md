@@ -110,6 +110,18 @@ This section updates the framework to cover the documentation generated for the 
 - **Docs**: 4 pre-existing rustdoc warnings resolved (HTML backticks, cfg(test) intra-doc links).
 - Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, MIGRATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; docs/AGENTS, docs/HOW_TO_USE, docs/MIGRATION, docs/COOKBOOK, docs/HEADLESS_INVOCATION (EN+PT); DOCUMENTATION_FRAMEWORK; docs/decisions/INDEX.md + ADR-0062 (EN+PT).
 
+### v1.1.06 — Entity-Connect Scan O(k) (No Migration)
+
+- Official release name is **v1.1.06**; the crate manifest carries `version = "1.1.6"` (SemVer rejects a leading zero in the patch component). Schema stays at **v16** (no migration; `CURRENT_SCHEMA_VERSION` unchanged). Library consumers pin `=1.1.6`.
+- Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** with the full operator contract:
+  - O(k) candidates: co-occurrence in `memory_entities` + hub × degree-0 island fill (never cartesian O(n²))
+  - Queue keys `pair:{id1}:{id2}` / `item_type=entity_pair`; **drain by primary key without re-scan**
+  - First-scan deadline: `--max-runtime` ∩ soft 120s via `InterruptHandle` → Timeout exit **1** (not singleton **75**)
+  - NDJSON `scan_start` **before** SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`) + `scan_meta` (`pairs_enqueued_this_scan`)
+  - `cross-domain-bridges` shares the same O(k) + `entity_connect_seen` path; **GAP-002** preserved
+  - Suite `tests/v1106_entity_connect_scan_regression.rs`; ADR-0066 EN+PT
+- Documentation surface for this release: README, CHANGELOG, INTEGRATIONS, SECURITY (Timeout exit 1 note), CONTRIBUTING, llms*, HOW_TO, COOKBOOK, CROSS_PLATFORM, AGENTS, MIGRATION, TESTING, TEST_PLAN, HEADLESS_INVOCATION, schemas README, skills EN/PT, DOCUMENTATION_FRAMEWORK (this matrix), ADR-0066 EN+PT.
+
 ### v1.1.05 — Five Danilo Incident Bugs (No Migration)
 
 - Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` (SemVer rejects a leading zero in the patch component). Schema stays at v16 (no migration). Library consumers pin `=1.1.5`.
@@ -160,26 +172,27 @@ This section updates the framework to cover the documentation generated for the 
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.1.05 (100%) | v1.1.05 (100%) | Current |
-| `AGENTS.md` / `AGENTS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.1.05 (atomwrite + blake3 ack) | v1.1.05 (espelhado) | Current |
-| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.1.05 (v1105 suite) | v1.1.05 (espelhado) | Current |
-| `llms.txt` / `llms.pt-BR.txt` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `llms-full.txt` | v1.1.05 (danilo bugs 1–5) | N/A | Current |
-| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.1.05 (upgrade + recipes) | v1.1.05 (espelhado) | Current |
-| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.1.05 (no-migration upgrade) | v1.1.05 (espelhado) | Current |
-| `TESTING.md` / `TESTING.pt-BR.md` | v1.1.05 (v1105 regression suite) | v1.1.05 (espelhado) | Current |
-| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.1.05 (atomwrite all OS) | v1.1.05 (espelhado) | Current |
-| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.1.05 (`--quiet` / `--output`) | v1.1.05 (espelhado) | Current |
-| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.1.05 (danilo regression gate) | v1.1.05 (espelhado) | Current |
-| `DOCUMENTATION_FRAMEWORK.md` | v1.1.05 (EN-canonical meta-doc) | N/A (historical exception — no mandatory PT pair) | Current |
-| `skill/sqlite-graphrag-en` / `skill/sqlite-graphrag-pt` | v1.1.05 (danilo bugs 1–5) | v1.1.05 (espelhado) | Current |
-| `docs/decisions/` (59 ADRs, 0007–0065) | 100% (59/59) incl. ADR-0065 | 80% (47/59) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
-| `docs/schemas/` (70+ schemas) | 100% (`deep-research` aspect\|manual + `deep-research-output-ack`) | N/A | Current |
+| `README.md` / `README.pt-BR.md` | v1.1.06 (entity-connect O(k) scan) | v1.1.06 (espelhado) | Current |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.1.06 (100%) | v1.1.06 (100%) | Current |
+| `AGENTS.md` / `AGENTS.pt-BR.md` | root exclude — not crates package | root exclude | N/A (excluded) |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.1.06 (entity-connect O(k)) | v1.1.06 (espelhado) | Current |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.1.06 Supported Versions 1.1.x + Timeout exit 1 ≠ 75 | espelhado | Current |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.1.06 (v1106 suite) | v1.1.06 (espelhado) | Current |
+| `llms.txt` / `llms.pt-BR.txt` | v1.1.06 (entity-connect O(k)) | v1.1.06 (espelhado) | Current |
+| `llms-full.txt` | v1.1.06 patch notes | N/A | Current |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.1.06 (O(k) scan + exit 1) | v1.1.06 (espelhado) | Current |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.1.06 (upgrade + recipes) | v1.1.06 (espelhado) | Current |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.1.06 (O(k) + bridges fully-impl) | v1.1.06 (espelhado) | Current |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.1.06 (no-migration upgrade) | v1.1.06 (espelhado) | Current |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.1.06 (v1106 regression suite) | v1.1.06 (espelhado) | Current |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.1.06 operator notes | v1.1.06 (espelhado) | Current |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.1.06 (scan_start / Timeout exit 1) | v1.1.06 (espelhado) | Current |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.1.06 (v1106 regression gate) | v1.1.06 (espelhado) | Current |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.1.06 (EN-canonical meta-doc) | N/A (historical exception — no mandatory PT pair) | Current |
+| `skill/sqlite-graphrag-en` / `skill/sqlite-graphrag-pt` | v1.1.06 (entity-connect O(k) contract) | v1.1.06 (espelhado) | Current |
+| `docs/decisions/adr-0066-…` EN+PT | v1.1.06 Accepted | v1.1.06 Accepted | Current |
+| `docs/decisions/` (60 ADRs, 0007–0066) | 100% (60/60) incl. ADR-0066 | 80% (48/60) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
+| `docs/schemas/` (70+ schemas) | 100% + v1.1.06 schema notes (no DB migration; pair keys / NDJSON) | N/A | Current |
 
 ### Framework Update — Mandatory Coverage of v1.0.86+
 

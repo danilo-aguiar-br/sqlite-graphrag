@@ -9,16 +9,26 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.1.05 — cinco bugs do incidente deep-research "danilo", sem migração de schema)
+# sqlite-graphrag para Agentes de IA (v1.1.06 — scan O(k) do entity-connect, schema permanece v16)
 
 - Versão em inglês: [AGENTS.md](AGENTS.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
 > Memória persistente para 27 agentes de IA em um único binário Rust de ~19 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> Novo na v1.1.05 (release corrente): cinco bugs do incidente deep-research "danilo" fechados — aspect fan-out em token único, `--output` atomwrite + `--quiet`, `graph traverse --fuzzy` + sugestões, `merge-entities` self-ref pré-DB, `link --from-id`/`--to-id` + rejeição de nomes só dígitos; sem migração (schema permanece v16).
+> Novo na v1.1.06 (release corrente): fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — scan O(k) de pares em `entity-connect` / `cross-domain-bridges` (coocorrência + hub×ilha), chaves `pair:{id1}:{id2}` / `item_type=entity_pair`, primeiro scan coberto por `--max-runtime` / teto soft 120s via `InterruptHandle` → Timeout exit **1** (não 75 de singleton), NDJSON `scan_start` / `scan_meta` com backlog dual (`backlog_degree0_proxy`, `pairs_enqueued_this_scan`); sem migração de schema (permanece v16). Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
+> Release anterior v1.1.05: cinco bugs do incidente deep-research "danilo" fechados — aspect fan-out em token único, `--output` atomwrite + `--quiet`, `graph traverse --fuzzy` + sugestões, `merge-entities` self-ref pré-DB, `link --from-id`/`--to-id` + rejeição de nomes só dígitos; sem migração (schema permanece v16).
 > Releases anteriores: v1.1.04 (dois gaps estruturais, V016 entity_connect_seen, schema v15→v16); v1.1.03 (split-body, stale-claims, literal-to, merge cross-namespace); v1.1.02 (remoção do GLiNER, TooManyTokens tipado, prune de órfãos de entidade).
 > Novo na v1.1.01 (release anterior): embedding de entidade via OpenRouter REST mesmo com `--llm-backend none`; `enrich --operation re-embed --target`; novo `graph recompute-degree`; `ingest --name-prefix`.
+
+## Novidades na v1.1.06 — Scan O(k) do entity-connect (Sem Migração)
+
+- USE `enrich --operation entity-connect` (ou `cross-domain-bridges`) em namespaces `global` grandes — o scan de pares é O(k) (coocorrência em `memory_entities` + preenchimento hub × ilha grau-0), nunca o produto cartesiano `entities × entities` que travava antes da v1.1.06.
+- ESPERE chaves de fila `pair:{id1}:{id2}` com `item_type=entity_pair`; o drain resolve por chave primária (sem re-scan por item). GAP-002 `entity_connect_seen` (v1.1.04) permanece — `--until-empty` ainda converge.
+- PASSE `--max-runtime <SEGUNDOS>` em jobs longos; cobre o **primeiro** scan. Teto soft de 120s se omitido. Timeout de wall-clock no scan → `AppError::Timeout` exit **1**. NUNCA trate isso como exit 75 (lock de singleton/slot).
+- PARSEIE fases NDJSON: `scan_start` (antes do SQL) com nome real de `operation` (`entity-connect` ou `cross-domain-bridges`), `entities_in_namespace`, `backlog_degree0_proxy`; depois `scan` / `scan_meta` com `pairs_enqueued_this_scan` / `scan_elapsed_ms`. NÃO equacione `backlog_degree0_proxy` com pares enfileirados neste passe.
+- RODE dry-run primeiro em grafos grandes: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODELO>` — espere `validate` → `scan_start` → `scan` em milissegundos a segundos, não minutos a 100% de CPU.
+- EXECUTE `tests/v1106_entity_connect_scan_regression.rs` ao alterar scan/fila/drain do enrich. VEJA [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.pt-BR.md). Pin de biblioteca `=1.1.6`. `migrate` NÃO é necessário (schema v16).
 
 ## Novidades na v1.1.05 — Bugs 1–5 do Incidente danilo (Sem Migração)
 
@@ -330,7 +340,7 @@ As duas variáveis de chave de API também são excluídas da whitelist de env-c
 ### Novos Comandos
 - `reclassify-relation --from-relation <antigo> --to-relation <novo> --batch --json` — renomeia tipos de relacionamento em massa no grafo; modo individual via `--source A --target B`; filtros opcionais `--filter-source-type` e `--filter-target-type`; trata colisões UNIQUE via `UPDATE OR IGNORE` + `DELETE`; `--dry-run` faz preview
 - `normalize-entities --yes --json` — normaliza todos os nomes de entidade para kebab-case ASCII minúsculo, mesclando colisões automaticamente (ex.: `Claude Code` + `claude-code` viram um nó); `--dry-run` faz preview
-- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` — pipeline de qualidade do grafo aumentada por LLM; 3 operações: `memory-bindings` (extrai entidades de memórias órfãs), `entity-descriptions` (gera descrições), `body-enrich` (expande corpos curtos); queue DB para resume/retry; `--dry-run` faz preview sem spawnar LLM; `--llm-parallelism <N>` spawna N threads paralelas de worker LLM (padrão 1, máximo 32) para reduzir o tempo de wall clock; saída é NDJSON. `--mode openrouter` roteia o JUDGE sobre REST `/chat/completions` (sem subprocesso local) e exige `--openrouter-model`
+- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` — pipeline de qualidade do grafo aumentada por LLM; ops FULLY-IMPLEMENTED (atual): `memory-bindings` (entidades de memórias órfãs), `entity-descriptions`, `body-enrich`, `re-embed` (`--target memories|entities|chunks|all`), `augment-bindings` (exige `--names`), `body-extract` (+ `--body-extract-graph-only`), `entity-connect` (v1.1.04 `entity_connect_seen` + **v1.1.06** scan O(k) coocorrência+hub×ilha, chaves `pair:{id1}:{id2}` / `item_type=entity_pair`, drain por PK, primeiro scan com InterruptHandle → Timeout exit **1** não 75, NDJSON `scan_start`/`scan_meta`), `cross-domain-bridges` (mesmo path O(k)). Fila DB para resume/retry; `--dry-run` preview sem spawnar LLM; `--llm-parallelism <N>` (padrão 1, máx 32); saída NDJSON. `--mode openrouter` roteia o JUDGE sobre REST `/chat/completions` (sem subprocesso local) e exige `--openrouter-model`. Suite: `tests/v1106_entity_connect_scan_regression.rs`; ADR-0066
 ### Melhorias no Deep Research
 - `deep-research` agora computa embedding separado por sub-query — decomposição era cosmética na v1.0.64
 - `deep-research` funde pools KNN + FTS5 + grafo via RRF em vez de score fixo 0.5 para resultados FTS

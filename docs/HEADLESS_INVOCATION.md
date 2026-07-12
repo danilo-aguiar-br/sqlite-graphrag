@@ -286,6 +286,27 @@ OPENCODE_CONFIG_CONTENT='{"mcp":{"server-name-1":{"enabled":false},"server-name-
 
 
 
+### v1.1.06 Update — Headless entity-connect on Large Namespaces (ADR-0066)
+
+Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). Regression suite: `tests/v1106_entity_connect_scan_regression.rs` (suite name **v1106**).
+
+- Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: headless `enrich --operation entity-connect` (and `cross-domain-bridges`) on large `global` no longer hangs at 100% CPU before `phase: scan`. Pair scan is O(k) (co-occurrence + hub×island), not cartesian O(n²).
+- Queue keys are `pair:{id1}:{id2}` with `item_type=entity_pair`; drain resolves by primary key (no re-scan per item). GAP-002 `entity_connect_seen` remains in force.
+- **First-scan wall-clock** is covered by `--max-runtime` and a soft 120s ceiling via `InterruptHandle`. Timeout → `AppError::Timeout` exit **1**. Orchestrators MUST NOT treat scan timeout as exit **75** (job singleton / slot lock).
+- NDJSON for hooks: expect `phase: "scan_start"` **before** SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`), then `scan` / `scan_meta` (`pairs_enqueued_this_scan`, `scan_elapsed_ms`). Do not equate the two backlog fields.
+- Prefer dry-run smoke before long `--until-empty` jobs on dense graphs.
+- No schema migration for v1.1.06 (schema stays v16). Pin `=1.1.6`.
+
+```bash
+# Headless dry-run must finish quickly and emit scan_start (no cartesian hang)
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+
+# Long converge: --max-runtime covers the FIRST scan too
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+```
+
 ### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output`)
 
 Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs` (suite name **v1105**).

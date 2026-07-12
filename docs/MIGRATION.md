@@ -1,9 +1,48 @@
-# MIGRATING TO v1.1.05 — Five Danilo Incident Bugs Fixed (No Schema Migration)
+# MIGRATING TO v1.1.06 — Entity-Connect Scan O(k) (No Schema Migration)
 
 - Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
 - Back to [README.md](../README.md)
 
-> This guide covers upgrading from v1.1.04 to v1.1.05. **No numbered database migration** — the schema stays at v16 from v1.1.04. The official release name is v1.1.05; `Cargo.toml` carries `1.1.5` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force`. Library consumers pin `=1.1.5`. Earlier upgrade paths (v1.1.0 → … → v1.1.04) are preserved as historical sections below.
+> This guide covers upgrading from v1.1.05 (or any v1.1.04+ install already on schema v16) to **v1.1.06**. **No numbered database migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. The official release name is v1.1.06; `Cargo.toml` carries `version = "1.1.6"` because SemVer rejects a leading zero in the patch segment. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.1.6`. Earlier upgrade paths (v1.1.0 → … → v1.1.05) are preserved as historical sections below.
+
+## v1.1.06 — Entity-Connect Scan O(k) / GAP-ENTITY-CONNECT-SCAN-CARTESIAN (No Migration)
+
+> Upgrade from v1.1.05 (or any build already on schema v16). The main database schema **STAYS at v16** — `migrate` is NOT required. Official release name v1.1.06; crate `1.1.6`. Reinstall with `cargo install sqlite-graphrag --locked --force`.
+
+Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). Regression suite: [`tests/v1106_entity_connect_scan_regression.rs`](../tests/v1106_entity_connect_scan_regression.rs). Gap: `gaps.md` → **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** (Fechado).
+
+### What changed (behaviour only — no schema)
+
+- **Root cause fixed** — `enrich --operation entity-connect` (and `cross-domain-bridges`) no longer builds the cartesian `entities × entities` product with a global `ORDER BY` that hung large `global` namespaces (~10⁵ entities, 100% CPU, no `phase: scan`).
+- **O(k) pair candidates** — co-occurrence in `memory_entities` (primary) + hub × degree-0 island fill (secondary).
+- **Queue typing** — keys `pair:{id1}:{id2}`, `item_type=entity_pair`; drain by primary key without re-scan. GAP-002 `entity_connect_seen` (v1.1.04) is **preserved**.
+- **First-scan deadline** — `--max-runtime` / soft 120s ceiling covers the **first** SQL scan via `InterruptHandle` → `AppError::Timeout` exit **1** (not singleton exit 75).
+- **Observability** — NDJSON `phase: scan_start` before SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`); `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Real CLI `operation` name for both entity-connect and cross-domain-bridges.
+
+### Operator action
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect crate `1.1.6` / docs branding v1.1.06).
+- Library API pin: change from `=1.1.5` to `=1.1.6`.
+- Do **not** run `migrate` solely for this upgrade if already on schema v16 (from v1.1.04+).
+- Smoke large-namespace safety (no LLM cost if dry-run):
+  ```bash
+  sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+    --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+  # Expect: validate → scan_start → scan → scan_meta in ms–s (not minutes of 100% CPU)
+  ```
+- Optional live converge: `enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model <MODEL> --json`
+- Optional regression: `cargo test --test v1106_entity_connect_scan_regression`
+
+### If you are still on schema v15 or older
+
+- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.1.06.
+
+---
+
+# MIGRATING TO v1.1.05 — Five Danilo Incident Bugs Fixed (No Schema Migration)
+
+> Historical: upgrade from v1.1.04 to v1.1.05. **No numbered database migration** — schema stays at v16. Official release name v1.1.05; crate `1.1.5`. Reinstall with `cargo install sqlite-graphrag --locked --force`. Library consumers pin `=1.1.5`.
 
 ## v1.1.05 — Five Operator-Blocking Bugs (No Migration)
 

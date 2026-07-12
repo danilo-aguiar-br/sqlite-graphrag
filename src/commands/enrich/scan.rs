@@ -981,10 +981,14 @@ pub(super) fn scan_generic_descriptions(
 /// - `re-embed` (v1.1.1 P2/P10) sums the dim-aware backlog of every table
 ///   selected by `--target` (memories / entities / chunks / all), sharing the
 ///   `reembed_*_predicate` builders with the scanners.
-/// - advisory / quadratic scan-only operations (`augment-bindings`,
-///   `entity-connect`, `cross-domain-bridges`, `domain-classify`,
+/// - `entity-connect` (v1.1.04+/v1.1.06) reports a real O(n) proxy: degree-0
+///   entities with NER bindings (`backlog_degree0_proxy`). Pair candidates are
+///   O(k) co-occurrence + hub×island (not cartesian).
+/// - advisory / scan-only operations (`augment-bindings`,
+///   `cross-domain-bridges` status proxy, `domain-classify`,
 ///   `graph-audit`, `deep-research-synth`, `body-extract`) have no closeable
-///   database deficit and report `0`.
+///   database deficit in this counter and report `0` (bridges still shares the
+///   O(k) pair scan + `entity_connect_seen` drain path at runtime).
 pub(super) fn count_operation_backlog(
     conn: &Connection,
     operation: &EnrichOperation,

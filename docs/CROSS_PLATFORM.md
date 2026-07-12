@@ -6,7 +6,7 @@
 - The no-leak audit test `audit_no_token_leak_in_subprocess_stderr` runs on Linux only; the same assertion applies on Windows by construction (env propagation is platform-agnostic in the helper)
 - `--strict-env-clear` flag and `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` env var work identically on Windows; only `PATH` (or `Path` on Windows, which the helper normalises) is forwarded in strict mode
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` and `docs/COOKBOOK.md#how-to-use-custom-anthropic-compatible-providers-v1083` for the full recipe
-# CROSS PLATFORM SUPPORT (v1.0.97 — Queue Sidecar Derived from `--db`)
+# CROSS PLATFORM SUPPORT (current: v1.1.06; notes from v1.0.97+)
 
 > One 14.6 MiB binary, five targets, zero model download across every major operating system (v1.0.76 LLM-Only)
 
@@ -16,10 +16,12 @@
 
 
 ## v1.1.06 operator notes (all platforms)
-- Official release name **v1.1.06**; crate `1.1.6`; no schema migration (v16). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
-- **entity-connect** is safe on large graphs on every OS: co-occurrence + hub×island (no cartesian hang).
-- Soft 120s scan ceiling + `--max-runtime` use `InterruptHandle` (Timeout exit 1) identically on Linux/macOS/Windows.
-- NDJSON `scan_start` / `scan_meta` fields are stable for hooks across platforms.
+- Official release name **v1.1.06**; crate `1.1.6`; **no schema migration** (`CURRENT_SCHEMA_VERSION` stays **16**). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: pair candidates are **co-occurrence** in `memory_entities` + **hub × degree-0 island** fill (O(k); never cartesian `entities × entities` with global ORDER BY).
+- Queue keys `pair:{id1}:{id2}` with `item_type=entity_pair`; **drain resolves by primary key** without re-scanning per item.
+- Soft 120s scan ceiling + `--max-runtime` use `InterruptHandle` on the **first** scan identically on Linux/macOS/Windows → Timeout exit **1**. Orchestrators MUST NOT treat scan timeout as singleton exit **75**.
+- NDJSON: `scan_start` **before** SQL (`operation`, `entities_in_namespace`, `backlog_degree0_proxy`) then `scan_meta` (`pairs_enqueued_this_scan`, `scan_elapsed_ms`) — dual backlog fields are stable for hooks across platforms; do not equate them.
+- `cross-domain-bridges` shares the **same** O(k) scan + `entity_connect_seen` path; **GAP-002** convergence is preserved.
 
 ## v1.1.05 operator notes (all platforms)
 - Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"`; no schema migration (stays at v16). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs`.

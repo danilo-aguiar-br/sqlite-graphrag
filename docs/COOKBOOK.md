@@ -222,6 +222,14 @@ sqlite-graphrag --embedding-backend openrouter \
 - Recipe "How to benchmark hybrid-search against pure vec search"
 
 
+## How To Upgrade To v1.1.06 (Entity-Connect Scan O(k) — No Migration)
+
+- No database migration; schema stays at **v16**. Just `cargo install sqlite-graphrag --locked --force` (release name **v1.1.06**; `Cargo.toml` version is `1.1.6`; SemVer rejects a leading zero in the patch component).
+- Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: O(k) co-occurrence + hub×island pair scan; keys `pair:{id1}:{id2}` / `item_type=entity_pair`; **drain by PK without re-scan**; first-scan `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1** (not 75); NDJSON `scan_start` / `scan_meta` with dual backlog; GAP-002 preserved; `cross-domain-bridges` same path.
+- Library consumers pin `=1.1.6`. ADR-0066. Suite: `tests/v1106_entity_connect_scan_regression.rs`.
+- See the unified recipe "Convergent entity-connect (GAP-002, ADR-0064 + v1.1.06 O(k) scan)" below (same narrative as COOKBOOK.pt-BR).
+- Smoke: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODEL>` must finish in ms–s with `scan_start` then `scan`.
+
 ## How To Upgrade To v1.1.05 (Five Danilo Incident Bugs — No Migration)
 
 - No database migration; schema stays at v16 from v1.1.04. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.05; `Cargo.toml` version is `1.1.5`; SemVer rejects a leading zero in the patch component).
@@ -2816,8 +2824,8 @@ sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 60
 sqlite-graphrag graph stats --json
 ```
 
-- entity-connect is fully-implemented (v1.1.04): `entity_connect_seen` (V016) records LLM verdicts so re-scans skip evaluated pairs.
-- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN):** candidates are **co-occurrence** pairs from `memory_entities` plus **hub × degree-0 island** fill — never the cartesian `entities × entities` with global `ORDER BY` that hung large `global` graphs. Queue keys are `pair:{id1}:{id2}` (`item_type=entity_pair`). NDJSON emits `scan_start` (with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`) **before** SQL, then `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Soft 120s scan ceiling when `--max-runtime` is omitted. ADR-0066.
+- entity-connect is fully-implemented (v1.1.04): `entity_connect_seen` (V016) records LLM verdicts so re-scans skip evaluated pairs (**GAP-002** preserved).
+- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN):** candidates are **co-occurrence** pairs from `memory_entities` plus **hub × degree-0 island** fill — never the cartesian `entities × entities` with global `ORDER BY` that hung large `global` graphs. Queue keys are `pair:{id1}:{id2}` (`item_type=entity_pair`). **Drain resolves each queued pair by primary key** without re-running the cartesian/O(k) scan per item. NDJSON emits `scan_start` (with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`) **before** SQL, then `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Soft 120s scan ceiling when `--max-runtime` is omitted (Timeout exit **1**, not 75). `cross-domain-bridges` shares the same path. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
 
 ### Recipe — Apply Migration V016
 

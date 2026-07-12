@@ -343,7 +343,9 @@ pub enum EnrichOperation {
     EntityTypeValidate,
     /// Enrich memory descriptions that are generic/auto-generated (scan only).
     DescriptionEnrich,
-    /// Identify cross-domain bridges between disconnected subgraphs (scan only).
+    /// Identify cross-domain bridges between disconnected subgraphs.
+    /// Shares the O(k) pair scan + `entity_connect_seen` drain path with
+    /// `entity-connect` (v1.1.04+ / v1.1.06); status backlog proxy remains 0.
     CrossDomainBridges,
     /// Classify memories into domain categories (scan only).
     DomainClassify,

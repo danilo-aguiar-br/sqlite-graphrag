@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.05 — five danilo-incident bugs fixed, schema stays v16)
+# sqlite-graphrag for AI Agents (v1.1.06 — entity-connect O(k) scan, schema stays v16)
 
 - Portuguese version: [AGENTS.pt-BR.md](AGENTS.pt-BR.md)
 - Back to [README.md](../README.md)
@@ -20,9 +20,19 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> New in v1.1.05 (current release): five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident closed (no schema migration; schema stays at v16). Single-token deep-research aspect fan-out; `--output` atomwrite + `--quiet`; `graph traverse --fuzzy`; merge self-ref pre-DB rejection; `link --from-id`/`--to-id` + pure-numeric name rejection.
+> New in v1.1.06 (current release): closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — O(k) entity-connect / cross-domain-bridges pair scan (co-occurrence + hub×island), queue keys `pair:{id1}:{id2}` / `item_type=entity_pair`, first-scan `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1** (not singleton 75), NDJSON `scan_start` / `scan_meta` with dual backlog (`backlog_degree0_proxy`, `pairs_enqueued_this_scan`); no schema migration (stays v16). Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
+> Previous release v1.1.05: five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (no schema migration; schema stays at v16). Single-token deep-research aspect fan-out; `--output` atomwrite + `--quiet`; `graph traverse --fuzzy`; merge self-ref pre-DB rejection; `link --from-id`/`--to-id` + pure-numeric name rejection.
 > Previous releases: v1.1.04 (two structural gaps closed — GAP-001 deep-research nested-runtime panic, GAP-002 entity-connect convergence; migration V016 schema v15→v16; entity-connect fully-implemented); v1.1.03 (split-body, stale-claims, literal-to, cross-namespace merge); v1.1.02 (GLiNER removal, TooManyTokens typed, entity orphan prune).
 > New in v1.1.01 (previous release): entity embedding via OpenRouter REST even with `--llm-backend none`; `enrich --operation re-embed --target`; new `graph recompute-degree`; `ingest --name-prefix`.
+
+## New in v1.1.06 — Entity-Connect Scan O(k) (No Migration)
+
+- USE `enrich --operation entity-connect` (or `cross-domain-bridges`) on large `global` namespaces — the pair scan is O(k) (co-occurrence in `memory_entities` + hub × degree-0 island fill), never the cartesian `entities × entities` product that hung pre-v1.1.06.
+- EXPECT queue keys `pair:{id1}:{id2}` with `item_type=entity_pair`; drain resolves by primary key (no re-scan per item). GAP-002 `entity_connect_seen` (v1.1.04) is preserved — `--until-empty` still converges.
+- PASS `--max-runtime <SECONDS>` on long jobs; it covers the **first** scan. Soft ceiling is 120s when omitted. Scan wall-clock timeout → `AppError::Timeout` exit **1**. NEVER treat that as exit 75 (singleton/slot lock).
+- PARSE NDJSON phases: `scan_start` (before SQL) with real `operation` name (`entity-connect` or `cross-domain-bridges`), `entities_in_namespace`, `backlog_degree0_proxy`; then `scan` / `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Do NOT equate `backlog_degree0_proxy` with pairs enqueued this pass.
+- RUN dry-run first on large graphs: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODEL>` — expect `validate` → `scan_start` → `scan` in milliseconds to seconds, not minutes of 100% CPU.
+- RUN `tests/v1106_entity_connect_scan_regression.rs` when changing enrich scan/queue/drain. SEE [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). Pin library consumers to `=1.1.6`. No `migrate` required (schema v16).
 
 ## New in v1.1.05 — Danilo Incident Bugs 1–5 (No Migration)
 
@@ -348,7 +358,7 @@ Agents that try to set them will see a clear validation error.
 ### New Commands
 - `reclassify-relation --from-relation <old> --to-relation <new> --batch --json` — renames relationship types in bulk across the graph; single-edge mode via `--source A --target B`; optional `--filter-source-type` and `--filter-target-type` for targeted batch; handles UNIQUE collisions via `UPDATE OR IGNORE` + `DELETE` merge; `--dry-run` previews count
 - `normalize-entities --yes --json` — normalizes all entity names to lowercase kebab-case ASCII, auto-merging collisions (e.g., `Claude Code` + `claude-code` become one node); `--dry-run` previews
-- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` — LLM-augmented graph quality pipeline; 3 operations: `memory-bindings` (extract entities from orphan memories), `entity-descriptions` (generate descriptions), `body-enrich` (expand short bodies); queue DB for resume/retry; `--dry-run` previews without spawning LLM; `--llm-parallelism <N>` spawns N parallel LLM worker threads (default 1, max 32) to reduce wall-clock time; output is NDJSON. `--mode openrouter` routes the JUDGE over REST `/chat/completions` (no local subprocess) and requires `--openrouter-model`
+- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` — LLM-augmented graph quality pipeline; FULLY-IMPLEMENTED ops (current): `memory-bindings` (entities from orphan memories), `entity-descriptions`, `body-enrich`, `re-embed` (`--target memories|entities|chunks|all`), `augment-bindings` (requires `--names`), `body-extract` (+ `--body-extract-graph-only`), `entity-connect` (v1.1.04 `entity_connect_seen` + **v1.1.06** O(k) co-occurrence+hub×island scan, keys `pair:{id1}:{id2}` / `item_type=entity_pair`, drain by PK, first-scan InterruptHandle → Timeout exit **1** not 75, NDJSON `scan_start`/`scan_meta`), `cross-domain-bridges` (same O(k) path). Queue DB for resume/retry; `--dry-run` previews without spawning LLM; `--llm-parallelism <N>` (default 1, max 32); NDJSON output. `--mode openrouter` routes the JUDGE over REST `/chat/completions` (no local subprocess) and requires `--openrouter-model`. Suite: `tests/v1106_entity_connect_scan_regression.rs`; ADR-0066
 ### Deep Research Improvements
 - `deep-research` now computes a separate embedding per sub-query — decomposition was cosmetic in v1.0.64
 - `deep-research` fuses KNN + FTS5 + graph pools via RRF instead of hardcoded 0.5 for FTS results

@@ -43,9 +43,13 @@ cargo install --locked sqlite-graphrag
 
 ## v1.1.06 Patch Notes
 
-- Release 2026-07-12. Official name v1.1.06; crate `1.1.6`. NO schema migration (v16).
-- Closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN: co-occurrence + hub×island pair scan; `pair:{id1}:{id2}` queue keys; first-scan InterruptHandle; scan_start NDJSON.
-- Suite: `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066. Pin `=1.1.6`.
+- Release 2026-07-12. Official name v1.1.06; crate `1.1.6`. NO schema migration (v16). Pin library consumers `=1.1.6`.
+- Closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0 hang on large `global`): O(k) pair scan via co-occurrence in `memory_entities` + hub × degree-0 island fill (never cartesian `entities × entities` with global ORDER BY).
+- Queue keys `pair:{id1}:{id2}`, `item_type=entity_pair`; drain by primary key without re-scan. GAP-002 `entity_connect_seen` (v1.1.04) preserved.
+- First-scan deadline: `--max-runtime` / soft 120s ceiling via `InterruptHandle` → `AppError::Timeout` exit **1** (not singleton exit 75).
+- NDJSON: `phase: scan_start` before SQL with real `operation` (`entity-connect` or `cross-domain-bridges`), `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`.
+- `cross-domain-bridges` shares the same fully-implemented O(k) path.
+- Suite: `tests/v1106_entity_connect_scan_regression.rs` + unit tests in enrich. ADR-0066.
 
 ## v1.1.05 Patch Notes
 
@@ -255,7 +259,7 @@ sqlite-graphrag recall "graphrag" --k 5 --json
 | `deep-research` | `<query>`, `--k` (default 20), `--max-sub-queries` (default 7), `--max-hops` (default 3), `--min-weight`, `--max-concurrency`, `--timeout`, `--with-bodies`, `--max-results` (default 50), `--rrf-k` (default 60), `--graph-decay` (default 0.7), `--graph-min-score` (default 0.05), `--max-neighbors-per-hop`, `--mode` (none|claude-code|codex), `--max-cost-usd`, `--output <PATH>` (v1.1.05 atomwrite), `--sub-query-strategy`, `--sub-queries-file` (v1.1.05) | Parallel multi-hop GraphRAG research with per-sub-query embeddings (single-token aspect fan-out, v1.1.05), RRF fusion for KNN+FTS5, directed evidence chains, graph_context with entities and relationships; `--output` atomic write + stdout ack with blake3 |
 | `reclassify-relation` | `--from-relation` (or `--literal-from`, v1.1.01: verbatim match, no normalization; `--literal-to`, v1.1.03: verbatim target write), `--to-relation`, `--batch`, `--source`, `--target`, `--filter-source-type`, `--filter-target-type`, `--dry-run` | Bulk or single reclassification of relationship types with UNIQUE collision handling; `--literal-from`/`--literal-to` migrate legacy underscore edges to canonical hyphen form |
 | `normalize-entities` | `--dry-run`, `--yes` | Normalize entity names to lowercase kebab-case ASCII, auto-merge collisions |
-| `enrich` | `--operation` (memory-bindings, entity-descriptions, body-enrich, re-embed — v1.1.01: `--target memories|entities|chunks|all`), `--mode` (claude-code, codex), `--limit`, `--dry-run`, `--max-cost-usd`, `--resume`, `--retry-failed`, `--llm-parallelism <N>` | LLM-augmented graph quality pipeline with scan-judge-persist pattern; `--llm-parallelism` controls concurrent LLM subprocesses (default 1) |
+| `enrich` | `--operation` (FULLY-IMPLEMENTED: memory-bindings, entity-descriptions, body-enrich, re-embed with `--target memories|entities|chunks|all`, augment-bindings, body-extract, **entity-connect** / **cross-domain-bridges** — v1.1.06 O(k) co-occurrence+hub×island, keys `pair:{id1}:{id2}` / `item_type=entity_pair`, first-scan InterruptHandle Timeout exit 1, NDJSON `scan_start`/`scan_meta`), `--mode` (claude-code, codex, opencode, openrouter — openrouter requires `--openrouter-model`), `--limit`, `--dry-run`, `--until-empty`, `--max-runtime`, `--max-cost-usd`, `--resume`, `--retry-failed`, `--llm-parallelism <N>`, `--status`, `--reset-stale-claims` | LLM-augmented graph quality pipeline with scan-judge-persist pattern; entity-connect safe on large `global` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed); `--llm-parallelism` controls concurrent LLM subprocesses (default 1) |
 | `link` | `--from`/`--to` (or `--from-id`/`--to-id`, v1.1.05), `--relation`, `--create-missing`, `--weight` | Create an explicit relationship between two entities; pure digit names rejected; prefer IDs when names are numeric-looking |
 | `unlink` | `--source`, `--target`, `--relation` | Remove a specific relationship between two entities |
 | `related` | `<name>`, `--hops` | Traverse the entity graph N hops from a memory |
@@ -701,7 +705,7 @@ sqlite-graphrag hybrid-search "$GEMINI_QUERY" --json --k 5 \
 - `claude -p` and `codex exec` spawns now ABORT with `AppError::Validation` if `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` are set. OAuth (Claude Pro/Max or ChatGPT Pro) is the only accepted credential flow. See `docs/decisions/adr-0011-oauth-only-enforcement.md`.
 - The `--bare` flag is REMOVED from every executable path. `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are also excluded from the `env_clear` whitelist as defence in depth.
 ### `enrich` Subcommand (G29 + G35 + G37)
-- `enrich --operation <op> --mode <claude-code|codex> --json` runs LLM-curated graph quality. Three operations are fully implemented: `memory-bindings`, `entity-descriptions`, `body-enrich` (now succeeds 100% after the G29 hotfix on the `source` CHECK constraint plus the G29 audit trail via `memory_versions`).
+- `enrich --operation <op> --mode <claude-code|codex|opencode|openrouter> --json` runs LLM-curated graph quality. FULLY-IMPLEMENTED ops: `memory-bindings`, `entity-descriptions`, `body-enrich` (G29 source CHECK + `memory_versions` audit), `re-embed`, `augment-bindings`, `body-extract`, `entity-connect` (v1.1.04 `entity_connect_seen` + **v1.1.06** O(k) scan / pair keys / Timeout exit 1 / `scan_start`), `cross-domain-bridges` (same path).
 - `--preserve-threshold <FLOAT>` (default 0.7) is the Jaccard trigram preservation gate from `src/preservation.rs` (10 tests). Scores below the threshold are rejected as `EnrichItemResult::PreservationFailed`.
 - `--preflight-check`, `--fallback-mode <claude-code|codex>`, `--rate-limit-buffer <SECONDS>` (default 300) prevent batch loss when the Claude OAuth 5-hour window closes mid-run.
 - `--names <a,b,c>` and `--names-file <PATH>` select a specific subset of memory names instead of scanning all candidates. `--names-file` accepts `#` comments and blank lines. Both flags combine as a union.
