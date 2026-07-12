@@ -996,7 +996,7 @@ fn test_stats_returns_counts() {
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert!(json["memories"].as_i64().unwrap() >= 1);
     assert!(json["db_size_bytes"].as_u64().unwrap() > 0);
-    assert_eq!(json["schema_version"], 15);
+    assert_eq!(json["schema_version"], 16);
 }
 
 #[test]
