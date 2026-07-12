@@ -1765,13 +1765,17 @@ mod tests {
         // invariant is we never invent a-c/b-c from a pure cartesian product
         // when they never co-occur and no hub fill applies.
         let only_ab = pairs.len() == 1 && pairs[0].0 == a_id && pairs[0].2 == b_id;
+        let allowed = |x: i64, y: i64| -> bool {
+            if x == a_id && y == b_id {
+                return true;
+            }
+            if x == a_id && y == c_id {
+                return true;
+            }
+            x == b_id && y == c_id
+        };
         assert!(
-            only_ab
-                || pairs.iter().all(|(x, _, y, _)| {
-                    (*x == a_id && *y == b_id)
-                        || (*x == a_id && *y == c_id)
-                        || (*x == b_id && *y == c_id)
-                }),
+            only_ab || pairs.iter().all(|(x, _, y, _)| allowed(*x, *y)),
             "unexpected pairs: {pairs:?}"
         );
     }

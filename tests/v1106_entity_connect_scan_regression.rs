@@ -39,13 +39,7 @@ fn init_db(tmp: &TempDir) {
 /// Seed N entities that all co-occur in one memory (dense pair space, still O(k) scan).
 fn seed_cooccurring_entities(tmp: &TempDir, n: usize) {
     let db = tmp.path().join("test.sqlite");
-    let script = format!(
-        r#"
-        INSERT INTO memories (namespace, name, body) VALUES ('global', 'bulk-mem', 'seed body');
-        "#
-    );
-    // Use the CLI binary path's sibling sqlite via rusqlite through a tiny rust-less
-    // approach: shell out to sqlite3 if available, else use multiple remember calls.
+    // Prefer sqlite3 bulk seed when available; else use remember (slower, portable).
     if which_sqlite3() {
         let mut sql = String::from(
             "INSERT INTO memories (namespace, name, type, description, body, body_hash) \
@@ -69,8 +63,6 @@ fn seed_cooccurring_entities(tmp: &TempDir, n: usize) {
         assert!(status.success(), "sqlite3 seed failed");
         return;
     }
-    // Fallback: fewer entities via remember (slower but portable).
-    let _ = script;
     for i in 0..n.min(30) {
         cmd_base(tmp)
             .args([
