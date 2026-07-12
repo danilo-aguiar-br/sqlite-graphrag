@@ -180,9 +180,15 @@ fn entity_connect_dry_run_emits_scan_phases_and_pair_keys() {
             }
         }
     }
-    assert!(saw_scan_start, "expected phase scan_start in NDJSON: {stdout}");
+    assert!(
+        saw_scan_start,
+        "expected phase scan_start in NDJSON: {stdout}"
+    );
     assert!(saw_scan, "expected phase scan in NDJSON: {stdout}");
-    assert!(saw_scan_meta, "expected phase scan_meta in NDJSON: {stdout}");
+    assert!(
+        saw_scan_meta,
+        "expected phase scan_meta in NDJSON: {stdout}"
+    );
     assert!(
         pair_previews > 0,
         "expected at least one pair: preview key, stdout={stdout}"

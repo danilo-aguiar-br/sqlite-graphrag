@@ -42,9 +42,7 @@ use queue::{
     open_queue_db, prune_dead_entity_orphans, prune_dead_orphans, record_item_failure,
     record_item_failure_typed, reset_stale_processing_claims, skipped_item_keys, DequeueOutcome,
 };
-use scan::{
-    count_operation_backlog, scan_operation, scan_unbound_memories,
-};
+use scan::{count_operation_backlog, scan_operation, scan_unbound_memories};
 
 use crate::commands::ingest_claude::find_claude_binary;
 use crate::constants::MAX_MEMORY_BODY_LEN;
@@ -1397,8 +1395,8 @@ fn scan_operation_with_deadline(
 fn is_sqlite_interrupt(err: &rusqlite::Error) -> bool {
     match err {
         rusqlite::Error::SqliteFailure(code, _) => {
-            code.code == rusqlite::ErrorCode::OperationInterrupted
-                || code.extended_code == 9 // SQLITE_INTERRUPT
+            code.code == rusqlite::ErrorCode::OperationInterrupted || code.extended_code == 9
+            // SQLITE_INTERRUPT
         }
         other => {
             let s = other.to_string().to_ascii_lowercase();
@@ -1874,8 +1872,7 @@ pub fn run(
     // ceiling so a hung SQL cannot pin the singleton forever when the operator
     // omits --max-runtime without --until-empty.
     let max_runtime_secs = args.max_runtime.unwrap_or(3600);
-    let until_deadline =
-        Instant::now() + std::time::Duration::from_secs(max_runtime_secs);
+    let until_deadline = Instant::now() + std::time::Duration::from_secs(max_runtime_secs);
     let pair_scan_ops = matches!(
         args.operation(),
         EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges
@@ -1883,8 +1880,8 @@ pub fn run(
     // Soft ceiling for pair scans when no explicit short budget is set.
     const ENTITY_CONNECT_SCAN_SOFT_CEILING_SECS: u64 = 120;
     let scan_deadline = if pair_scan_ops {
-        let soft = Instant::now()
-            + std::time::Duration::from_secs(ENTITY_CONNECT_SCAN_SOFT_CEILING_SECS);
+        let soft =
+            Instant::now() + std::time::Duration::from_secs(ENTITY_CONNECT_SCAN_SOFT_CEILING_SECS);
         Some(soft.min(until_deadline))
     } else if args.until_empty || args.max_runtime.is_some() {
         Some(until_deadline)
@@ -1903,13 +1900,8 @@ pub fn run(
             )
             .unwrap_or(0);
         // Distinct from pairs_enqueued_this_scan: status proxy of islands with NER.
-        backlog_degree0_proxy = count_operation_backlog(
-            &conn,
-            &args.operation(),
-            &namespace,
-            args.target,
-        )
-        .ok();
+        backlog_degree0_proxy =
+            count_operation_backlog(&conn, &args.operation(), &namespace, args.target).ok();
         emit_json(&ScanStartEvent {
             phase: "scan_start",
             operation: pair_op_cli,
@@ -1917,16 +1909,14 @@ pub fn run(
             backlog_degree0_proxy,
             pair_algorithm: Some("cooccurrence+hub_island"),
             limit: args.limit,
-            scan_deadline_secs: scan_deadline.map(|d| {
-                d.saturating_duration_since(Instant::now()).as_secs()
-            }),
+            scan_deadline_secs: scan_deadline
+                .map(|d| d.saturating_duration_since(Instant::now()).as_secs()),
         });
     }
 
     // SCAN phase
     let scan_started = Instant::now();
-    let mut scan_result =
-        scan_operation_with_deadline(&conn, &namespace, args, scan_deadline)?;
+    let mut scan_result = scan_operation_with_deadline(&conn, &namespace, args, scan_deadline)?;
     // GAP-SG-69: body-enrich candidates are scanned purely by `LENGTH(body) <
     // min_output_chars`, so a short body whose rewrite the preservation guard
     // keeps rejecting is re-scanned every pass — items_total never reaches 0 and

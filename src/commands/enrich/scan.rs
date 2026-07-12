@@ -1673,7 +1673,9 @@ mod tests {
         )
         .unwrap();
         let mem_id: i64 = conn
-            .query_row("SELECT id FROM memories WHERE name='m-ab'", [], |r| r.get(0))
+            .query_row("SELECT id FROM memories WHERE name='m-ab'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         conn.execute(
             "INSERT INTO memory_entities (memory_id, entity_id) VALUES (?1, ?2), (?1, ?3)",
@@ -1762,15 +1764,14 @@ mod tests {
         // Without a hub of degree>0, hub×island may not pair c with a/b; the
         // invariant is we never invent a-c/b-c from a pure cartesian product
         // when they never co-occur and no hub fill applies.
-        let only_ab = pairs.len() == 1
-            && pairs[0].0 == a_id
-            && pairs[0].2 == b_id;
+        let only_ab = pairs.len() == 1 && pairs[0].0 == a_id && pairs[0].2 == b_id;
         assert!(
-            only_ab || pairs.iter().all(|(x, _, y, _)| {
-                (*x == a_id && *y == b_id)
-                    || (*x == a_id && *y == c_id)
-                    || (*x == b_id && *y == c_id)
-            }),
+            only_ab
+                || pairs.iter().all(|(x, _, y, _)| {
+                    (*x == a_id && *y == b_id)
+                        || (*x == a_id && *y == c_id)
+                        || (*x == b_id && *y == c_id)
+                }),
             "unexpected pairs: {pairs:?}"
         );
     }
@@ -1785,7 +1786,9 @@ mod tests {
         )
         .unwrap();
         let mem_id: i64 = conn
-            .query_row("SELECT id FROM memories WHERE name='bulk'", [], |r| r.get(0))
+            .query_row("SELECT id FROM memories WHERE name='bulk'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         for i in 0..80 {
             conn.execute(
