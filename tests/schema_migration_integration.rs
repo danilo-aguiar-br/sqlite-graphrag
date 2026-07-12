@@ -102,13 +102,14 @@ fn index_exists(conn: &Connection, name: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Test 1 — init applies exactly 13 migrations V001 through V013
+// Test 1 — init applies exactly 16 migrations V001 through V016
 // ---------------------------------------------------------------------------
 // v1.0.76 added V012 and V013 on top of the historical V001-V011 set.
+// v1.1.01 added V014/V015 (pending queues); v1.1.04 added V016 (entity_connect_seen).
 
 #[test]
 #[serial]
-fn init_creates_15_migrations_v001_to_v015() {
+fn init_creates_16_migrations_v001_to_v016() {
     let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
@@ -124,13 +125,13 @@ fn init_creates_15_migrations_v001_to_v015() {
 
     assert_eq!(
         versions.len(),
-        15,
-        "exactly 15 migrations must be applied, found: {versions:?}"
+        16,
+        "exactly 16 migrations must be applied, found: {versions:?}"
     );
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        "expected versions V001-V015"
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        "expected versions V001-V016"
     );
 }
 
@@ -455,12 +456,12 @@ fn schema_meta_required_keys_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 12 — schema_version in schema_meta matches V009 (9)
+// Test 12 — schema_version in schema_meta matches CURRENT_SCHEMA_VERSION (16)
 // ---------------------------------------------------------------------------
 
 #[test]
 #[serial]
-fn schema_version_meta_equals_15() {
+fn schema_version_meta_equals_16() {
     let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
@@ -473,8 +474,8 @@ fn schema_version_meta_equals_15() {
         .expect("schema_version must exist in schema_meta");
 
     assert_eq!(
-        version, "15",
-        "schema_version in schema_meta must be '15' after V015"
+        version, "16",
+        "schema_version in schema_meta must be '16' after V016"
     );
 }
 
@@ -746,8 +747,8 @@ fn migrate_rehash_is_noop_on_healthy_db() {
         "healthy DB must report ok_no_changes, got: {stdout}"
     );
     assert_eq!(json["rewritten"].as_array().unwrap().len(), 0);
-    assert_eq!(json["inspected"], 15);
-    assert_eq!(json["schema_version"], 15);
+    assert_eq!(json["inspected"], 16);
+    assert_eq!(json["schema_version"], 16);
 }
 
 #[test]
@@ -830,7 +831,7 @@ fn migrate_to_llm_only_reports_no_vec_tables_on_fresh_db() {
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["schema_version"], 15);
+    assert_eq!(json["schema_version"], 16);
     assert_eq!(json["v013_applied"], true);
     assert_eq!(
         json["vec_tables_were_present"], false,
