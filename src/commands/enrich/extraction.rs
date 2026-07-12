@@ -920,6 +920,11 @@ pub(super) fn call_relation_reclassify(
 }
 
 /// G27 P2: Connect isolated entities via LLM-suggested relationship.
+///
+/// v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN): `item_key` is
+/// `pair:{id1}:{id2}` from the O(k) scan. Resolve both entities by primary key
+/// — **never** re-run `scan_isolated_entity_pairs` (the old path re-executed
+/// the cartesian SQL on every drain item and re-hung large namespaces).
 pub(super) fn call_entity_connect(
     conn: &Connection,
     namespace: &str,
@@ -929,16 +934,71 @@ pub(super) fn call_entity_connect(
     timeout: u64,
     mode: &EnrichMode,
 ) -> Result<EnrichItemResult, AppError> {
-    let pairs = scan_isolated_entity_pairs(conn, namespace, Some(1))?;
-    let (e1_id, e1_name, e2_id, e2_name) =
-        match pairs.into_iter().find(|(_, n, _, _)| n == item_key) {
-            Some(p) => p,
-            None => {
-                return Ok(EnrichItemResult::Skipped {
-                    reason: "pair no longer isolated".into(),
-                })
-            }
-        };
+    let (e1_id, e2_id) = match super::scan::parse_pair_key(item_key) {
+        Some(ids) => ids,
+        None => {
+            return Ok(EnrichItemResult::Skipped {
+                reason: format!(
+                    "legacy or invalid entity-connect key '{item_key}' \
+                     (expected pair:id1:id2); re-scan to enqueue stable pair keys"
+                ),
+            });
+        }
+    };
+
+    let load = |id: i64| -> Result<Option<(i64, String)>, AppError> {
+        match conn.query_row(
+            "SELECT id, name FROM entities WHERE id = ?1 AND namespace = ?2",
+            rusqlite::params![id, namespace],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ) {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(AppError::Database(e)),
+        }
+    };
+    let (e1_id, e1_name) = match load(e1_id)? {
+        Some(v) => v,
+        None => {
+            return Ok(EnrichItemResult::Skipped {
+                reason: format!("entity id {e1_id} missing in namespace '{namespace}'"),
+            });
+        }
+    };
+    let (e2_id, e2_name) = match load(e2_id)? {
+        Some(v) => v,
+        None => {
+            return Ok(EnrichItemResult::Skipped {
+                reason: format!("entity id {e2_id} missing in namespace '{namespace}'"),
+            });
+        }
+    };
+
+    // Skip if already evaluated or already related (queue may be stale).
+    let already_seen: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM entity_connect_seen \
+         WHERE source_id = ?1 AND target_id = ?2)",
+        rusqlite::params![e1_id, e2_id],
+        |r| r.get(0),
+    )?;
+    if already_seen {
+        return Ok(EnrichItemResult::Skipped {
+            reason: "pair already in entity_connect_seen".into(),
+        });
+    }
+    let already_related: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM relationships r WHERE \
+           (r.source_id = ?1 AND r.target_id = ?2) OR \
+           (r.source_id = ?2 AND r.target_id = ?1))",
+        rusqlite::params![e1_id, e2_id],
+        |r| r.get(0),
+    )?;
+    if already_related {
+        return Ok(EnrichItemResult::Skipped {
+            reason: "pair already related".into(),
+        });
+    }
+
     let input_text = format!("Entity A: {e1_name}\nEntity B: {e2_name}");
     let (value, cost, is_oauth) = match mode {
         EnrichMode::ClaudeCode => call_claude(

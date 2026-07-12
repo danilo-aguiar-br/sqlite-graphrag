@@ -27,6 +27,9 @@
 - Para extração de entidades/relacionamentos curada por LLM use `ingest --mode claude-code` ou `ingest --mode codex`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
+- Nome oficial **v1.1.06**; crate `version = "1.1.6"` — pin `=1.1.6`. Sem migração (v16). Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: scan O(k), chaves `pair:{id1}:{id2}`, deadline no primeiro scan (`InterruptHandle`, Timeout exit 1), NDJSON `scan_start`/`scan_meta`. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- `enrich --operation entity-connect|cross-domain-bridges` é seguro em namespaces `global` grandes (sem hang cartesiano).
+
 ## Novos Comandos e Flags (desde v1.1.05)
 - O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.5`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.5`; o binário de release tem aproximadamente 19 MiB. **Sem migração de schema** (permanece em v16 após a V016 da v1.1.04). Fecha os cinco bugs operacionais do relato de incidente deep-research "danilo" (`gaps.md`)
 - Bug 1: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT); estratégia manual via `--sub-query-strategy manual --sub-queries-file`

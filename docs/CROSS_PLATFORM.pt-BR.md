@@ -14,6 +14,12 @@
 - Volte ao [README.md](../README.md) principal para referência completa de comandos
 
 
+## Notas de operador da v1.1.06 (todas as plataformas)
+- Nome oficial **v1.1.06**; crate `1.1.6`; sem migração (v16). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- **entity-connect** seguro em grafos grandes em todo SO: coocorrência + hub×ilha (sem hang cartesiano).
+- Teto soft 120s + `--max-runtime` usam `InterruptHandle` (Timeout exit 1) em Linux/macOS/Windows.
+- Campos NDJSON `scan_start` / `scan_meta` estáveis para hooks em todas as plataformas.
+
 ## Notas de operador da v1.1.05 (todas as plataformas)
 - O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"`; sem migração de schema (permanece em v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
 - **Bug 1 (fan-out de aspectos)**: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`) em todo SO; caminho manual opcional `--sub-query-strategy manual --sub-queries-file PATH` é seguro quanto ao separador de caminho (passe um path normal do filesystem da plataforma).

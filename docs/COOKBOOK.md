@@ -2797,20 +2797,27 @@ sqlite-graphrag deep-research "authentication architecture decisions and securit
 
 - The nested-Tokio-runtime panic is fixed: `deep_research::run` computes sub-query embeddings before constructing T1, and the three OpenRouter paths of `embedder.rs` use `Handle::try_current()` + `block_in_place`.
 
-### Recipe — Convergent entity-connect (GAP-002, ADR-0064)
+### Recipe — Convergent entity-connect (GAP-002, ADR-0064 + v1.1.06 O(k) scan)
 
 ```bash
-# 1. Check the real backlog (was always 0 before v1.1.04)
+# 0. Dry-run first on large `global` (must finish in seconds, emit scan_start then scan)
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+
+# 1. Check the real backlog (degree-0 proxy; was always 0 before v1.1.04)
 sqlite-graphrag enrich --operation entity-connect --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 
-# 2. Run until convergence (each pair evaluated ONCE, verdict persisted in entity_connect_seen)
-sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+# 2. Run until convergence (each pair evaluated ONCE, verdict in entity_connect_seen)
+#    --max-runtime also covers the FIRST scan (v1.1.06 InterruptHandle → Timeout exit 1)
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 
 # 3. Verify new edges appeared
 sqlite-graphrag graph stats --json
 ```
 
-- entity-connect is now fully-implemented (was scan-only). The `entity_connect_seen` table (migration V016) records the LLM verdict per pair so re-scans skip evaluated pairs.
+- entity-connect is fully-implemented (v1.1.04): `entity_connect_seen` (V016) records LLM verdicts so re-scans skip evaluated pairs.
+- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN):** candidates are **co-occurrence** pairs from `memory_entities` plus **hub × degree-0 island** fill — never the cartesian `entities × entities` with global `ORDER BY` that hung large `global` graphs. Queue keys are `pair:{id1}:{id2}` (`item_type=entity_pair`). NDJSON emits `scan_start` (with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`) **before** SQL, then `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. Soft 120s scan ceiling when `--max-runtime` is omitted. ADR-0066.
 
 ### Recipe — Apply Migration V016
 

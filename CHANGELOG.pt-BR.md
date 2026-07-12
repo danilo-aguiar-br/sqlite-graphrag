@@ -3,6 +3,25 @@ Leia este documento em [inglês (EN)](CHANGELOG.md).
 
 # Changelog
 
+## [1.1.06] - 2026-07-12
+
+Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** (P0): `enrich --operation entity-connect` não trava mais em namespaces grandes como `global` com ~10⁵ entidades. Sem migração de schema (`CURRENT_SCHEMA_VERSION` permanece 16). Nome oficial do release: v1.1.06; o manifest do crate carrega `version = "1.1.6"` porque o parser SemVer rejeita zero à esquerda no patch.
+
+### Corrigido
+- **Causa raiz** — `scan_isolated_entity_pairs` deixa de montar o produto cartesiano `entities × entities` com `ORDER BY` global que forçava o SQLite a materializar O(n²) candidatos antes do `LIMIT 50` (TEMP B-TREE). O scan gera pares por **coocorrência** em `memory_entities` (primário) e preenchimento **hub × ilha grau-0** (secundário).
+- **Re-scan no drain** — `call_entity_connect` não reexecuta o scan a cada item da fila. Itens usam chaves estáveis `pair:{id1}:{id2}` resolvidas por PK em O(1).
+- **Tipagem da fila** — `item_type` de entity-connect / cross-domain-bridges é `entity_pair`.
+- **Runtime no primeiro scan** — `--max-runtime` / teto soft de 120s cobre o **primeiro** scan via `InterruptHandle`; interrupt → `AppError::Timeout` (exit **1**), nunca exit 75.
+- **Observabilidade** — NDJSON emite `phase: "scan_start"` com o nome real da op (`entity-connect` ou `cross-domain-bridges`), `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` com `pairs_enqueued_this_scan` / `scan_elapsed_ms`. A primeira iteração de `--until-empty` não faz double-scan.
+
+### Adicionado
+- Suite `tests/v1106_entity_connect_scan_regression.rs`.
+- Testes unitários de nome CLI, SQLITE_INTERRUPT, deadline expirado e `InterruptHandle` ao vivo.
+- ADR-0066.
+
+### Docs
+- `gaps.md` **Fechado**; README / llms* / INTEGRATIONS / HOW_TO / COOKBOOK / skills em **v1.1.06**.
+
 ## [1.1.05] - 2026-07-11
 
 Fecha os cinco bugs operacionais do relato de incidente deep-research sobre o sujeito "danilo" (2026-07-08; ver `gaps.md`). Sem migração de schema. Nome oficial do release: v1.1.05; o manifest do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no patch.

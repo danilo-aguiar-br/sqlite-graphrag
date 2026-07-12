@@ -1,10 +1,29 @@
-# HOW TO USE sqlite-graphrag (v1.1.05 — five danilo-incident bugs fixed, schema v16)
+# HOW TO USE sqlite-graphrag (v1.1.06 — entity-connect O(k) scan, schema v16)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
 
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
+
+## What Changed in v1.1.06 — Entity-Connect Scan O(k) (No Migration)
+
+- Official release name **v1.1.06**; `Cargo.toml` carries `1.1.6`. Schema **unchanged** at **v16**.
+- Closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0 hang on large `global`).
+- Pair candidates: **co-occurrence** in `memory_entities` + **hub × degree-0 island** fill.
+- Queue keys `pair:{id1}:{id2}`; drain by primary key (no re-scan).
+- First scan covered by `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1**.
+- NDJSON: `scan_start` (before SQL) with `operation`, `entities_in_namespace`, `backlog_degree0_proxy`; `scan_meta` with `pairs_enqueued_this_scan`.
+- Suite: `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
+- Pin library consumers to `=1.1.6`.
+
+### Recipe — Safe entity-connect dry-run on a large namespace
+
+```bash
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+# Expect: validate → scan_start → scan → scan_meta (ms–s, not minutes of 100% CPU)
+```
 
 ## What Changed in v1.1.05 — Five Danilo Incident Bugs (No Migration)
 

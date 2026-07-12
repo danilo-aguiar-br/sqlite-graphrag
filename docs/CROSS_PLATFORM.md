@@ -15,6 +15,12 @@
 - Return to the main [README.md](../README.md) for the full command reference
 
 
+## v1.1.06 operator notes (all platforms)
+- Official release name **v1.1.06**; crate `1.1.6`; no schema migration (v16). ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- **entity-connect** is safe on large graphs on every OS: co-occurrence + hub×island (no cartesian hang).
+- Soft 120s scan ceiling + `--max-runtime` use `InterruptHandle` (Timeout exit 1) identically on Linux/macOS/Windows.
+- NDJSON `scan_start` / `scan_meta` fields are stable for hooks across platforms.
+
 ## v1.1.05 operator notes (all platforms)
 - Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"`; no schema migration (stays at v16). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
 - **Bug 1 (aspect fan-out)**: single-token `deep-research` expands to multi-aspect sub-queries (`source: "aspect"`) on every OS; optional manual path `--sub-query-strategy manual --sub-queries-file PATH` is path-separator-safe (pass a normal filesystem path per platform).

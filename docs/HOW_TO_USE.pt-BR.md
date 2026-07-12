@@ -5,6 +5,15 @@
 - English version: [HOW_TO_USE.md](HOW_TO_USE.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md) para referência de comandos
 
+## O Que Mudou na v1.1.06 — Scan O(k) do entity-connect (Sem Migração)
+
+- Nome oficial **v1.1.06**; manifesto `1.1.6`. Schema **inalterado** em **v16**.
+- Fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (hang P0 no `global` grande).
+- Candidatos: **coocorrência** + **hub × ilha grau-0**; chaves `pair:{id1}:{id2}`.
+- Primeiro scan coberto por `--max-runtime` / teto soft 120s (`InterruptHandle` → Timeout exit 1).
+- NDJSON: `scan_start` / `scan_meta` com backlog dual. Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
+- Pin `=1.1.6`.
+
 ## O Que Mudou na v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
 - O nome oficial da release é **v1.1.05**; o `Cargo.toml` carrega `1.1.5` porque o SemVer rejeita zero à esquerda no segmento de patch. O schema permanece INALTERADO em v16 — o upgrade NÃO requer `migrate`. Binário ~19 MiB. Consumidores da biblioteca fixam `=1.1.5`. User-Agent `sqlite-graphrag/1.1.5`.
 - **Bug 1**: `deep-research` com query de palavra única (ex.: `"danilo"`) expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT). Estratégia manual: `--sub-query-strategy manual --sub-queries-file <PATH>`.

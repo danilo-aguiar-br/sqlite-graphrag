@@ -140,6 +140,7 @@ The Claude Backend Split test plan (ADR-0042) and the Five-Gap Remediation test 
 - `graph stats --json` shows new edges after convergence.
 - Regression tests: `count_operation_backlog_entity_connect_counts_isolated` (degree-0 entity WITH NER binding counts; without binding does not); `scan_isolated_entity_pairs_excludes_seen` (pair in `entity_connect_seen` not returned).
 - The `count_operation_backlog_advisory_ops_report_zero` test excludes `EntityConnect` (now has a real backlog predicate).
+- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)**: pair scan uses co-occurrence + hub×island (never full `entities × entities` ORDER BY); queue keys are `pair:{id1}:{id2}`; dry-run emits `scan_start` then `scan` within a short wall-clock bound. Suite: `tests/v1106_entity_connect_scan_regression.rs` plus unit tests in `scan.rs` / `queue.rs`.
 
 ### Migration V016
 

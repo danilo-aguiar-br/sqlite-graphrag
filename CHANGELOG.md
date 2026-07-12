@@ -5,6 +5,26 @@
 All notable changes to this project will be documented in this file.
 
 
+## [1.1.06] - 2026-07-12
+
+Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** (P0): `enrich --operation entity-connect` no longer hangs on large namespaces such as `global` with ~10⁵ entities. No schema migration (`CURRENT_SCHEMA_VERSION` stays at 16). Official release name is v1.1.06; the crate manifest carries `version = "1.1.6"` because the SemVer parser rejects a leading zero in the patch component.
+
+### Fixed
+- **Root cause** — `scan_isolated_entity_pairs` no longer builds the cartesian product `entities × entities` with a global `ORDER BY` that forced SQLite to materialise O(n²) candidates before `LIMIT 50` (TEMP B-TREE). The scan now generates pairs from **co-occurrence** in `memory_entities` (primary) and **hub × degree-0 island** fill (secondary), so wall-clock stays sub-second to a few seconds even on dense graphs.
+- **Drain re-scan** — `call_entity_connect` no longer re-executes the pair scan on every queue item (that multiplied the hang under parallel workers). Items are enqueued as stable `pair:{id1}:{id2}` keys and resolved by primary key in O(1).
+- **Queue typing** — `item_type` for entity-connect / cross-domain-bridges is `entity_pair` (and `pair:` keys are recognised by `item_type_for_key`) so `prune_dead_orphans` never treats pair keys as memory names.
+- **First-scan runtime** — `--max-runtime` / a soft 120s ceiling now covers the **first** scan (and rescans) via `rusqlite::InterruptHandle` watchdog. Interrupt maps to `AppError::Timeout` (exit **1**), never exit 75 (singleton).
+- **Observability** — NDJSON emits `phase: "scan_start"` (with real CLI `operation` name — `entity-connect` **or** `cross-domain-bridges`, plus `entities_in_namespace`, `backlog_degree0_proxy`, `pair_algorithm`) **before** the SQL, then `phase: "scan"` / `scan_meta` with `pairs_enqueued_this_scan` / `scan_elapsed_ms`. The first `--until-empty` iteration no longer double-scans the same candidate set.
+
+### Added
+- Integration suite `tests/v1106_entity_connect_scan_regression.rs`.
+- Unit tests for pair-op CLI names, SQLITE_INTERRUPT mapping, past-deadline Timeout, and live `InterruptHandle` abort.
+- ADR-0066 documenting the algorithm change and causa×efeito chain.
+
+### Docs
+- `gaps.md` status **Fechado** for GAP-ENTITY-CONNECT-SCAN-CARTESIAN.
+- README / llms* / INTEGRATIONS / HOW_TO_USE / CROSS_PLATFORM / COOKBOOK / skills: current release **v1.1.06**; entity-connect safe on large `global`; queue keys `pair:id1:id2`.
+
 ## [1.1.05] - 2026-07-11
 
 Closes the five operator-blocking bugs from the 2026-07-08 deep-research incident report on subject "danilo" (see `gaps.md`). No schema migration. Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` because the SemVer parser rejects a leading zero in the patch component.

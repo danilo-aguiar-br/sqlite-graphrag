@@ -140,6 +140,7 @@ O plano de teste do Split do Backend Claude (ADR-0042) e o plano de teste da Rem
 - `graph stats --json` mostra novas arestas após a convergência.
 - Testes de regressão: `count_operation_backlog_entity_connect_counts_isolated` (entidade de grau 0 COM binding NER conta; sem binding não conta); `scan_isolated_entity_pairs_excludes_seen` (par em `entity_connect_seen` não é retornado).
 - O teste `count_operation_backlog_advisory_ops_report_zero` exclui `EntityConnect` (agora tem predicado real de backlog).
+- **v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)**: o scan de pares usa coocorrência + hub×ilha (nunca `entities × entities` com ORDER BY global); chaves da fila são `pair:{id1}:{id2}`; dry-run emite `scan_start` e depois `scan` em tempo de parede limitado. Suite: `tests/v1106_entity_connect_scan_regression.rs` e testes unitários em `scan.rs` / `queue.rs`.
 
 ### Migração V016
 

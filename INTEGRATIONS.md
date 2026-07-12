@@ -27,6 +27,9 @@
 - For LLM-curated entity/relationship extraction use `ingest --mode claude-code` or `ingest --mode codex`.
 - Entity types now include `organization`, `location`, `date` alongside `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
+- Official release name **v1.1.06**; crate `version = "1.1.6"` — pin `=1.1.6`. No schema migration (v16). Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: O(k) entity-connect scan (co-occurrence + hub×island), queue keys `pair:{id1}:{id2}`, `item_type=entity_pair`, first-scan deadline via `InterruptHandle` (Timeout exit 1 ≠ 75), NDJSON `scan_start` / `scan_meta` with `operation` + dual backlog fields. ADR-0066; suite `tests/v1106_entity_connect_scan_regression.rs`.
+- `enrich --operation entity-connect|cross-domain-bridges` is safe on large `global` namespaces (no cartesian hang).
+
 ## New Commands and Flags (since v1.1.05)
 - The official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.5`. No schema migration (schema stays at v16 from v1.1.04). Closes the five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (`gaps.md`): agent pipeline safety via `deep-research --output PATH` (atomic write + stdout ack with `blake3`), global `--quiet`/`-q`, single-token aspect fan-out for deep-research, `graph traverse --fuzzy` with NotFound name suggestions, `link --from-id`/`--to-id` (pure-numeric names rejected), and `merge-entities` self-ref rejection before any DB work. Never mix stderr into JSON with `&>`.
 - `deep-research --output PATH` — atomwrite (tempfile same dir → fsync → rename); short stdout ack `{written, bytes, blake3, ...}`; use with `--quiet` in headless agent pipelines

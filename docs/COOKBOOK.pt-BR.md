@@ -2794,6 +2794,24 @@ sqlite-graphrag migrate --json              # aplicar
 sqlite-graphrag health --json               # confirmar schema_version >= 16
 ```
 
+
+### Receita — entity-connect seguro em namespace grande (v1.1.06, ADR-0066)
+
+```bash
+# Dry-run: deve terminar em segundos e emitir scan_start → scan (nunca hang em CPU 100%)
+sqlite-graphrag enrich --operation entity-connect --dry-run --json --limit 50 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro
+
+# Convergência: --max-runtime cobre o PRIMEIRO scan (InterruptHandle → Timeout exit 1)
+sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 600 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+```
+
+- Candidatos por **coocorrência** + **hub × ilha grau-0** (nunca produto cartesiano O(n²)).
+- Chaves da fila `pair:{id1}:{id2}`; `item_type=entity_pair`.
+- NDJSON: `scan_start` / `scan_meta` com `backlog_degree0_proxy` e `pairs_enqueued_this_scan`.
+- GAP-002 (entity_connect_seen / convergência) permanece válido.
+
 ## Receitas adicionadas na v1.1.03
 ### Receita — Migrar Relações Legadas Com Underscore Para A Forma Canônica Com Hífen (Bug 2)
 Imports antigos armazenavam literais de relação com underscore (`applies_to`, `depends_on`, `tracked_in`) em vez da forma canônica com hífen. O parser normaliza na leitura, mas o literal ARMAZENADO continuava com underscore. Use a flag verbatim de destino `--literal-to` (simétrica a `--literal-from`) para que o destino seja escrito VERBATIM sem normalização do clap.

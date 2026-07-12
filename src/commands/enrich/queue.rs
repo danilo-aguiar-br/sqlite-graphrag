@@ -201,10 +201,14 @@ pub(super) fn skipped_item_keys(
 }
 
 /// Queue `item_type` for an operation: entity-keyed operations use `"entity"`,
-/// every other (memory/id-keyed) operation uses `"memory"`.
+/// entity-pair operations use `"entity_pair"`, every other (memory/id-keyed)
+/// operation uses `"memory"`.
 pub(super) fn item_type_for(operation: &EnrichOperation) -> &'static str {
     match operation {
         EnrichOperation::EntityDescriptions => "entity",
+        // v1.1.06: entity-connect enqueues `pair:{id1}:{id2}` keys — never
+        // treat them as memory names (prune_dead_orphans only reaps memory).
+        EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges => "entity_pair",
         _ => "memory",
     }
 }
@@ -216,8 +220,12 @@ pub(super) fn item_type_for(operation: &EnrichOperation) -> &'static str {
 /// so `prune_dead_orphans` (which only reaps `item_type='memory'` rows)
 /// never mistakes an entity/chunk key for an orphaned memory name.
 /// Unprefixed keys keep the operation-level default.
+///
+/// v1.1.06: `pair:{id1}:{id2}` → `"entity_pair"`.
 pub(super) fn item_type_for_key(key: &str, default: &'static str) -> &'static str {
-    if key.starts_with("entity:") {
+    if key.starts_with("pair:") {
+        "entity_pair"
+    } else if key.starts_with("entity:") {
         "entity"
     } else if key.starts_with("chunk:") {
         "chunk"
@@ -1238,6 +1246,14 @@ mod tests {
         assert_eq!(item_type_for(&EnrichOperation::MemoryBindings), "memory");
         assert_eq!(item_type_for(&EnrichOperation::AugmentBindings), "memory");
         assert_eq!(item_type_for(&EnrichOperation::BodyExtract), "memory");
+        assert_eq!(
+            item_type_for(&EnrichOperation::EntityConnect),
+            "entity_pair"
+        );
+        assert_eq!(
+            item_type_for(&EnrichOperation::CrossDomainBridges),
+            "entity_pair"
+        );
     }
 
     // v1.1.1 (P2): prefixed re-embed keys override the operation default so
@@ -1251,6 +1267,8 @@ mod tests {
         );
         assert_eq!(item_type_for_key("chunk:42", "memory"), "chunk");
         assert_eq!(item_type_for_key("some-entity", "entity"), "entity");
+        // v1.1.06: pair keys must not be treated as memory names.
+        assert_eq!(item_type_for_key("pair:1:2", "memory"), "entity_pair");
     }
 
     #[test]

@@ -67,6 +67,7 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 | [ADR-0063](adr-0063-v1-1-03-bug-fixes.md) | v1.1.03 — Six Bugs + split-body (Bug-Fix Wave) | v1.1.03 | Accepted | [PT-BR](adr-0063-v1-1-03-bug-fixes.pt-BR.md) |
 | [ADR-0064](adr-0064-v1-1-04-gap-closure.md) | v1.1.04 — Two Structural Gaps Closure (deep-research Nested-Runtime Panic, entity-connect Convergence) | v1.1.04 | Accepted | [PT-BR](adr-0064-v1-1-04-gap-closure.pt-BR.md) |
 | [ADR-0065](adr-0065-v1-1-05-danilo-bugs.md) | v1.1.05 — Five Operator Bugs from the "danilo" Deep-Research Incident | v1.1.05 | Accepted | [PT-BR](adr-0065-v1-1-05-danilo-bugs.pt-BR.md) |
+| [ADR-0066](adr-0066-v1-1-06-entity-connect-scan.md) | v1.1.06 — Entity-Connect Scan O(k) (GAP-ENTITY-CONNECT-SCAN-CARTESIAN) | v1.1.06 | Accepted | [PT-BR](adr-0066-v1-1-06-entity-connect-scan.pt-BR.md) |
 
 ## Coverage by Version
 
@@ -95,11 +96,12 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 - **v1.1.03**: 1 ADR (0063) — six operator-blocking bugs + split-body: batched scan-enqueue, --literal-to, --cross-namespace merge, claimed_at + --reset-stale-claims, status doc clarification, LEFT JOIN chunk re-embed, split-body subcommand
 - **v1.1.04**: 1 ADR (0064) — deep-research nested-runtime panic (GAP-001) + entity-connect convergence via V016 `entity_connect_seen` (GAP-002)
 - **v1.1.05**: 1 ADR (0065) — five "danilo" deep-research incident bugs: single-token aspect fan-out, atomic --output + --quiet, graph traverse fuzzy, pre-DB self-merge guard, link --from-id/--to-id + digit-name reject
+- **v1.1.06**: 1 ADR (0066) — entity-connect O(k) scan (co-occurrence + hub×island), pair keys, first-scan timeout, GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed
 
 ## Bilíngue Status
 
-- **EN (English)**: 59/59 ADRs (100%)
-- **PT-BR (Português Brasileiro)**: 47/59 ADRs (80%)
+- **EN (English)**: 60/60 ADRs (100%)
+- **PT-BR (Português Brasileiro)**: 48/60 ADRs (80%)
 - **PT-BR pendente**: 12 ADRs (0007-0018) — criados antes do mandato bilíngue (legado histórico)
 
 ## Conventions

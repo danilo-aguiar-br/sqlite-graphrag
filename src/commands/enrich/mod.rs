@@ -43,7 +43,7 @@ use queue::{
     record_item_failure_typed, reset_stale_processing_claims, skipped_item_keys, DequeueOutcome,
 };
 use scan::{
-    count_operation_backlog, scan_isolated_entity_pairs, scan_operation, scan_unbound_memories,
+    count_operation_backlog, scan_operation, scan_unbound_memories,
 };
 
 use crate::commands::ingest_claude::find_claude_binary;
@@ -847,6 +847,42 @@ struct PhaseEvent<'a> {
     llm_parallelism: Option<u32>,
 }
 
+/// v1.1.06: emitted **before** the (potentially heavy) candidate SQL so hooks
+/// never see a silent hang after `validate`. No product telemetry — NDJSON only.
+#[derive(Debug, Serialize)]
+struct ScanStartEvent<'a> {
+    phase: &'static str,
+    /// CLI kebab-case operation name (`entity-connect` or `cross-domain-bridges`).
+    operation: &'a str,
+    entities_in_namespace: i64,
+    /// O(n) degree-0 + NER binding proxy (status backlog); distinct from pair enqueue count.
+    backlog_degree0_proxy: Option<i64>,
+    pair_algorithm: Option<&'static str>,
+    limit: Option<usize>,
+    scan_deadline_secs: Option<u64>,
+}
+
+/// CLI kebab-case name for an enrich operation (matches clap `--operation` values).
+fn enrich_operation_cli_name(op: &EnrichOperation) -> &'static str {
+    match op {
+        EnrichOperation::MemoryBindings => "memory-bindings",
+        EnrichOperation::AugmentBindings => "augment-bindings",
+        EnrichOperation::EntityDescriptions => "entity-descriptions",
+        EnrichOperation::BodyEnrich => "body-enrich",
+        EnrichOperation::ReEmbed => "re-embed",
+        EnrichOperation::WeightCalibrate => "weight-calibrate",
+        EnrichOperation::RelationReclassify => "relation-reclassify",
+        EnrichOperation::EntityConnect => "entity-connect",
+        EnrichOperation::EntityTypeValidate => "entity-type-validate",
+        EnrichOperation::DescriptionEnrich => "description-enrich",
+        EnrichOperation::CrossDomainBridges => "cross-domain-bridges",
+        EnrichOperation::DomainClassify => "domain-classify",
+        EnrichOperation::GraphAudit => "graph-audit",
+        EnrichOperation::DeepResearchSynth => "deep-research-synth",
+        EnrichOperation::BodyExtract => "body-extract",
+    }
+}
+
 /// GAP-SG-45: separates the SCAN metric (always serial — a single SQL sweep of
 /// the candidate set) from the DRAIN metric (the parallel worker fan-out). The
 /// legacy "scan" `PhaseEvent` reported `llm_parallelism` on the scan event,
@@ -1303,6 +1339,72 @@ fn validate_mode_conditional_flags_enrich(args: &EnrichArgs) -> Result<(), AppEr
 // ---------------------------------------------------------------------------
 
 /// Main entry point for the `enrich` command.
+/// Run [`scan_operation`] with an optional wall-clock deadline enforced via
+/// [`rusqlite::Connection::get_interrupt_handle`].
+///
+/// v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN): the first enrich scan used to
+/// run with no timeout; a cartesian SQL could pin the process (and the enrich
+/// singleton) indefinitely. When `deadline` is `Some`, a watchdog thread calls
+/// `interrupt()` at the deadline so the scan fails as
+/// [`AppError::Timeout`] (exit 1) — never as exit 75.
+fn scan_operation_with_deadline(
+    conn: &Connection,
+    namespace: &str,
+    args: &EnrichArgs,
+    deadline: Option<Instant>,
+) -> Result<Vec<String>, AppError> {
+    let Some(deadline) = deadline else {
+        return scan_operation(conn, namespace, args);
+    };
+
+    if Instant::now() >= deadline {
+        return Err(AppError::Timeout {
+            operation: format!("enrich {:?} scan", args.operation()),
+            duration_secs: 0,
+        });
+    }
+
+    let handle = conn.get_interrupt_handle();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_w = std::sync::Arc::clone(&stop);
+    let watchdog = std::thread::spawn(move || {
+        while !stop_w.load(std::sync::atomic::Ordering::Relaxed) {
+            if Instant::now() >= deadline {
+                handle.interrupt();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    });
+
+    let scan_t0 = Instant::now();
+    let result = scan_operation(conn, namespace, args);
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = watchdog.join();
+
+    match result {
+        Ok(v) => Ok(v),
+        Err(AppError::Database(ref e)) if is_sqlite_interrupt(e) => Err(AppError::Timeout {
+            operation: format!("enrich {:?} scan", args.operation()),
+            duration_secs: scan_t0.elapsed().as_secs().max(1),
+        }),
+        Err(e) => Err(e),
+    }
+}
+
+fn is_sqlite_interrupt(err: &rusqlite::Error) -> bool {
+    match err {
+        rusqlite::Error::SqliteFailure(code, _) => {
+            code.code == rusqlite::ErrorCode::OperationInterrupted
+                || code.extended_code == 9 // SQLITE_INTERRUPT
+        }
+        other => {
+            let s = other.to_string().to_ascii_lowercase();
+            s.contains("interrupt") || s.contains("cancelled")
+        }
+    }
+}
+
 pub fn run(
     args: &EnrichArgs,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -1764,8 +1866,65 @@ pub fn run(
         }
     }
 
+    // v1.1.06 (GAP-ENTITY-CONNECT-SCAN-CARTESIAN): wall-clock deadline covers
+    // the **first** scan (and later rescans), not only the drain loop tail.
+    // Default 3600s matches --max-runtime; entity-connect also gets a soft
+    // ceiling so a hung SQL cannot pin the singleton forever when the operator
+    // omits --max-runtime without --until-empty.
+    let max_runtime_secs = args.max_runtime.unwrap_or(3600);
+    let until_deadline =
+        Instant::now() + std::time::Duration::from_secs(max_runtime_secs);
+    let pair_scan_ops = matches!(
+        args.operation(),
+        EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges
+    );
+    // Soft ceiling for pair scans when no explicit short budget is set.
+    const ENTITY_CONNECT_SCAN_SOFT_CEILING_SECS: u64 = 120;
+    let scan_deadline = if pair_scan_ops {
+        let soft = Instant::now()
+            + std::time::Duration::from_secs(ENTITY_CONNECT_SCAN_SOFT_CEILING_SECS);
+        Some(soft.min(until_deadline))
+    } else if args.until_empty || args.max_runtime.is_some() {
+        Some(until_deadline)
+    } else {
+        None
+    };
+
+    let pair_op_cli = enrich_operation_cli_name(&args.operation());
+    let mut backlog_degree0_proxy: Option<i64> = None;
+    if pair_scan_ops {
+        let entities_in_namespace: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM entities WHERE namespace = ?1",
+                rusqlite::params![namespace],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        // Distinct from pairs_enqueued_this_scan: status proxy of islands with NER.
+        backlog_degree0_proxy = count_operation_backlog(
+            &conn,
+            &args.operation(),
+            &namespace,
+            args.target,
+        )
+        .ok();
+        emit_json(&ScanStartEvent {
+            phase: "scan_start",
+            operation: pair_op_cli,
+            entities_in_namespace,
+            backlog_degree0_proxy,
+            pair_algorithm: Some("cooccurrence+hub_island"),
+            limit: args.limit,
+            scan_deadline_secs: scan_deadline.map(|d| {
+                d.saturating_duration_since(Instant::now()).as_secs()
+            }),
+        });
+    }
+
     // SCAN phase
-    let mut scan_result = scan_operation(&conn, &namespace, args)?;
+    let scan_started = Instant::now();
+    let mut scan_result =
+        scan_operation_with_deadline(&conn, &namespace, args, scan_deadline)?;
     // GAP-SG-69: body-enrich candidates are scanned purely by `LENGTH(body) <
     // min_output_chars`, so a short body whose rewrite the preservation guard
     // keeps rejecting is re-scanned every pass — items_total never reaches 0 and
@@ -1783,6 +1942,7 @@ pub fn run(
         }
     }
     let total = scan_result.len();
+    let scan_elapsed_ms = scan_started.elapsed().as_millis() as u64;
 
     emit_json(&PhaseEvent {
         phase: "scan",
@@ -1792,6 +1952,18 @@ pub fn run(
         items_pending: Some(total),
         llm_parallelism: Some(args.llm_parallelism),
     });
+    if pair_scan_ops {
+        emit_json(&serde_json::json!({
+            "phase": "scan_meta",
+            "operation": pair_op_cli,
+            "pair_algorithm": "cooccurrence+hub_island",
+            "items_total": total,
+            "pairs_enqueued_this_scan": total,
+            "backlog_degree0_proxy": backlog_degree0_proxy,
+            "scan_elapsed_ms": scan_elapsed_ms,
+            "scan_aborted_reason": serde_json::Value::Null,
+        }));
+    }
 
     // Dry-run: emit preview events and summary without calling LLM
     if args.dry_run {
@@ -2024,32 +2196,39 @@ pub fn run(
     // GAP-ENRICH-BACKLOG-CONVERGE: --until-empty wraps the scan→populate→drain
     // cycle in an internal loop so the external bash retry loop is unnecessary.
     // Without --until-empty the loop body runs exactly once (legacy behaviour).
-    let until_deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(args.max_runtime.unwrap_or(3600));
+    //
+    // v1.1.06: `until_deadline` was already computed before the first scan so
+    // --max-runtime covers scan+drain. Skip the identical re-scan on the first
+    // until-empty iteration (candidates were just enqueued above).
+    let mut until_empty_iter: u32 = 0;
     loop {
         if args.until_empty {
-            // Re-scan and re-enqueue eligible candidates each iteration.
-            // INSERT OR IGNORE never resurrects a dead-letter row (item_key is
-            // UNIQUE), so the backlog converges instead of looping forever.
-            let mut rescan = scan_operation(&conn, &namespace, args)?;
-            // GAP-SG-69: drop memories already vetoed `status='skipped'` so the
-            // re-scan converges instead of re-enqueuing a non-expandable short
-            // body every iteration (body-enrich only; the verdict persists in
-            // the sidecar queue and is cleared by cleanup_queue_entry on edit).
-            if matches!(args.operation(), EnrichOperation::BodyEnrich) {
-                if let Ok(vetoed) = skipped_item_keys(&queue_conn, &op_label) {
-                    rescan.retain(|k| !vetoed.contains(k));
+            until_empty_iter = until_empty_iter.saturating_add(1);
+            if until_empty_iter > 1 {
+                // Re-scan and re-enqueue eligible candidates each iteration.
+                // INSERT OR IGNORE never resurrects a dead-letter row (item_key is
+                // UNIQUE), so the backlog converges instead of looping forever.
+                let mut rescan =
+                    scan_operation_with_deadline(&conn, &namespace, args, Some(until_deadline))?;
+                // GAP-SG-69: drop memories already vetoed `status='skipped'` so the
+                // re-scan converges instead of re-enqueuing a non-expandable short
+                // body every iteration (body-enrich only; the verdict persists in
+                // the sidecar queue and is cleared by cleanup_queue_entry on edit).
+                if matches!(args.operation(), EnrichOperation::BodyEnrich) {
+                    if let Ok(vetoed) = skipped_item_keys(&queue_conn, &op_label) {
+                        rescan.retain(|k| !vetoed.contains(k));
+                    }
                 }
-            }
-            // v1.1.2 (Bug 4, D5): batch the re-scan INSERTs in one transaction.
-            {
-                let tx = queue_conn.transaction()?;
-                let tx_conn: &Connection = &tx;
-                for key in &rescan {
-                    let it = item_type_for_key(key, item_type);
-                    enqueue_candidate(tx_conn, &conn, &namespace, key, it, &op_label);
+                // v1.1.2 (Bug 4, D5): batch the re-scan INSERTs in one transaction.
+                {
+                    let tx = queue_conn.transaction()?;
+                    let tx_conn: &Connection = &tx;
+                    for key in &rescan {
+                        let it = item_type_for_key(key, item_type);
+                        enqueue_candidate(tx_conn, &conn, &namespace, key, it, &op_label);
+                    }
+                    tx.commit()?;
                 }
-                tx.commit()?;
             }
         }
         let completed_before = completed;
@@ -2896,6 +3075,8 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::ErrorCode;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn bindings_schema_is_valid_json() {
@@ -2913,5 +3094,104 @@ mod tests {
     fn body_enrich_schema_is_valid_json() {
         let _: serde_json::Value = serde_json::from_str(BODY_ENRICH_SCHEMA)
             .expect("BODY_ENRICH_SCHEMA must be valid JSON");
+    }
+
+    // v1.1.06 — GAP-ENTITY-CONNECT-SCAN-CARTESIAN observability + interrupt
+
+    #[test]
+    fn enrich_operation_cli_name_pair_ops_are_kebab_case() {
+        assert_eq!(
+            enrich_operation_cli_name(&EnrichOperation::EntityConnect),
+            "entity-connect"
+        );
+        assert_eq!(
+            enrich_operation_cli_name(&EnrichOperation::CrossDomainBridges),
+            "cross-domain-bridges"
+        );
+        assert_eq!(
+            enrich_operation_cli_name(&EnrichOperation::EntityDescriptions),
+            "entity-descriptions"
+        );
+    }
+
+    #[test]
+    fn is_sqlite_interrupt_detects_operation_interrupted() {
+        let ffi_err = rusqlite::ffi::Error {
+            code: ErrorCode::OperationInterrupted,
+            extended_code: 9,
+        };
+        let err = rusqlite::Error::SqliteFailure(ffi_err, Some("interrupted".into()));
+        assert!(is_sqlite_interrupt(&err));
+
+        let busy = rusqlite::ffi::Error {
+            code: ErrorCode::DatabaseBusy,
+            extended_code: 5,
+        };
+        let busy_err = rusqlite::Error::SqliteFailure(busy, None);
+        assert!(!is_sqlite_interrupt(&busy_err));
+    }
+
+    #[test]
+    fn scan_deadline_already_elapsed_returns_timeout() {
+        // Past deadline must fail fast without running SQL (exit path → Timeout).
+        use clap::Parser;
+        let cli = crate::cli::Cli::try_parse_from([
+            "sqlite-graphrag",
+            "enrich",
+            "--operation",
+            "entity-connect",
+            "--mode",
+            "openrouter",
+            "--openrouter-model",
+            "test/model",
+            "--dry-run",
+            "--limit",
+            "1",
+        ])
+        .expect("parse enrich args");
+        let Some(crate::cli::Commands::Enrich(args)) = cli.command else {
+            panic!("expected Commands::Enrich");
+        };
+        let conn = Connection::open_in_memory().unwrap();
+        let past = Instant::now() - Duration::from_secs(1);
+        let err = scan_operation_with_deadline(&conn, "global", &args, Some(past))
+            .expect_err("elapsed deadline must Timeout");
+        match err {
+            AppError::Timeout { .. } => {}
+            other => panic!("expected Timeout, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interrupt_handle_maps_long_query_to_sqlite_interrupt() {
+        // Live SQLite: watchdog interrupt aborts a recursive CTE (same mechanism
+        // as scan_operation_with_deadline). Confirms rusqlite InterruptHandle.
+        let conn = Connection::open_in_memory().unwrap();
+        let handle = conn.get_interrupt_handle();
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop_w = std::sync::Arc::clone(&stop);
+        let watchdog = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            if !stop_w.load(std::sync::atomic::Ordering::Relaxed) {
+                handle.interrupt();
+            }
+        });
+        let result = conn.query_row(
+            "WITH RECURSIVE t(x) AS (
+                 SELECT 1
+                 UNION ALL
+                 SELECT x + 1 FROM t WHERE x < 500000000
+             )
+             SELECT COUNT(*) FROM t",
+            [],
+            |r| r.get::<_, i64>(0),
+        );
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = watchdog.join();
+        let err = result.expect_err("recursive CTE must be interrupted");
+        assert!(
+            is_sqlite_interrupt(&err),
+            "expected SQLITE_INTERRUPT, got {err:?}"
+        );
     }
 }
