@@ -4,6 +4,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.07] - 2026-07-15
+
+Publishing / ownership migration release. No schema migration (`CURRENT_SCHEMA_VERSION` stays at 16). No runtime behaviour change versus v1.1.06. Official release name is v1.1.07; the crate manifest carries `version = "1.1.7"` because the SemVer parser rejects a leading zero in the patch component.
+
+### Changed
+- **crates.io owner** — crate ownership transferred to GitHub/crates.io user `danilo-aguiar-br` (previous banned account appears as `ghost_*` on crates.io).
+- **Repository / homepage metadata** — `Cargo.toml` `repository` now points to `https://github.com/danilo-aguiar-br/sqlite-graphrag` (crates.io only updates these fields when a new version is published).
+- **GitHub home** — canonical source tree is the new public repository under `danilo-aguiar-br`; documentation URLs and schema `$id`s updated accordingly.
+- **Security contact email** — fallback disclosure address is `daniloaguiarbr@proton.me`.
+
+### Removed
+- **GitHub Actions CI/CD** — all `.github/workflows/*` and composite Actions were deleted from the project. Releases are published manually; CI badges removed from READMEs. Do **not** re-create Actions on the new repository.
+
+### Docs
+- README / llms* / SECURITY / ISSUE templates / CONTRIBUTING contact paths: new owner and repository URLs; no Actions.
+
 
 ## [1.1.06] - 2026-07-12
 
@@ -2906,11 +2922,11 @@ The v1.0.28 audit used a single-line regex (`rg "tracing::(info|warn|error|debug
 - Historical release links below still point to the legacy `neurographrag` repository
 - The renamed project starts its public version line at `sqlite-graphrag v1.0.0`
 
-[Unreleased]: https://github.com/daniloaguiarbr/neurographrag/compare/v2.3.0...HEAD
-[2.1.0]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v2.1.0
-[2.0.2]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v2.0.2
-[2.0.1]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v2.0.1
-[2.0.0]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v2.0.0
-[1.2.1]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v1.2.1
-[1.2.0]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v1.2.0
-[0.1.0]: https://github.com/daniloaguiarbr/neurographrag/releases/tag/v0.1.0
+[Unreleased]: https://github.com/danilo-aguiar-br/neurographrag/compare/v2.3.0...HEAD
+[2.1.0]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v2.1.0
+[2.0.2]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v2.0.2
+[2.0.1]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v2.0.1
+[2.0.0]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v2.0.0
+[1.2.1]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v1.2.1
+[1.2.0]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v1.2.0
+[0.1.0]: https://github.com/danilo-aguiar-br/neurographrag/releases/tag/v0.1.0

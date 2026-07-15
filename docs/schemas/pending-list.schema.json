@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/pending-list.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/pending-list.schema.json",
   "title": "pending list",
   "description": "Output of `sqlite-graphrag pending list` for three-stage `remember` checkpoint queue inspection (GAP-001, v1.0.82).",
   "type": "object",

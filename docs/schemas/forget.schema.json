@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/forget.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/forget.schema.json",
   "title": "ForgetResponse",
   "description": "Response emitted by `sqlite-graphrag forget` on stdout as a single JSON line. NOTE: this schema only applies when the memory is found (soft-deleted or already-deleted). When the memory does not exist, forget emits only a stderr error and exits with code 4 — no JSON is written to stdout.",
   "type": "object",

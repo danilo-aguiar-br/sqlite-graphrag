@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/ingest-claude-phase.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/ingest-claude-phase.schema.json",
   "title": "IngestClaudePhaseEvent",
   "description": "Phase event emitted by `ingest --mode claude-code` on stdout. Two events: validate (with claude_path, version) and scan (with dir, files_total, files_new, files_existing).",
   "type": "object",

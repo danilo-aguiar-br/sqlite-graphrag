@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/docs/schemas/vec-purge-orphan.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/vec-purge-orphan.schema.json",
   "title": "vec purge-orphan response (v1.0.69)",
   "description": "Response shape of `sqlite-graphrag vec purge-orphan --yes --json`. Added in v1.0.69 as part of G39. Purges orphans from vec_memories, vec_entities, and vec_chunks in a single transaction.",
   "type": "object",

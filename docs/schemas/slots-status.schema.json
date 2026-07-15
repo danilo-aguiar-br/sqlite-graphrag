@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/slots-status.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/slots-status.schema.json",
   "title": "slots status",
   "description": "Output of `sqlite-graphrag slots status` for cross-process LLM slot semaphore inspection (GAP-004, v1.0.82).",
   "type": "object",

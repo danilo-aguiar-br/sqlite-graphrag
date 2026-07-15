@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/link.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/link.schema.json",
   "title": "LinkResponse",
   "description": "Response emitted by `sqlite-graphrag link` on stdout as JSON. CLI accepts `--from-id`/`--to-id` (v1.1.05) for ID-based endpoints, but the output envelope still reports entity names in `from`/`to` after resolution.",
   "type": "object",

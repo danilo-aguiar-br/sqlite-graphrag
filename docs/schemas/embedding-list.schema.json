@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/embedding-list.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/embedding-list.schema.json",
   "title": "embedding list",
   "description": "Output of `sqlite-graphrag embedding list` for per-entry inspection of the pending-embeddings queue (GAP-005, v1.0.82).",
   "type": "object",

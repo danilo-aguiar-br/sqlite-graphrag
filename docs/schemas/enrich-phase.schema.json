@@ -1,5 +1,5 @@
 {
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/enrich-phase.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/enrich-phase.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Phase event emitted by `sqlite-graphrag enrich` on stdout (NDJSON). Two events per run: 'validate' (checks LLM provider binary) and 'scan' (discovers items to enrich). Fields beyond 'phase' are present only when relevant to the phase.",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/docs/schemas/codex-models.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/codex-models.schema.json",
   "title": "codex-models response (v1.0.69)",
   "description": "Response shape of `sqlite-graphrag codex-models --json` and `codex-models --suggest <substring>`. Added in v1.0.69 as part of G33. Exposes the ChatGPT Pro OAuth model whitelist that enrich --mode codex validates against before spawning.",
   "type": "object",

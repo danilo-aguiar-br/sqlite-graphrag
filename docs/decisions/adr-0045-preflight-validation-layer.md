@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Data**: 2026-06-19
 - **Versão**: v1.0.87 (closes GAP-META-005)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@gmail.com>
+- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
 
 ## Context
 

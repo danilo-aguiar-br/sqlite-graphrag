@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/embedding-status.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/embedding-status.schema.json",
   "title": "embedding status",
   "description": "Output of `sqlite-graphrag embedding status` for the pending-embeddings queue health (GAP-005, v1.0.82; backend_invoked added in v1.0.84 by ADR-0042).",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/restore.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/restore.schema.json",
   "title": "RestoreResponse",
   "description": "Response emitted by `sqlite-graphrag restore` on stdout as a single JSON line.",
   "type": "object",

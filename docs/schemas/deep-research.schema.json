@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/deep-research.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/deep-research.schema.json",
   "title": "DeepResearchResponse",
   "description": "Response emitted by `sqlite-graphrag deep-research` on stdout as a single JSON line. Orchestrates parallel multi-hop GraphRAG search via query decomposition.",
   "$defs": {

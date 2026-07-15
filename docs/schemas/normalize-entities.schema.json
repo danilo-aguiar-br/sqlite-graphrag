@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/normalize-entities.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/normalize-entities.schema.json",
   "title": "NormalizeEntitiesResponse",
   "description": "Response emitted by `sqlite-graphrag normalize-entities` on stdout as a single JSON line. Normalizes entity names to kebab-case ASCII; merges colliding names. Exit codes: 0 success, 1 validation error.",
   "type": "object",

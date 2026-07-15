@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/split-body.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/split-body.schema.json",
   "title": "SplitBodyResponse",
   "description": "v1.1.03 (GAP-V8): response emitted by `sqlite-graphrag split-body` on stdout as a single JSON line. The original oversized memory is never soft-deleted: it is annotated with `metadata.superseded_by_split=true` and `metadata.split_into=[child names]`, and each child memory gets a canonical `replaces` graph relationship to the original. The single-mode envelope (`--name <NAME>`) and the batch-mode envelope (`--batch`) are discriminated by `oneOf`: the single envelope carries `original`/`children`, while the batch envelope carries `namespace`/`split`/`skipped`.",
   "oneOf": [

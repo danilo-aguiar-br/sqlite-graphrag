@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/stats.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/stats.schema.json",
   "title": "StatsResponse",
   "description": "Response emitted by `sqlite-graphrag stats` on stdout as a single JSON line. Accepts `--format json`, legacy `--format text`, or `--json` as no-op compatibility flags; JSON is always emitted.",
   "type": "object",

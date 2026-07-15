@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/migrate.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/migrate.schema.json",
   "title": "MigrateResponse",
   "description": "Response emitted by `sqlite-graphrag migrate` on stdout as a single JSON line. Without `--status` returns migration result; with `--status` returns applied migration list.",
   "$defs": {

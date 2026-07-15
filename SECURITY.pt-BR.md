@@ -11,7 +11,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 | Versão  | Status        | Correções de Segurança     |
 | ------- | ------------- | -------------------------- |
-| 1.1.x   | Suportada     | Sim, recebe correções (linha atual; última v1.1.06 / crate 1.1.6) |
+| 1.1.x   | Suportada     | Sim, recebe correções (linha atual; última v1.1.07 / crate 1.1.7) |
 | 1.0.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.1.x recomendado |
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
 
@@ -28,7 +28,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 ## Reportando uma Vulnerabilidade
 - OBRIGATÓRIO reportar questões de segurança via GitHub Security Advisories no repositório público `sqlite-graphrag` como canal privado preferencial
-- Use o email daniloaguiarbr@gmail.com apenas como fallback quando o reporte privado do GitHub estiver indisponível
+- Use o email daniloaguiarbr@proton.me apenas como fallback quando o reporte privado do GitHub estiver indisponível
 - JAMAIS abra issue pública, pull request ou discussão no GitHub para relatos de segurança
 - Inclua reprodução mínima, versões afetadas e comportamento esperado versus observado
 - Inclua detalhes do ambiente como sistema operacional, arquitetura e versão do rustc

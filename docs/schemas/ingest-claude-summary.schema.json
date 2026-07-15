@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/ingest-claude-summary.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/ingest-claude-summary.schema.json",
   "title": "IngestClaudeSummary",
   "description": "Final summary NDJSON line emitted by `ingest --mode claude-code`. Always the last line. Includes entity/relationship totals and cumulative LLM cost.",
   "type": "object",

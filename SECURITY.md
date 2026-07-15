@@ -11,14 +11,14 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.1.x   | Supported   | Yes, receives fixes (current line; latest v1.1.06 / crate 1.1.6) |
+| 1.1.x   | Supported   | Yes, receives fixes (current line; latest v1.1.07 / crate 1.1.7) |
 | 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.1.x recommended |
 | 0.x     | Unsupported | No patches provided      |
 
 
 ## Reporting a Vulnerability
 - OBRIGATÓRIO report security issues through GitHub Security Advisories in the public `sqlite-graphrag` repository as the preferred private channel
-- Use email at daniloaguiarbr@gmail.com only as fallback when GitHub private reporting is unavailable
+- Use email at daniloaguiarbr@proton.me only as fallback when GitHub private reporting is unavailable
 - JAMAIS open a public GitHub issue, pull request, or discussion for security-related reports
 - Include a minimal reproduction, affected versions, and expected versus actual behavior
 - Include your environment details such as OS, architecture, and rustc version

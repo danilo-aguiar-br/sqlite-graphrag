@@ -1,5 +1,5 @@
 {
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/enrich-summary.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/enrich-summary.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Final summary NDJSON line emitted by `sqlite-graphrag enrich`. Always the last line. The 'summary' sentinel field distinguishes it from per-item events. backend_invoked added in v1.0.84 by ADR-0042.",

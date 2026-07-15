@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/cleanup-orphans.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/cleanup-orphans.schema.json",
   "title": "CleanupOrphansResponse",
   "description": "Response emitted by `sqlite-graphrag cleanup-orphans` on stdout as a single JSON line.",
   "type": "object",

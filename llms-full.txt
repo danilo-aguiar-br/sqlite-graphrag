@@ -1,12 +1,12 @@
-# sqlite-graphrag (v1.1.06 LLM-Only One-Shot)
+# sqlite-graphrag (v1.1.07 LLM-Only One-Shot)
 
 
 > Persistent memory for 27 AI agents in a single ~19 MiB Rust binary (LLM-only, one-shot)
 
 27 AI agents. One ~19 MiB binary. Zero model download. v1.1.06 gives every AI coding assistant a local, private memory layer backed by a single SQLite file. The CLI is a thin orchestrator: embedding generation uses EITHER the OpenRouter REST API (v1.0.93, ~100-500ms via `--embedding-backend openrouter`) OR a headless `claude code` / `codex` / `opencode` subprocess (OAuth, ~20-60s). No daemon, no ONNX runtime, no model download. Graph-native retrieval. Deterministic JSON output ready for pipeline orchestration.
 
-- Portuguese version available at [README.pt-BR.md](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/README.pt-BR.md)
-- Compact summary in [llms.txt](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/llms.txt); Portuguese variant in [llms.pt-BR.txt](https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/llms.pt-BR.txt)
+- Portuguese version available at [README.pt-BR.md](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/README.pt-BR.md)
+- Compact summary in [llms.txt](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/llms.txt); Portuguese variant in [llms.pt-BR.txt](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/llms.pt-BR.txt)
 
 ```bash
 cargo install --locked sqlite-graphrag
@@ -759,7 +759,7 @@ sqlite-graphrag hybrid-search "$GEMINI_QUERY" --json --k 5 \
 ## Stable Identity
 ### Facts that remain invariant across doc updates
 - Package `sqlite-graphrag` v1.1.1 (release name v1.1.01) published on crates.io with MSRV Rust 1.88
-- Repository `https://github.com/daniloaguiarbr/sqlite-graphrag` with CI on push and tag
+- Repository `https://github.com/danilo-aguiar-br/sqlite-graphrag` without GitHub Actions CI (releases published manually)
 - License dual `MIT OR Apache-2.0` with individual license files at the repository root
 - Embedding generation: delegated to OpenRouter REST API (v1.0.93, ~100-500ms) or headless `claude code` / `codex` / `opencode` subprocess (OAuth, ~20-60s) per call. The Rust binary holds no model.
 - Storage layer `rusqlite` bundled SQLite plus FTS5 module plus BLOB-backed embedding tables (pure-Rust cosine since v1.0.76)

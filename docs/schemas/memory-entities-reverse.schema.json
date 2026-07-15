@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/memory-entities-reverse.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/memory-entities-reverse.schema.json",
   "title": "EntityMemoriesResponse",
   "description": "Response emitted by `sqlite-graphrag memory-entities --entity <name> --json` on stdout as a single JSON line, listing all memories bound to a given entity.",
   "type": "object",

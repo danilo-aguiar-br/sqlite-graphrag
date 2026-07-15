@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/graph-recompute-degree.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/graph-recompute-degree.schema.json",
   "title": "RecomputeDegreeResponse",
   "description": "v1.1.1 (P3): response emitted by `sqlite-graphrag graph recompute-degree` on stdout as a single JSON line. Summarizes one degree-reconciliation pass over `entities.degree` computed from the real `relationships` rows. Invariant: updated + zeroed + unchanged == total.",
   "type": "object",

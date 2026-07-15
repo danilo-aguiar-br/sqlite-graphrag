@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/error-envelope.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/error-envelope.schema.json",
   "title": "ErrorEnvelope",
   "description": "Structured error envelope emitted to stdout by any sqlite-graphrag subcommand when --json is active and a handled error occurs. The process exits with a non-zero code matching the 'code' field. Since v1.0.68 the `code: 75` envelope can also be emitted by the new `AppError::JobSingletonLocked { job_type, namespace }` variant (G28-B); the `message` field embeds the `job_type` and `namespace` values as quoted strings so agents can parse them with a simple regex (`job '(\\w+)'.*namespace '(\\w+)'`). For full programmatic access to variant fields, agents should branch on `code` and call the corresponding subcommand with `--dry-run` or inspect the namespace before retrying.",
   "type": "object",

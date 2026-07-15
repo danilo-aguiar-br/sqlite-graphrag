@@ -51,7 +51,7 @@ Read this document in [Portuguese (pt-BR)](CODE_OF_CONDUCT.pt-BR.md).
 
 ## Enforcement
 - Instances of abusive, harassing, or otherwise unacceptable behavior may be reported privately
-- Report issues by email at daniloaguiarbr@gmail.com or via GitHub Security Advisories on the public `sqlite-graphrag` repository
+- Report issues by email at daniloaguiarbr@proton.me or via GitHub Security Advisories on the public `sqlite-graphrag` repository
 - All complaints will be reviewed and investigated promptly and fairly
 - Initial response to every report is committed within 48 hours of receipt
 - All community leaders are obligated to respect the privacy and security of the reporter

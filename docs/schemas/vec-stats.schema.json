@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/docs/schemas/vec-stats.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/vec-stats.schema.json",
   "title": "vec stats response (v1.0.69, updated v1.0.80/G52)",
   "description": "Response shape of `sqlite-graphrag vec stats --json`. Rewritten during the G52 audit: the previous schema (namespace/vec_memories/...) never matched the binary output. `dims` (G52) exposes per-dimensionality row counts to surface G43-style mixed-dim contamination.",
   "type": "object",

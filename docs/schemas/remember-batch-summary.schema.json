@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/remember-batch-summary.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/remember-batch-summary.schema.json",
   "title": "RememberBatchSummary",
   "description": "Summary line emitted as the last NDJSON line by `sqlite-graphrag remember-batch`.",
   "type": "object",

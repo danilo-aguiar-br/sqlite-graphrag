@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/graph-traverse.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/graph-traverse.schema.json",
   "title": "GraphTraverseResponse",
   "description": "Response emitted by `sqlite-graphrag graph traverse` on stdout as a single JSON line. BFS traversal from a starting entity up to a configurable depth. With `--fuzzy` (v1.1.05), `from` is the resolved canonical entity name and may differ from the CLI `--from` argument.",
   "$defs": {

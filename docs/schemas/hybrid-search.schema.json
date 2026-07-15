@@ -148,7 +148,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/hybrid-search.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/hybrid-search.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag hybrid-search` on stdout as a single JSON line. backend_invoked and vec_degraded_reason added in v1.0.84 by ADR-0042.",

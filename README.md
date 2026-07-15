@@ -2,12 +2,11 @@
 
 [![Crates.io](https://img.shields.io/crates/v/sqlite-graphrag.svg)](https://crates.io/crates/sqlite-graphrag)
 [![Docs.rs](https://docs.rs/sqlite-graphrag/badge.svg)](https://docs.rs/sqlite-graphrag)
-[![CI](https://github.com/daniloaguiarbr/sqlite-graphrag/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/sqlite-graphrag/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](LICENSE)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 > Persistent memory for AI agents in a single Rust binary with built-in GraphRAG.
-> **Current release: v1.1.06 — closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0): `entity-connect` / `cross-domain-bridges` no longer hang on large namespaces (~10⁵ entities) via O(k) co-occurrence + hub×island pair scan, queue keys `pair:{id1}:{id2}`, first-scan `--max-runtime` / soft 120s ceiling via `InterruptHandle` (Timeout exit 1, not 75), and NDJSON `phase: scan_start` before SQL (see `gaps.md`, ADR-0066). No schema migration (stays at v16). Official release name v1.1.06; crate manifest `version = "1.1.6"` (SemVer rejects a leading zero in the patch component). Previous release v1.1.05 — five danilo deep-research operator bugs (aspect fan-out, atomwrite `--output`, `graph traverse --fuzzy`, merge self-ref, `link --from-id`/`--to-id`). Previous v1.1.04 — GAP-001 nested-Tokio + GAP-002 entity-connect convergence + V016.**
+> **Current release: v1.1.07 — publishing/ownership migration: crates.io owner `danilo-aguiar-br`, canonical repo `https://github.com/danilo-aguiar-br/sqlite-graphrag`, GitHub Actions CI/CD removed (manual releases only), security fallback `daniloaguiarbr@proton.me`. No schema migration (stays at v16). No runtime change vs v1.1.06. Official name v1.1.07; crate `version = "1.1.7"`. Previous v1.1.06 closed GAP-ENTITY-CONNECT-SCAN-CARTESIAN (O(k) entity-connect scan).**
 
 - Read this document in [Portuguese (pt-BR)](README.pt-BR.md).
 

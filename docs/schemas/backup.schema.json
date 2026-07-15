@@ -1,5 +1,5 @@
 {
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/backup.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/backup.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag backup --json` on stdout as a single JSON line.",

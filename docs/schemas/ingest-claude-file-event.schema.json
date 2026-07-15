@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/ingest-claude-file-event.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/ingest-claude-file-event.schema.json",
   "title": "IngestClaudeFileEvent",
   "description": "Per-file NDJSON line emitted by `ingest --mode claude-code`. Status is `done` (success), `failed` (error), or `preview` (dry-run). Includes `entities` count, `rels` count, and `cost_usd` per file.",
   "type": "object",

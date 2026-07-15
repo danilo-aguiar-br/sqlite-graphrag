@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/entities-input.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/entities-input.schema.json",
   "title": "RememberEntitiesInput",
   "description": "JSON array accepted by `sqlite-graphrag remember --entities-file`. Each item must define an entity name and a valid semantic type. The alias field `type` is accepted as a synonym for `entity_type`, but both must not appear together in the same object.",
   "type": "array",

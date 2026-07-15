@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/relationships-input.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/relationships-input.schema.json",
   "title": "RememberRelationshipsInput",
   "description": "JSON array accepted by `sqlite-graphrag remember --relationships-file`. Each relationship must define source/from, target/to, relation label, and strength. Stored graph outputs expose `strength` as `weight`.",
   "type": "array",

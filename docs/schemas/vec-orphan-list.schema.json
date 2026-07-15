@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/blob/main/docs/schemas/vec-orphan-list.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/vec-orphan-list.schema.json",
   "title": "vec orphan-list response (v1.0.69)",
   "description": "Response shape of `sqlite-graphrag vec orphan-list --json`. Added in v1.0.69 as part of G39 to surface vec_memories, vec_entities, and vec_chunks rows whose parent was soft-deleted or never existed.",
   "type": "object",

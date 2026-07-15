@@ -2,12 +2,11 @@
 
 [![Crates.io](https://img.shields.io/crates/v/sqlite-graphrag.svg)](https://crates.io/crates/sqlite-graphrag)
 [![Docs.rs](https://docs.rs/sqlite-graphrag/badge.svg)](https://docs.rs/sqlite-graphrag)
-[![CI](https://github.com/daniloaguiarbr/sqlite-graphrag/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloaguiarbr/sqlite-graphrag/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](LICENSE)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 > Memória persistente para agentes de IA em um único binário Rust com GraphRAG embutido.
-> **Release atual: v1.1.06 — fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0): `entity-connect` / `cross-domain-bridges` não travam mais em namespaces grandes (~10⁵ entidades) graças ao scan O(k) por coocorrência + hub×ilha, chaves `pair:{id1}:{id2}`, teto no **primeiro** scan via `InterruptHandle` (Timeout exit 1, não 75) e NDJSON `phase: scan_start` antes do SQL (`gaps.md`, ADR-0066). Sem migração de schema (permanece v16). Nome oficial v1.1.06; manifesto `version = "1.1.6"` (SemVer rejeita zero à esquerda no patch). Anterior v1.1.05 — cinco bugs danilo; v1.1.04 — GAP-001/GAP-002 + V016.**
+> **Release atual: v1.1.07 — migração de publicação/ownership: owner crates.io `danilo-aguiar-br`, repo canônico `https://github.com/danilo-aguiar-br/sqlite-graphrag`, GitHub Actions CI/CD removido (releases só manuais), fallback de segurança `daniloaguiarbr@proton.me`. Sem migração de schema (permanece v16). Sem mudança de runtime vs v1.1.06. Nome oficial v1.1.07; crate `version = "1.1.7"`. Anterior v1.1.06 fechou GAP-ENTITY-CONNECT-SCAN-CARTESIAN (scan O(k) entity-connect).**
 
 - Leia este documento em [inglês (EN)](README.md).
 

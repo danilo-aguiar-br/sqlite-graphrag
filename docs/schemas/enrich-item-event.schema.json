@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/enrich-item-event.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/enrich-item-event.schema.json",
   "title": "EnrichItemEvent",
   "description": "Per-item NDJSON line emitted by `sqlite-graphrag enrich`. Emitted for each memory or entity processed. Status is 'done' (success), 'failed' (error), 'skipped' (item filtered out), 'preview' (dry-run), or 'not_yet_implemented' (operation not fully implemented). Index and total are always present.",
   "type": "object",

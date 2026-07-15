@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/reclassify-relation.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/reclassify-relation.schema.json",
   "title": "ReclassifyRelationResponse",
   "description": "Response emitted by `sqlite-graphrag reclassify-relation` on stdout as a single JSON line. Renames a relation type across matching edges (single or batch mode). Exit codes: 0 success, 1 validation error, 4 edge not found.",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/shutdown-envelope.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/shutdown-envelope.schema.json",
   "title": "shutdown envelope",
   "description": "JSON envelope emitted to stdout when a shutdown signal interrupts execution (GAP-002, v1.0.82).",
   "type": "object",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/deep-research-output-ack.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/deep-research-output-ack.schema.json",
   "title": "DeepResearchOutputAck",
   "description": "v1.1.05 (ADR-0065, Bug 2): short stdout ack emitted by `sqlite-graphrag deep-research --output PATH` after the full research envelope is written atomically to PATH (tempfile → fsync → rename via `atomic_io::write_json_atomic`). When `--output` is omitted, stdout is the full DeepResearchResponse instead (see deep-research.schema.json).",
   "type": "object",

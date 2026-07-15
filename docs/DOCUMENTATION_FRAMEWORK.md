@@ -888,7 +888,7 @@ The 7 envelope schemas in `docs/schemas/` (`edit`, `embedding-status`, `enrich-s
 - `docs/schemas/embedding-status.schema.json` — `sqlite-graphrag embedding status` output (ADR-0040, GAP-005)
 - `docs/schemas/slots-status.schema.json` — `sqlite-graphrag slots status` output (ADR-0039, GAP-004)
 - `docs/schemas/shutdown-envelope.schema.json` — JSON envelope emitted at exit code 19 (ADR-0037, GAP-002)
-- All five new schemas declare `"additionalProperties": false` and use `$id` URLs with the `daniloaguiarbr` owner consistent with the legacy schemas
+- All five new schemas declare `"additionalProperties": false` and use `$id` URLs with the `danilo-aguiar-br` owner consistent with the GitHub repository
 - All five are referenced in `docs/schemas/README.md` under the new "Schemas Adicionados na v1.0.82 (GAP-001/002/004/005)" section
 ### Five New ADRs (ADR-0036 through ADR-0040)
 - `docs/decisions/adr-0036-pending-memories-staging.md` (and `.pt-BR.md`) — Three-stage remember checkpoint queue (GAP-001)

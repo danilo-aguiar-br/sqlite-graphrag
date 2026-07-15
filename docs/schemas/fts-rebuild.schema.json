@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/daniloaguiarbr/sqlite-graphrag/schemas/fts-rebuild.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/fts-rebuild.schema.json",
   "title": "FtsRebuildResponse",
   "description": "Response emitted by `sqlite-graphrag fts rebuild --json` on stdout as a single JSON line.",
   "type": "object",

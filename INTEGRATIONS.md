@@ -701,7 +701,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 - Recipe ready to add as a flake input, zero cloud cost, binary hash is pinned for reproducibility
 - While MCPs require a dedicated server, sqlite-graphrag runs as a pure binary in any Nix dev shell
 - Purpose is to install sqlite-graphrag in reproducible Nix environments including NixOS and dev shells
-- Use `nix run github:daniloaguiarbr/sqlite-graphrag#sqlite-graphrag` to execute without installation
+- Use `nix run github:danilo-aguiar-br/sqlite-graphrag#sqlite-graphrag` to execute without installation
 - Minimum version requires Nix 2.4 or later with Flakes feature enabled in user configuration
 - Official docs live at https://nixos.org describing Flakes enablement and usage from command line
 - Golden tip is to pin the flake input hash so the binary stays reproducible across every rebuild
