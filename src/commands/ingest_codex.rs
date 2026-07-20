@@ -169,7 +169,7 @@ pub fn find_codex_binary(explicit: Option<&Path>) -> Result<PathBuf, AppError> {
         )));
     }
 
-    if let Ok(env_path) = std::env::var("SQLITE_GRAPHRAG_CODEX_BINARY") {
+    if let Some(env_path) = crate::runtime_config::codex_binary() {
         let p = PathBuf::from(&env_path);
         if p.exists() {
             return Ok(p);

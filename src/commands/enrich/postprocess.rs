@@ -1,6 +1,13 @@
 //! Persist helpers — write enrichment results to the main DB.
 
-use super::*;
+/* wave-c1-imports */
+use rusqlite::Connection;
+use serde::Deserialize;
+use crate::errors::AppError;
+use crate::entity_type::EntityType;
+use crate::storage::entities::{self, NewEntity, NewRelationship};
+use crate::storage::memories;
+
 
 /// Persists entity bindings extracted by the LLM for a memory.
 ///

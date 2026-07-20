@@ -262,7 +262,7 @@ pub fn map_to_canonical_relation(s: &str) -> String {
         "adds" | "creates" => "causes",
         "implements" => "supports",
         "blocks" => "contradicts",
-        "tested_by" => "related",
+        "tested_by" | "related_to" => "related",
         "part_of" => "applies_to",
         // Any other non-canonical relation folds onto the generic canonical
         // kind rather than being persisted raw.
@@ -367,6 +367,8 @@ mod relation_tests {
         assert_eq!(map_to_canonical_relation("adds"), "causes");
         assert_eq!(map_to_canonical_relation("creates"), "causes");
         assert_eq!(map_to_canonical_relation("tested-by"), "related");
+        assert_eq!(map_to_canonical_relation("related_to"), "related");
+        assert_eq!(map_to_canonical_relation("related-to"), "related");
     }
 
     #[test]

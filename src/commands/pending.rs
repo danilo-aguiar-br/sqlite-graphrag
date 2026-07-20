@@ -54,8 +54,8 @@ pub struct PendingListArgs {
     pub limit: usize,
     /// GAP-E2E-010b (v1.0.89): explicit database path override. Defaults to
     /// the path resolved by `AppPaths::resolve(None)` when omitted. Honors
-    /// env var `SQLITE_GRAPHRAG_DB_PATH`.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    /// flag `--db` / XDG `db.default_path`.
+    #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
     #[arg(long, hide = true)]
@@ -92,8 +92,8 @@ pub struct PendingShowArgs {
     pub pending_id: i64,
     /// GAP-E2E-010b (v1.0.89): explicit database path override. Defaults to
     /// the path resolved by `AppPaths::resolve(None)` when omitted. Honors
-    /// env var `SQLITE_GRAPHRAG_DB_PATH`.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    /// flag `--db` / XDG `db.default_path`.
+    #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
     #[arg(long, hide = true)]
@@ -113,8 +113,8 @@ pub struct PendingCleanupArgs {
     pub dry_run: bool,
     /// Explicit database path override. Defaults to the path resolved by
     /// `AppPaths::resolve(None)` when omitted. Honors env var
-    /// `SQLITE_GRAPHRAG_DB_PATH`.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    /// `--db` / XDG `db.default_path`.
+    #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
     #[arg(long, hide = true)]

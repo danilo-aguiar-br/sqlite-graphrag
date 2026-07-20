@@ -22,115 +22,8 @@ pub enum GraphExportFormat {
     Ndjson,
 }
 
-/// v1.0.82 (GAP-003): LLM backend for embedding. Accepts `auto` (default —
-/// detects `codex` or `claude` on the PATH), `codex` (forces codex exec), `claude`
-/// (forces claude -p), or `none` (skips embedding; useful for tests).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum LlmBackendChoice {
-    Auto,
-    Claude,
-    Codex,
-    Opencode,
-    OpenRouter,
-    None,
-}
-
-/// v1.0.93: embedding backend selector. Separate from `--llm-backend` which
-/// controls enrichment (entity extraction, body enrichment) via subprocess.
-/// `auto` tries OpenRouter if API key is available, falls back to LLM subprocess.
-/// `openrouter` requires API key (exit 78 if absent).
-/// `llm` forces subprocess (codex/claude/opencode) — legacy behaviour.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
-pub enum EmbeddingBackendChoice {
-    Auto,
-    Openrouter,
-    Llm,
-}
-
-impl EmbeddingBackendChoice {
-    /// v1.0.93: produces a fallback chain that prepends OpenRouter when
-    /// the client is initialised. Falls back to the LLM subprocess chain.
-    pub fn to_chain(self, llm_choice: LlmBackendChoice) -> Vec<crate::embedder::LlmBackendKind> {
-        use crate::embedder::LlmBackendKind;
-        match self {
-            EmbeddingBackendChoice::Openrouter => vec![LlmBackendKind::OpenRouter],
-            EmbeddingBackendChoice::Llm => llm_choice.to_chain(),
-            EmbeddingBackendChoice::Auto => {
-                if crate::embedder::is_openrouter_initialized() {
-                    let mut chain = vec![LlmBackendKind::OpenRouter];
-                    chain.extend(llm_choice.to_chain());
-                    chain
-                } else {
-                    llm_choice.to_chain()
-                }
-            }
-        }
-    }
-}
-
-impl LlmBackendChoice {
-    /// v1.0.82 (GAP-003): converts the CLI choice into an ordered chain
-    /// of backends that `embedder::embed_with_fallback` iterates. The first
-    /// element of the chain is the preferred backend; subsequent elements
-    /// are fallbacks used when the preferred one fails with `LlmBackendError`.
-    ///
-    /// `Auto` produces `[Codex, Claude, None]` — codex is the default since v1.0.76+,
-    /// claude is the fallback if codex fails (OAuth contention, quota), and
-    /// `None` lets `embed_with_fallback` return an empty vector when
-    /// `skip_on_failure` is active.
-    pub fn to_chain(self) -> Vec<crate::embedder::LlmBackendKind> {
-        use crate::embedder::LlmBackendKind;
-        match self {
-            LlmBackendChoice::Codex => vec![LlmBackendKind::Codex, LlmBackendKind::None],
-            LlmBackendChoice::Claude => vec![LlmBackendKind::Claude, LlmBackendKind::None],
-            LlmBackendChoice::Opencode => vec![
-                LlmBackendKind::Opencode,
-                LlmBackendKind::Codex,
-                LlmBackendKind::Claude,
-                LlmBackendKind::None,
-            ],
-            LlmBackendChoice::OpenRouter => vec![
-                LlmBackendKind::OpenRouter,
-                LlmBackendKind::Codex,
-                LlmBackendKind::None,
-            ],
-            LlmBackendChoice::None => vec![LlmBackendKind::None],
-            LlmBackendChoice::Auto => parse_fallback_chain(
-                &std::env::var("SQLITE_GRAPHRAG_LLM_FALLBACK")
-                    .unwrap_or_else(|_| "codex,claude,none".to_string()),
-            ),
-        }
-    }
-}
-
-fn parse_fallback_chain(s: &str) -> Vec<crate::embedder::LlmBackendKind> {
-    use crate::embedder::LlmBackendKind;
-    let mut chain: Vec<LlmBackendKind> = s
-        .split(',')
-        .filter_map(|tok| match tok.trim().to_ascii_lowercase().as_str() {
-            "codex" => Some(LlmBackendKind::Codex),
-            "claude" | "claude-code" => Some(LlmBackendKind::Claude),
-            "opencode" => Some(LlmBackendKind::Opencode),
-            "openrouter" => Some(LlmBackendKind::OpenRouter),
-            "none" => Some(LlmBackendKind::None),
-            _ => {
-                tracing::warn!(
-                    token = tok.trim(),
-                    "unknown backend in --llm-fallback, skipping"
-                );
-                Option::None
-            }
-        })
-        .collect();
-    if chain.is_empty() {
-        chain = vec![
-            LlmBackendKind::Codex,
-            LlmBackendKind::Claude,
-            LlmBackendKind::None,
-        ];
-    }
-    chain
-}
+// Backend choice enums live in `backend_choice` (Wave C1).
+pub use crate::backend_choice::{EmbeddingBackendChoice, LlmBackendChoice};
 
 #[derive(Parser)]
 #[command(name = "sqlite-graphrag")]
@@ -141,8 +34,9 @@ fn parse_fallback_chain(s: &str) -> Vec<crate::embedder::LlmBackendKind> {
     `--db` is a PER-SUBCOMMAND flag, so it must come AFTER the subcommand:\n    \
     sqlite-graphrag remember --db ./graphrag.sqlite --name mem --type note ...\n  \
     Placing it before the subcommand (e.g. `sqlite-graphrag --db x.sqlite remember`) is rejected.\n  \
-    For a position-independent path, set the canonical env var instead:\n    \
-    SQLITE_GRAPHRAG_DB_PATH=./graphrag.sqlite sqlite-graphrag remember --name mem ...")]
+    Prefer `--db` on every invocation (one-shot agents). Optional XDG defaults:\n    \
+    `sqlite-graphrag config set db.default_path ./graphrag.sqlite`\n  \
+    Product environment variables are not read at runtime; use flags + `config set/get`.")]
 pub struct Cli {
     /// Maximum number of simultaneous CLI invocations allowed (default: 4).
     ///
@@ -170,16 +64,15 @@ pub struct Cli {
     /// `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`
     /// or other custom-provider credentials are forwarded. Defaults to
     /// the standard v1.0.83 whitelist that preserves custom-provider
-    /// credentials (ADR-0041). Honors env var
-    /// `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` when set.
+    /// credentials (ADR-0041). Prefer the flag; optional XDG
+    /// `spawn.strict_env_clear=1` via `config set`.
     #[arg(
         long,
         global = true,
         hide = true,
         default_value_t = false,
         value_parser = clap::builder::BoolishValueParser::new(),
-        env = "SQLITE_GRAPHRAG_STRICT_ENV_CLEAR"
-    )]
+            )]
     pub strict_env_clear: bool,
 
     /// v1.0.84 (ADR-0042 / GAP-002): resolve and print the LLM backend that
@@ -187,36 +80,35 @@ pub struct Cli {
     /// then exit 0 without executing the subprocess. Useful for CI
     /// audit and sanity-check of `--llm-backend` before long sessions.
     ///
-    /// Honors env var `SQLITE_GRAPHRAG_DRY_RUN_BACKEND=1` when set.
+    /// Prefer the flag; optional XDG `llm.dry_run_backend=1` via `config set`.
     #[arg(
         long,
         global = true,
         hide = true,
         default_value_t = false,
         value_parser = clap::builder::BoolishValueParser::new(),
-        env = "SQLITE_GRAPHRAG_DRY_RUN_BACKEND"
-    )]
+            )]
     pub dry_run_backend: bool,
 
     /// Language for human-facing stderr messages. Accepts `en` or `pt`.
     ///
-    /// Without the flag, detection falls back to `SQLITE_GRAPHRAG_LANG` and then
-    /// `LC_ALL`/`LANG`. JSON stdout stays deterministic and identical across
-    /// languages; only human-facing strings are affected.
+    /// Without the flag, detection uses XDG `i18n.lang` then OS locale
+    /// (`LC_ALL`/`LC_MESSAGES`/`LANG`). JSON stdout stays deterministic and
+    /// identical across languages; only human-facing strings are affected.
     #[arg(long, global = true, value_enum, value_name = "LANG")]
     pub lang: Option<crate::i18n::Language>,
 
     /// Time zone for `*_iso` fields in JSON output (for example `America/Sao_Paulo`).
     ///
     /// Accepts any IANA time zone name. Without the flag, it falls back to
-    /// `SQLITE_GRAPHRAG_DISPLAY_TZ`; if unset, UTC is used. Integer epoch fields
+    /// XDG `display.tz`; if unset, UTC is used. Integer epoch fields
     /// are not affected.
     #[arg(long, global = true, value_name = "IANA")]
     pub tz: Option<chrono_tz::Tz>,
 
     /// Increase logging verbosity (-v=info, -vv=debug, -vvv=trace).
     ///
-    /// Overrides `SQLITE_GRAPHRAG_LOG_LEVEL` env var when present. Logs are emitted
+    /// Overrides XDG `log.level` when present. Logs are emitted
     /// to stderr; JSON stdout is unaffected.
     #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -241,7 +133,7 @@ pub struct Cli {
 
     /// v1.0.79 (G42/S1): embedding dimensionality override (default 64).
     ///
-    /// Precedence: this flag > `SQLITE_GRAPHRAG_EMBEDDING_DIM` env var >
+    /// Precedence: this flag > XDG `embedding.dim` >
     /// the `dim` recorded in the database `schema_meta` > 64. Existing
     /// databases keep their recorded dimensionality automatically; use
     /// this flag only to migrate a corpus to a new dimensionality
@@ -254,135 +146,124 @@ pub struct Cli {
     /// `codex exec`), `claude` (forces `claude -p`; since v1.0.84 does NOT fall back to
     /// codex — emits `AppError::Validation` if `claude` is absent),
     /// `opencode` (forces `opencode run`), or `none`
-    /// (skips embedding; useful for tests). Honors the env var
-    /// `SQLITE_GRAPHRAG_LLM_BACKEND`.
-    #[arg(long, global = true, value_enum, default_value_t = LlmBackendChoice::Auto, env = "SQLITE_GRAPHRAG_LLM_BACKEND")]
+    /// (skips embedding; useful for tests). Prefer the flag; optional XDG
+    /// XDG `llm.backend` via `config set`.
+    #[arg(long, global = true, value_enum, default_value_t = LlmBackendChoice::Auto)]
     pub llm_backend: LlmBackendChoice,
 
     /// v1.0.82 (GAP-003): model to invoke on the chosen backend.
-    /// Honors the env var `SQLITE_GRAPHRAG_LLM_MODEL`. The default depends
+    /// Prefer the flag; optional XDG `llm.model`. The default depends
     /// on the backend (codex: `gpt-5.5`; claude: `claude-sonnet-4-6`).
     #[arg(
         long,
         global = true,
         value_name = "MODEL",
-        env = "SQLITE_GRAPHRAG_LLM_MODEL"
-    )]
+            )]
     pub llm_model: Option<String>,
 
     /// v1.0.82 (GAP-003): path to the `claude` binary (overrides
-    /// PATH detection). Honors the env var `SQLITE_GRAPHRAG_CLAUDE_BINARY`.
+    /// PATH detection). Prefer the flag; optional XDG `llm.claude_binary`.
     #[arg(
         long,
         global = true,
         value_name = "PATH",
-        env = "SQLITE_GRAPHRAG_CLAUDE_BINARY"
-    )]
+            )]
     pub claude_binary: Option<std::path::PathBuf>,
 
     /// v1.0.89 (GAP-1): path to the `codex` binary (overrides
-    /// PATH detection). Honors the env var `SQLITE_GRAPHRAG_CODEX_BINARY`.
+    /// PATH detection). Prefer the flag; optional XDG `llm.codex_binary`.
     #[arg(
         long,
         global = true,
         value_name = "PATH",
-        env = "SQLITE_GRAPHRAG_CODEX_BINARY"
-    )]
+            )]
     pub codex_binary: Option<std::path::PathBuf>,
 
     /// v1.0.90 (GAP-OPENCODE-001): path to the `opencode` binary (overrides
-    /// PATH detection). Honors the env var `SQLITE_GRAPHRAG_OPENCODE_BINARY`.
+    /// PATH detection). Prefer the flag; optional XDG `llm.opencode_binary`.
     #[arg(
         long,
         global = true,
         value_name = "PATH",
-        env = "SQLITE_GRAPHRAG_OPENCODE_BINARY"
-    )]
+            )]
     pub opencode_binary: Option<std::path::PathBuf>,
 
     /// v1.0.82 (GAP-005): chain of LLM backends tried in order
-    /// when the primary fails. Default `codex,claude,none`. Honors
-    /// the env var `SQLITE_GRAPHRAG_LLM_FALLBACK`.
+    /// when the primary fails. Default `codex,claude,none`. Prefer the
+    /// flag; optional XDG `llm.fallback`.
     #[arg(
         long,
         global = true,
         default_value = "codex,claude,none",
-        env = "SQLITE_GRAPHRAG_LLM_FALLBACK"
-    )]
+            )]
     pub llm_fallback: String,
 
     /// v1.0.82 (GAP-005): persists with a NULL embedding when all
     /// backends in the chain fail. The memory stays in `pending_embeddings`
-    /// for reprocessing via `embedding retry`. Honors the env var
-    /// `SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE`.
+    /// for reprocessing via `embedding retry`. Prefer the flag; optional XDG
+    /// XDG `llm.skip_embedding_on_failure`.
     #[arg(
         long,
         global = true,
         default_value_t = false,
         value_parser = clap::builder::BoolishValueParser::new(),
-        env = "SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE"
-    )]
+            )]
     pub skip_embedding_on_failure: bool,
 
     /// v1.0.82 (GAP-004): host-wide limit of concurrent LLM
-    /// subprocesses. Default derived from `ncpus`. Honors the env var
-    /// `SQLITE_GRAPHRAG_LLM_MAX_HOST_CONCURRENCY`.
+    /// subprocesses. Default derived from `ncpus`. Prefer the flag; optional XDG
+    /// XDG `llm.max_host_concurrency`.
     #[arg(
         long,
         global = true,
         value_name = "N",
-        env = "SQLITE_GRAPHRAG_LLM_MAX_HOST_CONCURRENCY"
-    )]
+            )]
     pub llm_max_host_concurrency: Option<u32>,
 
     /// v1.0.82 (GAP-004): seconds to wait for a free LLM slot
-    /// before failing with exit 75. Default 30s. Honors the env var
-    /// `SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS`.
+    /// before failing with exit 75. Default 30s. Prefer the flag; optional XDG
+    /// XDG `llm.slot_wait_secs`.
     #[arg(
         long,
         global = true,
         value_name = "SECONDS",
-        env = "SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS"
-    )]
+            )]
     pub llm_slot_wait_secs: Option<u64>,
 
     /// v1.0.82 (GAP-004): if set, fails immediately (exit 75)
-    /// when no LLM slot is free. Honors the env var
-    /// `SQLITE_GRAPHRAG_LLM_SLOT_NO_WAIT`.
+    /// when no LLM slot is free. Prefer the flag; optional XDG
+    /// XDG `llm.slot_no_wait`.
     #[arg(
         long,
         global = true,
         default_value_t = false,
         value_parser = clap::builder::BoolishValueParser::new(),
-        env = "SQLITE_GRAPHRAG_LLM_SLOT_NO_WAIT"
-    )]
+            )]
     pub llm_slot_no_wait: bool,
 
     /// v1.0.93: embedding backend selector. `auto` tries OpenRouter API if key
     /// available, falls back to LLM subprocess. `openrouter` requires API key.
-    /// `llm` forces subprocess. Honra env var `SQLITE_GRAPHRAG_EMBEDDING_BACKEND`.
-    #[arg(long, global = true, value_enum, default_value_t = EmbeddingBackendChoice::Auto, env = "SQLITE_GRAPHRAG_EMBEDDING_BACKEND")]
+    /// `llm` forces subprocess. Prefer the flag; optional XDG `embedding.backend`.
+    #[arg(long, global = true, value_enum, default_value_t = EmbeddingBackendChoice::Auto)]
     pub embedding_backend: EmbeddingBackendChoice,
 
     /// v1.0.93: embedding model for the OpenRouter API. Required when
-    /// `--embedding-backend openrouter`. Honors env var `SQLITE_GRAPHRAG_EMBEDDING_MODEL`.
+    /// `--embedding-backend openrouter`. Prefer the flag; optional XDG `embedding.model`.
     #[arg(
         long,
         global = true,
         value_name = "MODEL",
-        env = "SQLITE_GRAPHRAG_EMBEDDING_MODEL"
-    )]
+            )]
     pub embedding_model: Option<String>,
 
     /// v1.0.93: OpenRouter API key (prefer env var or config.toml over CLI flag
-    /// to avoid shell history exposure). Honra env var `OPENROUTER_API_KEY`.
+    /// to avoid shell history exposure). Prefer `config set-key openrouter`.
     #[arg(
         long,
         global = true,
         value_name = "KEY",
         hide = true,
-        env = "OPENROUTER_API_KEY",
-        hide_env_values = true
+                hide_env_values = true
     )]
     pub openrouter_api_key: Option<String>,
 
@@ -391,123 +272,9 @@ pub struct Cli {
 }
 
 #[cfg(test)]
-mod json_only_format_tests {
-    use super::Cli;
-    use clap::Parser;
+#[path = "cli_json_only_format_tests.rs"]
+mod json_only_format_tests;
 
-    #[test]
-    fn restore_accepts_only_format_json() {
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "restore",
-            "--name",
-            "mem",
-            "--version",
-            "1",
-            "--format",
-            "json",
-        ])
-        .is_ok());
-
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "restore",
-            "--name",
-            "mem",
-            "--version",
-            "1",
-            "--format",
-            "text",
-        ])
-        .is_err());
-    }
-
-    #[test]
-    fn hybrid_search_accepts_only_format_json() {
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "hybrid-search",
-            "query",
-            "--format",
-            "json",
-        ])
-        .is_ok());
-
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "hybrid-search",
-            "query",
-            "--format",
-            "markdown",
-        ])
-        .is_err());
-    }
-
-    #[test]
-    fn remember_recall_rename_vacuum_json_only() {
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "remember",
-            "--name",
-            "mem",
-            "--type",
-            "project",
-            "--description",
-            "desc",
-            "--format",
-            "json",
-        ])
-        .is_ok());
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "remember",
-            "--name",
-            "mem",
-            "--type",
-            "project",
-            "--description",
-            "desc",
-            "--format",
-            "text",
-        ])
-        .is_err());
-
-        assert!(
-            Cli::try_parse_from(["sqlite-graphrag", "recall", "query", "--format", "json",])
-                .is_ok()
-        );
-        assert!(
-            Cli::try_parse_from(["sqlite-graphrag", "recall", "query", "--format", "text",])
-                .is_err()
-        );
-
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "rename",
-            "--name",
-            "old",
-            "--new-name",
-            "new",
-            "--format",
-            "json",
-        ])
-        .is_ok());
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "rename",
-            "--name",
-            "old",
-            "--new-name",
-            "new",
-            "--format",
-            "markdown",
-        ])
-        .is_err());
-
-        assert!(Cli::try_parse_from(["sqlite-graphrag", "vacuum", "--format", "json",]).is_ok());
-        assert!(Cli::try_parse_from(["sqlite-graphrag", "vacuum", "--format", "text",]).is_err());
-    }
-}
 
 impl Cli {
     /// Validates concurrency flags and returns a localised descriptive error if invalid.
@@ -596,8 +363,9 @@ pub enum Commands {
         sqlite-graphrag init\n\n  \
         # Initialize at a specific path\n  \
         sqlite-graphrag init --db /path/to/graphrag.sqlite\n\n  \
-        # Initialize using SQLITE_GRAPHRAG_HOME env var\n  \
-        SQLITE_GRAPHRAG_HOME=/data sqlite-graphrag init\n\n\
+        # Persist default db path via XDG config (no product env)\n  \
+        sqlite-graphrag config set db.default_path /data/graphrag.sqlite\n  \
+        sqlite-graphrag init\n\n\
         NOTES:\n  \
         - `init` is OPTIONAL: any subsequent CRUD command auto-initializes graphrag.sqlite if missing.\n  \
         - As a side effect, `init` warms a smoke-test embedding via the LLM-only one-shot pipeline.")]
@@ -621,7 +389,7 @@ pub enum Commands {
         cat memories.ndjson | sqlite-graphrag remember-batch --transaction --json")]
     RememberBatch(remember_batch::RememberBatchArgs),
     /// Bulk-ingest every file under a directory as separate memories (NDJSON output)
-    Ingest(ingest::IngestArgs),
+    Ingest(Box<ingest::IngestArgs>),
     /// Search memories semantically
     #[command(after_long_help = "EXAMPLES:\n  \
         # Top 10 semantic matches (default)\n  \
@@ -730,7 +498,7 @@ pub enum Commands {
     #[command(name = "merge-entities")]
     MergeEntities(merge_entities::MergeEntitiesArgs),
     /// Enrich graph memories and entities using an LLM provider
-    Enrich(enrich::EnrichArgs),
+    Enrich(Box<enrich::EnrichArgs>),
     /// Reclassify relationship types across the graph using rules or LLM judgment
     #[command(name = "reclassify-relation")]
     ReclassifyRelation(reclassify_relation::ReclassifyRelationArgs),
@@ -823,57 +591,9 @@ pub enum MemoryType {
 }
 
 #[cfg(test)]
-mod heavy_concurrency_tests {
-    use super::*;
+#[path = "cli_heavy_concurrency_tests.rs"]
+mod heavy_concurrency_tests;
 
-    #[test]
-    fn command_heavy_detects_init_and_embeddings() {
-        let init = Cli::try_parse_from(["sqlite-graphrag", "init"]).expect("parse init");
-        assert!(init
-            .command
-            .as_ref()
-            .is_some_and(|c| c.is_embedding_heavy()));
-
-        let remember = Cli::try_parse_from([
-            "sqlite-graphrag",
-            "remember",
-            "--name",
-            "test-memory",
-            "--type",
-            "project",
-            "--description",
-            "desc",
-        ])
-        .expect("parse remember");
-        assert!(remember
-            .command
-            .as_ref()
-            .is_some_and(|c| c.is_embedding_heavy()));
-
-        let recall =
-            Cli::try_parse_from(["sqlite-graphrag", "recall", "query"]).expect("parse recall");
-        assert!(recall
-            .command
-            .as_ref()
-            .is_some_and(|c| c.is_embedding_heavy()));
-
-        let hybrid = Cli::try_parse_from(["sqlite-graphrag", "hybrid-search", "query"])
-            .expect("parse hybrid");
-        assert!(hybrid
-            .command
-            .as_ref()
-            .is_some_and(|c| c.is_embedding_heavy()));
-    }
-
-    #[test]
-    fn command_light_does_not_mark_stats() {
-        let stats = Cli::try_parse_from(["sqlite-graphrag", "stats"]).expect("parse stats");
-        assert!(!stats
-            .command
-            .as_ref()
-            .is_some_and(|c| c.is_embedding_heavy()));
-    }
-}
 
 impl MemoryType {
     pub fn as_str(&self) -> &'static str {
@@ -893,108 +613,5 @@ impl MemoryType {
 
 /// GAP-SG-31/33/34/35/30: parse-time contracts for the Fase G clap fixes.
 #[cfg(test)]
-mod fase_g_parsing_tests {
-    use super::Cli;
-    use clap::Parser;
-
-    /// GAP-SG-31(b): `enrich --status` parses without --operation/--mode.
-    #[test]
-    fn enrich_status_optional_operation_and_mode() {
-        assert!(
-            Cli::try_parse_from(["sqlite-graphrag", "enrich", "--status"]).is_ok(),
-            "--status alone must not require --operation/--mode"
-        );
-        assert!(
-            Cli::try_parse_from(["sqlite-graphrag", "enrich", "--list-dead"]).is_ok(),
-            "--list-dead is read-only and must not require --operation/--mode"
-        );
-        // Write path still requires both: bare `enrich` is rejected.
-        assert!(
-            Cli::try_parse_from(["sqlite-graphrag", "enrich"]).is_err(),
-            "bare enrich (no status/list-dead/requeue-dead) must require --operation/--mode"
-        );
-        // Full write invocation still parses.
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "enrich",
-            "--operation",
-            "memory-bindings",
-            "--mode",
-            "openrouter",
-        ])
-        .is_ok());
-    }
-
-    /// GAP-SG-34(c): `config doctor --json` parses (no-op flag accepted).
-    #[test]
-    fn config_doctor_accepts_json() {
-        assert!(Cli::try_parse_from(["sqlite-graphrag", "config", "doctor", "--json"]).is_ok());
-        assert!(Cli::try_parse_from(["sqlite-graphrag", "config", "list-keys", "--json"]).is_ok());
-    }
-
-    /// GAP-SG-33(d): a hyphen-led --description value is accepted, not parsed
-    /// as a flag.
-    #[test]
-    fn remember_description_allows_leading_hyphen() {
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "remember",
-            "--name",
-            "mem",
-            "--type",
-            "note",
-            "--description",
-            "- bullet description",
-        ])
-        .is_ok());
-    }
-
-    /// GAP-SG-35(e): `remember-batch --llm-parallelism N` parses.
-    #[test]
-    fn remember_batch_accepts_llm_parallelism() {
-        assert!(Cli::try_parse_from([
-            "sqlite-graphrag",
-            "remember-batch",
-            "--llm-parallelism",
-            "4"
-        ])
-        .is_ok());
-    }
-
-    /// GAP-SG-30: --graph-file combines with a body source but conflicts with
-    /// the other graph-input flags.
-    #[test]
-    fn remember_graph_file_combines_with_body_but_conflicts_with_graph_stdin() {
-        assert!(
-            Cli::try_parse_from([
-                "sqlite-graphrag",
-                "remember",
-                "--name",
-                "mem",
-                "--type",
-                "note",
-                "--body",
-                "inline body",
-                "--graph-file",
-                "/tmp/graph.json",
-            ])
-            .is_ok(),
-            "--body + --graph-file must coexist"
-        );
-        assert!(
-            Cli::try_parse_from([
-                "sqlite-graphrag",
-                "remember",
-                "--name",
-                "mem",
-                "--type",
-                "note",
-                "--graph-file",
-                "/tmp/graph.json",
-                "--graph-stdin",
-            ])
-            .is_err(),
-            "--graph-file conflicts with --graph-stdin"
-        );
-    }
-}
+#[path = "cli_fase_g_parsing_tests.rs"]
+mod fase_g_parsing_tests;

@@ -1,5 +1,8 @@
 # Integrations
 
+> **v1.1.8 config:** runtime knobs resolve as **CLI flag > XDG `config set` > named default**. Product environment variables `SQLITE_GRAPHRAG_*` are **ignored** at runtime. Migrate integration recipes from `export SQLITE_GRAPHRAG_*=…` to `sqlite-graphrag config set <KEY> <VALUE>`, `config add-key`, and per-invocation flags (`--db`, `--openrouter-api-key`, `--llm-backend`, …). Schema stays at v16 (no migrate if already on v16). Offline seal: `scripts/e2e_offline_v118.sh` 16/16.
+
+
 > Read this document in [Portuguese (pt-BR)](INTEGRATIONS.pt-BR.md)
 
 
@@ -271,7 +274,7 @@
 | OpenRouter | AI Router | any | `sqlite-graphrag recall "rule" --json` | https://openrouter.ai/docs |
 | POSIX Shells | Shell | any | `sqlite-graphrag recall "$query" --json` | https://www.gnu.org/software/bash |
 | Nushell | Shell | 0.90+ | `^sqlite-graphrag recall "query" --k 5 --json \| from json \| get results` | https://www.nushell.sh/book |
-| GitHub Actions | CI/CD | any | workflow YAML | https://docs.github.com/actions |
+| Local cron/systemd/launchd/Task Scheduler | Ops | any | local one-shot | (no cloud CI) |
 | GitLab CI | CI/CD | any | `.gitlab-ci.yml` | https://docs.gitlab.com/ee/ci |
 | CircleCI | CI/CD | any | `.circleci/config.yml` | https://circleci.com/docs |
 | Jenkins | CI/CD | 2.400+ | Jenkinsfile | https://www.jenkins.io/doc |
@@ -619,48 +622,15 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 - Golden tip is to pipe results into `select name score` to display a ranked memory table in Nu
 
 
-## GitHub Actions
-### CI/CD — Any Recent Runner Image
-- Recipe ready to copy into `.github/workflows/`, zero cloud cost, runs on any GitHub runner image
-- While MCPs require a dedicated server, sqlite-graphrag installs in seconds via cargo on any runner
-- Purpose is to run memory maintenance and backups inside scheduled GitHub Actions workflows
-- Use a scheduled cron workflow that runs `sqlite-graphrag purge --days 30 --yes` and `vacuum`
-- Minimum version works on any `ubuntu-latest`, `macos-latest` or `windows-latest` GitHub runner
-- Official docs live at https://docs.github.com/actions describing scheduled workflows syntax
-- Golden tip is to upload the sync-safe-copy output as a build artifact for rollback capability
-
-
-## GitLab CI
-### CI/CD — Any Recent Runner
-- Recipe ready to copy into `.gitlab-ci.yml`, zero cloud cost, runs on any GitLab runner image
-- While MCPs require a dedicated server, sqlite-graphrag installs in seconds via cargo on any runner
-- Purpose is to run sqlite-graphrag maintenance inside GitLab CI scheduled pipelines routinely
-- Use a scheduled `.gitlab-ci.yml` stage invoking `cargo install --path .` first
-- Minimum version supports any recent GitLab runner image with Rust toolchain available for install
-- Official docs live at https://docs.gitlab.com/ee/ci describing scheduled pipelines configuration
-- Golden tip is to cache the cargo install directory between runs for faster job startup times
-
-
-## CircleCI
-### CI/CD — Any Recent Executor
-- Recipe ready to copy into CircleCI config, zero cloud cost, binary installs via cargo in seconds
-- While MCPs require a dedicated server, sqlite-graphrag installs in seconds via cargo on any executor
-- Purpose is to run sqlite-graphrag maintenance and backups inside CircleCI scheduled workflows
-- Use a scheduled workflow with `cargo install --path .` followed by the job steps
-- Minimum version supports any recent CircleCI Linux or macOS executor with Rust toolchain
-- Official docs live at https://circleci.com/docs describing scheduled pipelines and workflows
-- Golden tip is to persist the DB to workspace storage so downstream jobs can audit the snapshot
-
-
-## Jenkins
-### CI/CD — Jenkins 2.400+
-- Recipe ready to paste into a Jenkinsfile stage, zero cloud cost, works in air-gapped environments
-- While MCPs require a dedicated server, sqlite-graphrag installs via cargo and runs as a one-shot subprocess with no daemon to manage (the daemon was removed in v1.0.79)
-- Purpose is to integrate sqlite-graphrag backups into self-hosted Jenkins pipelines for regulated environments
-- Use a Jenkinsfile stage running `cargo install --path .` and the operational commands
-- Minimum version requires Jenkins 2.400 or later for stable pipeline and agent management features
-- Official docs live at https://www.jenkins.io/doc covering declarative pipeline syntax in depth
-- Golden tip is to archive the sync-safe-copy output as a build artifact for long-term retention
+## Local schedulers (no GitHub Actions / cloud CI)
+### Linux systemd user / cron — macOS launchd — Windows Task Scheduler
+- The product **forbids** GitHub Actions / CI workflows in-repo (manual releases only).
+- Use **local** multi-platform schedulers for one-shot maintenance:
+  - Linux: `systemd --user` timer or `cron` running `sqlite-graphrag purge --days 30 --yes` and `vacuum`
+  - macOS: `launchd` plist invoking the cargo-installed binary
+  - Windows: Task Scheduler with the same one-shot binary
+- While MCPs require a dedicated server, sqlite-graphrag installs via cargo and exits after each run
+- Golden tip: archive `sync-safe-copy` output on local filesystem for rollback
 
 
 ## Docker and Podman Alpine

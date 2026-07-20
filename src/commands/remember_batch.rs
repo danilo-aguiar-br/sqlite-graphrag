@@ -33,13 +33,17 @@ pub struct RememberBatchArgs {
     #[arg(long)]
     pub dry_run: bool,
     /// Namespace override for all memories.
-    #[arg(long, env = "SQLITE_GRAPHRAG_NAMESPACE")]
+    #[arg(long)]
     pub namespace: Option<String>,
     /// Emit NDJSON output.
     #[arg(long)]
     pub json: bool,
+    /// GAP-CLI-PRIO-batch: after success, enqueue entity-descriptions for
+    /// entities created/linked in this batch (hot-set priority).
+    #[arg(long)]
+    pub enqueue_enrich: bool,
     /// Database path override.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// GAP-SG-35: maximum simultaneous LLM embedding subprocesses, accepted for
     /// parity with `remember`/`edit`/`ingest`/`enrich` so agents that append
@@ -88,6 +92,15 @@ struct BatchSummary {
     succeeded: usize,
     failed: usize,
     elapsed_ms: u64,
+    /// Entity names linked/created across the batch (GAP-CLI-PRIO-batch).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    entities_created: Vec<String>,
+    /// Recommended enrich ops for automation (GAP-CLI-PRIO-batch).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    enrich_recommended: Vec<String>,
+    /// How many entity-descriptions were hot-enqueued when --enqueue-enrich.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    enqueued_entity_descriptions: Option<usize>,
 }
 
 pub fn run(
@@ -168,10 +181,14 @@ pub fn run(
             succeeded,
             failed,
             elapsed_ms: start.elapsed().as_millis() as u64,
+            entities_created: vec![],
+            enrich_recommended: vec![],
+            enqueued_entity_descriptions: None,
         })?;
         return Ok(());
     }
 
+    let mut all_entities: Vec<String> = Vec::new();
     if args.transaction {
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for (idx, line) in lines.iter().enumerate() {
@@ -185,8 +202,9 @@ pub fn run(
                 llm_backend,
                 embedding_backend,
             ) {
-                Ok(event) => {
+                Ok((event, ent_names)) => {
                     output::emit_json(&event)?;
+                    all_entities.extend(ent_names);
                     succeeded += 1;
                 }
                 Err(e) => {
@@ -220,9 +238,10 @@ pub fn run(
                 llm_backend,
                 embedding_backend,
             ) {
-                Ok(event) => {
+                Ok((event, ent_names)) => {
                     tx.commit()?;
                     output::emit_json(&event)?;
+                    all_entities.extend(ent_names);
                     succeeded += 1;
                 }
                 Err(e) => {
@@ -243,12 +262,39 @@ pub fn run(
         }
     }
 
+    // Dedup entity names for hot-set enqueue (GAP-CLI-PRIO-batch).
+    all_entities.sort();
+    all_entities.dedup();
+    let mut enrich_recommended = Vec::new();
+    if !all_entities.is_empty() {
+        enrich_recommended.push("entity-descriptions".to_string());
+    }
+    let mut enqueued_entity_descriptions = None;
+    if args.enqueue_enrich && !all_entities.is_empty() {
+        match crate::commands::enrich::enqueue_priority_entity_descriptions(
+            &paths,
+            &namespace,
+            &all_entities,
+        ) {
+            Ok(n) => enqueued_entity_descriptions = Some(n),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "remember-batch: enqueue_enrich failed (entities still listed in entities_created)"
+                );
+            }
+        }
+    }
+
     output::emit_json(&BatchSummary {
         summary: true,
         total,
         succeeded,
         failed,
         elapsed_ms: start.elapsed().as_millis() as u64,
+        entities_created: all_entities,
+        enrich_recommended,
+        enqueued_entity_descriptions,
     })?;
 
     Ok(())
@@ -264,7 +310,7 @@ fn process_line(
     paths: &AppPaths,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<BatchItemEvent, AppError> {
+) -> Result<(BatchItemEvent, Vec<String>), AppError> {
     let input: BatchInputLine = serde_json::from_str(line)
         .map_err(|e| AppError::Validation(format!("line {index}: invalid JSON: {e}")))?;
 
@@ -283,6 +329,13 @@ fn process_line(
     let body_hash = blake3::hash(input.body.as_bytes()).to_hex().to_string();
 
     let existing = memories::find_by_name(tx, namespace, &normalized_name)?;
+
+    // GAP-E2E-05: parity with `remember` — description required when creating.
+    if existing.is_none() && input.description.trim().is_empty() {
+        return Err(AppError::Validation(format!(
+            "line {index}: --type and --description are required when creating a new memory"
+        )));
+    }
 
     let (memory_id, batch_action) = if let Some((existing_id, _updated_at, _version)) = existing {
         if !force_merge {
@@ -481,11 +534,18 @@ fn process_line(
         }
     }
 
-    Ok(BatchItemEvent {
-        name: normalized_name,
-        status: batch_action.to_string(),
-        memory_id: Some(memory_id),
-        error: None,
-        index,
-    })
+    let mut created_entity_names: Vec<String> = Vec::with_capacity(input.entities.len());
+    for entity in &input.entities {
+        created_entity_names.push(crate::parsers::normalize_entity_name(&entity.name));
+    }
+    Ok((
+        BatchItemEvent {
+            name: normalized_name,
+            status: batch_action.to_string(),
+            memory_id: Some(memory_id),
+            error: None,
+            index,
+        },
+        created_entity_names,
+    ))
 }

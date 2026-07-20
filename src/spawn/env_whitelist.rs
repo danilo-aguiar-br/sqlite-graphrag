@@ -58,9 +58,8 @@ pub const PRESERVED_ENV_VARS: &[&str] = &[
     // v1.0.83 (ADR-0041): custom provider credentials for Codex CLI
     "CODEX_ACCESS_TOKEN",
     "OPENAI_BASE_URL",
-    // v1.0.83 (ADR-0041): telemetry opt-out and observability override
-    "DISABLE_TELEMETRY",
-    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    // v1.1.8 G-T-TEL-01: do NOT forward OTEL / remote telemetry env vars to
+    // subprocesses. Local logging only; no phone-home.
 ];
 
 /// Windows-only environment variables preserved alongside the POSIX set.
@@ -106,12 +105,18 @@ pub fn apply_env_whitelist(cmd: &mut Command, strict: bool) {
 /// Returns true when `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR` is `1`, `true`,
 /// `TRUE` or `yes` (case-insensitive for `true`/`yes`).
 pub fn is_strict_env_clear() -> bool {
-    matches!(
-        std::env::var("SQLITE_GRAPHRAG_STRICT_ENV_CLEAR")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("True") | Some("yes") | Some("YES")
-    )
+    if crate::runtime_config::get().strict_env_clear {
+        return true;
+    }
+    crate::config::get_setting("spawn.strict_env_clear")
+        .ok()
+        .flatten()
+        .is_some_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
 }
 
 #[cfg(test)]

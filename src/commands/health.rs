@@ -18,10 +18,10 @@ const CHUNK_EMBEDDING_TABLES: &[&str] = &["chunk_embeddings", "vec_chunks"];
     sqlite-graphrag health\n\n  \
     # Check health of a database at a custom path\n  \
     sqlite-graphrag health --db /path/to/graphrag.sqlite\n\n  \
-    # Use SQLITE_GRAPHRAG_DB_PATH env var\n  \
-    SQLITE_GRAPHRAG_DB_PATH=/data/graphrag.sqlite sqlite-graphrag health")]
+    # Explicit database path\n  \
+    sqlite-graphrag health --db /data/graphrag.sqlite")]
 pub struct HealthArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Explicit JSON flag. Accepted as a no-op because output is already JSON by default.
     #[arg(long, default_value_t = false)]

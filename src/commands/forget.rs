@@ -31,12 +31,12 @@ pub struct ForgetArgs {
     pub name: Option<String>,
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 

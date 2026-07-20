@@ -21,12 +21,12 @@ use serde::Serialize;
     sqlite-graphrag optimize --yes\n\n  \
     # Force a full FTS5 rebuild even if the index already passes integrity-check\n  \
     sqlite-graphrag optimize --no-fts-skip-when-functional\n\n  \
-    # Optimize via SQLITE_GRAPHRAG_DB_PATH env var\n  \
-    SQLITE_GRAPHRAG_DB_PATH=/data/graphrag.sqlite sqlite-graphrag optimize")]
+    # Explicit database path\n  \
+    sqlite-graphrag optimize --db /data/graphrag.sqlite")]
 pub struct OptimizeArgs {
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     #[arg(long, default_value_t = false, help = "Skip FTS5 index rebuild")]
     pub skip_fts: bool,

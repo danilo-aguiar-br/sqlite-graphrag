@@ -13,8 +13,8 @@ use serde::Serialize;
     sqlite-graphrag vacuum\n\n  \
     # Vacuum a database at a custom path\n  \
     sqlite-graphrag vacuum --db /path/to/graphrag.sqlite\n\n  \
-    # Vacuum via SQLITE_GRAPHRAG_DB_PATH env var\n  \
-    SQLITE_GRAPHRAG_DB_PATH=/data/graphrag.sqlite sqlite-graphrag vacuum\n\n\
+    # Explicit database path\n  \
+    sqlite-graphrag vacuum --db /data/graphrag.sqlite\n\n\
 NOTE:\n  \
     reclaimed_bytes may report 0 even after `purge` if removed memories did not\n  \
     span entire SQLite pages (page size = 4 KB). Run `vacuum` regularly only on\n  \
@@ -28,7 +28,7 @@ pub struct VacuumArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 

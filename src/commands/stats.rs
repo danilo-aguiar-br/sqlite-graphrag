@@ -12,10 +12,10 @@ use serde::Serialize;
     sqlite-graphrag stats\n\n  \
     # Stats for a database at a custom path\n  \
     sqlite-graphrag stats --db /path/to/graphrag.sqlite\n\n  \
-    # Use SQLITE_GRAPHRAG_DB_PATH env var\n  \
-    SQLITE_GRAPHRAG_DB_PATH=/data/graphrag.sqlite sqlite-graphrag stats")]
+    # Explicit database path\n  \
+    sqlite-graphrag stats --db /data/graphrag.sqlite")]
 pub struct StatsArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Explicit JSON flag. Accepted as a no-op because output is already JSON by default.
     #[arg(long, default_value_t = false)]

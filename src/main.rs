@@ -112,13 +112,18 @@ fn main() -> std::process::ExitCode {
             2 => "debug".to_string(),
             _ => "trace".to_string(),
         }
+    } else if let Ok(Some(v)) = sqlite_graphrag::config::get_setting("log.level") {
+        v
     } else {
-        std::env::var("SQLITE_GRAPHRAG_LOG_LEVEL").unwrap_or_else(|_| "warn".to_string())
+        "warn".to_string()
     };
-    let log_format =
-        std::env::var("SQLITE_GRAPHRAG_LOG_FORMAT").unwrap_or_else(|_| "pretty".to_string());
+    let log_format = if let Ok(Some(v)) = sqlite_graphrag::config::get_setting("log.format") {
+        v
+    } else {
+        "pretty".to_string()
+    };
 
-    sqlite_graphrag::telemetry::init_tracing(&log_level, &log_format);
+    sqlite_graphrag::tracing_init::init_tracing(&log_level, &log_format);
 
     register_vec_extension();
 
@@ -188,18 +193,27 @@ fn main() -> std::process::ExitCode {
     // This call is a no-op if the pre-parse above already initialized the OnceLock.
     sqlite_graphrag::i18n::init(cli.lang);
 
-    // G42/S1 (v1.0.79): the global --embedding-dim flag materialises as the
-    // env var so every downstream resolution point (constants::embedding_dim,
-    // schema_meta sync) sees a single, consistent override channel.
-    if let Some(dim) = cli.embedding_dim {
-        // SAFETY: set before any tokio runtime or worker thread spawns;
-        // single-threaded context guaranteed by program startup order.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", dim.to_string());
-        }
-    }
+    // G-T-XDG-04: install CLI overrides into runtime_config (no product env).
+    sqlite_graphrag::runtime_config::init(sqlite_graphrag::runtime_config::RuntimeOverrides {
+        embedding_dim: cli.embedding_dim.and_then(|d| u32::try_from(d).ok()),
+        claude_binary: cli.claude_binary.as_ref().map(|p| p.display().to_string()),
+        codex_binary: cli.codex_binary.as_ref().map(|p| p.display().to_string()),
+        opencode_binary: cli.opencode_binary.as_ref().map(|p| p.display().to_string()),
+        llm_model: cli.llm_model.clone(),
+        llm_fallback: Some(cli.llm_fallback.clone()),
+        skip_embedding_on_failure: cli.skip_embedding_on_failure,
+        llm_max_host_concurrency: cli.llm_max_host_concurrency.map(|n| n as usize),
+        llm_slot_wait_secs: cli.llm_slot_wait_secs,
+        llm_slot_no_wait: cli.llm_slot_no_wait,
+        strict_env_clear: cli.strict_env_clear,
+        log_level: None,
+        log_format: None,
+        lang: None, // set via i18n::init(cli.lang)
+        display_tz: None,
+        db_path: None,
+    });
 
-    // Initialize display timezone (flag --tz > env SQLITE_GRAPHRAG_DISPLAY_TZ > UTC).
+    // Initialize display timezone (flag --tz > XDG display.tz > UTC).
     if let Err(e) = sqlite_graphrag::tz::init(cli.tz) {
         sqlite_graphrag::output::emit_error(&e.localized_message());
         let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -319,37 +333,7 @@ fn main() -> std::process::ExitCode {
 
     sqlite_graphrag::signals::register_shutdown_handler();
 
-    // v1.0.89 (GAP-2): propagate CLI flags to env vars so internal modules
-    // that read via std::env::var() honour the CLI override. clap's `env = "..."`
-    // reads the env var as a FALLBACK when the flag is absent, but does NOT
-    // set the env var when the flag IS provided via CLI. This bridge closes
-    // the gap: --claude-binary /path → SQLITE_GRAPHRAG_CLAUDE_BINARY=/path.
-    if let Some(ref path) = cli.claude_binary {
-        std::env::set_var("SQLITE_GRAPHRAG_CLAUDE_BINARY", path);
-    }
-    if let Some(ref path) = cli.codex_binary {
-        std::env::set_var("SQLITE_GRAPHRAG_CODEX_BINARY", path);
-    }
-    if let Some(ref model) = cli.llm_model {
-        std::env::set_var("SQLITE_GRAPHRAG_LLM_MODEL", model);
-    }
-    if cli.skip_embedding_on_failure {
-        std::env::set_var("SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE", "1");
-    }
-    if let Some(n) = cli.llm_max_host_concurrency {
-        std::env::set_var("SQLITE_GRAPHRAG_LLM_MAX_HOST_CONCURRENCY", n.to_string());
-    }
-    if let Some(secs) = cli.llm_slot_wait_secs {
-        std::env::set_var("SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS", secs.to_string());
-    }
-    if cli.llm_slot_no_wait {
-        std::env::set_var("SQLITE_GRAPHRAG_LLM_SLOT_NO_WAIT", "1");
-    }
-    if cli.strict_env_clear {
-        std::env::set_var("SQLITE_GRAPHRAG_STRICT_ENV_CLEAR", "1");
-    }
-    // GAP-LLM-FALLBACK: propagate --llm-fallback so to_chain() can read it.
-    std::env::set_var("SQLITE_GRAPHRAG_LLM_FALLBACK", &cli.llm_fallback);
+    // v1.1.8 G-T-XDG-04: product env bridge removed; runtime_config holds CLI overrides.
 
     // v1.0.93: initialise OpenRouter embedding client when configured.
     {
@@ -447,7 +431,7 @@ fn main() -> std::process::ExitCode {
                 commands::remember_batch::run(args, cli.llm_backend, cli.embedding_backend)
             }
             sqlite_graphrag::cli::Commands::Ingest(args) => {
-                commands::ingest::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::ingest::run(*args, cli.llm_backend, cli.embedding_backend)
             }
             sqlite_graphrag::cli::Commands::Recall(args) => {
                 commands::recall::run(args, cli.llm_backend, cli.embedding_backend)
@@ -525,7 +509,7 @@ fn main() -> std::process::ExitCode {
                 commands::merge_entities::run(args)
             }
             sqlite_graphrag::cli::Commands::Enrich(args) => {
-                commands::enrich::run(&args, cli.llm_backend, cli.embedding_backend)
+                commands::enrich::run(args.as_ref(), cli.llm_backend, cli.embedding_backend)
             }
             sqlite_graphrag::cli::Commands::ReclassifyRelation(args) => {
                 commands::reclassify_relation::run(args)

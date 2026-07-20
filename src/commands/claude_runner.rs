@@ -47,10 +47,11 @@ const DEFAULT_SUBPROCESS_MEMORY_LIMIT_MB: u64 = 4096;
 #[cfg(target_os = "linux")]
 pub fn spawn_with_memory_limit(cmd: &mut Command) -> std::io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
-    let max_mb: u64 = std::env::var("SQLITE_GRAPHRAG_SUBPROCESS_MEMORY_LIMIT_MB")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_SUBPROCESS_MEMORY_LIMIT_MB);
+    let max_mb: u64 = crate::runtime_config::resolve_u64(
+        None,
+        "spawn.subprocess_memory_limit_mb",
+        DEFAULT_SUBPROCESS_MEMORY_LIMIT_MB,
+    );
     let max_bytes = max_mb * 1024 * 1024;
     // SAFETY: pre_exec closure runs between fork() and exec() in the
     // single-threaded child process — no other threads exist.

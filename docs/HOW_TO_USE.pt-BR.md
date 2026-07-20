@@ -1,11 +1,85 @@
-# COMO USAR sqlite-graphrag (v1.1.06 — scan O(k) do entity-connect, schema v16)
+# COMO USAR sqlite-graphrag (v1.1.8 — XDG config, enrich quality/latency, schema v16)
 
 > Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
 
 - English version: [HOW_TO_USE.md](HOW_TO_USE.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md) para referência de comandos
 
+## O Que Mudou na v1.1.8 — XDG + Qualidade/Latência do Enrich (Sem Migração)
+
+- Crate **`1.1.8`**. Schema do banco principal **inalterado em v16** (sem migração main-DB).
+- Config operacional: **flag CLI > XDG `config set` > default**. Help sem env de produto e sem Box about.
+- OpenRouter: URLs via XDG `network.openrouter.*`. Fail-fast de query Auto: `llm.query_embed_timeout_secs` (~3s).
+- EntityType `module`→Concept; `related_to`→`related`; alias de telemetry removido.
+- `remember-batch` exige `description` na criação; `pending-embeddings status`; `cache stats`; `purge --now`; `config list --effective`.
+- Claim da fila enrich escopado por `operation` (QISO). Harness offline `scripts/e2e_offline_v118.sh` **16/16**.
+- entity-descriptions: prompt multi-domínio neutro, grounding no corpus, `--force-redescribe` para reescrever descriptions de baixa qualidade.
+- Status honesto: `enrich --status --force-redescribe` reporta `scan_backlog_low_quality`, `quality_pct`, `state=blocked_dead` quando aplicável.
+- Nomes: `--entity-names` / `--memory-names` (alias `--names` com semântica por operação).
+- Hot-set do remember: campos `entities_created` / `enrich_recommended`; flag `--enqueue-enrich`.
+- deep-research: alias curto `-o` de `--output`; escrita atômica + ack `{written,bytes,blake3}`.
+- memory-entities (forward): JSON inclui `entities[].description`.
+- entity-connect permanece totalmente implementado (persiste relações); DB grande: `--anchor-memory`, limites adaptativos, yield, `budget_exhausted` / `preempted_for_gate`.
+- Ordem recomendada após escrita: entity-descriptions (quente) depois entity-connect (frio).
+- Residuais: monólitos >800 LOC; qualidade live LQ = operador (`--force-redescribe` + LLM).
+- Pin da biblioteca: `=1.1.8`.
+
+### Receita — Config XDG efetiva
+
+```bash
+sqlite-graphrag config path --json
+sqlite-graphrag config list --effective --json
+sqlite-graphrag config set network.openrouter.chat_url "https://openrouter.ai/api/v1/chat/completions"
+sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
+sqlite-graphrag config set llm.query_embed_timeout_secs 3
+```
+
+### Receita — Status e purge da v1.1.8
+
+```bash
+sqlite-graphrag pending-embeddings status --json
+sqlite-graphrag cache stats --json
+sqlite-graphrag purge --now --dry-run --json   # preview; combine --yes para aplicar
+```
+
+### Receita — remember-batch com description obrigatória
+
+```bash
+printf '{"name":"nota-a","type":"note","description":"primeira","body":"conteúdo a"}\n' \
+  | sqlite-graphrag remember-batch --json
+# Sem description na criação → erro de validação (exit 1)
+```
+
+### Receita — qualidade do enrich e hot-set (v1.1.8)
+
+```bash
+# Após remember curado: leia enrich_recommended, depois ED prioritário
+sqlite-graphrag remember --name demo --type note --description "d" --body "nota fiscal ICMS" \
+  --graph-stdin --enqueue-enrich --json <<'EOF'
+{"entities":[{"name":"icms-p05","entity_type":"concept"}],"relationships":[]}
+EOF
+
+# Audite descriptions das entidades da memória
+sqlite-graphrag memory-entities --name demo --json | jaq '.entities[] | {name, description}'
+
+# Pass de prioridade por nomes de entidade (não de memória)
+sqlite-graphrag enrich --operation entity-descriptions \
+  --entity-names icms-p05 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# Reescreva descriptions de baixa qualidade já preenchidas
+sqlite-graphrag enrich --operation entity-descriptions --force-redescribe \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --limit 20 --json
+sqlite-graphrag enrich --operation entity-descriptions --status --force-redescribe --json
+
+# deep-research com alias curto -o
+sqlite-graphrag deep-research "decisões de autenticação" -o /tmp/dr.json --quiet --json
+
+# memory-bindings usa nomes de memória
+sqlite-graphrag enrich --operation memory-bindings --memory-names demo --dry-run --json
+```
+
 ## O Que Mudou na v1.1.06 — Scan O(k) do entity-connect (Sem Migração)
+
 
 - Nome oficial **v1.1.06**; manifesto `1.1.6`. Schema **inalterado** em **v16**.
 - Fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (hang P0 no `global` grande).

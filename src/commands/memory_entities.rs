@@ -11,8 +11,10 @@ use serde::Serialize;
 #[command(
     about = "List entities linked to a memory, or memories linked to an entity",
     after_long_help = "EXAMPLES:\n  \
-    # List entities connected to a memory\n  \
+    # List entities connected to a memory (includes description)\n  \
     sqlite-graphrag memory-entities --name my-memory\n\n  \
+    # Project name + description fields\n  \
+    sqlite-graphrag memory-entities --name my-memory | jaq '.entities[] | {name, description}'\n\n  \
     # Reverse: list memories bound to an entity\n  \
     sqlite-graphrag memory-entities --entity rust-lang\n\n  \
     # With namespace\n  \
@@ -26,14 +28,11 @@ pub struct MemoryEntitiesArgs {
     /// Entity name — list memories bound to this entity (reverse lookup).
     #[arg(long, conflicts_with_all = ["name", "name_positional"])]
     pub entity: Option<String>,
-    #[arg(
-        long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
-    )]
+    #[arg(long, help = "Namespace (default: global; override via CLI flag)")]
     pub namespace: Option<String>,
     #[arg(long, hide = true)]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long, help = "Database path (default: XDG data dir)")]
     pub db: Option<String>,
 }
 
@@ -42,6 +41,8 @@ struct EntityBinding {
     entity_id: i64,
     name: String,
     entity_type: String,
+    /// Entity description (empty string when NULL/unset in the graph).
+    description: String,
 }
 
 #[derive(Serialize)]
@@ -130,7 +131,8 @@ pub fn run(args: MemoryEntitiesArgs) -> Result<(), AppError> {
         })?;
 
     let mut stmt = conn.prepare_cached(
-        "SELECT e.id, e.name, e.type AS entity_type
+        "SELECT e.id, e.name, e.type AS entity_type,
+                COALESCE(e.description, '') AS description
          FROM memory_entities me
          JOIN entities e ON e.id = me.entity_id
          WHERE me.memory_id = ?1
@@ -143,6 +145,7 @@ pub fn run(args: MemoryEntitiesArgs) -> Result<(), AppError> {
                 entity_id: r.get(0)?,
                 name: r.get(1)?,
                 entity_type: r.get(2)?,
+                description: r.get(3)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -171,6 +174,7 @@ mod tests {
                 entity_id: 1,
                 name: "rust".to_string(),
                 entity_type: "concept".to_string(),
+                description: "Systems programming language".to_string(),
             }],
             count: 1,
             elapsed_ms: 5,
@@ -179,6 +183,30 @@ mod tests {
         assert_eq!(json["memory_name"], "test-mem");
         assert_eq!(json["count"], 1);
         assert_eq!(json["entities"][0]["name"], "rust");
+        assert_eq!(
+            json["entities"][0]["description"],
+            "Systems programming language"
+        );
+        assert!(
+            json["entities"][0]
+                .as_object()
+                .expect("entity object")
+                .contains_key("description"),
+            "forward lookup must expose description (GAP-CLI-ME-01)"
+        );
+    }
+
+    #[test]
+    fn entity_binding_empty_description_serializes() {
+        let entity = EntityBinding {
+            entity_id: 2,
+            name: "icms-p05".to_string(),
+            entity_type: "concept".to_string(),
+            description: String::new(),
+        };
+        let json = serde_json::to_value(&entity).expect("serialize");
+        assert_eq!(json["description"], "");
+        assert_eq!(json["name"], "icms-p05");
     }
 
     #[test]

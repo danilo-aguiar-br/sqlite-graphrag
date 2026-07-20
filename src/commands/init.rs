@@ -28,9 +28,9 @@ pub enum EmbeddingModelChoice {
     sqlite-graphrag init --db /path/to/graphrag.sqlite")]
 pub struct InitArgs {
     /// Path to graphrag.sqlite. Defaults to `./graphrag.sqlite` in the current directory.
-    /// Resolution precedence (highest to lowest): `--db` flag > `SQLITE_GRAPHRAG_DB_PATH` env >
-    /// `SQLITE_GRAPHRAG_HOME` env (used as base directory) > cwd.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    /// Resolution precedence (highest to lowest): `--db` flag >
+    /// XDG `db.default_path` > cwd `./graphrag.sqlite`.
+    #[arg(long)]
     pub db: Option<String>,
     /// Legacy embedding model identifier (accepted and ignored since the
     /// v1.0.76 LLM-only build; kept for CLI compatibility). Safe to omit.
@@ -41,7 +41,7 @@ pub struct InitArgs {
     #[arg(long)]
     pub force: bool,
     /// Initial namespace to resolve. Aligned with bilingual docs that mention `init --namespace`.
-    /// When provided, overrides `SQLITE_GRAPHRAG_NAMESPACE`; otherwise resolves via env or fallback `global`.
+    /// When provided, overrides XDG `namespace.default`; otherwise falls back to `global`.
     #[arg(long)]
     pub namespace: Option<String>,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]

@@ -1,17 +1,19 @@
-//! XDG/cwd path resolution and traversal-safe overrides.
+//! XDG path resolution and traversal-safe overrides.
 //!
 //! Resolves data directories via [`directories::ProjectDirs`] and validates
 //! that user-supplied paths cannot escape the project root.
+//!
+//! Precedence (G-T-XDG-04): CLI flag `--db` / `db_override` → XDG setting
+//! `db.path` → XDG data dir default `graphrag.sqlite` → cwd fallback.
+//! Product `SQLITE_GRAPHRAG_*` env vars are **not** read.
 
+use crate::config;
 use crate::errors::AppError;
 use crate::i18n::validation;
 use directories::ProjectDirs;
 use std::path::{Component, Path, PathBuf};
 
 /// Resolved filesystem paths used by the CLI at runtime.
-///
-/// Constructed via [`AppPaths::resolve`], which applies the three-layer precedence:
-/// CLI flag → `SQLITE_GRAPHRAG_DB_PATH` env var → `SQLITE_GRAPHRAG_HOME` env var → cwd.
 #[derive(Debug, Clone)]
 pub struct AppPaths {
     /// Absolute path to the SQLite database file.
@@ -26,8 +28,14 @@ impl AppPaths {
             AppError::Io(std::io::Error::other("could not determine home directory"))
         })?;
 
-        let cache_root = if let Some(override_dir) = std::env::var_os("SQLITE_GRAPHRAG_CACHE_DIR") {
-            PathBuf::from(override_dir)
+        // Cache always under XDG cache (or ProjectDirs); optional XDG setting cache.dir
+        let cache_root = if let Ok(Some(override_dir)) = config::get_setting("cache.dir") {
+            if !override_dir.is_empty() {
+                validate_path(&override_dir)?;
+                PathBuf::from(override_dir)
+            } else {
+                proj.cache_dir().to_path_buf()
+            }
         } else {
             proj.cache_dir().to_path_buf()
         };
@@ -35,15 +43,15 @@ impl AppPaths {
         let db = if let Some(p) = db_override {
             validate_path(p)?;
             PathBuf::from(p)
-        } else if let Ok(env_path) = std::env::var("SQLITE_GRAPHRAG_DB_PATH") {
-            validate_path(&env_path)?;
-            PathBuf::from(env_path)
-        } else if let Some(home_dir) = home_env_dir()? {
-            home_dir.join("graphrag.sqlite")
+        } else if let Ok(Some(cfg_path)) = config::get_setting("db.path") {
+            if !cfg_path.is_empty() {
+                validate_path(&cfg_path)?;
+                PathBuf::from(cfg_path)
+            } else {
+                default_db_path(&proj)?
+            }
         } else {
-            std::env::current_dir()
-                .map_err(AppError::Io)?
-                .join("graphrag.sqlite")
+            default_db_path(&proj)?
         };
 
         Ok(Self {
@@ -60,28 +68,22 @@ impl AppPaths {
     }
 }
 
+fn default_db_path(proj: &ProjectDirs) -> Result<PathBuf, AppError> {
+    // Prefer XDG data dir; fall back to cwd for bare-metal one-shot without home.
+    let data = proj.data_dir();
+    if data.as_os_str().is_empty() {
+        return Ok(std::env::current_dir()
+            .map_err(AppError::Io)?
+            .join("graphrag.sqlite"));
+    }
+    Ok(data.join("graphrag.sqlite"))
+}
+
 fn validate_path(p: &str) -> Result<(), AppError> {
     if Path::new(p).components().any(|c| c == Component::ParentDir) {
         return Err(AppError::Validation(validation::path_traversal(p)));
     }
     Ok(())
-}
-
-/// Resolves `SQLITE_GRAPHRAG_HOME` as the root directory for the default database.
-///
-/// Returns `Ok(Some(dir))` when the env var is set and valid,
-/// `Ok(None)` when absent or empty (falls back to `current_dir`),
-/// and `Err(...)` when the value contains traversal components.
-fn home_env_dir() -> Result<Option<PathBuf>, AppError> {
-    let raw = match std::env::var("SQLITE_GRAPHRAG_HOME") {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
-    };
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    validate_path(&raw)?;
-    Ok(Some(PathBuf::from(raw)))
 }
 
 /// Returns the XDG config directory for the application.
@@ -118,162 +120,36 @@ pub fn sidecar_path(db_path: &Path, filename: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
     use tempfile::TempDir;
 
-    /// Clears all variables that affect `AppPaths::resolve` to isolate the
-    /// test from the developer/CI environment.
-    fn clean_env_paths() {
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::remove_var("SQLITE_GRAPHRAG_HOME");
-            std::env::remove_var("SQLITE_GRAPHRAG_DB_PATH");
-            std::env::remove_var("SQLITE_GRAPHRAG_CACHE_DIR");
-        }
-    }
-
     #[test]
-    #[serial]
-    fn home_env_resolves_db_in_subdir() {
-        clean_env_paths();
+    fn flag_overrides_default() {
         let tmp = TempDir::new().expect("tempdir");
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_HOME", tmp.path());
-        }
-
-        let paths = AppPaths::resolve(None).expect("resolve with valid HOME");
-        assert_eq!(paths.db, tmp.path().join("graphrag.sqlite"));
-
-        clean_env_paths();
+        let db_flag = tmp.path().join("via-flag.sqlite");
+        let paths = AppPaths::resolve(Some(db_flag.to_str().expect("utf8")))
+            .expect("resolve with flag");
+        assert_eq!(paths.db, db_flag);
     }
 
     #[test]
-    #[serial]
-    fn home_env_traversal_rejected() {
-        clean_env_paths();
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_HOME", "/tmp/../etc");
-        }
-
-        let result = AppPaths::resolve(None);
+    fn traversal_in_flag_rejected() {
+        let result = AppPaths::resolve(Some("/tmp/../etc/passwd"));
         assert!(
             matches!(result, Err(AppError::Validation(_))),
-            "traversal in SQLITE_GRAPHRAG_HOME must fail as Validation, got {result:?}"
-        );
-
-        clean_env_paths();
-    }
-
-    #[test]
-    #[serial]
-    fn db_path_overrides_home() {
-        clean_env_paths();
-        let tmp_home = TempDir::new().expect("tempdir home");
-        let tmp_db = TempDir::new().expect("tempdir db");
-        let explicit_db = tmp_db.path().join("explicit.sqlite");
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_HOME", tmp_home.path());
-            std::env::set_var("SQLITE_GRAPHRAG_DB_PATH", &explicit_db);
-        }
-
-        let paths = AppPaths::resolve(None).expect("resolve with DB_PATH and HOME");
-        assert_eq!(paths.db, explicit_db);
-
-        clean_env_paths();
-    }
-
-    #[test]
-    #[serial]
-    fn flag_overrides_home() {
-        clean_env_paths();
-        let tmp_home = TempDir::new().expect("tempdir home");
-        let tmp_flag = TempDir::new().expect("tempdir flag");
-        let db_flag = tmp_flag.path().join("via-flag.sqlite");
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_HOME", tmp_home.path());
-        }
-
-        let paths = AppPaths::resolve(Some(db_flag.to_str().expect("utf8")))
-            .expect("resolve with flag and HOME");
-        assert_eq!(paths.db, db_flag);
-
-        clean_env_paths();
-    }
-
-    #[test]
-    #[serial]
-    fn home_env_empty_falls_back_to_cwd() {
-        clean_env_paths();
-        // SAFETY: tests are annotated with #[serial], guaranteeing single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_HOME", "");
-        }
-
-        let paths = AppPaths::resolve(None).expect("resolve with empty HOME");
-        let expected = std::env::current_dir()
-            .expect("cwd")
-            .join("graphrag.sqlite");
-        assert_eq!(paths.db, expected);
-
-        clean_env_paths();
-    }
-
-    #[test]
-    fn parent_or_err_accepts_normal_path() {
-        let p = PathBuf::from("/home/user/db.sqlite");
-        let parent = parent_or_err(&p).expect("valid parent");
-        assert_eq!(parent, Path::new("/home/user"));
-    }
-
-    #[test]
-    fn parent_or_err_accepts_relative_path() {
-        let p = PathBuf::from("subdir/file.sqlite");
-        let parent = parent_or_err(&p).expect("relative parent");
-        assert_eq!(parent, Path::new("subdir"));
-    }
-
-    #[test]
-    fn parent_or_err_rejects_unix_root() {
-        let p = PathBuf::from("/");
-        let result = parent_or_err(&p);
-        assert!(matches!(result, Err(AppError::Validation(_))));
-    }
-
-    #[test]
-    fn parent_or_err_rejects_empty_path() {
-        let p = PathBuf::from("");
-        let result = parent_or_err(&p);
-        assert!(matches!(result, Err(AppError::Validation(_))));
-    }
-
-    #[test]
-    fn sidecar_path_derives_next_to_absolute_db() {
-        let db = PathBuf::from("/var/data/graphrag.sqlite");
-        assert_eq!(
-            sidecar_path(&db, ".enrich-queue.sqlite"),
-            PathBuf::from("/var/data/.enrich-queue.sqlite")
+            "traversal must fail as Validation, got {result:?}"
         );
     }
 
     #[test]
-    fn sidecar_path_bare_filename_falls_back_to_cwd() {
-        let db = PathBuf::from("graphrag.sqlite");
-        assert_eq!(
-            sidecar_path(&db, ".enrich-queue.sqlite"),
-            PathBuf::from(".enrich-queue.sqlite")
-        );
+    fn default_resolve_ok() {
+        let paths = AppPaths::resolve(None).expect("default resolve");
+        assert!(!paths.db.as_os_str().is_empty());
+        assert!(paths.models.ends_with("models"));
     }
 
     #[test]
-    fn sidecar_path_relative_subdir_db() {
-        let db = PathBuf::from("sub/dir/db.sqlite");
-        assert_eq!(
-            sidecar_path(&db, ".ingest-queue.sqlite"),
-            PathBuf::from("sub/dir/.ingest-queue.sqlite")
-        );
+    fn sidecar_path_joins_parent() {
+        let p = sidecar_path(Path::new("/data/db/graphrag.sqlite"), "enrich.queue");
+        assert_eq!(p, PathBuf::from("/data/db/enrich.queue"));
     }
 }

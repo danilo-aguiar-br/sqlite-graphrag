@@ -307,12 +307,23 @@ sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 60
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 ```
 
-### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output`)
+### v1.1.8 Update — XDG Config, Enrich Quality, Headless Hot-Set
+
+- Config for product knobs is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **not** read on the hot path. Harnesses MUST use isolated XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) plus flags — never export product env as the config contract.
+- After curated `remember`, PARSE `entities_created` / `enrich_recommended` and/or PASS `--enqueue-enrich` so entity-descriptions runs as a hot set before long entity-connect drains.
+- Poll quality without LLM: `enrich --operation entity-descriptions --status --force-redescribe --json` (`scan_backlog_low_quality`, `quality_pct`, `state` including `blocked_dead`).
+- Name filters: `--entity-names` for entity-descriptions; `--memory-names` for memory-bindings; do not assume `--names` always means memories.
+- Audit bindings: `memory-entities --name <mem> --json` includes `entities[].description`.
+- entity-connect is fully implemented (persists relationships). On large DBs expect adaptive budget fields (`budget_exhausted`, `preempted_for_gate`) and prefer ED hot → EC cold.
+- Offline product gate: `bash scripts/e2e_offline_v118.sh` (16/16).
+- Historical sections below that list product `SQLITE_GRAPHRAG_*` knobs are **legacy documentation**, not current runtime config.
+
+### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output` / `-o`)
 
 Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs` (suite name **v1105**).
 
 - Global `--quiet` / `-q` suppresses non-error tracing on stderr so agent harnesses can parse stdout as pure JSON without log noise.
-- `deep-research --output PATH` writes the full research envelope via atomwrite (tempfile in the same directory → fsync → rename) and prints only a short stdout ack: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Prefer this for large `--with-bodies` jobs under CI or agent orchestrators. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
+- `deep-research -o PATH` or `--output PATH` writes the full research envelope via atomwrite (tempfile in the same directory → fsync → rename) and prints only a short stdout ack: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Prefer this for large `--with-bodies` jobs under agent orchestrators. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
 - Contract: **stdout = JSON** (envelope or ack), **stderr = logs**. NEVER redirect both to the same file with `&>` or `2>&1` into a JSON consumer.
 - Single-token queries (e.g. a person name) expand to multi-aspect sub-queries (`source: "aspect"`) so headless research on a subject token is no longer a single hybrid hit. Manual override for orchestrators: `--sub-query-strategy manual --sub-queries-file PATH`.
 - `graph traverse --fuzzy` is safe for headless nickname resolution; without `--fuzzy`, exit 4 NotFound includes ranked suggestions for the orchestrator to pick.
@@ -325,13 +336,13 @@ mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
   deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
-  --output "$OUTDIR/research.json" --json
+  -o "$OUTDIR/research.json" --json
 # Parse ack from stdout; full envelope from the file
 # Optional manual facets:
 # printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"
 # sqlite-graphrag --quiet deep-research "danilo" \
 #   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
-#   --output "$OUTDIR/research.json" --json
+#   -o "$OUTDIR/research.json" --json
 ```
 
 ### v1.1.04 Update — Deep-Research Stability + entity-connect Convergence (ADR-0064)

@@ -1,6 +1,11 @@
 //! Enrichment queue — SQLite-backed scan/retry/dead-letter DB.
 
 use super::*;
+/* wave-c1-imports */
+use rusqlite::Connection;
+use serde::Serialize;
+use crate::errors::AppError;
+
 
 // ---------------------------------------------------------------------------
 // Queue DB
@@ -67,6 +72,8 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
     // reset rows stuck in `processing` after a kill -9 (the schema predates this
     // column, so migrate idempotently like the other dead-letter columns).
     let mut has_claimed_at = false;
+    // GAP-CLI-PRIO-03: priority column (hot > normal). Higher values claim first.
+    let mut has_priority = false;
     {
         let mut stmt = conn.prepare("PRAGMA table_info(queue)")?;
         let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
@@ -79,6 +86,7 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
                 "input_tokens" => has_input_tokens = true,
                 "output_tokens" => has_output_tokens = true,
                 "claimed_at" => has_claimed_at = true,
+                "priority" => has_priority = true,
                 _ => {}
             }
         }
@@ -104,12 +112,45 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
     if !has_claimed_at {
         conn.execute_batch("ALTER TABLE queue ADD COLUMN claimed_at INTEGER")?;
     }
+    if !has_priority {
+        conn.execute_batch(
+            "ALTER TABLE queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+        )?;
+    }
+    // GAP-CLI-QISO-01: rows with NULL operation predate per-op claim. Tag them
+    // LegacyUnscoped so they are never claimable by a named operation drain
+    // (fail-safe: operator re-scans to repopulate with the correct op label).
+    conn.execute(
+        "UPDATE queue SET operation = 'LegacyUnscoped' WHERE operation IS NULL OR operation = ''",
+        [],
+    )?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_enrich_queue_eligible ON queue(status, next_retry_at);
          CREATE INDEX IF NOT EXISTS idx_enrich_queue_operation ON queue(operation, status);
-         CREATE INDEX IF NOT EXISTS idx_enrich_queue_memory ON queue(memory_id)",
+         CREATE INDEX IF NOT EXISTS idx_enrich_queue_memory ON queue(memory_id);
+         CREATE INDEX IF NOT EXISTS idx_enrich_queue_priority ON queue(status, priority DESC, id)",
     )?;
     Ok(conn)
+}
+
+/// Priority level for hot-set entity-descriptions after `remember`
+/// (GAP-CLI-PRIO-03). Higher values are claimed first.
+pub const PRIORITY_HOT: i64 = 100;
+
+/// Count pending queue rows at or above `min_priority` for an operation label.
+pub(super) fn count_priority_pending(
+    queue_conn: &Connection,
+    operation: &str,
+    min_priority: i64,
+) -> Result<i64, rusqlite::Error> {
+    queue_conn.query_row(
+        "SELECT COUNT(*) FROM queue \
+         WHERE status=pending \
+           AND (operation = ?1 OR operation IS NULL) \
+           AND COALESCE(priority, 0) >= ?2",
+        rusqlite::params![operation, min_priority],
+        |r| r.get(0),
+    )
 }
 
 /// GAP-SG-12: enqueue one scan candidate, linking it to its `memory_id` and
@@ -143,11 +184,36 @@ pub(super) fn enqueue_candidate(
         None
     };
     if let Err(e) = queue_conn.execute(
-        "INSERT OR IGNORE INTO queue (item_key, item_type, status, operation, memory_id) \
-         VALUES (?1, ?2, 'pending', ?3, ?4)",
+        "INSERT OR IGNORE INTO queue (item_key, item_type, status, operation, memory_id, priority) \
+         VALUES (?1, ?2, 'pending', ?3, ?4, 0)",
         rusqlite::params![key, item_type, operation, memory_id],
     ) {
         tracing::warn!(target: "enrich", error = %e, "queue insert failed");
+    }
+}
+
+/// Enqueue an entity-keyed candidate with explicit priority (GAP-CLI-PRIO-02/03).
+pub(super) fn enqueue_candidate_with_priority(
+    queue_conn: &Connection,
+    key: &str,
+    item_type: &str,
+    operation: &str,
+    priority: i64,
+) {
+    if let Err(e) = queue_conn.execute(
+        "INSERT OR IGNORE INTO queue (item_key, item_type, status, operation, memory_id, priority) \
+         VALUES (?1, ?2, 'pending', ?3, NULL, ?4)",
+        rusqlite::params![key, item_type, operation, priority],
+    ) {
+        tracing::warn!(target: "enrich", error = %e, "priority queue insert failed");
+    } else {
+        // If the row already existed as pending with lower priority, bump it.
+        let _ = queue_conn.execute(
+            "UPDATE queue SET priority = MAX(COALESCE(priority, 0), ?2), status = CASE \
+                WHEN status IN ('done','skipped','dead') THEN status ELSE 'pending' END \
+             WHERE item_key = ?1 AND COALESCE(priority, 0) < ?2",
+            rusqlite::params![key, priority],
+        );
     }
 }
 
@@ -352,6 +418,25 @@ pub struct EnrichStatus {
     /// only). It fixes the false `pending=0` that db-backed operations
     /// (entity-descriptions/body-enrich/re-embed) previously reported.
     pub(super) scan_backlog: i64,
+    /// GAP-CLI-ED-STATUS-02: empty-description-only backlog (entity-descriptions).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) scan_backlog_empty: Option<i64>,
+    /// GAP-CLI-ED-STATUS-02: low-quality description backlog (entity-descriptions).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) scan_backlog_low_quality: Option<i64>,
+    /// Whether `--force-redescribe` was active for this status report.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) force_redescribe: bool,
+    /// Wave 2 / GAP-CLI-OBS-04: fraction of sampled descriptions grounded
+    /// against linked memory bodies (`grounding_coverage` ≥ threshold).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) quality_pct: Option<f64>,
+    /// Sample size used for `quality_pct` (entities inspected).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) quality_sample_n: Option<u32>,
+    /// Extrapolated count of low-grounding descriptions in the namespace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) scan_backlog_low_grounding_est: Option<i64>,
     pub(super) queue_pending: i64,
     pub(super) queue_processing: i64,
     pub(super) queue_done: i64,
@@ -362,9 +447,9 @@ pub struct EnrichStatus {
     pub(super) waiting: i64,
     /// GAP-SG-15/46: coarse backlog state, disambiguating an empty queue from a
     /// not-yet-scanned backlog and from a cooldown wait.
-    /// `draining` (eligible items now) | `cooldown` (all pending items waiting on
-    /// `next_retry_at`) | `pending-scan` (candidates exist but the queue is not
-    /// populated — run enrich to scan) | `empty` (nothing left to do).
+    /// `draining` | `cooldown` | `pending-scan` | `blocked_dead` (scan deficit
+    /// remains but only permanent dead queue rows remain — requeue/prune) |
+    /// `empty`.
     pub(super) state: &'static str,
     /// GAP-SG-16: per-item `next_retry_at` for every pending row currently in
     /// backoff, so an operator can see exactly when each will become eligible.
@@ -416,1075 +501,12 @@ pub struct DeadSummary {
     pub(super) pruned: i64,
 }
 
-/// Classifies an enrich item failure into a retry/dead-letter outcome.
-///
-/// This is the FALLBACK classifier: it is only consulted when the failure
-/// did not already carry a typed [`crate::retry::AttemptOutcome`] computed at
-/// its origin (see [`record_item_failure_typed`], fed by
-/// [`crate::commands::enrich::extraction::take_last_openrouter_failure`] for
-/// OpenRouter chat/embedding calls). Classification is TYPED by `AppError`
-/// variant only — NEVER by matching the formatted message — per
-/// `rules_rust_retry_com_backoff.md` ("NUNCA usar string matching em
-/// mensagens de erro").
-pub(super) fn classify_enrich_outcome(e: &AppError) -> crate::retry::AttemptOutcome {
-    use crate::retry::AttemptOutcome;
-    match e {
-        AppError::RateLimited { .. } | AppError::Timeout { .. } | AppError::DbBusy(_) => {
-            AttemptOutcome::Transient
-        }
-        // GAP-SG-78: a referenced entity that is not yet materialized is a
-        // TRANSITORY absence — a later enrich pass creates the entity — so the
-        // item is rescheduled, not dead-lettered on the first miss. Matched on
-        // the typed variant, never a message substring (rules_rust_retry: NUNCA
-        // string matching). The `--max-attempts` floor (default 8) still ends
-        // the item if the entity never materializes, mirroring the `Embedding`
-        // floor below.
-        AppError::EntityNotYetMaterialized { .. } => AttemptOutcome::Transient,
-        // GAP-SG-09: errors that are genuinely PERMANENT for this item and must
-        // dead-letter immediately (retrying cannot help): a structured provider
-        // rejection (context-length overflow / refusal carried as ProviderError),
-        // or a MEMORY that no longer exists (deleted or renamed between scan and
-        // processing). Entity absence is handled above as transitory, NOT here.
-        AppError::ProviderError { .. }
-        | AppError::NotFound(_)
-        | AppError::MemoryNotFound { .. }
-        | AppError::MemoryNotFoundById { .. } => AttemptOutcome::HardFailure,
-        // GAP-SG-76: SQLITE_BUSY/LOCKED is a lock-contention hiccup between the
-        // queue writer and a concurrent claim — retry it; any other database
-        // error (constraint violation, corruption, I/O) is permanent.
-        AppError::Database(_) => {
-            if crate::storage::utils::is_sqlite_busy(e) {
-                AttemptOutcome::Transient
-            } else {
-                AttemptOutcome::HardFailure
-            }
-        }
-        // GAP-SG-73: safe floor for the `re-embed` operation. `AppError::Embedding`
-        // reaches here only via `embed_with_fallback`'s backend-chain resolution
-        // (`crate::embedder`), which discards the origin-typed
-        // `EmbedError::retry_class` through `From<EmbedError> for AppError` before
-        // the error surfaces to the queue. Extracting the precise verdict would
-        // require bypassing the fallback chain to call the OpenRouter embedding
-        // client directly — out of scope here (touches `embedder.rs`, which is
-        // off-limits, and removes the multi-backend fallback safety net).
-        // Transient is the conservative choice: a persistently permanent failure
-        // still terminates via `--max-attempts` instead of retrying forever.
-        AppError::Embedding(_) => AttemptOutcome::Transient,
-        // Every other variant — including `Validation` without an
-        // origin-typed retry verdict attached — is treated as permanent.
-        // Previously this branch inspected the formatted message for
-        // substrings like "json" / "missing '" to guess at transience; that
-        // guesswork is now unnecessary because the OpenRouter chat path
-        // (the project's only supported enrich mode) attaches its retry
-        // verdict directly via `ChatError::retry_class`, computed at the
-        // exact HTTP status / provider code in `chat_api.rs`, and
-        // `record_item_failure_typed` consumes it BEFORE ever falling back
-        // to this classifier.
-        _ => AttemptOutcome::HardFailure,
-    }
-}
-
-/// Applies a failure outcome to a single queue row. Shared by the parallel
-/// worker and the serial loop (DRY). A `HardFailure`, or a transient failure
-/// whose attempt count reached `max_attempts`, lands in the dead-letter status
-/// (`status='dead'`) so it is never re-selected. A transient failure below the
-/// cap is rescheduled to `pending` with an exponential-backoff `next_retry_at`.
-/// Returns the [`crate::retry::AttemptOutcome`] so the caller can feed the
-/// existing circuit breaker.
-///
-/// GAP-SG-73: delegates to [`record_item_failure_typed`] with the outcome
-/// computed by the untyped fallback classifier and no diagnostics — the
-/// entry point for callers that only have a bare `&AppError` (subprocess
-/// providers, persistence failures).
-pub(super) fn record_item_failure(
-    queue_conn: &rusqlite::Connection,
-    queue_id: i64,
-    attempt: i64,
-    max_attempts: u32,
-    err: &AppError,
-) -> crate::retry::AttemptOutcome {
-    let outcome = classify_enrich_outcome(err);
-    let err_str = format!("{err}");
-    record_item_failure_typed(
-        queue_conn,
-        queue_id,
-        attempt,
-        max_attempts,
-        outcome,
-        &err_str,
-        None,
-        None,
-        None,
-    )
-}
-
-/// GAP-SG-72/73: applies a failure outcome to a single queue row using an
-/// [`crate::retry::AttemptOutcome`] the caller ALREADY computed at the
-/// failure's origin (e.g. `ChatError::retry_class` from an OpenRouter chat
-/// call), plus whatever truncation diagnostics (`finish_reason` and token
-/// counts) were available. This is the precise counterpart to
-/// [`record_item_failure`], which falls back to the untyped
-/// [`classify_enrich_outcome`] classifier when no origin-typed verdict
-/// exists. Both share this single write path (DRY).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn record_item_failure_typed(
-    queue_conn: &rusqlite::Connection,
-    queue_id: i64,
-    attempt: i64,
-    max_attempts: u32,
-    outcome: crate::retry::AttemptOutcome,
-    err_str: &str,
-    finish_reason: Option<&str>,
-    input_tokens: Option<i64>,
-    output_tokens: Option<i64>,
-) -> crate::retry::AttemptOutcome {
-    use crate::retry::AttemptOutcome;
-    let error_class = match outcome {
-        AttemptOutcome::Transient => "transient",
-        AttemptOutcome::HardFailure => "permanent",
-        AttemptOutcome::Success => "success",
-    };
-
-    let terminal = matches!(outcome, AttemptOutcome::HardFailure) || attempt >= max_attempts as i64;
-    if terminal {
-        let _ = queue_conn.execute(
-            "UPDATE queue SET status='dead', error=?1, error_class=?2, done_at=datetime('now'), \
-             finish_reason=?3, input_tokens=?4, output_tokens=?5 WHERE id=?6",
-            rusqlite::params![
-                err_str,
-                error_class,
-                finish_reason,
-                input_tokens,
-                output_tokens,
-                queue_id
-            ],
-        );
-    } else {
-        let delay = crate::retry::compute_delay(
-            &crate::retry::RetryConfig::llm_rate_limit(),
-            attempt.max(0) as u32,
-        );
-        let secs = delay.as_secs().max(1);
-        let modifier = format!("+{secs} seconds");
-        let _ = queue_conn.execute(
-            "UPDATE queue SET status='pending', error=?1, error_class=?2, next_retry_at=datetime('now', ?3), \
-             finish_reason=?4, input_tokens=?5, output_tokens=?6 WHERE id=?7",
-            rusqlite::params![
-                err_str,
-                error_class,
-                modifier,
-                finish_reason,
-                input_tokens,
-                output_tokens,
-                queue_id
-            ],
-        );
-    }
-    outcome
-}
-
-/// GAP-SG-76: outcome of claiming the next pending queue row. Distinguishes
-/// a genuinely empty backlog (`QueryReturnedNoRows`) from lock contention
-/// (`SQLITE_BUSY`/`SQLITE_LOCKED`) so the caller retries briefly on the
-/// latter instead of breaking out of the drain loop early. Both the serial
-/// loop and the parallel worker loop share this (DRY) — previously each
-/// collapsed every `query_row` error into `.ok()`, silently treating a busy
-/// database the same as an empty queue.
-pub(super) enum DequeueOutcome {
-    Claimed((i64, String, String, i64)),
-    Empty,
-}
-
-pub(super) fn dequeue_next_pending(
-    queue_conn: &rusqlite::Connection,
-    backoff_clause: &str,
-) -> Result<DequeueOutcome, AppError> {
-    let dequeue_sql = format!(
-        "UPDATE queue SET status='processing', attempt=attempt+1, \
-         claimed_at=CAST(strftime('%s','now') AS INTEGER) \
-         WHERE id = (SELECT id FROM queue WHERE status='pending' {backoff_clause} \
-                     ORDER BY id LIMIT 1) \
-         RETURNING id, item_key, item_type, attempt"
-    );
-    match queue_conn.query_row(&dequeue_sql, [], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-    }) {
-        Ok(claimed) => Ok(DequeueOutcome::Claimed(claimed)),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(DequeueOutcome::Empty),
-        Err(e) => Err(AppError::Database(e)),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// claim/failure helpers in queue_ops.rs
+pub(super) use super::queue_ops::*;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn open_test_db() -> Connection {
-        let conn = Connection::open_in_memory().expect("in-memory db");
-        conn.execute_batch(
-            "CREATE TABLE memories (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                namespace   TEXT NOT NULL DEFAULT 'global',
-                name        TEXT NOT NULL,
-                type        TEXT NOT NULL DEFAULT 'note',
-                description TEXT NOT NULL DEFAULT '',
-                body        TEXT NOT NULL DEFAULT '',
-                body_hash   TEXT NOT NULL DEFAULT '',
-                session_id  TEXT,
-                source      TEXT NOT NULL DEFAULT 'agent',
-                metadata    TEXT NOT NULL DEFAULT '{}',
-                created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-                updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-                deleted_at  INTEGER,
-                UNIQUE(namespace, name)
-            );",
-        )
-        .expect("schema creation must succeed");
-        conn
-    }
-
-    fn open_temp_queue() -> (Connection, String) {
-        let path = format!(
-            "/tmp/test-enrich-dl-{}-{}.sqlite",
-            std::process::id(),
-            fastrand::u64(..)
-        );
-        let conn = open_queue_db(&path).expect("queue db must open");
-        (conn, path)
-    }
-
-    fn insert_pending(conn: &Connection, key: &str) -> i64 {
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status) VALUES (?1, 'memory', 'pending')",
-            rusqlite::params![key],
-        )
-        .unwrap();
-        conn.last_insert_rowid()
-    }
-
-    #[test]
-    fn queue_db_schema_creates_correctly() {
-        let tmp_path = format!("/tmp/test-enrich-queue-{}.sqlite", std::process::id());
-        let conn = open_queue_db(&tmp_path).expect("queue db must open");
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(count, 0);
-        let _ = std::fs::remove_file(&tmp_path);
-    }
-
-    #[test]
-    fn classify_rate_limit_is_transient() {
-        let e = AppError::RateLimited {
-            detail: "429".into(),
-        };
-        assert_eq!(
-            classify_enrich_outcome(&e),
-            crate::retry::AttemptOutcome::Transient
-        );
-    }
-
-    #[test]
-    fn classify_timeout_and_dbbusy_are_transient() {
-        let t = AppError::Timeout {
-            operation: "judge".into(),
-            duration_secs: 30,
-        };
-        let b = AppError::DbBusy("locked".into());
-        assert_eq!(
-            classify_enrich_outcome(&t),
-            crate::retry::AttemptOutcome::Transient
-        );
-        assert_eq!(
-            classify_enrich_outcome(&b),
-            crate::retry::AttemptOutcome::Transient
-        );
-    }
-
-    #[test]
-    fn classify_validation_and_parse_are_hard_failure() {
-        let v = AppError::Validation("failed to parse entities array: bad".into());
-        assert_eq!(
-            classify_enrich_outcome(&v),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-    }
-
-    #[test]
-    fn open_queue_db_alter_is_idempotent() {
-        let path = format!(
-            "/tmp/test-enrich-idem-{}-{}.sqlite",
-            std::process::id(),
-            fastrand::u64(..)
-        );
-        let _ = open_queue_db(&path).expect("first open");
-        let conn = open_queue_db(&path).expect("second open is idempotent");
-        let cols: Vec<String> = {
-            let mut stmt = conn.prepare("PRAGMA table_info(queue)").unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(1))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-        };
-        assert!(cols.iter().any(|c| c == "error_class"));
-        assert!(cols.iter().any(|c| c == "next_retry_at"));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn record_item_failure_hard_marks_dead() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-hard");
-        let outcome = record_item_failure(
-            &conn,
-            id,
-            1,
-            5,
-            &AppError::Validation("invalid body".into()),
-        );
-        assert_eq!(outcome, crate::retry::AttemptOutcome::HardFailure);
-        let status: String = conn
-            .query_row(
-                "SELECT status FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(status, "dead");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn record_item_failure_transient_reschedules_pending() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-transient");
-        let outcome = record_item_failure(
-            &conn,
-            id,
-            1,
-            5,
-            &AppError::RateLimited {
-                detail: "429".into(),
-            },
-        );
-        assert_eq!(outcome, crate::retry::AttemptOutcome::Transient);
-        let (status, future): (String, i64) = conn
-            .query_row(
-                "SELECT status, (next_retry_at > datetime('now')) FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "pending");
-        assert_eq!(future, 1, "next_retry_at must be in the future");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn record_item_failure_transient_at_cap_marks_dead() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-cap");
-        let outcome = record_item_failure(
-            &conn,
-            id,
-            5,
-            5,
-            &AppError::RateLimited {
-                detail: "429".into(),
-            },
-        );
-        assert_eq!(outcome, crate::retry::AttemptOutcome::Transient);
-        let status: String = conn
-            .query_row(
-                "SELECT status FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(status, "dead");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn dequeue_skips_future_retry_and_dead() {
-        let (conn, path) = open_temp_queue();
-        let eligible = insert_pending(&conn, "mem-eligible");
-        let waiting = insert_pending(&conn, "mem-waiting");
-        conn.execute(
-            "UPDATE queue SET next_retry_at=datetime('now', '+3600 seconds') WHERE id=?1",
-            rusqlite::params![waiting],
-        )
-        .unwrap();
-        let dead = insert_pending(&conn, "mem-dead");
-        conn.execute(
-            "UPDATE queue SET status='dead' WHERE id=?1",
-            rusqlite::params![dead],
-        )
-        .unwrap();
-
-        let claimed: Option<i64> = conn
-            .query_row(
-                "UPDATE queue SET status='processing', attempt=attempt+1 \
-                 WHERE id = (SELECT id FROM queue WHERE status='pending' \
-                               AND (next_retry_at IS NULL OR next_retry_at <= datetime('now')) \
-                             ORDER BY id LIMIT 1) \
-                 RETURNING id",
-                [],
-                |r| r.get(0),
-            )
-            .ok();
-        assert_eq!(claimed, Some(eligible));
-
-        let second: Option<i64> = conn
-            .query_row(
-                "UPDATE queue SET status='processing', attempt=attempt+1 \
-                 WHERE id = (SELECT id FROM queue WHERE status='pending' \
-                               AND (next_retry_at IS NULL OR next_retry_at <= datetime('now')) \
-                             ORDER BY id LIMIT 1) \
-                 RETURNING id",
-                [],
-                |r| r.get(0),
-            )
-            .ok();
-        assert_eq!(second, None);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn classify_validation_never_infers_transience_from_message() {
-        // GAP-SG-73: the fallback classifier is TYPED-only now. Messages
-        // that used to be sniffed for "json" / "missing '" substrings and
-        // treated as Transient are HardFailure here — the OpenRouter chat
-        // path (the project's only supported enrich mode) attaches its own
-        // typed `ChatError::retry_class` for these exact shape failures
-        // BEFORE `record_item_failure_typed` ever falls back to this
-        // classifier, so no message-based guessing survives in the fallback.
-        for msg in [
-            "model 'x' returned non-object JSON after repair (got string)",
-            "model 'x' returned content that could not be parsed even after JSON repair",
-            "model 'x' returned no structured content",
-            "LLM result missing 'description' field",
-            "LLM result missing 'enriched_body' field",
-        ] {
-            assert_eq!(
-                classify_enrich_outcome(&AppError::Validation(msg.into())),
-                crate::retry::AttemptOutcome::HardFailure,
-                "expected hard failure for: {msg}"
-            );
-        }
-    }
-
-    #[test]
-    fn classify_embedding_error_is_transient_floor() {
-        assert_eq!(
-            classify_enrich_outcome(&AppError::Embedding("dimension mismatch".into())),
-            crate::retry::AttemptOutcome::Transient
-        );
-    }
-
-    // GAP-SG-78: entity absence is Transient (own typed variant); memory
-    // absence and the untyped NotFound string stay HardFailure. No substring.
-    #[test]
-    fn classify_entity_not_yet_materialized_is_transient() {
-        assert_eq!(
-            classify_enrich_outcome(&AppError::EntityNotYetMaterialized {
-                name: "acme".into(),
-                namespace: "global".into(),
-            }),
-            crate::retry::AttemptOutcome::Transient
-        );
-    }
-
-    #[test]
-    fn classify_memory_absence_stays_hard_failure() {
-        assert_eq!(
-            classify_enrich_outcome(&AppError::MemoryNotFound {
-                name: "mem-x".into(),
-                namespace: "global".into(),
-            }),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-        assert_eq!(
-            classify_enrich_outcome(&AppError::MemoryNotFoundById { id: 42 }),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-        assert_eq!(
-            classify_enrich_outcome(&AppError::NotFound("gone".into())),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-    }
-
-    #[test]
-    fn classify_database_busy_is_transient_non_busy_is_hard() {
-        let busy = AppError::Database(rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
-            Some("database is locked".into()),
-        ));
-        assert_eq!(
-            classify_enrich_outcome(&busy),
-            crate::retry::AttemptOutcome::Transient
-        );
-        let constraint = AppError::Database(rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-            Some("UNIQUE constraint failed".into()),
-        ));
-        assert_eq!(
-            classify_enrich_outcome(&constraint),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-    }
-
-    #[test]
-    fn record_item_failure_typed_persists_diagnostics_on_dead_letter() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-diag");
-        let outcome = record_item_failure_typed(
-            &conn,
-            id,
-            1,
-            5,
-            crate::retry::AttemptOutcome::HardFailure,
-            "truncated response",
-            Some("length"),
-            Some(120),
-            Some(4096),
-        );
-        assert_eq!(outcome, crate::retry::AttemptOutcome::HardFailure);
-        let (status, finish_reason, input_tokens, output_tokens): (
-            String,
-            Option<String>,
-            Option<i64>,
-            Option<i64>,
-        ) = conn
-            .query_row(
-                "SELECT status, finish_reason, input_tokens, output_tokens FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "dead");
-        assert_eq!(finish_reason.as_deref(), Some("length"));
-        assert_eq!(input_tokens, Some(120));
-        assert_eq!(output_tokens, Some(4096));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn record_item_failure_typed_reschedules_transient_below_max_attempts() {
-        // GAP-SG-72-chat: a transient failure (e.g. a truncated OpenRouter
-        // response) below max_attempts must stay `pending` with a
-        // future `next_retry_at`, not go straight to `dead` — and it must
-        // still persist the finish_reason/token diagnostics for later
-        // inspection via `--list-dead` / `--status`.
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-retry");
-        let outcome = record_item_failure_typed(
-            &conn,
-            id,
-            1,
-            5,
-            crate::retry::AttemptOutcome::Transient,
-            "truncated response",
-            Some("length"),
-            Some(120),
-            Some(64),
-        );
-        assert_eq!(outcome, crate::retry::AttemptOutcome::Transient);
-        let (status, error_class, finish_reason, next_retry_at): (
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-        ) = conn
-            .query_row(
-                "SELECT status, error_class, finish_reason, next_retry_at FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "pending");
-        assert_eq!(error_class, "transient");
-        assert_eq!(finish_reason.as_deref(), Some("length"));
-        assert!(
-            next_retry_at.is_some(),
-            "a rescheduled item must carry a next_retry_at"
-        );
-        let _ = std::fs::remove_file(&path);
-    }
-
-    /// GAP-SG-76/v1.1.00 fix: proves the enrich drain loops' composition
-    /// `with_busy_retry(|| dequeue_next_pending(...))` is BOUNDED under
-    /// sustained lock contention instead of the previous
-    /// `loop { ... continue; }`, which retried `SQLITE_BUSY` forever. A
-    /// second connection holds an exclusive write lock for the whole test;
-    /// the queue connection under test has `busy_timeout=0` so SQLite
-    /// reports `SQLITE_BUSY` immediately instead of blocking internally,
-    /// isolating `with_busy_retry`'s own bounded backoff (5 attempts) as the
-    /// only source of delay.
-    #[test]
-    fn with_busy_retry_bounds_dequeue_under_sustained_contention() {
-        let (conn, path) = open_temp_queue();
-        insert_pending(&conn, "mem-busy");
-        conn.pragma_update(None, "busy_timeout", 0i64)
-            .expect("busy_timeout override must succeed");
-
-        // Second connection holds an EXCLUSIVE write lock so every dequeue
-        // attempt on `conn` observes SQLITE_BUSY, never SQLITE_LOCKED-then-
-        // clears-up.
-        let blocker = Connection::open(&path).expect("blocker connection must open");
-        blocker
-            .execute_batch("BEGIN EXCLUSIVE;")
-            .expect("exclusive lock must be acquired");
-
-        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let calls_clone = std::sync::Arc::clone(&calls);
-        let result: Result<DequeueOutcome, AppError> =
-            crate::storage::utils::with_busy_retry(|| {
-                calls_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                dequeue_next_pending(&conn, "")
-            });
-
-        assert!(
-            matches!(result, Err(AppError::DbBusy(_))),
-            "sustained SQLITE_BUSY must convert to DbBusy, not hang or silently report Empty"
-        );
-        assert_eq!(
-            calls.load(std::sync::atomic::Ordering::SeqCst),
-            crate::constants::MAX_SQLITE_BUSY_RETRIES,
-            "must attempt exactly MAX_SQLITE_BUSY_RETRIES times, never retry unbounded"
-        );
-
-        blocker
-            .execute_batch("ROLLBACK;")
-            .expect("releasing the exclusive lock must succeed");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn dequeue_next_pending_distinguishes_empty_from_claimed() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-dequeue");
-        let claimed = dequeue_next_pending(&conn, "").expect("dequeue must succeed");
-        match claimed {
-            DequeueOutcome::Claimed((claimed_id, key, _, _)) => {
-                assert_eq!(claimed_id, id);
-                assert_eq!(key, "mem-dequeue");
-            }
-            DequeueOutcome::Empty => panic!("expected a claimed row"),
-        }
-        let empty = dequeue_next_pending(&conn, "").expect("dequeue must succeed");
-        assert!(matches!(empty, DequeueOutcome::Empty));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn classify_provider_error_and_not_found_are_hard() {
-        assert_eq!(
-            classify_enrich_outcome(&AppError::ProviderError {
-                code: "400".into(),
-                message: "context length exceeded".into(),
-            }),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-        assert_eq!(
-            classify_enrich_outcome(&AppError::NotFound("memory 'gone' not found".into())),
-            crate::retry::AttemptOutcome::HardFailure
-        );
-    }
-
-    #[test]
-    fn open_queue_db_migrates_operation_column() {
-        let (conn, path) = open_temp_queue();
-        drop(conn);
-        let conn = open_queue_db(&path).expect("second open is idempotent");
-        let cols: Vec<String> = {
-            let mut stmt = conn.prepare("PRAGMA table_info(queue)").unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(1))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-        };
-        assert!(cols.iter().any(|c| c == "operation"));
-        assert!(cols.iter().any(|c| c == "memory_id"));
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn enqueue_candidate_tags_operation_and_memory_id() {
-        let main = open_test_db();
-        main.execute(
-            "INSERT INTO memories (namespace, name, body) VALUES ('global', 'mem-x', 'body')",
-            [],
-        )
-        .unwrap();
-        let mem_id: i64 = main
-            .query_row("SELECT id FROM memories WHERE name='mem-x'", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        let (queue, path) = open_temp_queue();
-        enqueue_candidate(&queue, &main, "global", "mem-x", "memory", "MemoryBindings");
-        let (op, mid): (String, i64) = queue
-            .query_row(
-                "SELECT operation, memory_id FROM queue WHERE item_key='mem-x'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(op, "MemoryBindings");
-        assert_eq!(mid, mem_id);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn requeue_dead_resurrects_dead_rows() {
-        let (conn, path) = open_temp_queue();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status, operation, attempt, error, error_class, next_retry_at) \
-             VALUES ('mem-dead', 'memory', 'dead', 'MemoryBindings', 8, 'boom', 'permanent', datetime('now'))",
-            [],
-        )
-        .unwrap();
-        let n = conn
-            .execute(
-                "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
-                 error=NULL, error_class=NULL \
-                 WHERE status='dead' AND (operation = ?1 OR operation IS NULL)",
-                rusqlite::params!["MemoryBindings"],
-            )
-            .unwrap();
-        assert_eq!(n, 1);
-        let (status, attempt, nra): (String, i64, Option<String>) = conn
-            .query_row(
-                "SELECT status, attempt, next_retry_at FROM queue WHERE item_key='mem-dead'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "pending");
-        assert_eq!(attempt, 0);
-        assert!(nra.is_none());
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn skipped_item_keys_excludes_only_skipped_for_operation() {
-        // GAP-SG-69: the body-enrich scan must drop memories already vetoed
-        // `status='skipped'` so `--until-empty` converges instead of re-scanning a
-        // non-expandable short body forever (the detached worker reported a
-        // stuck backlog for 30+ min).
-        let (conn, path) = open_temp_queue();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status, operation) VALUES ('mem-vetoed', 'memory', 'skipped', 'BodyEnrich')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status, operation) VALUES ('mem-pending', 'memory', 'pending', 'BodyEnrich')",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status, operation) VALUES ('mem-other-op', 'memory', 'skipped', 'MemoryBindings')",
-            [],
-        )
-        .unwrap();
-        let keys = skipped_item_keys(&conn, "BodyEnrich").unwrap();
-        assert!(
-            keys.contains("mem-vetoed"),
-            "vetoed BodyEnrich item must be excluded from scan"
-        );
-        assert!(
-            !keys.contains("mem-pending"),
-            "pending item is still actionable"
-        );
-        assert!(
-            !keys.contains("mem-other-op"),
-            "skipped item from another operation must not leak"
-        );
-        assert_eq!(keys.len(), 1);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn cascade_cleanup_delete_targets_memory_id_and_name() {
-        let (conn, path) = open_temp_queue();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status, memory_id) VALUES ('by-id', 'memory', 'done', 42)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO queue (item_key, item_type, status) VALUES ('by-name', 'memory', 'pending')",
-            [],
-        )
-        .unwrap();
-        let removed = conn
-            .execute(
-                "DELETE FROM queue WHERE memory_id = ?1 OR item_key = ?2",
-                rusqlite::params![42_i64, "by-name"],
-            )
-            .unwrap();
-        assert_eq!(removed, 2);
-        let remaining: i64 = conn
-            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(remaining, 0);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn item_type_for_maps_entity_and_memory() {
-        assert_eq!(
-            item_type_for(&EnrichOperation::EntityDescriptions),
-            "entity"
-        );
-        assert_eq!(item_type_for(&EnrichOperation::MemoryBindings), "memory");
-        assert_eq!(item_type_for(&EnrichOperation::AugmentBindings), "memory");
-        assert_eq!(item_type_for(&EnrichOperation::BodyExtract), "memory");
-        assert_eq!(
-            item_type_for(&EnrichOperation::EntityConnect),
-            "entity_pair"
-        );
-        assert_eq!(
-            item_type_for(&EnrichOperation::CrossDomainBridges),
-            "entity_pair"
-        );
-    }
-
-    // v1.1.1 (P2): prefixed re-embed keys override the operation default so
-    // prune_dead_orphans never reaps entity/chunk rows as orphaned memories.
-    #[test]
-    fn item_type_for_key_honours_reembed_prefixes() {
-        assert_eq!(item_type_for_key("plain-memory-name", "memory"), "memory");
-        assert_eq!(
-            item_type_for_key("entity:tokio-runtime", "memory"),
-            "entity"
-        );
-        assert_eq!(item_type_for_key("chunk:42", "memory"), "chunk");
-        assert_eq!(item_type_for_key("some-entity", "entity"), "entity");
-        // v1.1.06: pair keys must not be treated as memory names.
-        assert_eq!(item_type_for_key("pair:1:2", "memory"), "entity_pair");
-    }
-
-    #[test]
-    fn prune_dead_orphans_removes_only_orphan_memory_rows() {
-        let main = open_test_db();
-        // One live memory whose dead row must be KEPT (it still exists).
-        main.execute(
-            "INSERT INTO memories (namespace, name, body) VALUES ('global', 'alive', 'b')",
-            [],
-        )
-        .unwrap();
-        let (queue, path) = open_temp_queue();
-        // Orphan dead memory row (no matching memory) -> pruned.
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
-                 VALUES ('gone', 'memory', 'dead', 'MemoryBindings', 'permanent')",
-                [],
-            )
-            .unwrap();
-        // Live dead memory row (memory exists) -> kept.
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
-                 VALUES ('alive', 'memory', 'dead', 'MemoryBindings', 'permanent')",
-                [],
-            )
-            .unwrap();
-        // Entity dead row -> never touched (key is not a memory name).
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation) \
-                 VALUES ('some-entity', 'entity', 'dead', 'EntityDescriptions')",
-                [],
-            )
-            .unwrap();
-
-        let pruned = prune_dead_orphans(&queue, &main, "MemoryBindings", "global").unwrap();
-        assert_eq!(pruned, 1, "only the orphan memory row is pruned");
-
-        let remaining: Vec<String> = {
-            let mut stmt = queue
-                .prepare("SELECT item_key FROM queue ORDER BY item_key")
-                .unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(0))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-        };
-        assert_eq!(remaining, vec!["alive", "some-entity"]);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn prune_dead_entity_orphans_removes_only_entity_dead_rows() {
-        let (queue, path) = open_temp_queue();
-        // Entity dead row -> pruned (terminal artifact, no recovery path).
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
-                 VALUES ('entity:foo', 'entity', 'dead', 'ReEmbed', 'permanent')",
-                [],
-            )
-            .unwrap();
-        // Memory dead row -> untouched (wrong item_type).
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation, error_class) \
-                 VALUES ('mem-dead', 'memory', 'dead', 'MemoryBindings', 'permanent')",
-                [],
-            )
-            .unwrap();
-        // Entity pending row -> untouched (not dead).
-        queue
-            .execute(
-                "INSERT INTO queue (item_key, item_type, status, operation) \
-                 VALUES ('entity:bar', 'entity', 'pending', 'ReEmbed')",
-                [],
-            )
-            .unwrap();
-
-        let pruned = prune_dead_entity_orphans(&queue, "ReEmbed").unwrap();
-        assert_eq!(pruned, 1, "only the entity dead row is pruned");
-
-        let remaining: Vec<String> = {
-            let mut stmt = queue
-                .prepare("SELECT item_key FROM queue ORDER BY item_key")
-                .unwrap();
-            stmt.query_map([], |r| r.get::<_, String>(0))
-                .unwrap()
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap()
-        };
-        assert_eq!(remaining, vec!["entity:bar", "mem-dead"]);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    // v1.1.2 (Bug 4): a `processing` row whose claimed_at is older than the
-    // threshold is reset to `pending` so a kill -9 does not strand it forever.
-    #[test]
-    fn stale_processing_claim_is_reset_after_threshold() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-stale");
-        // Simulate a claim taken long ago (2 hours back).
-        conn.execute(
-            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) - 7200 WHERE id=?1",
-            rusqlite::params![id],
-        )
-        .unwrap();
-        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
-        assert_eq!(reset, 1, "a stale claim older than the threshold is reset");
-        let (status, claimed_at): (String, Option<i64>) = conn
-            .query_row(
-                "SELECT status, claimed_at FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(status, "pending");
-        assert!(claimed_at.is_none(), "claimed_at must be cleared on reset");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    // v1.1.2 (Bug 4): a fresh claim (within the threshold) is preserved so an
-    // in-flight worker is not preempted by the sweep.
-    #[test]
-    fn fresh_processing_claim_is_preserved() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-fresh");
-        // Claim taken now.
-        conn.execute(
-            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) WHERE id=?1",
-            rusqlite::params![id],
-        )
-        .unwrap();
-        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
-        assert_eq!(reset, 0, "a fresh claim must not be reset");
-        let status: String = conn
-            .query_row(
-                "SELECT status FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(status, "processing");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    // v1.1.2 (Bug 4, D5): enqueuing N candidates inside one transaction makes
-    // the batch atomic — a second connection sees NONE of them before commit and
-    // ALL of them after. (Within the same connection SQLite always shows
-    // read-your-own-writes, so atomicity is observed cross-connection.)
-    #[test]
-    fn enqueue_batch_is_atomic() {
-        let main = open_test_db();
-        main.execute(
-            "INSERT INTO memories (namespace, name, body) VALUES ('global', 'm1', 'b'), ('global', 'm2', 'b'), ('global', 'm3', 'b')",
-            [],
-        )
-        .unwrap();
-        let (mut queue, path) = open_temp_queue();
-        // Independent reader on the same sidecar file: sees only committed rows.
-        let reader = Connection::open(&path).unwrap();
-
-        let tx = queue.transaction().unwrap();
-        let tx_conn: &Connection = &tx;
-        for key in ["m1", "m2", "m3"] {
-            enqueue_candidate(tx_conn, &main, "global", key, "memory", "MemoryBindings");
-        }
-        // A second connection sees nothing until commit.
-        let before: i64 = reader
-            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get::<_, i64>(0))
-            .unwrap();
-        assert_eq!(before, 0, "rows must not be visible before commit");
-        tx.commit().unwrap();
-
-        let after: i64 = reader
-            .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get::<_, i64>(0))
-            .unwrap();
-        assert_eq!(after, 3, "all three rows are visible after commit");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    // v1.1.2 (Bug 4): heartbeat refreshes claimed_at so a slow LLM call is not
-    // mistaken for a stale claim.
-    #[test]
-    fn heartbeat_updates_claimed_at() {
-        let (conn, path) = open_temp_queue();
-        let id = insert_pending(&conn, "mem-heartbeat");
-        // Stale claim taken 2 hours ago.
-        conn.execute(
-            "UPDATE queue SET status='processing', claimed_at = CAST(strftime('%s','now') AS INTEGER) - 7200 WHERE id=?1",
-            rusqlite::params![id],
-        )
-        .unwrap();
-        heartbeat(&conn, id).unwrap();
-        let claimed_at: Option<i64> = conn
-            .query_row(
-                "SELECT claimed_at FROM queue WHERE id=?1",
-                rusqlite::params![id],
-                |r| r.get(0),
-            )
-            .unwrap();
-        let claimed_at = claimed_at.expect("claimed_at must be set after heartbeat");
-        let now: i64 = conn
-            .query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |r| {
-                r.get::<_, i64>(0)
-            })
-            .unwrap();
-        assert!(
-            now - claimed_at <= 5,
-            "claimed_at must be within 5s of now after heartbeat"
-        );
-        // And the row is no longer stale under a 1800s threshold.
-        let reset = reset_stale_processing_claims(&conn, 1800).unwrap();
-        assert_eq!(reset, 0, "fresh claim survives the sweep after heartbeat");
-        let _ = std::fs::remove_file(&path);
-    }
-}
+#[path = "queue_tests_a.rs"]
+mod tests_a;
+#[cfg(test)]
+#[path = "queue_tests_b.rs"]
+mod tests_b;

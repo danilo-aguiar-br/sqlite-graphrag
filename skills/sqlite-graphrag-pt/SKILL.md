@@ -1,6 +1,6 @@
 ---
 name: sqlite-graphrag
-description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag cobrindo memória GraphRAG persistente, hybrid-search, recall, deep-research, remember, remember-batch, ingest, edit, restore, enrich incluindo entity-connect, forget, purge, link, unlink, merge-entities, rename-entity, reclassify, graph traverse, modelos de embedding e texto OpenRouter, config de API key, backends headless codex claude opencode, fórmulas write-then-enrich, embedding paralelo, códigos de saída, concorrência, env vars, fusão FTS5 mais cosine BLOB, tipos e relações canônicas, isolamento de namespace e regras OAuth-only. Esta skill DEVE ser usada sempre que o agente armazena, recupera, busca, enriquece, liga, mescla ou mantém memória GraphRAG de longo prazo. Palavras-chave sqlite-graphrag GraphRAG memory embedding openrouter codex claude opencode remember recall hybrid-search ingest enrich entity-connect deep-research config
+description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag cobrindo memória GraphRAG, hybrid-search, recall, deep-research -o, remember enqueue-enrich entities_created enrich_recommended, remember-batch, ingest, edit, restore, enrich force-redescribe entity-names memory-names quality_pct blocked_dead budget_exhausted preempted_for_gate, entity-connect escala, memory-entities description, forget, purge, link, unlink, merge-entities, rename-entity, reclassify, graph traverse, modelos embed e texto OpenRouter, XDG e chaves, headless codex claude opencode, fórmulas write-then-enrich, embedding paralelo, exit codes, concorrência, fusão FTS5 BLOB, tipos relações canônicas, namespace, OAuth-only. Esta skill DEVE ser usada sempre que o agente armazena, recupera, busca, enriquece, liga, mescla ou mantém memória GraphRAG de longo prazo. Palavras-chave sqlite-graphrag GraphRAG memory embedding openrouter codex claude opencode remember recall hybrid-search ingest enrich entity-connect deep-research force-redescribe enqueue-enrich config XDG
 ---
 
 ## Quando Esta Skill Ativa
@@ -48,7 +48,8 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - SAIBA que `init` ou `migrate` aplica o schema vivo; LEIA `schema_version` em `health --json`
 - IMPONHA OAUTH-ONLY para codex/claude — o spawn ABORTA com exit 1 se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiverem definidos; `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` são PRESERVADOS
 - SAIBA que o CWD do subprocesso é ISOLADO; 7 guards de preflight rodam antes de cada fork LLM; exit 16 = falha de preflight; `claude -p` herda `.mcp.json` do CWD — DEVE ISOLAR config para `claude-code` ou DEVE usar codex
-- DEFINA `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` SOMENTE em emergências; namespace via `--namespace` ou env (padrão `global`)
+- DEFINA skip de preflight de emergência SOMENTE via `sqlite-graphrag config set spawn.skip_preflight=1` (SOMENTE EMERGÊNCIAS); namespace via `--namespace` ou XDG `config set` (padrão `global`)
+- PROIBIDO product env `SQLITE_GRAPHRAG_*` — NÃO é lida no hot path; SEMPRE use flags CLI e XDG `config set`
 - NUNCA exponha como MCP/HTTP; NUNCA escreva `.sqlite` com outra ferramenta; FUSÃO é FTS5 BM25 mais cosine KNN BLOB via RRF
 
 
@@ -66,20 +67,22 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - USE `openai/text-embedding-3-large` a 0,13 USD por milhão de tokens
 - USE `google/gemini-embedding-005` a cerca de 0,15 USD por milhão de tokens
 - SAIBA que MRL trunca no servidor para `--embedding-dim`; dimensões nativas maiores ficam baratas truncadas em 384
-- VERIFIQUE modelos ao vivo — `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -c '.data[] | select(.id | test("embed";"i")) | {id, pricing}'`
-- CONFIRME chaves com `sqlite-graphrag config doctor --json`; modelo inválido → exit 78
+- VERIFIQUE modelos ao vivo somente após chave armazenada — use a chave de `config add-key`, nunca product env; modelo inválido → exit 78
+- CONFIRME chaves com `sqlite-graphrag config doctor --json`
+- VERIFIQUE o catálogo OpenRouter ao vivo APÓS armazenar a chave — `sqlite-graphrag config doctor --json` e depois liste modelos via REST OpenRouter com a chave armazenada (NUNCA product env); SEMPRE confira ids na tabela de embedding acima antes de chamadas pagas
 - SAIBA que openrouter propaga a TODOS os caminhos de embed — `remember` `remember-batch` `ingest` `recall` `edit` `restore` `hybrid-search` `deep-research` `enrich` `init` `rename-entity`
 
 
 ## Gestão de Chave de API OpenRouter
-- ADICIONE chave via stdin — `echo "sk-or-v1-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin`
+- OBRIGATÓRIO — ADICIONE chave via stdin — `echo "sk-or-v1-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin`
 - LISTE chaves armazenadas — `sqlite-graphrag config list-keys --json`
 - REMOVA chave por fingerprint — `sqlite-graphrag config remove-key <fingerprint> --json`
 - EXECUTE o diagnóstico doctor — `sqlite-graphrag config doctor --json`
 - INSPECIONE o path de config — `sqlite-graphrag config path`
 - SAIBA que as chaves vivem em XDG `~/.config/sqlite-graphrag/config.toml` com `chmod 600` e são zeroizadas no drop, NUNCA logadas
-- SEMPRE resolva chaves por esta precedência — `OPENROUTER_API_KEY` env > `config.toml` > flag CLI `--openrouter-api-key`
-- NUNCA passe a API key como argumento CLI em produção; SEMPRE use stdin ou env var para evitar exposição no histórico do shell
+- OBRIGATÓRIO precedência de chave — flag CLI `--openrouter-api-key` > store XDG `config add-key` > nenhuma; product env NÃO é primária e NÃO é lida no hot path
+- PROIBIDO: confiar em `OPENROUTER_API_KEY` ou qualquer product env `SQLITE_GRAPHRAG_*` como mecanismo principal de config
+- NUNCA passe a API key como argumento CLI em histórico de shell de produção; SEMPRE prefira `config add-key --from-stdin`
 - SEMPRE execute `config doctor` após adicionar uma chave antes de qualquer embedding ou enrich pago
 
 
@@ -88,12 +91,12 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - DEFAULT CODEX é `gpt-5.5`; DEVE definir caminho de embedding com `--llm-backend codex --llm-model <MODEL>` e extração com `enrich --mode codex --codex-model <MODEL>`; renove OAuth com `codex login`; codex é OAUTH-ONLY — NUNCA passe `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`
 - DEFAULT CLAUDE é `claude-sonnet-4-6`; DEVE definir embedding com `--llm-backend claude --llm-model <MODEL>` e extração com `enrich --mode claude-code --claude-model <MODEL>`; claude é OAUTH-ONLY — NUNCA passe `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY`
 - DEFAULT OPENCODE é `opencode/big-pickle`; DEVE definir embedding com `--llm-backend opencode --llm-model <MODEL>` e extração com `enrich --mode opencode --opencode-model <MODEL>` via autenticação própria (NÃO OAuth)
-- EXTRAÇÃO OPENROUTER — DEVE usar `enrich --mode openrouter --openrouter-model <id>`; `--openrouter-model` é OBRIGATÓRIO (sem default; ausência sai com exit 1 antes de qualquer rede); chave vem de `OPENROUTER_API_KEY` ou config
+- EXTRAÇÃO OPENROUTER — DEVE usar `enrich --mode openrouter --openrouter-model <id>`; `--openrouter-model` é OBRIGATÓRIO (sem default; ausência sai com exit 1 antes de qualquer rede); chave vem de `config add-key` ou `--openrouter-api-key`
 - SAIBA que o catálogo opencode é EXTERNO/dinâmico; `--opencode-model` NÃO é validado; PASSE ids vivos do OpenCode Zen; CONSULTE `opencode.ai/zen`
 - SOBRESCREVA binários com `--codex-binary`, `--claude-binary`, `--opencode-binary`; AJUSTE timeouts com `--codex-timeout`, `--claude-timeout`, `--opencode-timeout`
 - VALIDE modelos codex com `--codex-model-validate` e `--codex-model-fallback <MODEL>`; LISTE com `sqlite-graphrag codex-models --json` (modelos CODEX apenas, NÃO OpenRouter)
 - TROQUE backend em rate limit com `enrich --fallback-mode codex` ou global `--llm-fallback codex,claude,none`
-- SAIBA que `--mode openrouter` é REST puro `/chat/completions` — NÃO exige CLI local; fatura `OPENROUTER_API_KEY` (leia `usage.cost`); codex/claude-code/opencode são caminhos zero-token OAuth/auth própria
+- SAIBA que `--mode openrouter` é REST puro `/chat/completions` — NÃO exige CLI local; fatura a chave OpenRouter armazenada (leia `usage.cost`); codex/claude-code/opencode são caminhos zero-token OAuth/auth própria
 
 
 ## Modelos de Texto OpenRouter para Enrich
@@ -116,10 +119,10 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 
 
 ## Referência de Flags Globais
-- `--db <PATH>` — sobrescreve o banco; COLOQUE DEPOIS do subcomando; override por env é `SQLITE_GRAPHRAG_DB_PATH`
+- `--db <PATH>` — sobrescreve o banco; COLOQUE DEPOIS do subcomando; default persistente via `config set db.default_path <PATH>` (NÃO product env)
 - `--namespace <ns>` — escopo; `--json` — JSON estruturado (SEMPRE passe); `--lang en|pt`; `--tz <TIMEZONE>`
 - `--embedding-backend auto|openrouter|llm`; `--embedding-model <MODEL>` (OBRIGATÓRIO com openrouter); `--embedding-dim N` padrão 384 MRL faixa [8, 4096]
-- `--openrouter-api-key <KEY>` — PROIBIDO no histórico de shell em produção
+- `--openrouter-api-key <KEY>` — PROIBIDO no histórico de shell em produção; prefira `config add-key --from-stdin`
 - `--llm-backend codex|claude|opencode|none|auto`; `--llm-model <MODEL>`; `--llm-fallback <chain>`
 - `--extraction-backend` global relacionado; `--openrouter-model <MODEL>` OBRIGATÓRIO em `--mode openrouter`; `--openrouter-base-url`; `--openrouter-timeout` padrão 600
 - `--llm-parallelism N` — fan-out de embedding padrão 4 clamp [1, 32]; governa subprocesso E concorrência JoinSet REST OpenRouter
@@ -135,8 +138,12 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - PASSE entidades como `[{name, entity_type}]` kebab-case ASCII; PASSE relacionamentos como `[{source, target, relation, strength}]` strength em [0.0, 1.0]
 - PASSE `--strict-name` para REJEITAR nomes não-kebab; PASSE `--force-merge` para updates idempotentes; PASSE `--replace-graph` com `--force-merge` para replace total do grafo
 - PASSE `--dry-run` para validar sem persistir
+- PASSE `--enqueue-enrich` em `remember` SOMENTE quando o operador quiser enfileirar entity-descriptions prioritárias APÓS a escrita; o padrão é OFF
+- FAÇA parse do JSON de remember para `entities_created[]` e `enrich_recommended[]` (tipicamente `entity-descriptions` quando entidades foram criadas); NUNCA ignore esses campos
+- QUANDO `enrich_recommended` não estiver vazio DEVE rodar SEPARADO `enrich --operation entity-descriptions` (ou habilite `--enqueue-enrich` para fila prioritária) APÓS exit 0 da escrita
 - VALORES válidos de `--type` de memória — `user` `feedback` `project` `reference` `decision` `incident` `skill` `document` `note`
 - INVOQUE `remember-batch` para 10+ memórias via NDJSON stdin; PASSE `--transaction` para all-or-nothing
+- OBRIGATÓRIO na criação — cada linha NDJSON DEVE incluir `description` não vazia (e `type`); description vazia na criação é REJEITADA (paridade com `remember`)
 - INVOQUE `ingest <DIR> --recursive --pattern "*.md" --mode none` para import body-only, depois enrich SEPARADO
 - SAIBA que `ingest --mode` aceita `none` (padrão body-only), `claude-code`, `codex`, `opencode`; modos non-none rodam extração LLM inline DURANTE o ingest e NÃO precisam de enrich separado para esses bindings
 - USE `--resume`; `--retry-failed`; `--auto-describe`; `--name-prefix <prefix>`; `--force-merge` no ingest para ATUALIZAR duplicatas (dedup por `body_hash`)
@@ -151,7 +158,10 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - INVOQUE `list --type <kind> --limit N --offset N --json`; `history --name <n> --diff --json`
 - INVOQUE `edit --name <n> --body-file <path>` ou `--description` / `--memory-type`; USE `--force-reembed`; USE `--expected-updated-at <ts>` (exit 3 = conflito — recarregue e retente)
 - INVOQUE `rename --name <old> --new-name <new>`; `restore --name <n> --version <N>` (caminho de escrita — OpenRouter embed + `--llm-backend none`, depois enrich SEPARADO)
-- INVOQUE `forget --name <n>`; `purge --retention-days <N> --yes --dry-run` depois remova `--dry-run`; `cleanup-orphans --yes` depois `vacuum --json`
+- INVOQUE `forget --name <n>`; para hard-delete: `purge --yes --dry-run` depois remova `--dry-run`
+- OBRIGATÓRIO — `purge --yes` sozinho mantém retenção padrão de 90 dias; NÃO apaga imediatamente
+- OBRIGATÓRIO para purge imediato de soft-delete — `purge --yes --now` (alias de `--retention-days 0`) ou `purge --yes --retention-days 0`
+- SEMPRE dry-run primeiro: `purge --now --dry-run --json`; depois `cleanup-orphans --yes` e `vacuum --json`
 - NUNCA pule optimistic locking em pipelines concorrentes; NUNCA delete via shell `sqlite3`
 
 
@@ -169,8 +179,11 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - INVOQUE `reclassify --name <n> --new-type <kind>` ou `--from-type <old> --to-type <new> --batch`
 - INVOQUE `reclassify-relation --from-relation <old> --to-relation <new> --batch`; PASSE `--literal-from`/`--literal-to` para match literal
 - INVOQUE `prune-relations --relation mentions --dry-run` depois remova `--dry-run` com `--yes`; `normalize-entities --yes`; `prune-ner --entity <n>` ou `--all --yes`
-- INVOQUE `memory-entities --name <memory>` ou `--entity <name>`; `graph recompute-degree --json` após delete/merge/prune (grau NÃO é auto-recomputado)
+- INVOQUE `memory-entities --name <memory>` ou `--entity <name>`; FAÇA parse do JSON forward `entities[].{name, description, entity_type}` — `description` é OBRIGATÓRIA no envelope (string vazia quando ausente)
+- FAÇA parse do reverse `--entity <name>` da mesma forma para memórias ligadas; SEMPRE apresente `description` ao usuário quando existir
+- INVOQUE `graph recompute-degree --json` após delete/merge/prune (grau NÃO é auto-recomputado)
 - TIPOS canônicos de entidade — `project` `tool` `person` `file` `concept` `incident` `decision` `memory` `dashboard` `issue_tracker` `organization` `location` `date`
+- OBRIGATÓRIO fold de EntityType — aliases mapeiam via `map_to_canonical`; `module` → `concept`; graph-stdin ACEITA tipos dobrados (NUNCA rejeita aliases com hard-fail)
 - VALIDE nomes de entidade — mín 2 chars, sem newlines, sem ALL_CAPS curtos ≤4 chars, REJEITE dígitos puros; NUNCA use `mentions` como relação padrão
 - SAIBA que escritas de grafo são ADITIVAS sem teto de grau; NORMALIZE só via prune/merge/normalize — NUNCA durante a escrita
 
@@ -182,41 +195,57 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - USE `--with-graph --max-hops 2 --min-weight 0.3`; LEIA TANTO `results[]` QUANTO `graph_matches[]`
 - INVOQUE `related <name> --hops N --relation <type>`
 - INVOQUE `deep-research "<query>" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies`; consultas de um token expandem em subconsultas de aspecto; para controle manual PASSE `--sub-query-strategy manual --sub-queries-file PATH`
-- ESCREVA envelopes grandes de deep-research com `--output PATH` (atomwrite); FAÇA parse do ack curto de stdout `{written, bytes, blake3}`; PASSE `--quiet`; NUNCA use `&>`
+- ESCREVA envelopes grandes de deep-research com `--output PATH` ou short `-o PATH` (atomwrite); FAÇA parse do ack curto de stdout `{written, bytes, blake3}`; PASSE `--quiet`; NUNCA use `&>`
+- OBRIGATÓRIO fail-fast — quando `-o`/`--output` estiver definido o arquivo DEVE existir com bytes > 0 após exit 0; NUNCA declare sucesso sem o ack
+- Fórmula DEEP-RESEARCH com short flag — `sqlite-graphrag --quiet --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 deep-research "question" --k 20 --max-hops 3 -o /tmp/dr.json --json`
 - AJUSTE deep-research com `--graph-decay`, `--graph-min-score`, `--max-neighbors-per-hop`, `--max-cost-usd`, `--timeout`
 - FAÇA parse de `recall` → `results[].{name, snippet, distance, score, source}`; `hybrid-search` → `results[].{name, combined_score, vec_rank, fts_rank}`; `deep-research` → `sub_queries[]`, `results[]`, `evidence_chains[]`, `graph_context`, `stats`
 - NUNCA confunda `distance` com `combined_score`; NUNCA aumente hops sem inspecionar `graph stats` primeiro
 
 
 ## Operações de Enrich
-- INVOQUE `enrich --operation <op> --mode <backend>` onde AMBAS as flags são OBRIGATÓRIAS para qualquer operação LLM; omitir `--mode` é rejeitado com exit 2 — EXCETO inspetores read-only `--status`, `--list-dead`, `--requeue-dead`, `--prune-dead-orphans`, `--prune-dead-entity-orphans` que NÃO exigem `--operation`/`--mode`
-- Ops FULLY-IMPLEMENTED que PERSISTEM — `memory-bindings` (entidades→memórias unbound), `augment-bindings` (bindings extras em memórias JÁ ligadas; EXIGE `--names` ou `--names-file`), `entity-descriptions`, `body-enrich`, `re-embed` (só reconstrói vetores), `entity-connect`, `cross-domain-bridges`, `body-extract` + `--body-extract-graph-only` (só grafo, sem reescrever corpo)
-- Ops SCAN-ONLY (só relatório, sem persistir) — `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth`
+- INVOQUE `enrich --operation <op> --mode <backend>` onde AMBAS as flags são OBRIGATÓRIAS para qualquer operação LLM; omitir `--mode` é rejeitado com exit 2 — EXCETO inspetores read-only `--status`, `--list-dead`, `--requeue-dead`, `--prune-dead-orphans`, `--prune-dead-entity-orphans` que NÃO exigem `--operation`/`--mode`; `--dry-run` também permite omitir `--mode`
+- Ops FULLY-IMPLEMENTED que PERSISTEM — `memory-bindings` (entidades→memórias unbound), `augment-bindings` (bindings extras em memórias JÁ ligadas; EXIGE `--names`/`--memory-names` ou `--names-file`), `entity-descriptions`, `body-enrich`, `re-embed` (só reconstrói vetores), `weight-calibrate`, `relation-reclassify`, `entity-connect`, `entity-type-validate`, `description-enrich`, `cross-domain-bridges`, `domain-classify`, `deep-research-synth` (quando bindings persistem), `body-extract` + `--body-extract-graph-only` (só grafo, sem reescrever corpo)
+- SCAN/REPORT apenas — `graph-audit` (NÃO muta a estrutura do grafo)
 - Valores válidos de `--mode` — `codex`, `claude-code`, `opencode`, `openrouter`
 - PASSE `--codex-model`, `--claude-model`, `--opencode-model` ou `--openrouter-model` conforme o modo
-- SAIBA que `--mode openrouter` exige `--openrouter-model`, chave de env/config, REST `/chat/completions` com json_schema estrito e `provider.require_parameters` true, faturado via `usage.cost`
+- SAIBA que `--mode openrouter` exige `--openrouter-model`, chave de XDG `config add-key` ou `--openrouter-api-key`, REST `/chat/completions` com json_schema estrito e `provider.require_parameters` true, faturado via `usage.cost`
 - PASSE `--limit N --resume` para `re-embed`; `--retry-failed`; `--dry-run`; `--target memories|entities|chunks|all` só em `re-embed` (padrão `memories`)
 - SAIBA que `re-embed` seleciona vetores AUSENTES, blobs VAZIOS ou dimensão DIVERGENTE de `--embedding-dim`
 - PASSE `--min-output-chars N` para `body-enrich`; `--fallback-mode codex` em rate limits Claude
+- OBRIGATÓRIO filtros de nome — prefira `--entity-names a,b` para ops por entidade (`entity-descriptions`, `entity-connect`, …) e `--memory-names a,b` para ops por memória (`memory-bindings`, `body-enrich`, …); `--names` permanece alias BC com semântica dependente da operação
+- OBRIGATÓRIO empty-match — quando o filtro de nomes casa zero candidatos, FAÇA parse do JSON `matched=0` mais `hint` e PARE (NUNCA finja sucesso)
+- OBRIGATÓRIO redescribe de baixa qualidade — PASSE `--force-redescribe` em `entity-descriptions` para re-scan de descriptions vazias OU genéricas de baixa qualidade; o padrão é write-once para descriptions não vazias
+- Fórmula ENTITY-DESCRIPTIONS force — `sqlite-graphrag enrich --operation entity-descriptions --mode openrouter --openrouter-model openai/gpt-oss-120b --force-redescribe --entity-names jwt,auth-svc --json`
+- ENTITY-DESCRIPTIONS codex — `sqlite-graphrag enrich --operation entity-descriptions --mode codex --codex-model gpt-5.5 --force-redescribe --entity-names jwt --json`
+- ENTITY-DESCRIPTIONS claude — `sqlite-graphrag enrich --operation entity-descriptions --mode claude-code --claude-model claude-sonnet-4-6 --force-redescribe --entity-names jwt --json`
+- ENTITY-DESCRIPTIONS opencode — `sqlite-graphrag enrich --operation entity-descriptions --mode opencode --opencode-model opencode/big-pickle --force-redescribe --entity-names jwt --json`
+- PASSE `--quality-sample N` com `--status` para reportar `quality_pct` e `scan_backlog_low_grounding_est` (flag > XDG `enrich.entity_description.quality_sample` > padrão 50; `0` desliga)
+- SAIBA isolamento de fila — cada drain reivindica somente linhas da `operation` selecionada; ops memory-only NÃO DEVEM reivindicar chaves `pair:`/`entity:`/`chunk:`
+- SAIBA que `state` do status pode ser `draining` | `cooldown` | `pending-scan` | `blocked_dead`; `blocked_dead` significa dívida de dead-letter até `--list-dead` / `--requeue-dead` / prune
 - NUNCA rode múltiplos processos `enrich` em paralelo no mesmo banco (singleton por namespace); paralelismo REST é SOMENTE `--rest-concurrency` DENTRO de UM processo
 - PASSE `--until-empty` para loop scan→drain até esvaziar ou `--max-runtime` (padrão 3600) expirar; PASSE `--max-attempts <N>` padrão 8 faixa 1..=20
-- PASSE `--status` para `scan_backlog`, `unbound_backlog`, contagens da fila, `eligible_now`, `waiting` — SEM LLM, SEM singleton
+- PASSE `--status` para `scan_backlog`, `unbound_backlog`, contagens da fila, `eligible_now`, `waiting`, `quality_pct`, `state` — SEM LLM, SEM singleton
 - SAIBA que `scan_backlog` é backlog REAL do DB; DISTINTO de `unbound_backlog` e do sidecar `queue_pending`
 - PASSE `--list-dead`; `--requeue-dead`; `--ignore-backoff`; `--prune-dead-orphans`; `--prune-dead-entity-orphans` (mutuamente exclusivos); `--reset-stale-claims` após `kill -9`
 - SAIBA que dead-letter tem backoff Transient vs HardFailures; completions OpenRouter truncadas (`finish_reason` = `length`) reemitem com `max_tokens` AUMENTADO antes do JSON repair
 - SAIBA que a fila de enrich é sidecar `.enrich-queue.sqlite` ao lado do DB principal
-- DISTINGA — `scan_backlog` = candidatos DB que um scan fresco ENFILEIRARIA; `queue_pending` = contagem sidecar; `eligible_now == 0` com `queue_pending > 0` é COOLDOWN; `draining` travado → `--reset-stale-claims`
-- Fórmula STATUS — `sqlite-graphrag enrich --status --json`
+- DISTINGA — `scan_backlog` = candidatos DB que um scan fresco ENFILEIRARIA; `queue_pending` = contagem sidecar; `eligible_now == 0` com `queue_pending > 0` é COOLDOWN; `draining` travado → `--reset-stale-claims`; `state=blocked_dead` → requeue ou prune de dead letters PRIMEIRO
+- Fórmula STATUS — `sqlite-graphrag enrich --status --quality-sample 50 --json`
 - Fórmula UNTIL-EMPTY — `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --max-attempts 8 --rest-concurrency 8 --json`
+- MEMORY-BINDINGS por nomes — `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --memory-names mem-a,mem-b --json`
 - BACKFILL completo re-embed — `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 enrich --operation re-embed --target all --mode openrouter --openrouter-model openai/gpt-oss-120b --until-empty --max-runtime 3600 --json` depois `health --json`
 
 
 ## Regras Operacionais de Entity-Connect
-- SAIBA que `entity-connect` PERSISTE arestas via `entity_connect_seen` com vereditos `related` ou `none`; `cross-domain-bridges` usa o MESMO caminho de scan e drain
+- SAIBA que `entity-connect` é FULLY-IMPLEMENTED e PERSISTE arestas via `entity_connect_seen` com vereditos `related` ou `none`; `cross-domain-bridges` usa o MESMO caminho de scan e drain
 - SAIBA que o scan de pares é O(k) sobre candidatos de coocorrência mais preenchimento hub × ilha grau-0 — SEGURO em namespaces `global` grandes; NUNCA materializa produto cartesiano completo de entidades
 - SAIBA que as chaves de fila DEVEM ser `pair:{id1}:{id2}` com `item_type=entity_pair`; o drain resolve entidades por chave primária e NÃO DEVE reexecutar o scan completo por item
 - SAIBA que o primeiro scan e os rescans são cobertos por `--max-runtime` e um soft ~120s `InterruptHandle`; interrupt vira Timeout exit **1** — NUNCA trate isso como exit 75 de lock de singleton
 - SAIBA que o progresso NDJSON emite `scan_start` antes do SQL e `scan_meta` depois com campos de backlog dual `backlog_degree0_proxy` versus `pairs_enqueued_this_scan`
+- FAÇA parse do JSON de resumo para `budget_exhausted` (true quando o budget de wall-clock/runtime acaba em namespaces grandes) e `preempted_for_gate` (true quando EC cedeu para memory-bindings/entity-descriptions rodarem primeiro)
+- PASSE `--anchor-memory <name>` para limitar o scan de pares ao subgrafo de entidades ligadas a essa memória
+- PASSE `--entity-names a,b` para restringir candidatos de entity-connect; empty match DEVE expor `matched=0` + `hint`
 - SEMPRE converja com `--until-empty` até o backlog esvaziar ou o runtime expirar; SEMPRE inspecione `--status` entre corridas longas
 - SEMPRE faça dry-run primeiro em corpora de produção
 - ENTITY-CONNECT dry-run — `sqlite-graphrag enrich --operation entity-connect --mode openrouter --openrouter-model openai/gpt-oss-120b --dry-run --limit 50 --json`
@@ -224,28 +253,36 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - ENTITY-CONNECT codex — `sqlite-graphrag enrich --operation entity-connect --mode codex --codex-model gpt-5.5 --until-empty --max-runtime 600 --json`
 - ENTITY-CONNECT claude — `sqlite-graphrag enrich --operation entity-connect --mode claude-code --claude-model claude-sonnet-4-6 --until-empty --max-runtime 600 --json`
 - ENTITY-CONNECT opencode — `sqlite-graphrag enrich --operation entity-connect --mode opencode --opencode-model opencode/big-pickle --until-empty --max-runtime 600 --json`
+- ENTITY-CONNECT ancorado — `sqlite-graphrag enrich --operation entity-connect --mode openrouter --openrouter-model openai/gpt-oss-120b --anchor-memory <mem> --until-empty --max-runtime 600 --json`
 - ENTITY-CONNECT bridges — mesmas fórmulas com `--operation cross-domain-bridges`
 - SAIBA que linhas legadas da fila sem prefixo `pair:` são ignoradas pelo drain; reenfileire ou rescanne se um sidecar antigo ainda as contiver
+- SAIBA que a ordem de prioridade é memory-bindings depois entity-descriptions ANTES de entity-connect; drains longos de EC DEVEM ceder cooperativamente
 
 
 ## Escrever Depois Enrich — Templates
 - TRATE toda escrita como PASSO 1 e depois PASSO 2 DISTINTO; NUNCA encadeie com `&&`
 - DEFINA o prefixo de embed OpenRouter como — `sqlite-graphrag --embedding-backend openrouter --embedding-model <EMB> --embedding-dim 384 --llm-backend none`
 - PADRÃO de `<EMB>` = `qwen/qwen3-embedding-8b` salvo se o usuário escolher outro id do catálogo; caminho GRATUITO usa `nvidia/llama-nemotron-embed-vl-1b-v2:free`
-- Fórmulas do PASSO 1 (SEMPRE exit 0 antes do PASSO 2)
+- Fórmulas do PASSO 1 (SEMPRE exit 0 antes do PASSO 2); SEMPRE faça parse de `entities_created` e `enrich_recommended` no remember
 - REMEMBER — `echo '{"body":"text","entities":[{"name":"jwt","entity_type":"concept"}],"relationships":[{"source":"jwt","target":"auth-svc","relation":"uses","strength":0.8}]}' | <PREFIX> remember --name <n> --type decision --description "desc" --graph-stdin --force-merge --json`
-- REMEMBER-BATCH — `<PREFIX> remember-batch --transaction --json` com NDJSON no stdin
+- REMEMBER hot-set — igual ao REMEMBER mais `--enqueue-enrich` quando o operador quiser entity-descriptions prioritárias enfileiradas imediatamente
+- REMEMBER-BATCH — `<PREFIX> remember-batch --transaction --json` com NDJSON no stdin; PASSE `--enqueue-enrich` para entity-descriptions prioritárias após batch bem-sucedido
 - INGEST — `<PREFIX> ingest ./docs --mode none --recursive --pattern "*.md" --type document --resume --json`
 - EDIT — `<PREFIX> edit --name <n> --body-file new.md --json`
 - RESTORE — `<PREFIX> restore --name <n> --version 2 --json`
-- Templates do PASSO 2 (escolha UM backend por corrida; SEMPRE defina flags de modelo explicitamente)
+- Templates do PASSO 2 (escolha UM backend por corrida; SEMPRE defina flags de modelo explicitamente); APLIQUE após remember, remember-batch, ingest, edit, restore
 - CODEX — `sqlite-graphrag enrich --operation memory-bindings --mode codex --codex-model gpt-5.5 --json`
 - CLAUDE — `sqlite-graphrag enrich --operation memory-bindings --mode claude-code --claude-model claude-sonnet-4-6 --json`
 - OPENCODE — `sqlite-graphrag enrich --operation memory-bindings --mode opencode --opencode-model opencode/big-pickle --json`
 - OPENROUTER texto — `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --json`
-- APLIQUE os mesmos templates do PASSO 2 após remember, remember-batch, ingest, edit e restore — o comando de escrita muda; o passo de enrich permanece o mesmo
+- OBRIGATÓRIO matriz completa — para CADA caminho de escrita (remember, remember-batch, ingest, edit, restore) DEVE rodar PASSO 1 OpenRouter embed e depois UM dos quatro backends do PASSO 2 acima; NUNCA omita flags de modelo
+- REMEMBER→CODEX completo — PASSO1 REMEMBER depois `sqlite-graphrag enrich --operation memory-bindings --mode codex --codex-model gpt-5.5 --json` e se `enrich_recommended` contiver entity-descriptions rode `sqlite-graphrag enrich --operation entity-descriptions --mode codex --codex-model gpt-5.5 --entity-names <list> --json`
+- REMEMBER→CLAUDE completo — PASSO1 REMEMBER depois `sqlite-graphrag enrich --operation memory-bindings --mode claude-code --claude-model claude-sonnet-4-6 --json` depois entity-descriptions com `--mode claude-code --claude-model claude-sonnet-4-6`
+- REMEMBER→OPENCODE completo — PASSO1 REMEMBER depois `sqlite-graphrag enrich --operation memory-bindings --mode opencode --opencode-model opencode/big-pickle --json` depois entity-descriptions com `--mode opencode --opencode-model opencode/big-pickle`
+- REMEMBER→OPENROUTER completo — PASSO1 REMEMBER depois `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --json` depois entity-descriptions com `--mode openrouter --openrouter-model openai/gpt-oss-120b --force-redescribe` quando a qualidade estiver baixa
+- REMEMBER-BATCH / INGEST / EDIT / RESTORE → os mesmos quatro backends do PASSO 2; SOMENTE o comando de escrita do PASSO 1 muda
 - SAIBA que o PASSO 2 de extração NÃO exige `--llm-backend` na linha de enrich; passe flags de embedding só quando a operação precisar de vetores (`re-embed`) ou ao documentar defaults do host
-- SAIBA que a resolução de chave prefere env `OPENROUTER_API_KEY` ou `config.toml`; NUNCA embuta a chave crua em linhas de comando de produção
+- SAIBA que a resolução de chave é flag CLI `--openrouter-api-key` > XDG `config add-key`; NUNCA embuta a chave crua em linhas de comando de produção; PROIBIDO product env como primária
 
 
 ## Embedding e Enrich Paralelos
@@ -254,8 +291,11 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - CLAMPE `--llm-parallelism` 1..32 e `--rest-concurrency` 1..16; modelos pagos DEVEM usar 4..16; `:free` limita ~20 req/min então DEVE usar N baixo; múltiplas chaves NÃO aumentam capacidade
 - NUNCA lance N processos enrich para paralelismo; UM processo com `--rest-concurrency` é OBRIGATÓRIO
 - Enrich headless codex/claude/opencode NÃO usa fan-out `--rest-concurrency` da mesma forma; NUNCA multiplique processos enrich para compensar
-- REMEMBER paralelo PASSO 1 — `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --llm-parallelism 8 --llm-backend none remember --name <n> --type decision --description "desc" --graph-stdin --force-merge --json`
+- REMEMBER paralelo PASSO 1 — `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --llm-parallelism 8 --llm-backend none remember --name <n> --type decision --description "desc" --graph-stdin --force-merge --enqueue-enrich --json`
 - Paralelo PASSO 2 openrouter — `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model openai/gpt-oss-120b --rest-concurrency 8 --until-empty --max-runtime 3600 --max-attempts 8 --json`
+- Paralelo PASSO 2 codex após embed OpenRouter — `sqlite-graphrag enrich --operation memory-bindings --mode codex --codex-model gpt-5.5 --until-empty --max-runtime 3600 --json`
+- Paralelo PASSO 2 claude após embed OpenRouter — `sqlite-graphrag enrich --operation memory-bindings --mode claude-code --claude-model claude-sonnet-4-6 --until-empty --max-runtime 3600 --json`
+- Paralelo PASSO 2 opencode após embed OpenRouter — `sqlite-graphrag enrich --operation memory-bindings --mode opencode --opencode-model opencode/big-pickle --until-empty --max-runtime 3600 --json`
 - REMEMBER-BATCH paralelo PASSO 1 — `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 --llm-parallelism 12 --llm-backend none remember-batch --transaction --json`
 - REMEMBER-BATCH paralelo PASSO 2 — `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --rest-concurrency 12 --until-empty --max-runtime 3600 --json`
 - INGEST paralelo PASSO 1 — `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 --llm-parallelism 6 --llm-backend none ingest ./docs --mode none --recursive --pattern "*.md" --type document --resume --json`
@@ -271,13 +311,14 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - INIT — `sqlite-graphrag --embedding-backend openrouter --embedding-model nvidia/llama-nemotron-embed-vl-1b-v2:free --embedding-dim 384 init --namespace <ns>`
 - RECALL — `sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 recall "query" --k 10 --json`
 - HYBRID-SEARCH — `sqlite-graphrag --embedding-backend openrouter --embedding-model baai/bge-m3 --embedding-dim 384 hybrid-search "query" --k 10 --with-graph --max-hops 2 --min-weight 0.3 --rrf-k 60 --json`
-- DEEP-RESEARCH — `sqlite-graphrag --quiet --embedding-backend openrouter --embedding-model openai/text-embedding-3-small --embedding-dim 384 deep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies --output /tmp/research.json --json`
+- DEEP-RESEARCH — `sqlite-graphrag --quiet --embedding-backend openrouter --embedding-model openai/text-embedding-3-small --embedding-dim 384 deep-research "question" --k 20 --max-hops 3 --max-sub-queries 7 --max-results 50 --with-bodies -o /tmp/research.json --json`
+- MEMORY-ENTITIES — `sqlite-graphrag memory-entities --name <memory> --json` e faça parse de `entities[].description`
 - RENAME-ENTITY — `sqlite-graphrag --embedding-backend openrouter --embedding-model perplexity/pplx-embed-v1-0.6b --embedding-dim 384 rename-entity --name <old> --new-name <new> --json`
 - HYBRID-SEARCH offline — `sqlite-graphrag hybrid-search "query" --k 10 --fallback-fts-only --json`
 - TRAVERSE fuzzy — `sqlite-graphrag graph traverse --from <short-alias> --depth 2 --fuzzy --json`
 - LINK por ID — `sqlite-graphrag link --from-id <N> --to-id <M> --relation uses --json`
 - GUARDA self-ref de MERGE — NUNCA execute `merge-entities --ids 3,12 --into-id 3`; SEMPRE exclua o survivor de `--ids`
-- VERIFIQUE catálogo de embedding OpenRouter — `curl -sS https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | jaq -r '.data[].id' | rg -i 'embed'`
+- VERIFIQUE catálogo de embedding OpenRouter somente com chave de `config add-key` / doctor — NUNCA dependa de product env
 
 
 ## Diagnóstico e Manutenção
@@ -285,13 +326,14 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - HEALTH — `sqlite-graphrag health --json` para `{integrity_ok, schema_version, vec_*_missing, vec_*_coverage_pct}`; DISPARE `enrich --operation re-embed --target <target>` quando qualquer missing > 0
 - MIGRATE — `migrate --dry-run --json` depois `migrate --json`; OPTIMIZE — `optimize --json`; VACUUM — `vacuum --json` após purge
 - FTS — `fts check|stats|rebuild --json` quando `health.fts_degraded`; VEC — `vec orphan-list --json` depois `vec purge-orphan --yes`; `vec stats --json`
-- EMBEDDING — `embedding --status --json`; `pending-embeddings --status --json` depois `pending-embeddings process --json`
+- EMBEDDING — `embedding --status --json`; OBRIGATÓRIO alias funciona — `pending-embeddings --status --json` (contagens de saúde da fila)
+- REPROCESE vetores pendentes via `enrich --operation re-embed` (não via product env)
 - SLOTS — `slots status --json`; `slots release --slot-id <N> --yes`; PENDING — `pending list --filter-status queued --json`; `pending show <id>`; `pending cleanup --yes`
 - EXPORT — `export --namespace <ns> --type <kind> --json`; STATS — `stats --json`
 - BACKUP — `backup --output backup.sqlite --json`; SNAPSHOT — `sync-safe-copy --dest <path>`
-- INSPECT — `namespace-detect --json`, `debug-schema --json`, `cache list --json`, `cache clear-models --yes`
+- INSPECT — `namespace-detect --json`, `debug-schema --json`, `cache list --json`, OBRIGATÓRIO `cache stats --json` (alias de `list`), `cache clear-models --yes`
 - COMPLETIONS — `completions bash|zsh|fish|elvish|powershell`
-- AGENDE semanalmente — `purge` → `cleanup-orphans` → `prune-relations --relation mentions` → `vacuum` → `optimize` → `sync-safe-copy`
+- AGENDE semanalmente — `purge --yes` (retenção 90d) ou `purge --yes --now` quando imediato → `cleanup-orphans` → `prune-relations --relation mentions` → `vacuum` → `optimize` → `sync-safe-copy`
 - SE houver corrupção — `sqlite3 broken.sqlite ".recover" | sqlite3 repaired.sqlite`
 
 
@@ -316,36 +358,45 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - DEFINA `--llm-parallelism N` padrão 4 em `remember` e `edit`, padrão 2 em `ingest`, clamp [1, 32]
 - SAIBA JOB SINGLETON — `enrich` e `ingest --mode codex|claude-code` adquirem singleton por namespace
 - USE `--wait-job-singleton SECS` ou `--force-job-singleton` para quebrar lock stale
-- HABILITE `SQLITE_GRAPHRAG_LOW_MEMORY=1` para paralelismo unitário (mais lento)
+- HABILITE paralelismo unitário via flag `--low-memory` ou XDG `config set` (mais lento); PROIBIDO product env
 - NUNCA rode `enrich` em paralelo contra o mesmo banco
 - SAIBA que a concorrência REST de enrich é controlada por `--rest-concurrency`, NÃO por múltiplos processos enrich
 
 
-## Variáveis de Ambiente
-- `SQLITE_GRAPHRAG_DB_PATH` — override do path do banco
-- `SQLITE_GRAPHRAG_NAMESPACE` — namespace persistente
-- `SQLITE_GRAPHRAG_LLM_BACKEND` / `SQLITE_GRAPHRAG_LLM_MODEL` — backend e modelo LLM persistentes
-- `SQLITE_GRAPHRAG_EMBEDDING_BACKEND` / `SQLITE_GRAPHRAG_EMBEDDING_MODEL` / `SQLITE_GRAPHRAG_EMBEDDING_DIM` — defaults do caminho de embed (dim padrão 384)
-- `OPENROUTER_API_KEY` — chave OpenRouter, zeroizada no drop
-- `SQLITE_GRAPHRAG_CODEX_BINARY` / `SQLITE_GRAPHRAG_CLAUDE_BINARY` / `SQLITE_GRAPHRAG_OPENCODE_BINARY` — overrides de binário
-- `SQLITE_GRAPHRAG_OPENCODE_MODEL` / `SQLITE_GRAPHRAG_OPENCODE_TIMEOUT` — overrides opencode
-- `SQLITE_GRAPHRAG_LOW_MEMORY` — paralelismo unitário; `SQLITE_GRAPHRAG_LOG_FORMAT` — `json` para agregadores
-- `SQLITE_GRAPHRAG_SKIP_PREFLIGHT` — bypass de preflight, SOMENTE EMERGÊNCIAS
+## Config XDG (OBRIGATÓRIO)
+- OBRIGATÓRIO precedência de settings operacionais — flag CLI > XDG `config set` > default nomeado
+- PROIBIDO — product env `SQLITE_GRAPHRAG_*` NÃO é lida no hot path; NÃO documente nem exporte como mecanismo de config
+- PROIBIDO — sem alias de telemetria na lib; sem telemetria de produto
+- OBRIGATÓRIO armazenar chaves — `echo "sk-or-v1-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin`
+- OBRIGATÓRIO definir settings — `sqlite-graphrag config set <key> <value>`
+- OBRIGATÓRIO get/list — `config get <key>`; `config list --json`; `config list --effective --json` (inclui defaults)
+- OBRIGATÓRIO unset — `config unset <key>`; path — `config path`; doctor — `config doctor --json`
+- OBRIGATÓRIO URLs de rede OpenRouter via config set — `sqlite-graphrag config set network.openrouter.chat_url https://openrouter.ai/api/v1/chat/completions` e `sqlite-graphrag config set network.openrouter.embeddings_url https://openrouter.ai/api/v1/embeddings`; aliases aceitos — `network.chat_url`, `network.embed_url`
+- OBRIGATÓRIO query Auto fail-fast — `llm.query_embed_timeout_secs` default **3s** (probe de wall-clock fica apertado; não aumente casualmente)
+- OBRIGATÓRIO sample de qualidade enrich — `config set enrich.entity_description.quality_sample 50`
+- OBRIGATÓRIO chaves XDG comuns — `db.default_path`, `embedding.dim`, `embedding.backend`, `embedding.model`, `llm.backend`, `llm.model`, `llm.query_embed_timeout_secs`, `display.tz`, `i18n.lang`, `log.level`, `log.format`, `spawn.skip_preflight` (somente emergências), `enrich.yield_every_n_items`
+- SEMPRE prefira flags one-shot (`--db`, `--namespace`, `--embedding-backend`, …) para agentes; use XDG só para defaults do host
 - NUNCA confie em `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` para codex/claude; são PROIBIDOS e abortam spawn com exit 1
 
 
 ## Regras Ativas
 - SEMPRE `--json`; SEMPRE `jaq` após capture (NUNCA pipe NDJSON; NUNCA `jq`); SEMPRE faça parse de `backend_invoked`
-- SEMPRE `--embedding-backend openrouter --embedding-model <MODEL> --embedding-dim 384` em ops de embed com chave via env/config
+- SEMPRE `--embedding-backend openrouter --embedding-model <MODEL> --embedding-dim 384` em ops de embed com chave via `config add-key` ou `--openrouter-api-key`
 - SEMPRE `--llm-backend none` nas escritas; SEMPRE `enrich` SEPARADO com `--mode` + modelo; NUNCA encadeie com `&&`
+- SEMPRE faça parse de `entities_created` e `enrich_recommended` do remember; SEMPRE rode entity-descriptions quando recomendado ou quando `--enqueue-enrich` foi usado
+- SEMPRE prefira `--entity-names` / `--memory-names` em vez de `--names` ambíguo; SEMPRE trate empty-match `matched=0` + `hint`
+- SEMPRE use `--force-redescribe` ao reanotar descriptions de entidade de baixa qualidade; SEMPRE inspecione `quality_pct` via `--status --quality-sample`
+- SEMPRE trate `state=blocked_dead` como dívida dura até requeue/prune; SEMPRE faça parse de `budget_exhausted` e `preempted_for_gate` do EC
+- SEMPRE faça parse de `memory-entities` `entities[].description`; SEMPRE use `-o` ou `--output` para deep-research grande
 - SEMPRE renove OAuth (`codex login` / claude OAuth) quando stale; SEMPRE mantenha dim 384 (mismatch → knn exit 11)
 - SEMPRE arrays de shell + joins quotados para listas dinâmicas de `merge-entities`
 - DEVE usar `--from-id`/`--to-id` para IDs numéricos de link; NUNCA dígitos puros como nomes `--from`/`--to`
-- DEVE retentar com `--fuzzy` ou sugestões NotFound em traverse de nome curto; DEVE usar `--output PATH` + `--quiet` para deep-research grande; NUNCA `&>`
+- DEVE retentar com `--fuzzy` ou sugestões NotFound em traverse de nome curto; DEVE usar `--output PATH`/`-o PATH` + `--quiet` para deep-research grande; NUNCA `&>`
 - NUNCA passe API keys a codex/claude (OAuth-only, exit 1); NUNCA `--llm-backend codex` em caminhos de escrita com embed OpenRouter
 - NUNCA processos `enrich` paralelos no mesmo DB; NUNCA escreva `.sqlite` fora do binário
 - NUNCA ignore exit 19 (retry OBRIGATÓRIO) ou exit 16 (corrija MCP); NUNCA openrouter sem modelo+chave (exit 78)
 - NUNCA merge self-ref (`--into-id` dentro de `--ids` / `--into` dentro de `--names`); NUNCA memória MCP ou MEMORY.md
+- NUNCA documente product env `SQLITE_GRAPHRAG_*` como configuração; NUNCA invente prosa de histórico de versões dentro desta skill
 - TIPOS canônicos de memória — `user` `feedback` `project` `reference` `decision` `incident` `skill` `document` `note`
 - TIPOS canônicos de entidade — `project` `tool` `person` `file` `concept` `incident` `decision` `memory` `dashboard` `issue_tracker` `organization` `location` `date`
 - RELAÇÕES canônicas — `applies-to` `uses` `depends-on` `causes` `fixes` `contradicts` `supports` `follows` `related` `mentions` `replaces` `tracked-in`

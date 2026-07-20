@@ -2,6 +2,50 @@ Leia este documento em [inglês (EN)](CHANGELOG.md).
 
 
 # Changelog
+
+## [1.1.8] - 2026-07-19
+
+### Conclusão residual (mesma release)
+
+- **Selo E2E (2026-07-19):** scrub de help (sem env de produto / sem Box about); URLs do OpenRouter ligadas ao XDG `network.openrouter.*`; fail-fast de query Auto (`llm.query_embed_timeout_secs`); fold de EntityType (`module`→Concept); paridade de description no remember-batch; `pending-embeddings status` + `cache stats`; `purge --now`; `config list --effective`; `related_to`→`related`; alias de telemetry removido; harness só XDG; harness offline **16/16**.
+- **GAP-CLI-QISO-01..08 (P0 produção):** o claim da fila enrich **é escopado por `operation`**. Um drain de memory-bindings não pode mais claimar linhas de entity-descriptions / entity-connect (corrige falso `memory 'entity' not found` / `memory 'pair:…' not found` → permanent dead, gate CAPA3 travado). `ClaimedRow` + `validate_claim` + guarda de shape em `call_memory_bindings`; status `state=blocked_dead` quando o déficit de scan permanece só com permanent dead; JSON repair permanece Transient na origem ChatError.
+- **G-T-XDG-04:** removidos todos os bindings `clap env=` de produto; config de runtime é **flag > XDG `config set` > default** via `runtime_config` / `paths` / `resolve_api_key` (sem leituras de env de produto `OPENROUTER_*` / `SQLITE_GRAPHRAG_*` no hot path).
+- **ED-05 / PRIO-04/05 / EC-08/09:** `--entity-description-domain`, `--ops-gate`, `--yield-every-n-items`, preempt cooperativa de EC para ED quente, campos de summary `budget_exhausted` / `pairs_remaining_estimate` / `yields`.
+- **Honestidade OBS-OPS:** rótulos ValueEnum de ops que persistem estão **totalmente implementados** (sem mais mentiras de “scan only” para weight/relation/type/description/body/domain).
+- **DR-02 / EC-10:** testes de regressão para materialização de saída do deep-research e escala sintética de wall-clock do EC.
+- **Docs:** TESTING / CROSS_PLATFORM / COOKBOOK — cron/systemd/launchd local; checklist XPLAT-01; sem GA como caminho de produto.
+- **Split:** `enrich/prompts.rs`, `enrich/scheduler.rs` extraídos; splits adicionais de monólitos permanecem incrementais na manutenção da 1.1.8.
+
+Fecha a auditoria de qualidade / latência / contrato do enrich (eixos P1–P12 + G-T) **e** o poison cross-op da fila (QISO). Sem migração de schema do banco principal (`CURRENT_SCHEMA_VERSION` permanece 16). O sidecar do enrich ganha coluna opcional `priority`. Crate `version = "1.1.8"`.
+
+### Corrigido
+- **prompt de entity-descriptions** — removido viés hardcoded de software/system-design; prompt multi-domínio neutro com snippets do corpus de memórias vinculadas (GAP-CLI-ED-01/02).
+- **gate de qualidade de entity-descriptions** — cobertura de grounding contra o corpus antes de persistir; compartilhado com body-enrich via `preservation` (GAP-CLI-ED-03, G-T-DRY-01).
+- **entity-descriptions write-once** — `--force-redescribe` reescaneia padrões de baixa qualidade (GAP-CLI-ED-06).
+- **help de entity-connect** — documentado como fully-implemented (persiste relacionamentos), não scan-only (GAP-CLI-EC-01).
+- **deep-research `-o`** — alias curto de `--output`; fail-fast se o arquivo estiver ausente/vazio após escrita atômica (GAP-CLI-DR-01..03).
+- **memory-entities** — JSON de saída inclui `entities[].description` (GAP-CLI-ME-01).
+
+### Adicionado
+- `remember --enqueue-enrich` + campos de envelope `entities_created` / `enrich_recommended` (GAP-CLI-PRIO-01/02).
+- Coluna `priority` na fila enrich; entity-descriptions do hot-set claimam primeiro (GAP-CLI-PRIO-03).
+- `--entity-names` / `--memory-names` / `--anchor-memory` / `--entity-description-grounding-threshold` / `--force-redescribe`.
+- `config set|get|list|unset` para settings operacionais XDG (G-T-XDG-01).
+- Docs de scheduler local substituem receitas de GitHub Actions / CI em nuvem (G-T-DOC-01).
+
+### Alterado
+- Precedência de resolução de API key: **flag CLI > config XDG > env depreciada** (G-T-XDG-02/03).
+- Whitelist de spawn não encaminha mais env vars de telemetria remota OTEL (G-T-TEL-01).
+- Init de tracing renomeado conceitualmente para logging local apenas.
+
+### Documentação
+- INTEGRATIONS.md / pt-BR: cron/systemd/launchd/Task Scheduler locais em vez de receitas de GA/CircleCI/Jenkins em nuvem.
+- Selo completo de documentação v1.1.8: README / README.pt-BR, CHANGELOG.pt-BR, llms*, MIGRATION / HOW_TO_USE / COOKBOOK / AGENTS / TESTING / CROSS_PLATFORM (EN+pt-BR), skills EN/PT, SECURITY / CONTRIBUTING — config XDG (flag > XDG > default), cobertura do selo E2E, sem tabelas de product env como guidance corrente; ver append em `gaps.md` **Auditoria de documentação v1.1.8**.
+
+### Residuais honestos (não bloqueiam o harness)
+- Monólitos ainda >800 LOC em manutenção contínua (`ingest.rs`, `embedder.rs`, `enrich/extraction*.rs`, `deep_research.rs`, módulos de storage, etc.).
+- Qualidade live LQ (backfill LLM de entity-descriptions no grafo de produção) = operação do operador (`--force-redescribe` + sample; harness offline 16/16).
+
 ## [1.1.07] - 2026-07-15
 
 Release de migração de publicação / ownership. Sem migração de schema (`CURRENT_SCHEMA_VERSION` permanece 16). Sem mudança de comportamento em runtime em relação à v1.1.06. Nome oficial da release: v1.1.07; o manifesto do crate carrega `version = "1.1.7"` porque o parser SemVer rejeita zero à esquerda no componente patch.

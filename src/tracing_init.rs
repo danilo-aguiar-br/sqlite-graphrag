@@ -37,11 +37,11 @@ pub fn init_tracing(log_level: &str, log_format: &str) {
 
     // TR05: confirm effective filter after init
     tracing::debug!(
-        target: "telemetry",
+        target: "logging",
         filter = %log_level,
         format = %log_format,
         ansi = use_ansi,
-        "tracing subscriber initialized"
+        "tracing subscriber initialized (local stderr only; no remote telemetry)"
     );
 
     // TR01 (v1.0.80, A1/G2): panic hook emits a structured tracing::error!

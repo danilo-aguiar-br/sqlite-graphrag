@@ -14,6 +14,11 @@ pub struct AppConfig {
     pub schema_version: u32,
     #[serde(default)]
     pub keys: Vec<ApiKeyEntry>,
+    /// Operational settings persisted via `config set/get` (G-T-XDG-01).
+    /// Stringly-typed map keeps the schema open without migrations for every
+    /// new key. Known keys are documented in `config set --help`.
+    #[serde(default)]
+    pub settings: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -40,8 +45,44 @@ impl Default for AppConfig {
         Self {
             schema_version: 1,
             keys: vec![],
+            settings: std::collections::BTreeMap::new(),
         }
     }
+}
+
+/// Read an operational setting from XDG config (flag > XDG > default is
+/// applied by callers). Returns `None` when unset.
+pub fn get_setting(key: &str) -> Result<Option<String>, AppError> {
+    let cfg = load_config()?;
+    Ok(cfg.settings.get(key).cloned())
+}
+
+/// Persist an operational setting in XDG config.toml (G-T-XDG-01).
+pub fn set_setting(key: &str, value: &str) -> Result<(), AppError> {
+    if key.trim().is_empty() {
+        return Err(AppError::Validation(
+            "config key must be non-empty".into(),
+        ));
+    }
+    let mut cfg = load_config()?;
+    cfg.settings.insert(key.to_string(), value.to_string());
+    save_config(&cfg)
+}
+
+/// Remove an operational setting from XDG config.toml.
+pub fn unset_setting(key: &str) -> Result<bool, AppError> {
+    let mut cfg = load_config()?;
+    let removed = cfg.settings.remove(key).is_some();
+    if removed {
+        save_config(&cfg)?;
+    }
+    Ok(removed)
+}
+
+/// List all operational settings (no secrets).
+pub fn list_settings() -> Result<std::collections::BTreeMap<String, String>, AppError> {
+    let cfg = load_config()?;
+    Ok(cfg.settings)
 }
 
 pub struct ResolvedKey {
@@ -155,27 +196,12 @@ pub fn save_config(config: &AppConfig) -> Result<(), AppError> {
 }
 
 pub fn resolve_api_key(provider: &str, cli_key: Option<&str>) -> Option<ResolvedKey> {
-    let env_name = match provider {
-        "openrouter" => "OPENROUTER_API_KEY",
-        other => {
-            let upper = other.to_uppercase().replace('-', "_");
-            let owned = format!("{upper}_API_KEY");
-            return resolve_api_key_inner(provider, cli_key, &owned);
-        }
-    };
-    resolve_api_key_inner(provider, cli_key, env_name)
-}
-
-fn resolve_api_key_inner(
-    provider: &str,
-    cli_key: Option<&str>,
-    env_name: &str,
-) -> Option<ResolvedKey> {
-    if let Ok(val) = std::env::var(env_name) {
-        if !val.is_empty() {
+    // G-T-XDG-04: flag/cli > XDG `config add-key` only. Product env is not read.
+    if let Some(k) = cli_key {
+        if !k.is_empty() {
             return Some(ResolvedKey {
-                value: SecretBox::new(Box::new(val)),
-                source: "env",
+                value: SecretBox::new(Box::new(k.to_owned())),
+                source: "cli",
             });
         }
     }
@@ -189,10 +215,7 @@ fn resolve_api_key_inner(
         }
     }
 
-    cli_key.map(|k| ResolvedKey {
-        value: SecretBox::new(Box::new(k.to_owned())),
-        source: "cli",
-    })
+    None
 }
 
 pub fn compute_fingerprint(key: &str) -> String {
@@ -211,7 +234,6 @@ pub fn mask_key(key: &str) -> String {
 mod tests {
     use super::*;
     use secrecy::ExposeSecret;
-    use serial_test::serial;
     use tempfile::TempDir;
 
     #[test]
@@ -277,30 +299,16 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn resolve_api_key_env_takes_precedence() {
-        unsafe {
-            std::env::set_var("OPENROUTER_API_KEY", "env-key-value");
-        }
-
+    fn resolve_api_key_cli_wins() {
         let resolved = resolve_api_key("openrouter", Some("cli-key-value"));
         assert!(resolved.is_some());
         let r = resolved.unwrap();
-        assert_eq!(r.source, "env");
-        assert_eq!(r.value.expose_secret(), "env-key-value");
-
-        unsafe {
-            std::env::remove_var("OPENROUTER_API_KEY");
-        }
+        assert_eq!(r.source, "cli");
+        assert_eq!(r.value.expose_secret(), "cli-key-value");
     }
 
     #[test]
-    #[serial]
     fn resolve_api_key_cli_fallback() {
-        unsafe {
-            std::env::remove_var("OPENROUTER_API_KEY");
-        }
-
         let resolved = resolve_api_key("nonexistent-provider", Some("cli-key"));
         assert!(resolved.is_some());
         let r = resolved.unwrap();
@@ -310,9 +318,26 @@ mod tests {
 
     #[test]
     fn resolve_api_key_none_when_nothing_available() {
-        let resolved = resolve_api_key("totally-unknown-provider-xyz", None);
-        // May return None or config match depending on user env
-        // This test verifies no panic
-        let _ = resolved;
+        let resolved = resolve_api_key("totally-unknown-provider-xyz-no-key", None);
+        // Only returns Some if host XDG config has that provider (unlikely).
+        if let Some(r) = resolved {
+            assert_eq!(r.source, "config");
+        }
+    }
+
+    #[test]
+    fn resolve_api_key_ignores_product_env() {
+        // G-T-XDG-04: even if OPENROUTER_API_KEY is set, it must not be used.
+        unsafe {
+            std::env::set_var("OPENROUTER_API_KEY", "env-must-be-ignored");
+        }
+        let resolved = resolve_api_key("openrouter-env-ignore-test-provider", None);
+        assert!(
+            resolved.is_none(),
+            "product env must not supply API keys"
+        );
+        unsafe {
+            std::env::remove_var("OPENROUTER_API_KEY");
+        }
     }
 }

@@ -16,12 +16,29 @@
 - Plano de testes formal com camadas, gatilhos e gates de release: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)
 
 
+## Gate E2E Offline — v1.1.8 (`scripts/e2e_offline_v118.sh`)
+- **Gate offline obrigatório do produto na v1.1.8**: `scripts/e2e_offline_v118.sh` (espera **16/16 PASS**).
+- Escopo: sem product env, sem chave OpenRouter, dirs XDG isolados sob `$TMPDIR`, só flags (`--db`), apenas local.
+- Asserções incluem: `config set`, `purge --now --dry-run`, contrato de help (sem propaganda de product env / sem `Box` about do clippy), fold de EntityType, description em remember-batch, pending-embeddings status, cache stats e contratos relacionados da v1.1.8.
+- Smoke de contrato complementar (veja [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)): materialização `deep-research -o`, `description` em `memory-entities`, `entities_created`/`enrich_recommended` no remember, campos de qualidade em `enrich --status --force-redescribe`, honestidade do help de entity-connect (totalmente implementado).
+- Contrato unitário/integração companheiro: `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como mecanismo de config.
+- **NÃO** é pipeline obrigatório de GitHub Actions do produto — rode localmente (ou cron/systemd/launchd no host). GitHub Actions é infraestrutura opcional do operador, não o gate de release desta CLI.
+- Pré-requisito de build: binário release em `target/release/sqlite-graphrag` (o script compila se faltar).
+
+```bash
+cargo build --release
+./scripts/e2e_offline_v118.sh
+# contrato de help opcional:
+cargo test --test help_no_product_env
+```
+
 ## Infraestrutura de Testes — Matriz CI de Features (2 features desde a v1.0.79)
-- O workflow de CI roda jobs de `clippy` e `test` em uma matriz de 2 features desde a v1.0.79: `default` e `llm-only` (`embedding-legacy` foi removida junto com a feature).
+- Prefira `cargo test` / nextest **local**; **não** trate GitHub Actions como CI de produto obrigatório para esta CLI.
+- Nota histórica: alguns workflows rodavam `clippy` e `test` em uma matriz de 2 features desde a v1.0.79: `default` e `llm-only` (`embedding-legacy` foi removida junto com a feature).
 - Os jobs `default` e `llm-only` instalam uma CLI stub `mock-llm` no `PATH` para que os testes de round-trip de embedding rodem sem uma assinatura real de LLM.
 - 26 arquivos de teste foram cabeados para consumir a mock LLM CLI como substituto drop-in para `claude -p`, `codex exec` e `opencode run`. Isso desbloqueia o CI de exigir credenciais OAuth reais.
 - 107 de 115 testes previamente lentos foram corrigidos no commit `bd0a3f5` (a mock LLM desbloqueia testes que dependiam de um turno OAuth real).
-- Veja o arquivo de workflow do GitHub Actions em `.github/workflows/ci.yml` para a definição da matriz.
+- Execute a matriz multi-OS **localmente** (GitHub Actions não é obrigatório para o produto): `cargo test --lib` em Linux, macOS e Windows; agende com cron, systemd.timer ou launchd — nunca como pipeline obrigatório de GitHub Actions para a CLI.
 
 ### Contrato da Mock LLM CLI
 - Os mocks são shell scripts em `tests/mock-llm/` (`claude`, `codex` e `opencode`) que devolvem JSON determinístico para qualquer prompt; os testes de integração os copiam para um diretório temporário e o prependem ao `PATH`.
@@ -434,10 +451,11 @@ A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-
 - `CARGO_TERM_COLOR=always` — preserva cores nos logs do CI
 - `NEXTEST_PROFILE=ci` — sobrescreve o profile ativo do nextest via ambiente
 ### Variáveis Específicas do sqlite-graphrag
-- `SQLITE_GRAPHRAG_DB_PATH=/tmp/test/graphrag.sqlite` — isola o caminho do banco por teste
-- `SQLITE_GRAPHRAG_CACHE_DIR=/tmp/test-cache` — isola cache do modelo e lock files por teste
-- `SQLITE_GRAPHRAG_LOG_FORMAT=json` — muda a saída de log para JSON estruturado
-- `SQLITE_GRAPHRAG_DISPLAY_TZ=America/Sao_Paulo` — sobrescreve o timezone dos timestamps
+### Notas específicas do sqlite-graphrag (v1.1.8)
+- Product env `SQLITE_GRAPHRAG_*` **não** é o mecanismo de config em runtime — prefira flags `--db` e XDG isolado (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) nos harnesses, como em `scripts/e2e_offline_v118.sh`.
+- Isolamento de teste: passe `--db /tmp/test/graphrag.sqlite` (ou paths únicos em temp) por teste; não confie em product env para o path do banco.
+- Defaults de host para logs/timezone em shells de operador: XDG `config set log.format json`, `config set display.tz America/Sao_Paulo` (flags ainda vencem).
+- `tests/help_no_product_env` protege o texto de help contra propaganda de product env.
 
 
 ## Profiles do CI

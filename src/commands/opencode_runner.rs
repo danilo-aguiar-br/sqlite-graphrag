@@ -28,7 +28,7 @@ pub fn find_opencode_binary_with_override(explicit: Option<&Path>) -> Result<Pat
             p.display()
         )));
     }
-    if let Ok(path) = std::env::var("SQLITE_GRAPHRAG_OPENCODE_BINARY") {
+    if let Some(path) = crate::runtime_config::opencode_binary() {
         let p = PathBuf::from(path);
         if p.exists() {
             return Ok(p);
@@ -36,13 +36,13 @@ pub fn find_opencode_binary_with_override(explicit: Option<&Path>) -> Result<Pat
         tracing::warn!(
             target: "opencode_runner",
             path = %p.display(),
-            "SQLITE_GRAPHRAG_OPENCODE_BINARY is set but file does not exist; falling back to PATH"
+            "llm.opencode_binary is set but file does not exist; falling back to PATH"
         );
     }
     which::which("opencode").map_err(|_| {
         AppError::Validation(
             "`opencode` not found on PATH. Install opencode (>= 1.17) or set \
-             SQLITE_GRAPHRAG_OPENCODE_BINARY to the binary path."
+             via `config set llm.opencode_binary <path>` or `--opencode-binary`."
                 .into(),
         )
     })
@@ -65,8 +65,7 @@ pub fn resolve_opencode_model(model_override: Option<&str>) -> String {
     if let Some(m) = model_override {
         return m.to_string();
     }
-    std::env::var("SQLITE_GRAPHRAG_OPENCODE_MODEL")
-        .unwrap_or_else(|_| "opencode/big-pickle".to_string())
+    crate::runtime_config::resolve_string(None, "llm.opencode_model", "opencode/big-pickle")
 }
 
 /// Resolve the opencode timeout in seconds.
@@ -76,10 +75,7 @@ pub fn resolve_opencode_timeout(timeout_override: Option<u64>) -> u64 {
     if let Some(t) = timeout_override {
         return t;
     }
-    std::env::var("SQLITE_GRAPHRAG_OPENCODE_TIMEOUT")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_OPENCODE_TIMEOUT_SECS)
+    crate::runtime_config::resolve_u64(None, "llm.opencode_timeout", DEFAULT_OPENCODE_TIMEOUT_SECS)
 }
 
 /// Validate the installed opencode version meets the minimum requirement.

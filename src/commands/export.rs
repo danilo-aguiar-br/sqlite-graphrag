@@ -18,10 +18,10 @@ use serde::Serialize;
     # Pipe to file for backup\n  \
     sqlite-graphrag export > backup.ndjson")]
 pub struct ExportArgs {
-    /// Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global).
+    /// Namespace (flag / XDG namespace.default / global).
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Filter by memory type.
@@ -38,8 +38,8 @@ pub struct ExportArgs {
     pub offset: usize,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides SQLITE_GRAPHRAG_DB_PATH and default CWD).
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
+    #[arg(long)]
     pub db: Option<String>,
 }
 

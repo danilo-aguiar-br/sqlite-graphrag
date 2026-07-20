@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/remember.schema.json",
   "title": "RememberResponse",
-  "description": "Response emitted by `sqlite-graphrag remember` on stdout as a single JSON line. backend_invoked added in v1.0.84 by ADR-0042.",
+  "description": "Response emitted by `sqlite-graphrag remember` on stdout as a single JSON line. backend_invoked added in v1.0.84 by ADR-0042. entities_created and enrich_recommended added in v1.1.8 (GAP-CLI-PRIO-01).",
   "type": "object",
   "required": [
     "memory_id", "name", "namespace", "action", "operation", "version",
@@ -35,6 +35,18 @@
       "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding (claude, codex, or none). Omitted when no backend was invoked (e.g. dry-run or LLM-free path).",
       "type": "string",
       "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+    },
+    "entities_created": {
+      "type": "array",
+      "description": "v1.1.8 (GAP-CLI-PRIO-01): entity names written or linked in this remember call (hot set for priority entity-descriptions). Omitted when empty.",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "enrich_recommended": {
+      "type": "array",
+      "description": "v1.1.8 (GAP-CLI-PRIO-01 / G-T-ONESHOT-02): enrich operations the operator should run next (e.g. entity-descriptions after curated graph). Omitted when empty.",
+      "items": { "type": "string" },
+      "default": []
     }
   }
 }

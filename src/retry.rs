@@ -117,7 +117,10 @@ pub fn compute_delay(config: &RetryConfig, attempt: u32) -> Duration {
 /// When active, all retry loops should propagate the error immediately without
 /// sleeping. Use during incidents to prevent retry storms.
 pub fn is_kill_switch_active() -> bool {
-    std::env::var("SQLITE_GRAPHRAG_DISABLE_RETRY").is_ok_and(|v| v == "1")
+    crate::config::get_setting("retry.disable")
+        .ok()
+        .flatten()
+        .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes"))
 }
 
 #[cfg(test)]

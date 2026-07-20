@@ -1,6 +1,6 @@
 [package]
 name = "sqlite-graphrag"
-version = "1.1.7"
+version = "1.1.8"
 edition = "2021"
 rust-version = "1.88"
 description = "Persistent GraphRAG memory for Claude Code, Codex, Cursor, and 27 AI agents — one self-contained ~19 MiB Rust binary, zero daemon. Never re-explain your codebase again. Hybrid retrieval (FTS5 BM25 + cosine similarity + multi-hop graph traversal) surfaces the right memory in milliseconds. Embedding and entity enrichment run as parallel REST calls against your cloud LLM — no fragile headless subprocesses, no ONNX runtime, no model downloads. Soft-delete with full version history, transactional atomic writes, BLAKE3-tracked mutations. OAuth-only: raw API keys ABORT the spawn."
@@ -56,8 +56,8 @@ include = [
     "docs/decisions/adr-*.pt-BR.md",
     "docs/schemas/*.schema.json",
     "docs/schemas/README.md",
-    "skill/sqlite-graphrag-en/SKILL.md",
-    "skill/sqlite-graphrag-pt/SKILL.md",
+    "skills/sqlite-graphrag-en/SKILL.md",
+    "skills/sqlite-graphrag-pt/SKILL.md",
     "rust-toolchain.toml",
     ".cargo/config.toml",
     "benches/**/*.rs",
@@ -86,9 +86,19 @@ exclude = [
     "*.log",
     "*.bak",
     "*.bak.*",
+    # Local SQLite databases (any directory — product DB + enrich queue + sidecars)
+    "**/graphrag.sqlite",
+    "**/graphrag.sqlite-shm",
+    "**/graphrag.sqlite-wal",
+    "**/.enrich-queue.sqlite",
+    "**/.enrich-queue.sqlite-shm",
+    "**/.enrich-queue.sqlite-wal",
     "graphrag.sqlite",
     "graphrag.sqlite-shm",
     "graphrag.sqlite-wal",
+    ".enrich-queue.sqlite",
+    ".enrich-queue.sqlite-shm",
+    ".enrich-queue.sqlite-wal",
     "*.sqlite",
     "*.sqlite-shm",
     "*.sqlite-wal",

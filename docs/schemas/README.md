@@ -177,6 +177,15 @@
 - The `entity_connect` enrich operation is promoted from scan-only to fully-implemented
 - No new output schema file: `entity_connect_seen` is an internal table (implicit schema via the V016 migration), not a subcommand stdout contract
 
+### Schema Changes in v1.1.8 (enrich quality / latency / contract)
+- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Enrich sidecar may gain optional `priority` column via idempotent ALTER.
+- `remember.schema.json` — additive optional fields `entities_created` (string[]) and `enrich_recommended` (string[]) for hot-set orchestration after write (GAP-CLI-PRIO-01). Pair with CLI flag `remember --enqueue-enrich`.
+- `memory-entities.schema.json` — forward items require `description` (string; empty when unset) for parity with reverse lookup (GAP-CLI-ME-01).
+- `enrich-status.schema.json` — additive quality/status fields: `scan_backlog_empty`, `scan_backlog_low_quality`, `force_redescribe`, `quality_pct`, `quality_sample_n`, `scan_backlog_low_grounding_est`; `state` includes `blocked_dead` (QISO / CAPA3).
+- `enrich-summary.schema.json` — additive optional `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate` (EC scale + cooperative preempt).
+- `deep-research` short flag `-o` is a CLI alias of `--output`; ack schema unchanged (`deep-research-output-ack.schema.json`).
+- Offline gate: `scripts/e2e_offline_v118.sh` (16/16). Help must not advertise product `SQLITE_GRAPHRAG_*` env as config.
+
 ### Schema Changes in v1.1.06 (ADR-0066)
 - **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
 - Closes **GAP-ENTITY-CONNECT-SCAN-CARTESIAN**: `enrich --operation entity-connect` / `cross-domain-bridges` no longer use a cartesian pair scan. Queue `item_key` is `pair:{id1}:{id2}` with `item_type=entity_pair` (sidecar queue contract; not a main-DB migration). Drain resolves by entity primary key.
@@ -291,6 +300,15 @@
 | `embedding list` (v1.0.82, GAP-005) | `embedding-list.schema.json` |
 | envelope de shutdown (v1.0.82, GAP-002) | `shutdown-envelope.schema.json` |
 | envelope de erro (todos os comandos) | `error-envelope.schema.json` |
+
+### Mudanças de Schema na v1.1.8 (qualidade/latência/contrato do enrich)
+- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. O sidecar do enrich pode ganhar coluna opcional `priority` via ALTER idempotente.
+- `remember.schema.json` — campos opcionais aditivos `entities_created` (string[]) e `enrich_recommended` (string[]) para orquestração de hot-set (GAP-CLI-PRIO-01). Par com a flag `remember --enqueue-enrich`.
+- `memory-entities.schema.json` — itens forward exigem `description` (string; vazia se ausente) para paridade com o lookup reverso (GAP-CLI-ME-01).
+- `enrich-status.schema.json` — campos de qualidade/status: `scan_backlog_empty`, `scan_backlog_low_quality`, `force_redescribe`, `quality_pct`, `quality_sample_n`, `scan_backlog_low_grounding_est`; `state` inclui `blocked_dead` (QISO).
+- `enrich-summary.schema.json` — opcionais `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate`.
+- Flag curta `-o` de `deep-research` é alias CLI de `--output`; schema de ack inalterado.
+- Gate offline: `scripts/e2e_offline_v118.sh` (16/16). Help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config.
 
 ### Mudanças de Schema na v1.1.05 (ADR-0065)
 - **Sem migração de banco obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Operadores **não** precisam de `migrate` nesta release.

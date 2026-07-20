@@ -1,76 +1,102 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/enrich-status.schema.json",
+  "title": "EnrichStatus",
+  "description": "Read-only `enrich --status` report (no LLM, no singleton). v1.1.8 adds force_redescribe quality fields and blocked_dead state (GAP-CLI-ED-STATUS / OBS-04 / QISO).",
+  "type": "object",
   "additionalProperties": true,
-  "description": "Read-only `enrich --status` report (no LLM, no singleton).",
+  "required": [
+    "status_report",
+    "operation",
+    "namespace",
+    "unbound_backlog",
+    "scan_backlog",
+    "queue_pending",
+    "queue_processing",
+    "queue_done",
+    "queue_failed",
+    "queue_skipped",
+    "queue_dead",
+    "eligible_now",
+    "waiting",
+    "state"
+  ],
   "properties": {
-    "eligible_now": {
-      "format": "int64",
-      "type": "integer"
+    "status_report": {
+      "type": "boolean",
+      "description": "Sentinel; always true for status reports."
+    },
+    "operation": {
+      "type": "string",
+      "description": "Enrich operation name (e.g. entity-descriptions, entity-connect)."
     },
     "namespace": {
       "type": "string"
     },
-    "operation": {
-      "type": "string"
-    },
-    "queue_dead": {
-      "format": "int64",
-      "type": "integer"
-    },
-    "queue_done": {
-      "format": "int64",
-      "type": "integer"
-    },
-    "queue_failed": {
-      "format": "int64",
-      "type": "integer"
-    },
-    "queue_pending": {
-      "format": "int64",
-      "type": "integer"
-    },
-    "queue_processing": {
-      "format": "int64",
-      "type": "integer"
-    },
-    "queue_skipped": {
-      "format": "int64",
-      "type": "integer"
+    "unbound_backlog": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Memory-bindings unbound backlog (legacy field; memory-bindings scoped)."
     },
     "scan_backlog": {
-      "description": "GAP-SG-77 (v1.1.0): per-operation database backlog the scan would enqueue, sharing the scanners' WHERE predicates; distinct from unbound_backlog (memory-bindings queue). The `state` field derives its `pending-scan` verdict from this.",
-      "format": "int64",
+      "type": "integer",
       "minimum": 0,
-      "type": "integer"
-    },
-    "status_report": {
-      "type": "boolean"
-    },
-    "unbound_backlog": {
-      "format": "uint",
-      "minimum": 0.0,
-      "type": "integer"
-    },
-    "waiting": {
       "format": "int64",
-      "type": "integer"
+      "description": "GAP-SG-77: per-operation database backlog the scan would enqueue."
+    },
+    "scan_backlog_empty": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "v1.1.8: empty-description-only backlog (entity-descriptions)."
+    },
+    "scan_backlog_low_quality": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "v1.1.8: low-quality description backlog when --force-redescribe is active."
+    },
+    "force_redescribe": {
+      "type": "boolean",
+      "description": "v1.1.8: true when --force-redescribe was active for this status report."
+    },
+    "quality_pct": {
+      "type": ["number", "null"],
+      "description": "v1.1.8 (OBS-04): fraction of sampled descriptions grounded against linked memory bodies."
+    },
+    "quality_sample_n": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "v1.1.8: sample size used for quality_pct."
+    },
+    "scan_backlog_low_grounding_est": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "v1.1.8: extrapolated count of low-grounding descriptions in the namespace."
+    },
+    "queue_pending": { "type": "integer", "format": "int64" },
+    "queue_processing": { "type": "integer", "format": "int64" },
+    "queue_done": { "type": "integer", "format": "int64" },
+    "queue_failed": { "type": "integer", "format": "int64" },
+    "queue_skipped": { "type": "integer", "format": "int64" },
+    "queue_dead": { "type": "integer", "format": "int64" },
+    "eligible_now": { "type": "integer", "format": "int64" },
+    "waiting": { "type": "integer", "format": "int64" },
+    "state": {
+      "type": "string",
+      "description": "Coarse backlog state: draining | cooldown | pending-scan | blocked_dead | empty. blocked_dead (v1.1.8 QISO) means scan deficit remains but only permanent dead queue rows remain.",
+      "enum": ["draining", "cooldown", "pending-scan", "blocked_dead", "empty"]
+    },
+    "waiting_items": {
+      "type": "array",
+      "description": "Pending queue rows waiting on backoff cooldown.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item_key": { "type": "string" },
+          "attempt": { "type": "integer" },
+          "next_retry_at": { "type": ["string", "null"] },
+          "error_class": { "type": ["string", "null"] }
+        }
+      }
     }
-  },
-  "required": [
-    "eligible_now",
-    "namespace",
-    "operation",
-    "queue_dead",
-    "queue_done",
-    "queue_failed",
-    "queue_pending",
-    "queue_processing",
-    "queue_skipped",
-    "scan_backlog",
-    "status_report",
-    "unbound_backlog",
-    "waiting"
-  ],
-  "title": "EnrichStatus",
-  "type": "object"
+  }
 }

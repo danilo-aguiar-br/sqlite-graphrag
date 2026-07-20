@@ -4,6 +4,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.8] - 2026-07-19
+
+### Residual completion (same release)
+
+- **E2E seal (2026-07-19):** help scrub (no product env / no Box about); OpenRouter URLs wired from XDG `network.openrouter.*`; Auto query fail-fast (`llm.query_embed_timeout_secs`); EntityType fold (`module`→Concept); remember-batch description parity; `pending-embeddings status` + `cache stats`; `purge --now`; `config list --effective`; `related_to`→`related`; telemetry alias removed; harness XDG-only; offline harness **16/16**.
+- **GAP-CLI-QISO-01..08 (P0 production):** enrich queue **claim is scoped by `operation`**. A memory-bindings drain can no longer claim entity-descriptions / entity-connect rows (fixes false `memory 'entity' not found` / `memory 'pair:…' not found` → permanent dead, CAPA3 gate stuck). `ClaimedRow` + `validate_claim` + shape guard on `call_memory_bindings`; status `state=blocked_dead` when scan deficit remains with only permanent dead; JSON repair stays Transient at ChatError origin.
+- **G-T-XDG-04:** removed all `clap env=` product bindings; runtime config is **flag > XDG `config set` > default** via `runtime_config` / `paths` / `resolve_api_key` (no `OPENROUTER_*` / `SQLITE_GRAPHRAG_*` product env reads on the hot path).
+- **ED-05 / PRIO-04/05 / EC-08/09:** `--entity-description-domain`, `--ops-gate`, `--yield-every-n-items`, cooperative preempt of EC for hot ED, summary fields `budget_exhausted` / `pairs_remaining_estimate` / `yields`.
+- **OBS-OPS honesty:** ValueEnum labels for ops that persist are **fully implemented** (no more “scan only” lies for weight/relation/type/description/body/domain).
+- **DR-02 / EC-10:** regression tests for deep-research output materialization and synthetic EC scale wall-clock.
+- **Docs:** TESTING / CROSS_PLATFORM / COOKBOOK — local cron/systemd/launchd; XPLAT-01 checklist; no GA as product path.
+- **Split:** `enrich/prompts.rs`, `enrich/scheduler.rs` extracted; further monólito splits remain incremental within 1.1.8 maintenance.
+
+Closes the enrich quality / latency / contract audit (P1–P12 + G-T axes) **and** the queue cross-op poison (QISO). No main-DB schema migration (`CURRENT_SCHEMA_VERSION` stays at 16). Enrich sidecar gains optional `priority` column. Crate `version = "1.1.8"`.
+
+### Fixed
+- **entity-descriptions prompt** — removed hard-coded software/system-design bias; multi-domain neutral prompt with linked-memory corpus snippets (GAP-CLI-ED-01/02).
+- **entity-descriptions quality gate** — grounding coverage against corpus before persist; shared with body-enrich via `preservation` (GAP-CLI-ED-03, G-T-DRY-01).
+- **entity-descriptions write-once** — `--force-redescribe` rescans low-quality patterns (GAP-CLI-ED-06).
+- **entity-connect help** — documented as fully implemented (persists relationships), not scan-only (GAP-CLI-EC-01).
+- **deep-research `-o`** — short alias for `--output`; fail-fast if file missing/empty after atomic write (GAP-CLI-DR-01..03).
+- **memory-entities** — forward JSON includes `entities[].description` (GAP-CLI-ME-01).
+
+### Added
+- `remember --enqueue-enrich` + envelope fields `entities_created` / `enrich_recommended` (GAP-CLI-PRIO-01/02).
+- Enrich queue `priority` column; hot-set entity-descriptions claim first (GAP-CLI-PRIO-03).
+- `--entity-names` / `--memory-names` / `--anchor-memory` / `--entity-description-grounding-threshold` / `--force-redescribe`.
+- `config set|get|list|unset` for operational XDG settings (G-T-XDG-01).
+- Local scheduler docs replace GitHub Actions / cloud CI recipes (G-T-DOC-01).
+
+### Changed
+- API key resolution precedence: **CLI flag > XDG config > deprecated env** (G-T-XDG-02/03).
+- Spawn whitelist no longer forwards OTEL remote-telemetry env vars (G-T-TEL-01).
+- Tracing init target renamed conceptually to local logging only.
+
+### Docs
+- INTEGRATIONS.md / pt-BR: local cron/systemd/launchd/Task Scheduler instead of GA/CircleCI/Jenkins cloud CI recipes.
+- Full v1.1.8 documentation seal: README / README.pt-BR, CHANGELOG.pt-BR, llms.txt / llms-full.txt / llms.pt-BR.txt, MIGRATION / HOW_TO_USE / COOKBOOK / AGENTS / TESTING / CROSS_PLATFORM (EN+pt-BR), skills EN/PT, SECURITY / CONTRIBUTING — XDG config (flag > XDG > default), E2E seal coverage, no product-env tables as current guidance; see `gaps.md` append **Auditoria de documentação v1.1.8**.
+
 ## [1.1.07] - 2026-07-15
 
 Publishing / ownership migration release. No schema migration (`CURRENT_SCHEMA_VERSION` stays at 16). No runtime behaviour change versus v1.1.06. Official release name is v1.1.07; the crate manifest carries `version = "1.1.7"` because the SemVer parser rejects a leading zero in the patch component.

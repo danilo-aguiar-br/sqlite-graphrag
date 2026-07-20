@@ -62,28 +62,29 @@ impl JobType {
 
 /// Returns the lock file path for the given slot.
 ///
-/// Honours `SQLITE_GRAPHRAG_CACHE_DIR` when set (useful for tests, containers,
-/// and NFS caches), falling back to the OS default cache directory via
-/// `directories::ProjectDirs`. The slot must be 1-based.
+/// Precedence: XDG setting `paths.cache` (via `config set`) > OS default
+/// cache directory via `directories::ProjectDirs`. No product env vars.
+/// The slot must be 1-based.
 fn slot_path(slot: usize) -> Result<PathBuf, AppError> {
     let cache = cache_dir()?;
     std::fs::create_dir_all(&cache)?;
     Ok(cache.join(format!("cli-slot-{slot}.lock")))
 }
 
-/// Resolves the lock-file directory honouring `SQLITE_GRAPHRAG_CACHE_DIR`.
+/// Resolves the lock-file directory from XDG config or OS ProjectDirs.
 fn cache_dir() -> Result<PathBuf, AppError> {
-    if let Some(override_dir) = std::env::var_os("SQLITE_GRAPHRAG_CACHE_DIR") {
-        Ok(PathBuf::from(override_dir))
-    } else {
-        let dirs = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
-            AppError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "could not determine cache directory for sqlite-graphrag lock files",
-            ))
-        })?;
-        Ok(dirs.cache_dir().to_path_buf())
+    if let Ok(Some(override_dir)) = crate::config::get_setting("paths.cache") {
+        if !override_dir.trim().is_empty() {
+            return Ok(PathBuf::from(override_dir.trim()));
+        }
     }
+    let dirs = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
+        AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "could not determine cache directory for sqlite-graphrag lock files",
+        ))
+    })?;
+    Ok(dirs.cache_dir().to_path_buf())
 }
 
 /// Computes a short, filesystem-safe hash of the database path so two distinct
@@ -220,8 +221,9 @@ pub fn acquire_cli_slot(
     let ncpus = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
-    let ceiling = std::env::var("SQLITE_GRAPHRAG_MAX_CLI_INSTANCES")
+    let ceiling = crate::config::get_setting("cli.max_instances")
         .ok()
+        .flatten()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or_else(|| (2 * ncpus).max(MAX_CONCURRENT_CLI_INSTANCES));
     let max = max_concurrency.clamp(1, ceiling);

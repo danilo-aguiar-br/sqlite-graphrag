@@ -1,3 +1,72 @@
+# MIGRATING TO v1.1.8 (No Schema Migration)
+
+- Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
+- Back to [README.md](../README.md)
+
+> This guide covers upgrading from v1.1.07 / v1.1.06 (or any install already on schema **v16**) to **v1.1.8**. **No numbered database migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.1.8"`. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.1.8`. Offline gate: [`scripts/e2e_offline_v118.sh`](../scripts/e2e_offline_v118.sh) (**16/16**). Earlier upgrade paths remain as historical sections below.
+
+## What changed (behaviour + contract — no schema)
+
+- **QISO (P0)** — enrich queue claim is scoped by `operation`; memory-bindings drain cannot claim entity-descriptions / entity-connect rows; status may report `state=blocked_dead`.
+- **Help scrub** — public help no longer documents product `SQLITE_GRAPHRAG_*` env tables or Clippy Box about text on ingest/enrich.
+- **Config is XDG-only for product knobs** — precedence **CLI flag > XDG `config set` > named default**. Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime.
+- **OpenRouter URLs from XDG** — `network.openrouter.chat_url` / `network.openrouter.embeddings_url` (aliases `network.chat_url`, `network.embed_url`) wire into the production HTTP clients.
+- **Query embed fail-fast** — `llm.query_embed_timeout_secs` default **3s** plus credential probe so offline/FTS paths do not hang on dead OAuth.
+- **EntityType fold** — `map_to_canonical` maps free labels such as `"module"` → **Concept** on parse/serde.
+- **remember-batch description** — create requires non-empty `description` (parity with `remember`).
+- **UX aliases** — `pending-embeddings status` (alias of `embedding status`); `cache stats` (alias of `cache list`).
+- **purge --now** — immediate hard-purge of soft-deletes; `--yes` alone does **not** wipe recent soft-deletes (default retention **90d**).
+- **config list --effective** — shows well-known defaults even when not stored.
+- **related_to → related** — non-canonical relation folds to canonical `related`.
+- **Enrich quality** — entity-descriptions multi-domain prompt + grounding; `--force-redescribe`; status `quality_pct` / `scan_backlog_low_quality`; entity-connect help is fully implemented (persists relations, not scan-only); deep-research short `-o`; `memory-entities` forward includes `description`; `remember --enqueue-enrich` + envelope `entities_created` / `enrich_recommended`.
+- **Names** — `--entity-names` / `--memory-names` (alias `--names` with per-operation semantics).
+- **EC scale** — `--anchor-memory`, adaptive limits, yield, summary fields `budget_exhausted` / `pairs_remaining_estimate` / `preempted_for_gate`.
+- **telemetry lib alias removed** — no product telemetry surface.
+- **Residual honest** — monólitos >800 LOC partial; live low-quality entity-description backfill is an **operator campaign** (`--force-redescribe` + LLM; not auto-run by the harness).
+
+## Operator action
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect `1.1.8`).
+- Library API pin: change to `=1.1.8`.
+- Do **not** run `migrate` solely for this upgrade if already on schema v16 (from v1.1.04+).
+- Migrate any shell recipes that exported `SQLITE_GRAPHRAG_*` product knobs to flags + `config set` / `config add-key`.
+- Smoke XDG config and aliases:
+  ```bash
+  sqlite-graphrag config set llm.query_embed_timeout_secs 3
+  sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
+  sqlite-graphrag config list --effective --json
+  sqlite-graphrag pending-embeddings status --json
+  sqlite-graphrag cache stats --json
+  # After forget: immediate hard-delete of soft-deleted rows
+  sqlite-graphrag purge --now --yes --json
+  ```
+- Optional offline gate: `bash scripts/e2e_offline_v118.sh` (expect 16/16).
+- Optional live quality (LLM cost): `enrich --operation entity-descriptions --force-redescribe …` on production graphs.
+- After curated remember: parse `enrich_recommended` / use `--enqueue-enrich`; audit with `memory-entities --name … | jaq '.entities[] | {name, description}'`.
+
+## Breaking contract notes
+
+| Contract | Pre-v1.1.8 (historical) | v1.1.8 |
+| --- | --- | --- |
+| Product config | Many `SQLITE_GRAPHRAG_*` env knobs documented | **Ignored** at runtime; use flag / XDG `config set` |
+| OpenRouter base URLs | Hardcoded constants (XDG knobs not wired) | Resolved from XDG `network.openrouter.*` |
+| Entity type `module` | Could fail Deserialize | Folds to `concept` via `map_to_canonical` |
+| `remember-batch` create | Description could be empty | Non-empty `description` **required** |
+| `purge --yes` | Operators sometimes assumed wipe-all | Still respects retention; use `--now` or `--retention-days 0` |
+| Relation `related_to` | Stored as free label | Maps to canonical `related` |
+| `entity-connect` docs | Often mislabeled scan-only | Fully implemented — **persists** relationships |
+| `--names` | Documented only as memory names | Per-op semantics; prefer `--entity-names` / `--memory-names` |
+| `remember` envelope | No hot-set guidance | May include `entities_created` / `enrich_recommended` |
+| `memory-entities` forward | No entity `description` | Includes `entities[].description` |
+| `deep-research -o` | Short flag missing | `-o` aliases `--output`; file + ack required |
+
+### If you are still on schema v15 or older
+
+- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.1.8.
+
+---
+
 # MIGRATING TO v1.1.06 — Entity-Connect Scan O(k) (No Schema Migration)
 
 - Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)

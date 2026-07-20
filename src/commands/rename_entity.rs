@@ -45,7 +45,7 @@ pub struct RenameEntityArgs {
     pub format: OutputFormat,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -145,6 +145,9 @@ pub fn run(
         )));
     }
 
+    // GAP-CLI-PERF-RENAME-01 / EMBED-NONE (v1.1.8): re-embed the new name only
+    // when a real embedding backend is available. Intentional `--llm-backend
+    // none` (or empty vectors) must not block a pure metadata rename for ~30s.
     let skip_embed = crate::embedder::should_skip_embedding_on_failure();
     let embedding: Option<Vec<f32>> = match crate::embedder::embed_passage_with_embedding_choice(
         &paths.models,
@@ -152,6 +155,7 @@ pub fn run(
         embedding_backend,
         llm_backend,
     ) {
+        Ok((emb, _backend)) if emb.is_empty() => None,
         Ok((emb, _backend)) => Some(emb),
         // v1.1.2 (Gap 2): typed payload rejections are permanent and must not
         // be swallowed by --skip-embedding-on-failure.

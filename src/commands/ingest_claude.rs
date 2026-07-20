@@ -178,7 +178,7 @@ pub fn find_claude_binary(explicit: Option<&Path>) -> Result<PathBuf, AppError> 
         )));
     }
 
-    if let Ok(env_path) = std::env::var("SQLITE_GRAPHRAG_CLAUDE_BINARY") {
+    if let Some(env_path) = crate::runtime_config::claude_binary() {
         let p = PathBuf::from(&env_path);
         if p.exists() {
             return Ok(p);

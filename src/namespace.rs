@@ -1,4 +1,4 @@
-//! Namespace resolution layer (flag > env > "global" fallback).
+//! Namespace resolution layer (flag > XDG `namespace.default` > `"global"`).
 //!
 //! Validates and resolves the active namespace used to scope all SQLite
 //! operations, enforcing safe characters and traversal-free names.
@@ -12,7 +12,9 @@ use std::path::Path;
 #[serde(rename_all = "snake_case")]
 pub enum NamespaceSource {
     ExplicitFlag,
-    Environment,
+    /// Resolved from XDG `namespace.default` (`config set`).
+    #[serde(alias = "environment", alias = "Environment")]
+    XdgConfig,
     Default,
 }
 
@@ -58,7 +60,7 @@ pub fn resolve_namespace(explicit: Option<&str>) -> Result<String, AppError> {
 
 /// Resolves the active namespace, returning a struct with the source and current directory.
 ///
-/// Precedence: explicit flag > `SQLITE_GRAPHRAG_NAMESPACE` > fallback `"global"`.
+/// Precedence: explicit flag > XDG `namespace.default` > fallback `"global"`.
 ///
 /// # Errors
 ///
@@ -79,8 +81,6 @@ pub fn resolve_namespace(explicit: Option<&str>) -> Result<String, AppError> {
 /// use sqlite_graphrag::namespace::{detect_namespace, NamespaceSource};
 ///
 /// // Without any explicit configuration, fallback is "global".
-/// // Removes env var to guarantee deterministic behaviour.
-/// std::env::remove_var("SQLITE_GRAPHRAG_NAMESPACE");
 /// let res = detect_namespace(None).unwrap();
 /// assert_eq!(res.namespace, "global");
 /// assert_eq!(res.source, NamespaceSource::Default);
@@ -98,12 +98,12 @@ pub fn detect_namespace(explicit: Option<&str>) -> Result<NamespaceResolution, A
         });
     }
 
-    if let Ok(ns) = std::env::var("SQLITE_GRAPHRAG_NAMESPACE") {
+    if let Ok(Some(ns)) = crate::config::get_setting("namespace.default") {
         if !ns.is_empty() {
             validate_namespace(&ns)?;
             return Ok(NamespaceResolution {
                 namespace: ns,
-                source: NamespaceSource::Environment,
+                source: NamespaceSource::XdgConfig,
                 cwd: cwd_display,
             });
         }

@@ -42,7 +42,7 @@ pub struct RenameArgs {
     pub new_name: Option<String>,
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Optimistic locking: reject if the current updated_at does not match (exit 3).
@@ -62,7 +62,7 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     pub format: JsonOutputFormat,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 

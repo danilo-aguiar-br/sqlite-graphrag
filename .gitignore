@@ -44,10 +44,19 @@ lcov.info
 coverage/
 target/llvm-cov/
 
-# Local SQLite databases
+# Local SQLite databases (any directory — product DB + enrich queue + sidecars)
+**/graphrag.sqlite
+**/graphrag.sqlite-shm
+**/graphrag.sqlite-wal
+**/.enrich-queue.sqlite
+**/.enrich-queue.sqlite-shm
+**/.enrich-queue.sqlite-wal
 graphrag.sqlite
 graphrag.sqlite-shm
 graphrag.sqlite-wal
+.enrich-queue.sqlite
+.enrich-queue.sqlite-shm
+.enrich-queue.sqlite-wal
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

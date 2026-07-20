@@ -64,6 +64,24 @@
       "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding across this enrich run (claude, codex, or none). Omitted when enrich ran without embedding.",
       "type": "string",
       "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+    },
+    "budget_exhausted": {
+      "type": ["boolean", "null"],
+      "description": "v1.1.8 (GAP-CLI-EC-08): true when soft/max runtime budget ended the run early."
+    },
+    "pairs_remaining_estimate": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "v1.1.8 (GAP-CLI-EC-08): estimated pairs still unscanned (status proxy)."
+    },
+    "yields": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "v1.1.8 (GAP-CLI-PRIO-05): cooperative yields performed this run."
+    },
+    "preempted_for_gate": {
+      "type": ["boolean", "null"],
+      "description": "v1.1.8 (EC-09): true when entity-connect yielded to hot entity-descriptions."
     }
   },
   "required": [

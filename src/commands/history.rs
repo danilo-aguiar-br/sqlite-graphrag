@@ -37,7 +37,7 @@ pub struct HistoryArgs {
     pub name: Option<String>,
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Omit body content from each version to reduce response size.
@@ -56,11 +56,10 @@ pub struct HistoryArgs {
     pub diff: bool,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides SQLITE_GRAPHRAG_DB_PATH and default CWD).
+    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
     #[arg(
         long,
-        env = "SQLITE_GRAPHRAG_DB_PATH",
-        help = "Path to graphrag.sqlite"
+                help = "Path to graphrag.sqlite"
     )]
     pub db: Option<String>,
 }

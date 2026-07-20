@@ -63,12 +63,15 @@ const WALKUP_MAX_DEPTH: usize = 16;
 /// Skip pre-flight checks entirely. Emergency escape hatch — strongly
 /// discouraged. Operators accept the 5-bug-class risk by setting this.
 pub fn is_skipped() -> bool {
-    matches!(
-        std::env::var("SQLITE_GRAPHRAG_SKIP_PREFLIGHT")
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes")
-    )
+    crate::config::get_setting("spawn.skip_preflight")
+        .ok()
+        .flatten()
+        .is_some_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
 }
 
 /// Arguments for the pre-flight validation gate.

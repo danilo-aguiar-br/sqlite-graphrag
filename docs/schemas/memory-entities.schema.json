@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/memory-entities.schema.json",
   "title": "MemoryEntitiesResponse",
-  "description": "Response emitted by `sqlite-graphrag memory-entities --json` on stdout as a single JSON line, listing all entities bound to a given memory.",
+  "description": "Response emitted by `sqlite-graphrag memory-entities --json` on stdout as a single JSON line, listing all entities bound to a given memory. v1.1.8 (GAP-CLI-ME-01): each entity includes description (forward lookup parity with reverse).",
   "type": "object",
   "required": ["memory_name", "entities", "count", "elapsed_ms"],
   "additionalProperties": false,
@@ -13,12 +13,13 @@
       "description": "Entities bound to this memory.",
       "items": {
         "type": "object",
-        "required": ["entity_id", "name", "entity_type"],
+        "required": ["entity_id", "name", "entity_type", "description"],
         "additionalProperties": false,
         "properties": {
           "entity_id":   { "type": "integer", "description": "Primary key of the entity row." },
           "name":        { "type": "string", "description": "Human-readable name of the entity." },
-          "entity_type": { "type": "string", "description": "Type of the entity, e.g. 'concept', 'tool', 'person'." }
+          "entity_type": { "type": "string", "description": "Type of the entity, e.g. 'concept', 'tool', 'person'." },
+          "description": { "type": "string", "description": "v1.1.8 (GAP-CLI-ME-01): entity description text; empty string when unset." }
         }
       }
     },

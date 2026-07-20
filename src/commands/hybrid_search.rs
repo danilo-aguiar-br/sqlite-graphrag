@@ -70,7 +70,7 @@ pub struct HybridSearchArgs {
     pub min_weight: Option<f64>,
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Accept `--json` as a no-op because output is already JSON by default.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]

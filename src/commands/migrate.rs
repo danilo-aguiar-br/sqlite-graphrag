@@ -27,7 +27,7 @@ use std::path::Path;
     # Required once for users upgrading from v1.0.74 or v1.0.75.\n  \
     sqlite-graphrag migrate --to-llm-only")]
 pub struct MigrateArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Explicit JSON flag. Accepted as a no-op because output is already JSON by default.
     #[arg(long, default_value_t = false)]

@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.06 — entity-connect O(k) scan, schema stays v16)
+# sqlite-graphrag for AI Agents (v1.1.8 — XDG config contract, schema stays v16)
 
 - Portuguese version: [AGENTS.pt-BR.md](AGENTS.pt-BR.md)
 - Back to [README.md](../README.md)
@@ -20,10 +20,32 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> New in v1.1.06 (current release): closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — O(k) entity-connect / cross-domain-bridges pair scan (co-occurrence + hub×island), queue keys `pair:{id1}:{id2}` / `item_type=entity_pair`, first-scan `--max-runtime` / soft 120s via `InterruptHandle` → Timeout exit **1** (not singleton 75), NDJSON `scan_start` / `scan_meta` with dual backlog (`backlog_degree0_proxy`, `pairs_enqueued_this_scan`); no schema migration (stays v16). Suite `tests/v1106_entity_connect_scan_regression.rs`. ADR-0066.
-> Previous release v1.1.05: five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (no schema migration; schema stays at v16). Single-token deep-research aspect fan-out; `--output` atomwrite + `--quiet`; `graph traverse --fuzzy`; merge self-ref pre-DB rejection; `link --from-id`/`--to-id` + pure-numeric name rejection.
-> Previous releases: v1.1.04 (two structural gaps closed — GAP-001 deep-research nested-runtime panic, GAP-002 entity-connect convergence; migration V016 schema v15→v16; entity-connect fully-implemented); v1.1.03 (split-body, stale-claims, literal-to, cross-namespace merge); v1.1.02 (GLiNER removal, TooManyTokens typed, entity orphan prune).
-> New in v1.1.01 (previous release): entity embedding via OpenRouter REST even with `--llm-backend none`; `enrich --operation re-embed --target`; new `graph recompute-degree`; `ingest --name-prefix`.
+> **Current release v1.1.8:** config precedence is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Keys via `config add-key` or `--openrouter-api-key`. Schema stays **v16**. Offline gate: `scripts/e2e_offline_v118.sh` (16/16).
+> Previous release v1.1.06: closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — O(k) entity-connect / cross-domain-bridges pair scan; schema stays v16. ADR-0066.
+> Previous release v1.1.05: five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (schema stays v16).
+> Previous releases: v1.1.04 (V016 schema v15→v16); v1.1.03; v1.1.02; v1.1.01.
+
+## New in v1.1.8 — XDG Config Contract (No Migration, Schema v16)
+
+- **REQUIRED precedence** for operational settings: CLI flag > XDG `config set` > named default. Product environment variables `SQLITE_GRAPHRAG_*` are **NOT** read at runtime on the hot path.
+- **REQUIRED keys**: `echo "sk-or-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin` or one-shot `--openrouter-api-key` (avoid shell history). Prefer `config doctor --json`.
+- **REQUIRED network URLs** via XDG: `config set network.openrouter.chat_url <URL>` and `config set network.openrouter.embeddings_url <URL>` (aliases `network.chat_url` / `network.embed_url`).
+- **REQUIRED query Auto fail-fast**: `llm.query_embed_timeout_secs` default **3s**.
+- **REQUIRED EntityType fold**: `map_to_canonical` folds aliases (`module` → `concept`); graph-stdin accepts folded types.
+- **REQUIRED remember-batch**: non-empty `description` on create.
+- **REQUIRED aliases**: `pending-embeddings status` and `cache stats` work.
+- **REQUIRED purge**: `purge --yes --now` for immediate soft-delete purge; `--yes` alone keeps 90-day retention.
+- **REQUIRED QISO**: enrich queue claim is scoped by `operation`; treat `state=blocked_dead` as requeue/prune, not infinite pending-scan.
+- **REQUIRED entity-descriptions quality**: multi-domain prompt + grounding; use `--force-redescribe` to rewrite low-quality filled text; parse `--status --force-redescribe` fields `scan_backlog_low_quality`, `quality_pct`, `quality_sample_n`.
+- **REQUIRED names**: use `--entity-names` for entity-descriptions and `--memory-names` for memory-bindings; `--names` is a BC alias with per-operation semantics — NEVER assume `--names` always means memory names.
+- **REQUIRED remember hot-set**: PARSE `entities_created[]` and `enrich_recommended[]` from remember JSON; PASS `--enqueue-enrich` when entities must enter priority entity-descriptions immediately.
+- **REQUIRED memory-entities**: forward `memory-entities --name <mem> --json` includes `entities[].description` — audit with `jaq '.entities[] | {name, description}'`.
+- **REQUIRED deep-research output**: PASS `-o PATH` or `--output PATH`; PARSE stdout ack `{written,bytes,blake3,…}`; NEVER assume short `-o` is ignored.
+- **REQUIRED entity-connect**: fully implemented (persists relationships); NOT scan-only; large DB may emit `budget_exhausted` / `preempted_for_gate`; prefer write → ED hot → EC cold.
+- **REQUIRED order**: after write, run entity-descriptions (hot) before long entity-connect drains.
+- **FORBIDDEN**: product env as primary config; no lib telemetry alias; no product telemetry; no teaching entity-connect as scan-only.
+- **HISTORICAL sections below** that mention `SQLITE_GRAPHRAG_*` knobs describe pre-v1.1.8 behaviour — do NOT treat them as current configuration.
+- Offline E2E gate: `scripts/e2e_offline_v118.sh` (16/16). Help contract: `tests/help_no_product_env`. Schema **v16** unchanged.
 
 ## New in v1.1.06 — Entity-Connect Scan O(k) (No Migration)
 
@@ -37,7 +59,7 @@
 ## New in v1.1.05 — Danilo Incident Bugs 1–5 (No Migration)
 
 - USE `deep-research "<token>" --json` for single-token subjects: heuristic decomposition expands to multi-aspect sub-queries with `source: "aspect"` (EN/PT facets covering patrimony, stack, stakeholders, projects, decisions, relationships, context). PASS `--sub-query-strategy manual --sub-queries-file <path>` when you need full control of the sub-query list.
-- WRITE large deep-research envelopes with `deep-research ... --output PATH` (atomwrite: tempfile same dir → fsync → rename). PARSE the short stdout ack `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` — do NOT expect the full envelope on stdout when `--output` is set. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
+- WRITE large deep-research envelopes with `deep-research ... -o PATH` or `--output PATH` (atomwrite: tempfile same dir → fsync → rename). PARSE the short stdout ack `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` — do NOT expect the full envelope on stdout when output path is set. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
 - PASS global `--quiet` / `-q` in headless agent pipelines to suppress non-error tracing. NEVER redirect stdout and stderr to the same file with `&>` — JSON lives on stdout, logs on stderr.
 - USE `graph traverse --from <short-name> --fuzzy --json` when the canonical entity name is unknown; without `--fuzzy`, treat exit 4 NotFound suggestions (ranked Jaro-Winkler + prefix) as the candidate list.
 - REJECT self-referential merges: NEVER put the `--into-id` value inside `--ids` (or `--into` inside `--names`). The CLI rejects this BEFORE any DB work (v1.1.05), including under `--cross-namespace`.
@@ -236,7 +258,7 @@ Agents that try to set them will see a clear validation error.
 - `delete-entity --name <entity> --json` — deletes an entity node; use `--cascade` to also remove all edges connected to the entity; without `--cascade` fails with exit 4 if edges exist
 - `reclassify --name <entity> --new-type <type> --json` — changes the `entity_type` of an existing entity in place without touching its edges or memory links
 - `merge-entities --names "a,b,c" --into <target> --json` — merges two or more source entities into a target entity; all edges from source nodes are redirected to the target; source nodes are deleted after merge
-- `memory-entities --name <memory> --json` — lists all entity nodes linked to a given memory; returns the same schema as `graph entities` items
+- `memory-entities --name <memory> --json` — lists all entity nodes linked to a given memory; each item includes `entity_id`, `name`, `entity_type`, and `description` (v1.1.8 forward parity)
 - `prune-ner --entity <name> --json` — removes all NER-derived bindings for a given entity name without deleting the entity node itself; useful for cleaning up low-quality auto-extracted entities
 
 ## New in v1.0.79
@@ -836,43 +858,48 @@ let output = Command::new("sqlite-graphrag")
 
 
 ## Global Configuration
+### REQUIRED — Precedence (v1.1.8)
+- RESOLVE settings as **CLI flag > XDG `config set` > named default**
+- FORBIDDEN: product env `SQLITE_GRAPHRAG_*` as the config mechanism — not read on the hot path
+- USE `config set <key> <value>`, `config get <key>`, `config list --effective --json`, `config unset <key>`, `config path`, `config doctor --json`
 ### REQUIRED — Database Path
-- USE `--db <PATH>` when the database is not in the current directory
-- SET `SQLITE_GRAPHRAG_DB_PATH` for persistent configuration
-- NOTE that `--db` takes precedence over the environment variable
-- DEFAULT is `graphrag.sqlite` in the current invocation directory
+- USE `--db <PATH>` when the database is not in the current directory (prefer flags for one-shot agents)
+- SET persistent default with `sqlite-graphrag config set db.default_path <PATH>`
+- NOTE that `--db` takes precedence over XDG
+- DEFAULT is `graphrag.sqlite` in the current invocation directory when neither flag nor XDG is set
 ### REQUIRED — Namespace
-- SET namespace via `--namespace` or `SQLITE_GRAPHRAG_NAMESPACE`
+- SET namespace via `--namespace` (preferred) or host XDG defaults when configured
 - VALIDATE resolution with `namespace-detect --json`
 - USE `global` as the default namespace when absent
-- SINCE v1.0.51 ALL commands respect `SQLITE_GRAPHRAG_NAMESPACE`; previously `list`, `read`, `edit`, `forget`, `history`, `rename`, `restore`, and `remember` ignored it
 - ISOLATE projects via namespace per repository
 - ADOPT `swarm-<agent_id>` for multi-agent swarms
+### REQUIRED — OpenRouter Keys and Network URLs
+- ADD keys with `config add-key --provider openrouter --from-stdin` (or one-shot `--openrouter-api-key`)
+- SET chat/embeddings endpoints with `config set network.openrouter.chat_url <URL>` and `config set network.openrouter.embeddings_url <URL>`
 ### REQUIRED — Output Language
 - USE `--lang en` or `--lang pt` to force output language
-- SET `SQLITE_GRAPHRAG_LANG=en` for session override
+- PERSIST with `config set i18n.lang en` (or `pt`) when a host default is desired
 - NOTE that `--lang` affects only human-readable stderr
 - STDOUT JSON remains deterministic regardless of language
 ### REQUIRED — Display Timezone
 - APPLY `--tz America/New_York` to localized output
-- USE `SQLITE_GRAPHRAG_DISPLAY_TZ=<IANA>` to persist
+- PERSIST with `config set display.tz <IANA>`
 - AFFECTS only `*_iso` fields in the JSON
 - INTEGER epoch fields remain in UTC
 - ABORT when an invalid IANA name returns exit 2 (Clap argument parsing)
-### REQUIRED — Log Format
-- ENABLE `SQLITE_GRAPHRAG_LOG_FORMAT=json` for log aggregators
+### REQUIRED — Log Format / Level
+- PERSIST structured logs with `config set log.format json` for aggregators
 - DEFAULT `pretty` is intended for humans in the terminal only
-- RAISE detail via `SQLITE_GRAPHRAG_LOG_LEVEL=debug` for diagnostics
-- USE `-v`, `-vv`, `-vvv` for info, debug, and trace in subcommands
+- RAISE detail via `config set log.level debug` or flags `-v` / `-vv` / `-vvv`
 ### REQUIRED — Global RAM Control
-- ENABLE `SQLITE_GRAPHRAG_LOW_MEMORY=1` in constrained containers
+- ENABLE `--low-memory` in constrained containers (or the matching XDG key if configured)
 - APPLY on hosts with less than 4 GB of available RAM
-- HONORS cgroup constraints automatically when set
 - TRADE-OFF is 3 to 4 times more wall-clock time
-- COMBINE with the `--low-memory` flag in a specific `ingest`
+### REQUIRED — Query Auto Fail-Fast
+- KNOW `llm.query_embed_timeout_secs` defaults to **3s** (v1.1.8); keep query embed paths tight
 ### NOTE — ONNX Runtime No Longer Required (v1.0.76)
 - The ONNX runtime and fastembed model were removed in v1.0.76
-- All embedding is now done via the LLM subprocess (claude or codex)
+- Embedding is OpenRouter REST and/or LLM subprocess (claude / codex / opencode)
 - No `libonnxruntime.so` or `ORT_DYLIB_PATH` needed
 
 
@@ -1150,9 +1177,11 @@ let output = Command::new("sqlite-graphrag")
 - JSON response: `action` (`"soft_deleted"` `"already_deleted"`), `forgotten`, `name`, `namespace`, `deleted_at?`, `deleted_at_iso?`, `elapsed_ms`
 - Since v1.0.52: when the memory is not found, `forget` no longer emits JSON to stdout; only a stderr error message and exit code 4 are produced
 ### REQUIRED — Hard Delete (purge)
-- USE `purge --retention-days <N> --yes` in automation
+- USE `purge --retention-days <N> --yes` in automation when a retention window applies
 - DEFAULT retention is 90 days for soft-deleted memories
-- RUN `--dry-run` first to audit the count
+- KNOW `--yes` alone does **not** override retention — immediate wipe requires `--now` or `--retention-days 0`
+- USE `purge --yes --now` (or `--retention-days 0`) for immediate purge of all soft-deleted memories
+- RUN `--dry-run` first to audit the count (`purge --now --dry-run --json`)
 - PERMANENTLY deletes rows and reclaims disk space
 ### REQUIRED — Edge Removal (unlink)
 - USE `unlink --from <a> --to <b> --relation <type>`
@@ -1576,14 +1605,13 @@ let output = Command::new("sqlite-graphrag")
 - Flag `--lang en` forces English messages regardless of system locale
 - Flag `--lang pt` or `--lang pt-BR` or `--lang portuguese` or `--lang PT` forces Portuguese
 - Short codes `en` and `pt` are the canonical forms; the longer aliases are accepted without error
-- Env `SQLITE_GRAPHRAG_LANG=pt` overrides system locale when `--lang` is absent
-- Missing flag and env falls back to `sys_locale::get_locale()` detection
+- When `--lang` is absent, resolution uses XDG `i18n.lang` then `sys_locale::get_locale()` (product env is not the primary mechanism)
 - Unknown locales default to English without emitting any warning to stderr
-- Env `SQLITE_GRAPHRAG_DISPLAY_TZ=America/Sao_Paulo` sets the IANA timezone applied to all `*_iso` fields in JSON output
-- Flag `--tz <IANA>` takes priority over `SQLITE_GRAPHRAG_DISPLAY_TZ`; both fall back to UTC when absent
+- XDG `display.tz` (via `config set display.tz America/Sao_Paulo`) sets the IANA timezone for all `*_iso` fields
+- Flag `--tz <IANA>` takes priority over XDG `display.tz`; both fall back to UTC when absent
 - Invalid IANA names cause exit 2 with a `Validation` error message before any command runs
 - Only `*_iso` string fields are affected; integer epoch fields (`created_at`, `updated_at`) remain unchanged
-- Env `SQLITE_GRAPHRAG_LOG_FORMAT=json` switches tracing output to newline-delimited JSON; default is `pretty`
+- XDG `log.format=json` (or the matching flag path) switches tracing to newline-delimited JSON; default is `pretty`
 
 
 ## ARM64 GNU Runtime Note (v1.0.76)
@@ -1769,7 +1797,7 @@ cargo install --path . && sqlite-graphrag init
 - Defaults raised: `enrich --max-attempts` default is now 8 (range 1..=20); `enrich --openrouter-timeout` default is now 600s. The per-namespace singleton is unchanged, with `--rest-concurrency` (clamp 1..=16, default 8) as the throughput remedy (GAP-20).
 - `remember --graph-file <path>` loads the entity graph from a file (combinable with `--body-file`); `remember --strict-name` rejects a non-kebab name instead of normalizing; `remember --replace-graph` (with `--force-merge`) zeroes existing bindings before writing.
 - `ingest --force-merge` updates duplicate files instead of skipping them (dedup by `body_hash`); oversized bodies auto-split natively into chunks. `read --format raw` prints the pure body with no JSON envelope. `unlink --memory <name> --entity <name>` removes a single curated memory-to-entity binding.
-- `embedding status --json` adds a `coverage` object (real vector counts per table); `stats --json` adds a top-level `total_memories`. `--db <PATH>` must be placed AFTER the subcommand; `SQLITE_GRAPHRAG_DB_PATH` is the canonical position-independent override (SG-32). No migration; schema stays at v15.
+- `embedding status --json` adds a `coverage` object (real vector counts per table); `stats --json` adds a top-level `total_memories`. `--db <PATH>` must be placed AFTER the subcommand. Historical note (pre-v1.1.8): `SQLITE_GRAPHRAG_DB_PATH` was documented as position-independent override (SG-32) — **v1.1.8 does not read product env on the hot path**; use `--db` or XDG `db.default_path`. No migration; schema stays at v15 in that historical release.
 
 ## New in v1.0.96 — Enrich Dead-Letter + OpenRouter REST Fan-Out (ADR-0055)
 - Dead-letter (GAP-ENRICH-BACKLOG-CONVERGE): the enrich queue gains a terminal `dead` status plus `error_class` and `next_retry_at` columns (idempotent `ALTER TABLE` + `idx_enrich_queue_eligible`); the live set strictly decreases so the backlog always converges.

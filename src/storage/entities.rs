@@ -38,9 +38,16 @@ pub struct NewRelationship {
     pub target: String,
     #[serde(alias = "type")]
     pub relation: String,
-    #[serde(alias = "weight")]
+    /// Relationship strength in `[0.0, 1.0]`. Defaults to
+    /// [`crate::constants::DEFAULT_RELATION_WEIGHT`] (0.5) when omitted from
+    /// graph-stdin / graph-file JSON (GAP-CLI-GRAPH-01).
+    #[serde(alias = "weight", default = "default_relationship_strength")]
     pub strength: f64,
     pub description: Option<String>,
+}
+
+fn default_relationship_strength() -> f64 {
+    crate::constants::DEFAULT_RELATION_WEIGHT
 }
 
 /// Validates entity name against quality rules.

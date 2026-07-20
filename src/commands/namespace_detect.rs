@@ -11,13 +11,13 @@ use serde::Serialize;
     sqlite-graphrag namespace-detect\n\n  \
     # Override with an explicit namespace flag\n  \
     sqlite-graphrag namespace-detect --namespace my-project\n\n  \
-    # Resolve via SQLITE_GRAPHRAG_NAMESPACE env var\n  \
-    SQLITE_GRAPHRAG_NAMESPACE=ci-runner sqlite-graphrag namespace-detect")]
+    # Explicit namespace flag\n  \
+    sqlite-graphrag namespace-detect --namespace ci-runner")]
 pub struct NamespaceDetectArgs {
     #[arg(long)]
     pub namespace: Option<String>,
     /// Explicit database path. Accepted as a no-op to preserve the global contract.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Explicit JSON flag. Accepted as a no-op because output is already JSON by default.
     #[arg(long, default_value_t = false)]
@@ -76,13 +76,19 @@ mod tests {
 
     #[test]
     #[serial]
-    fn namespace_detect_env_var_used_when_no_flag() {
-        std::env::remove_var("SQLITE_GRAPHRAG_NAMESPACE");
-        std::env::set_var("SQLITE_GRAPHRAG_NAMESPACE", "namespace-de-env");
+    fn namespace_detect_default_when_no_flag() {
+        // G-T-XDG-04: product env is not read; without --namespace / XDG default,
+        // resolution falls back to "global" (or XDG namespace.default if set on host).
         let resolution = namespace::detect_namespace(None).unwrap();
-        assert_eq!(resolution.namespace, "namespace-de-env");
-        assert_eq!(resolution.source, NamespaceSource::Environment);
-        std::env::remove_var("SQLITE_GRAPHRAG_NAMESPACE");
+        assert!(!resolution.namespace.is_empty());
+        assert!(
+            matches!(
+                resolution.source,
+                NamespaceSource::Default | NamespaceSource::XdgConfig
+            ),
+            "unexpected source {:?}",
+            resolution.source
+        );
     }
 
     #[test]
@@ -104,7 +110,7 @@ mod tests {
     fn namespace_source_serializes_in_snake_case() {
         let cases = vec![
             (NamespaceSource::ExplicitFlag, "explicit_flag"),
-            (NamespaceSource::Environment, "environment"),
+            (NamespaceSource::XdgConfig, "xdg_config"),
             (NamespaceSource::Default, "default"),
         ];
         for (source, expected) in cases {

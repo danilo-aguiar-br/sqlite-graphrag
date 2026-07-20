@@ -38,6 +38,8 @@ pub struct PendingEmbeddingsArgs {
 pub enum PendingEmbeddingsCmd {
     /// List all pending embeddings (alias of `embedding list`).
     List(PendingEmbeddingsListArgs),
+    /// Queue health counts (alias of `embedding status`).
+    Status(crate::commands::embedding::EmbeddingStatusArgs),
     /// Mark every entry in a given status as abandoned.
     Abandon(PendingEmbeddingsAbandonArgs),
 }
@@ -52,7 +54,7 @@ pub struct PendingEmbeddingsListArgs {
     pub limit: usize,
     #[arg(long, hide = true)]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -69,7 +71,7 @@ pub struct PendingEmbeddingsAbandonArgs {
     pub dry_run: bool,
     #[arg(long, hide = true)]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -129,6 +131,9 @@ struct PendingEmbeddingsAbandonOutput {
 pub fn run(args: PendingEmbeddingsArgs) -> Result<(), AppError> {
     match args.cmd {
         PendingEmbeddingsCmd::List(a) => run_list(a),
+        PendingEmbeddingsCmd::Status(a) => {
+            crate::commands::embedding::run_status(a, crate::cli::LlmBackendChoice::None)
+        }
         PendingEmbeddingsCmd::Abandon(a) => run_abandon(a),
     }
 }

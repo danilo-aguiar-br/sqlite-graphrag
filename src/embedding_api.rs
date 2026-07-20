@@ -12,7 +12,8 @@ use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-const OPENROUTER_EMBEDDINGS_URL: &str = "https://openrouter.ai/api/v1/embeddings";
+// Default lives in constants; production clients resolve via runtime_config.
+use crate::constants::DEFAULT_OPENROUTER_EMBEDDINGS_URL;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const MAX_BATCH_SIZE: usize = 32;
@@ -141,10 +142,8 @@ pub struct OpenRouterClient {
     dim: usize,
     supports_mrl: bool,
     default_input_type: Option<&'static str>,
-    /// Endpoint each request is POSTed to. Always
-    /// [`OPENROUTER_EMBEDDINGS_URL`] in production; only the test-only
-    /// Self::new_with_url constructor repoints it at a local mock server
-    /// (mirrors `crate::chat_api::OpenRouterChatClient`).
+    /// Endpoint each request is POSTed to. Resolved from XDG/config at
+    /// construction (default: [`DEFAULT_OPENROUTER_EMBEDDINGS_URL`]).
     base_url: String,
 }
 
@@ -168,11 +167,22 @@ fn model_default_input_type(model: &str) -> Option<&'static str> {
 
 impl OpenRouterClient {
     pub fn new(api_key: SecretBox<String>, model: String, dim: usize) -> Result<Self, AppError> {
+        let base_url = crate::runtime_config::openrouter_embeddings_url(
+            DEFAULT_OPENROUTER_EMBEDDINGS_URL,
+        );
+        Self::new_with_base_url(api_key, model, dim, base_url)
+    }
+
+    /// Build a client posting to an explicit `base_url` (XDG override, tests, gateways).
+    pub fn new_with_base_url(
+        api_key: SecretBox<String>,
+        model: String,
+        dim: usize,
+        base_url: String,
+    ) -> Result<Self, AppError> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
-            // Derived from the crate version so the UA never drifts again
-            // (GAP-SG-75 recurrence caught at the v1.1.01 release gate).
             .user_agent(concat!("sqlite-graphrag/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| AppError::Embedding(format!("failed to build HTTP client: {e}")))?;
@@ -187,7 +197,7 @@ impl OpenRouterClient {
             dim,
             supports_mrl,
             default_input_type,
-            base_url: OPENROUTER_EMBEDDINGS_URL.to_string(),
+            base_url,
         })
     }
 
@@ -201,9 +211,7 @@ impl OpenRouterClient {
         dim: usize,
         base_url: String,
     ) -> Result<Self, AppError> {
-        let mut client = Self::new(api_key, model, dim)?;
-        client.base_url = base_url;
-        Ok(client)
+        Self::new_with_base_url(api_key, model, dim, base_url)
     }
 
     pub fn default_input_type(&self) -> Option<&'static str> {

@@ -333,12 +333,15 @@ mod tests {
             )
             .expect("seed schema_meta");
         }
-        std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", "96");
+        // G-T-XDG-04: product env is gone. Schema meta dim is adopted when no
+        // process-wide runtime override was installed at bootstrap.
         let _conn = open_rw(&db).expect("open_rw");
         let adopted = crate::constants::embedding_dim();
-        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
         crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
-        assert_eq!(adopted, 96, "env override must win over the db dim (G43)");
+        assert_eq!(
+            adopted, 128,
+            "schema_meta dim is adopted when no CLI/XDG override is active"
+        );
     }
 
     /// G43: a virgin database without `schema_meta` must open cleanly

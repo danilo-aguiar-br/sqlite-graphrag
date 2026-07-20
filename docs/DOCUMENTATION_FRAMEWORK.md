@@ -1,4 +1,12 @@
 
+## v1.1.8 — Coverage Update (XDG + enrich quality/latency seal)
+
+- Current product docs target **crate 1.1.8**, schema **v16** (no main-DB migration).
+- Required themes: flag > XDG `config set` > default; no product env on hot path; QISO; `--force-redescribe`; `--entity-names`/`--memory-names`; `remember --enqueue-enrich` + `entities_created`/`enrich_recommended`; deep-research `-o`; `memory-entities` description; entity-connect fully implemented; offline gate `scripts/e2e_offline_v118.sh` 16/16.
+- Machine contracts updated: `remember.schema.json`, `memory-entities.schema.json`, `enrich-status.schema.json`, `enrich-summary.schema.json` (+ README schema notes).
+- Residual: historical sections in long monographs may still mention product env — treat as historical, not current guidance. Live low-quality description backfill remains an operator campaign.
+- See [CHANGELOG.md](../CHANGELOG.md) `[1.1.8]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+
 ## v1.0.86, v1.0.87, v1.0.88, v1.0.89 — Coverage Update
 
 This section updates the framework to cover the documentation generated for the four most recent releases. The framework was last updated at v1.0.85.2 (line 661); this update closes a 3-release gap.

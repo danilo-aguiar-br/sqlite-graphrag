@@ -48,7 +48,7 @@ pub enum EmbeddingCmd {
 
 #[derive(Debug, Args)]
 pub struct EmbeddingStatusArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
     #[arg(long, hide = true)]
@@ -57,7 +57,7 @@ pub struct EmbeddingStatusArgs {
 
 #[derive(Debug, Args)]
 pub struct EmbeddingListArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Filter by status: pending | in_progress | done | abandoned. Default: pending.
     #[arg(long, value_enum, default_value_t = EmbeddingStatusFilter::Pending)]
@@ -92,7 +92,7 @@ impl From<EmbeddingStatusFilter> for PendingEmbeddingStatus {
 
 #[derive(Debug, Args)]
 pub struct EmbeddingAbandonArgs {
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Pending id to abandon.
     pub pending_id: i64,
@@ -246,7 +246,8 @@ fn open_conn(db: Option<&str>) -> Result<(AppPaths, rusqlite::Connection), AppEr
     Ok((paths, conn))
 }
 
-fn run_status(args: EmbeddingStatusArgs, llm_backend: LlmBackendChoice) -> Result<(), AppError> {
+/// Shared by `embedding status` and `pending-embeddings status` (GAP-E2E-09).
+pub(crate) fn run_status(args: EmbeddingStatusArgs, llm_backend: LlmBackendChoice) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let (_paths, conn) = open_conn(args.db.as_deref())?;
 

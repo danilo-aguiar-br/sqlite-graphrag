@@ -1,3 +1,111 @@
+## Receitas adicionadas na v1.1.8
+
+- Versão em inglês: [COOKBOOK.md](COOKBOOK.md)
+- Crate **1.1.8**, schema **v16**. Precedência: **flag CLI > XDG `config set` > default**. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` não são lidas em runtime.
+
+### Receita — Config XDG sem env de produto
+
+#### Problema
+- Scripts e agentes ainda dependem de `SQLITE_GRAPHRAG_*` / `OPENROUTER_*` como contrato de runtime.
+- Help e docs legados ensinam env de produto; a v1.1.8 removeu bindings `clap env=` do hot path.
+
+#### Solução
+```bash
+# Precedência: flag CLI > XDG config set > default
+sqlite-graphrag config path --json
+sqlite-graphrag config list --effective --json
+sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
+sqlite-graphrag config set network.openrouter.chat_url "https://openrouter.ai/api/v1/chat/completions"
+sqlite-graphrag config set llm.query_embed_timeout_secs 3
+sqlite-graphrag config doctor --json
+```
+
+#### Explicação
+- `config list --effective` inclui defaults bem-conhecidos mesmo quando não gravados.
+- URLs OpenRouter vêm de `network.openrouter.*` (aliases `network.chat_url` / `network.embed_url`).
+- Fail-fast de query Auto usa `llm.query_embed_timeout_secs` (padrão ~3s; wall-clock <10s no harness).
+
+### Receita — pending-embeddings status e cache stats
+
+```bash
+sqlite-graphrag pending-embeddings status --json   # alias de embedding status
+sqlite-graphrag cache stats --json                 # alias de cache list
+```
+
+### Receita — purge --now (todas as soft-deleted)
+
+```bash
+sqlite-graphrag purge --now --dry-run --json
+sqlite-graphrag purge --yes --now --json   # destrutivo: equivalente a --retention-days 0
+```
+
+### Receita — remember-batch com description obrigatória
+
+```bash
+# description é obrigatória na criação (paridade com remember; GAP-E2E-05)
+printf '{"name":"nota-a","type":"note","description":"primeira","body":"conteúdo a"}\n{"name":"nota-b","type":"note","description":"segunda","body":"conteúdo b"}\n' \
+  | sqlite-graphrag remember-batch --transaction --json
+```
+
+### Receita — entity-descriptions com force-redescribe e grounding
+
+```bash
+# Backlog de qualidade honesto (sem LLM)
+sqlite-graphrag enrich --operation entity-descriptions --status --force-redescribe --json
+
+sqlite-graphrag enrich --operation entity-descriptions \
+  --force-redescribe \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
+  --limit 20 --json
+```
+
+- Prompt multi-domínio neutro + gate de grounding contra o corpus (`preservation`).
+- Claim da fila escopado por `operation` (QISO) — drains de ops diferentes não se envenenam.
+- Poluição live é campanha do operador — o harness não limpa o grafo de produção sozinho.
+
+### Receita — hot-set após remember (`--enqueue-enrich`)
+
+```bash
+sqlite-graphrag remember --name nota-fiscal --type note --description "ICMS" \
+  --body "Nota sobre ICMS-P05 e NFC-e ordenada" \
+  --enqueue-enrich --json \
+  --graph-stdin <<'EOF'
+{"entities":[{"name":"icms-p05","entity_type":"concept"}],"relationships":[]}
+EOF
+# Leia entities_created[] e enrich_recommended (em geral ["entity-descriptions"])
+
+# ED por nomes de entidade; bindings por nomes de memória
+sqlite-graphrag enrich --operation entity-descriptions \
+  --entity-names icms-p05 \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+sqlite-graphrag enrich --operation memory-bindings --memory-names nota-fiscal --dry-run --json
+```
+
+- Ordem recomendada: escrita → entity-descriptions (quente) → entity-connect (frio).
+
+### Receita — auditar description em memory-entities
+
+```bash
+sqlite-graphrag memory-entities --name nota-fiscal --json \
+  | jaq '.entities[] | {name, entity_type, description}'
+```
+
+### Receita — deep-research com alias curto `-o`
+
+```bash
+sqlite-graphrag deep-research "decisões de autenticação" -o /tmp/dr.json --quiet --json
+# stdout: ack curto com blake3; arquivo = envelope completo (atomwrite)
+```
+
+### Receita — Harness offline 16/16
+
+```bash
+bash scripts/e2e_offline_v118.sh
+# Exige binário 1.1.8+; sem product env; flags + XDG apenas
+```
+
+---
+
 ## Como Usar Providers Anthropic-Compatíveis Customizados (v1.0.83+)
 
 ### Problema
@@ -158,7 +266,7 @@ sqlite-graphrag health --json
 
 ### See Also
 - Receita "Como Integrar sqlite-graphrag Com Loop Subprocess Do Claude Code"
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 
 
 ## Como Usar OpenRouter Para Embedding Rápido (v1.0.93)
@@ -835,7 +943,7 @@ sqlite-graphrag cleanup-orphans --yes --json
 
 
 ### See Also
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 - Receita "Como Remover Uma Aresta Do Grafo Com Unlink"
 
 
@@ -1038,11 +1146,11 @@ sqlite-graphrag sync-safe-copy --dest ~/Dropbox/sqlite-graphrag/snapshot.sqlite
 
 
 ### See Also
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 - Receita "Como Versionar O Banco SQLite Com Git LFS"
 
 
-## Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions
+## Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd
 ### Problem
 - Memórias soft-deletadas empilham e incham o uso de disco após meses de uso pesado por agentes
 - Seu arquivo SQLite estoura 10 GB porque `VACUUM` nunca roda na automação
@@ -1111,7 +1219,7 @@ sqlite-graphrag export > memories-$(date +%Y%m%d).ndjson
 
 ### See Also
 - Receita "Como Versionar O Banco SQLite Com Git LFS"
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 
 
 ## Como Versionar O Banco SQLite Com Git LFS
@@ -1257,7 +1365,7 @@ sqlite-graphrag debug-schema --json | jaq '{schema_version, objects: (.objects |
 
 
 ### See Also
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 - Receita "Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro"
 
 
@@ -1283,7 +1391,7 @@ sqlite-graphrag stats --json | jaq '{memories, entities, relationships}'
 
 ### See Also
 - Receita "Como Debugar Queries Lentas Com Health E Stats"
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 
 
 ## Como Fazer Benchmark De hybrid-search Contra recall Vetorial Puro
@@ -1753,7 +1861,7 @@ sqlite-graphrag recall "decisão" --json
 
 
 ### Veja Também
-- Receita "Como Agendar Purge E Vacuum Em Cron Ou GitHub Actions"
+- Receita "Como Agendar Purge E Vacuum Com Cron, systemd.timer Ou launchd"
 - Receita "Como Exportar Memórias Para NDJSON Para Backup"
 
 

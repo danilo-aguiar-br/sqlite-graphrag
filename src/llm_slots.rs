@@ -209,8 +209,13 @@ fn pid_alive(pid: u32) -> bool {
 
 pub fn slots_dir() -> PathBuf {
     let base = std::env::var("XDG_RUNTIME_DIR")
-        .or_else(|_| std::env::var("SQLITE_GRAPHRAG_CACHE_DIR"))
-        .unwrap_or_else(|_| {
+        .ok()
+        .or_else(|| {
+            crate::config::get_setting("cache.dir")
+                .ok()
+                .flatten()
+        })
+        .unwrap_or_else(|| {
             std::env::var("HOME")
                 .map(|h| format!("{h}/.local/share"))
                 .unwrap_or_else(|_| "/tmp".to_string())
@@ -274,20 +279,15 @@ mod tests {
 
     fn isolate_slots_env() -> (Option<String>, Option<String>) {
         let orig_xdg = std::env::var("XDG_RUNTIME_DIR").ok();
-        let orig_cache = std::env::var("SQLITE_GRAPHRAG_CACHE_DIR").ok();
-        std::env::remove_var("XDG_RUNTIME_DIR");
-        std::env::set_var("SQLITE_GRAPHRAG_CACHE_DIR", unique_test_dir());
-        (orig_xdg, orig_cache)
+        // Use unique XDG_RUNTIME_DIR so slots do not collide (no product env).
+        std::env::set_var("XDG_RUNTIME_DIR", unique_test_dir());
+        (orig_xdg, None)
     }
 
-    fn restore_slots_env(orig_xdg: Option<String>, orig_cache: Option<String>) {
+    fn restore_slots_env(orig_xdg: Option<String>, _orig_cache: Option<String>) {
         match orig_xdg {
             Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
             None => std::env::remove_var("XDG_RUNTIME_DIR"),
-        }
-        match orig_cache {
-            Some(v) => std::env::set_var("SQLITE_GRAPHRAG_CACHE_DIR", v),
-            None => std::env::remove_var("SQLITE_GRAPHRAG_CACHE_DIR"),
         }
     }
 

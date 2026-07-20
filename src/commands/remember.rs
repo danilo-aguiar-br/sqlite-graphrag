@@ -123,7 +123,7 @@ pub struct RememberArgs {
     pub graph_file: Option<std::path::PathBuf>,
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Inline JSON object with arbitrary metadata key-value pairs. Mutually exclusive with --metadata-file.
@@ -143,8 +143,7 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     pub expected_updated_at: Option<i64>,
     #[arg(
         long,
-        env = "SQLITE_GRAPHRAG_ENABLE_NER",
-        value_parser = crate::parsers::parse_bool_flexible,
+                value_parser = crate::parsers::parse_bool_flexible,
         action = clap::ArgAction::Set,
         num_args = 0..=1,
         default_missing_value = "true",
@@ -196,7 +195,7 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     pub format: JsonOutputFormat,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Maximum process RSS in MiB; abort if exceeded during embedding.
     #[arg(long, default_value_t = crate::constants::DEFAULT_MAX_RSS_MB,
@@ -209,6 +208,11 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
           value_parser = clap::value_parser!(u64).range(1..=32),
           help = "Maximum simultaneous LLM embedding subprocesses (default: 4, clamp [1,32])")]
     pub llm_parallelism: u64,
+    /// GAP-CLI-PRIO-02: after write, enqueue entity-descriptions for the
+    /// entities linked in this call (priority hot set). Default false —
+    /// operators enable when they want automatic priority enrich.
+    #[arg(long, default_value_t = false)]
+    pub enqueue_enrich: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -706,6 +710,10 @@ pub fn run(
             embedding_backend,
             llm_backend,
         ) {
+            // GAP-CLI-EMBED-NONE (v1.1.8): intentional `--llm-backend none`
+            // returns an empty vector — treat as no embedding (do not
+            // persist a zero-dim vector).
+            Ok((v, k)) if v.is_empty() => (None, Some(k.as_str())),
             Ok((v, k)) => (Some(v), Some(k.as_str())),
             // v1.1.2 (Gap 2): permanent payload rejections from the embedder
             // (typed ceilings) must not be swallowed by --skip-embedding-on-failure.
@@ -1113,6 +1121,42 @@ pub fn run(
     let created_at_epoch = chrono::Utc::now().timestamp();
     let created_at_iso = crate::tz::format_iso(chrono::Utc::now());
 
+    // GAP-CLI-PRIO-01: hot-set entity names for priority entity-descriptions.
+    let entities_created: Vec<String> = graph
+        .entities
+        .iter()
+        .map(|e| e.name.clone())
+        .collect();
+
+    // GAP-CLI-PRIO-01 / G-T-ONESHOT-02: recommend entity-descriptions when
+    // entities were linked without descriptions (typical after graph-stdin).
+    let mut enrich_recommended: Vec<String> = Vec::new();
+    if entities_persisted > 0 {
+        enrich_recommended.push("entity-descriptions".to_string());
+    }
+
+    // GAP-CLI-PRIO-02: optional priority enqueue into the enrich sidecar.
+    if args.enqueue_enrich && !entities_created.is_empty() {
+        match crate::commands::enrich::enqueue_priority_entity_descriptions(
+            &paths,
+            &namespace,
+            &entities_created,
+        ) {
+            Ok(n) => {
+                tracing::info!(
+                    target: "remember",
+                    enqueued = n,
+                    "priority entity-descriptions enqueued"
+                );
+            }
+            Err(e) => {
+                warnings.push(format!(
+                    "enqueue_enrich failed (entities still listed in entities_created): {e}"
+                ));
+            }
+        }
+    }
+
     output::emit_json(&RememberResponse {
         memory_id,
         // Persist the normalized (kebab-case) slug as `name` since that is the
@@ -1138,6 +1182,8 @@ pub fn run(
         name_was_normalized,
         original_name: name_was_normalized.then_some(original_name),
         backend_invoked: backend_invoked_passage,
+        entities_created,
+        enrich_recommended,
     })?;
 
     Ok(())
@@ -1225,6 +1271,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -1261,6 +1309,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -1297,6 +1347,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -1364,6 +1416,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -1395,6 +1449,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
         let json = serde_json::to_value(&resp).expect("serialization failed");
         assert_eq!(json["urls_persisted"], 3);
@@ -1474,6 +1530,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
         let json_false = serde_json::to_value(&resp_false).expect("serialization failed");
         assert_eq!(json_false["relationships_truncated"], false);

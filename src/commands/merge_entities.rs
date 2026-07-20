@@ -65,7 +65,7 @@ pub struct MergeEntitiesArgs {
     pub format: OutputFormat,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// v1.1.03: allow merging source entities from OTHER namespaces into the
     /// target. Default false preserves same-namespace safety. When true, each

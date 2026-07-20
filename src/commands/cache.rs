@@ -30,6 +30,8 @@ pub enum CacheCommands {
     ClearModels(ClearModelsArgs),
     /// List cached embedding/NER model files with sizes and total disk usage.
     List(CacheListArgs),
+    /// Alias of `list` (GAP-E2E-09 — agents often call `cache stats`).
+    Stats(CacheListArgs),
 }
 
 #[derive(clap::Args)]
@@ -62,14 +64,13 @@ struct ClearModelsResponse {
 pub fn run(args: CacheArgs) -> Result<(), AppError> {
     match args.command {
         CacheCommands::ClearModels(a) => clear_models(a),
-        CacheCommands::List(a) => run_list(a),
+        CacheCommands::List(a) | CacheCommands::Stats(a) => run_list(a),
     }
 }
 
 fn clear_models(args: ClearModelsArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
-    // Resolve the canonical models directory through AppPaths to honour
-    // SQLITE_GRAPHRAG_CACHE_DIR overrides used by tests and CI.
+    // Resolve the canonical models directory through AppPaths (XDG cache).
     let paths = AppPaths::resolve(None)?;
     let models_dir = paths.models.clone();
 

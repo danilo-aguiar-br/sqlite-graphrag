@@ -1,14 +1,12 @@
 //! Bilingual human-readable message layer.
 //!
-//! The CLI uses `--lang en|pt` (global flag) or `SQLITE_GRAPHRAG_LANG` (env var) to choose
-//! the language of stderr progress messages. JSON stdout is deterministic and identical
-//! across languages — only strings intended for humans pass through this module.
-//!
-//! Detection (highest to lowest priority):
-//! 1. Explicit `--lang` flag
-//! 2. Env var `SQLITE_GRAPHRAG_LANG`
-//! 3. OS locale (`LANG`, `LC_ALL`) with `pt` prefix
+//! The CLI chooses language for stderr progress messages via:
+//! 1. Explicit `--lang en|pt` flag
+//! 2. XDG setting `i18n.lang` (`config set i18n.lang pt`)
+//! 3. OS locale (`LC_ALL` / `LC_MESSAGES` / `LANG` — system env, not product)
 //! 4. Fallback `English`
+//!
+//! JSON stdout is deterministic and identical across languages.
 
 use std::sync::OnceLock;
 
@@ -32,9 +30,8 @@ impl Language {
     }
 
     pub fn from_env_or_locale() -> Self {
-        // Priority 1: explicit SQLITE_GRAPHRAG_LANG env var (highest precedence).
-        // Empty string treated as unset per POSIX convention.
-        if let Ok(v) = std::env::var("SQLITE_GRAPHRAG_LANG") {
+        // Priority 1: XDG setting `i18n.lang` (no product env — G-T-XDG-04).
+        if let Ok(Some(v)) = crate::config::get_setting("i18n.lang") {
             if !v.is_empty() {
                 let lower = v.to_lowercase();
                 if lower.starts_with("pt") {
@@ -45,11 +42,11 @@ impl Language {
                 }
                 tracing::warn!(target: "i18n",
                     value = %v,
-                    "SQLITE_GRAPHRAG_LANG value not recognized, falling back to locale detection"
+                    "i18n.lang setting not recognized, falling back to OS locale"
                 );
             }
         }
-        // Priority 2: POSIX locale precedence LC_ALL > LC_MESSAGES > LANG.
+        // Priority 2: POSIX OS locale LC_ALL > LC_MESSAGES > LANG (allowed system env).
         // We read these via std::env (not via sys_locale) because:
         // (a) `sys_locale::get_locale()` calls into native OS APIs (CFLocaleCopyCurrent
         //     on macOS, GetUserDefaultLocaleName on Windows) which cache the
@@ -100,7 +97,7 @@ static GLOBAL_LANGUAGE: OnceLock<Language> = OnceLock::new();
 /// resolver (`from_env_or_locale`) does not run a second time. Without this
 /// guard, calling `init(None)` after `current()` already populated the
 /// OnceLock causes `from_env_or_locale` to fire its `tracing::warn!` twice
-/// for unrecognized `SQLITE_GRAPHRAG_LANG` values.
+/// for unrecognized `i18n.lang` XDG values.
 pub fn init(explicit: Option<Language>) {
     if GLOBAL_LANGUAGE.get().is_some() {
         return;
@@ -326,10 +323,10 @@ pub mod validation {
     pub fn invalid_tz(v: &str) -> String {
         match current() {
             Language::English => format!(
-                "SQLITE_GRAPHRAG_DISPLAY_TZ invalid: '{v}'; use an IANA name like 'America/Sao_Paulo'"
+                "display.tz invalid: '{v}'; use an IANA name like 'America/Sao_Paulo'"
             ),
             Language::Portuguese => format!(
-                "SQLITE_GRAPHRAG_DISPLAY_TZ inválido: '{v}'; use um nome IANA como 'America/Sao_Paulo'"
+                "display.tz inválido: '{v}'; use um nome IANA como 'America/Sao_Paulo'"
             ),
         }
     }
@@ -596,7 +593,7 @@ pub mod validation {
 
         pub fn preflight_failed(detail: &str) -> String {
             format!(
-                "validação pré-execução falhou (exit 16): {detail}; corrija a condição e tente novamente (definir SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 desabilita esta validação em emergências)"
+                "validação pré-execução falhou (exit 16): {detail}; corrija a condição e tente novamente (config set spawn.skip_preflight=1 desabilita em emergências)"
             )
         }
 
@@ -697,22 +694,13 @@ mod tests {
 
     #[test]
     #[serial]
-    fn env_pt_selects_portuguese() {
-        std::env::remove_var("LC_ALL");
-        std::env::remove_var("LANG");
-        std::env::set_var("SQLITE_GRAPHRAG_LANG", "pt");
-        assert_eq!(Language::from_env_or_locale(), Language::Portuguese);
-        std::env::remove_var("SQLITE_GRAPHRAG_LANG");
+    fn flag_pt_parses_portuguese() {
+        assert_eq!(Language::from_str_opt("pt"), Some(Language::Portuguese));
     }
 
     #[test]
-    #[serial]
-    fn env_pt_br_selects_portuguese() {
-        std::env::remove_var("LC_ALL");
-        std::env::remove_var("LANG");
-        std::env::set_var("SQLITE_GRAPHRAG_LANG", "pt-BR");
-        assert_eq!(Language::from_env_or_locale(), Language::Portuguese);
-        std::env::remove_var("SQLITE_GRAPHRAG_LANG");
+    fn flag_pt_br_parses_portuguese() {
+        assert_eq!(Language::from_str_opt("pt-BR"), Some(Language::Portuguese));
     }
 
     #[test]

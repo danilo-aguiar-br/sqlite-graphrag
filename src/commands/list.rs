@@ -21,7 +21,7 @@ use serde::Serialize;
 pub struct ListArgs {
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Filter by memory.type. Note: distinct from graph entity_type
@@ -45,11 +45,10 @@ pub struct ListArgs {
     pub include_deleted: bool,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides SQLITE_GRAPHRAG_DB_PATH and default CWD).
+    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
     #[arg(
         long,
-        env = "SQLITE_GRAPHRAG_DB_PATH",
-        help = "Path to graphrag.sqlite"
+                help = "Path to graphrag.sqlite"
     )]
     pub db: Option<String>,
 }

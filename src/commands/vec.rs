@@ -57,7 +57,7 @@ pub struct VecOrphanListArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -75,7 +75,7 @@ pub struct VecPurgeOrphanArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Skip the interactive confirmation; required for automation.
     #[arg(long, default_value_t = false)]
@@ -92,7 +92,7 @@ pub struct VecStatsArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 

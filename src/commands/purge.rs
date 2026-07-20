@@ -21,11 +21,12 @@ use serde::Serialize;
     sqlite-graphrag purge --name old-memory --namespace my-project\n\n\
 NOTES:\n  \
     `--yes` only confirms intent and does NOT override `--retention-days`.\n  \
-    To wipe every soft-deleted memory immediately, pair `--yes` with `--retention-days 0`.")]
+    To wipe every soft-deleted memory immediately, use `--yes --now`\n  \
+    (alias for `--retention-days 0`) or pair `--yes` with `--retention-days 0`.")]
 pub struct PurgeArgs {
     #[arg(long)]
     pub name: Option<String>,
-    /// Namespace to purge. Defaults to the contextual namespace (SQLITE_GRAPHRAG_NAMESPACE env var or "global").
+    /// Namespace to purge. Defaults to contextual namespace (`config` / flag / global).
     #[arg(long)]
     pub namespace: Option<String>,
     /// Retention days: memories with deleted_at older than (now - retention_days*86400) will be
@@ -46,13 +47,16 @@ pub struct PurgeArgs {
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
     /// Confirms destructive intent for tools that require explicit acknowledgement.
-    /// Does NOT override `--retention-days`: combine with `--retention-days 0` to wipe
-    /// every soft-deleted memory regardless of age.
+    /// Does NOT override `--retention-days`: combine with `--now` or `--retention-days 0`
+    /// to wipe every soft-deleted memory regardless of age.
     #[arg(long, default_value_t = false)]
     pub yes: bool,
+    /// Equivalent to `--retention-days 0` (purge all soft-deleted, any age).
+    #[arg(long, default_value_t = false)]
+    pub now: bool,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -91,13 +95,14 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
     let mut warnings: Vec<String> = Vec::with_capacity(1);
     let now = current_epoch()?;
 
+    let retention_days = if args.now { 0 } else { args.retention_days };
     let cutoff_epoch = if let Some(secs) = args.older_than_seconds {
         warnings.push(
             "--older-than-seconds is deprecated; use --retention-days in v2.0.0+".to_string(),
         );
         now - secs as i64
     } else {
-        now - (args.retention_days as i64) * 86_400
+        now - (retention_days as i64) * 86_400
     };
 
     let namespace_opt: Option<&str> = Some(namespace.as_str());
@@ -139,8 +144,7 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
 
     let message = if candidates_count == 0 {
         Some(format!(
-            "no soft-deleted memories older than {retention_days} day(s); use --retention-days 0 to purge all soft-deleted memories regardless of age",
-            retention_days = args.retention_days
+            "no soft-deleted memories older than {retention_days} day(s); use --now or --retention-days 0 to purge all soft-deleted memories regardless of age"
         ))
     } else {
         None
@@ -155,7 +159,7 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
         purged_count: candidates_count,
         bytes_freed,
         oldest_deleted_at,
-        retention_days_used: args.retention_days,
+        retention_days_used: retention_days,
         dry_run: args.dry_run,
         namespace: Some(namespace),
         cutoff_epoch,

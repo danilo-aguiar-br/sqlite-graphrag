@@ -129,15 +129,94 @@ impl PreservationVerdict {
         }
     }
 
+    /// Grounding gate for short LLM text against longer corpus evidence
+    /// (GAP-CLI-ED-03 / G-T-DRY-01).
+    ///
+    /// Uses [`grounding_coverage`] so a 10–20 word description can be
+    /// checked against multi-sentence memory bodies without requiring
+    /// symmetric Jaccard (which under-scores short-vs-long pairs).
+    pub fn evaluate_grounding(candidate: &str, evidence: &str, threshold: f64) -> Self {
+        let threshold = threshold.clamp(0.0, 1.0);
+        if evidence.trim().is_empty() {
+            // No corpus to ground against — accept conservatively so
+            // entities without bindings are still describable.
+            return Self::Preserved {
+                score: 1.0,
+                threshold,
+            };
+        }
+        let score = grounding_coverage(candidate, evidence);
+        if score >= threshold {
+            Self::Preserved { score, threshold }
+        } else {
+            Self::Rejected { score, threshold }
+        }
+    }
+
     /// Returns `true` when the gate accepted the rewrite.
     pub fn is_accepted(&self) -> bool {
         matches!(self, Self::Preserved { .. } | Self::Unchanged { .. })
     }
 }
 
+/// Fraction of the candidate's character-trigrams that also appear in
+/// the evidence corpus: `|A ∩ B| / |A|`.
+///
+/// This is the DRY grounding metric shared by entity-descriptions and any
+/// future short-text quality gates. Distinct from full Jaccard so short
+/// descriptions are not systematically rejected against long bodies.
+pub fn grounding_coverage(candidate: &str, evidence: &str) -> f64 {
+    let set_a = trigrams(candidate);
+    let set_b = trigrams(evidence);
+    if set_a.is_empty() {
+        return 0.0;
+    }
+    if set_b.is_empty() {
+        return 0.0;
+    }
+    let intersection = set_a.intersection(&set_b).count() as f64;
+    intersection / set_a.len() as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grounding_coverage_accepts_description_supported_by_corpus() {
+        let evidence = "ICMS P05 is a Brazilian state tax rule for NFC-e fiscal documents and ordered invoice sequences.";
+        let description = "Brazilian ICMS tax rule for NFC-e invoices";
+        let score = grounding_coverage(description, evidence);
+        assert!(
+            score > 0.05,
+            "expected partial coverage against fiscal corpus, got {score}"
+        );
+        let verdict = PreservationVerdict::evaluate_grounding(description, evidence, 0.05);
+        assert!(verdict.is_accepted());
+    }
+
+    #[test]
+    fn grounding_coverage_rejects_software_jargon_on_fiscal_corpus() {
+        let evidence = "ICMS P05 is a Brazilian state tax rule for NFC-e fiscal documents.";
+        let description = "A configuration file used in software system design pipelines";
+        let score = grounding_coverage(description, evidence);
+        let verdict = PreservationVerdict::evaluate_grounding(description, evidence, 0.25);
+        assert!(
+            !verdict.is_accepted() || score < 0.25,
+            "software jargon should not ground well on fiscal evidence (score={score})"
+        );
+    }
+
+    #[test]
+    fn grounding_without_evidence_is_accepted() {
+        let verdict = PreservationVerdict::evaluate_grounding(
+            "Some entity description",
+            "",
+            0.5,
+        );
+        assert!(verdict.is_accepted());
+    }
+
 
     #[test]
     fn identical_strings_score_one() {

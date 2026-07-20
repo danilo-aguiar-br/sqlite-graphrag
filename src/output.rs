@@ -264,6 +264,8 @@ pub fn emit_error_i18n(en: &str, pt: &str) {
 ///     name_was_normalized: false,
 ///     original_name: None,
 ///     backend_invoked: None,
+///     entities_created: vec![],
+///     enrich_recommended: vec![],
 /// };
 ///
 /// let json = serde_json::to_string(&resp).unwrap();
@@ -330,6 +332,14 @@ pub struct RememberResponse {
     /// Absent on the wire when `None` (kept for happy-path envelope cleanliness).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_invoked: Option<&'static str>,
+    /// GAP-CLI-PRIO-01: entity names written/linked in this remember call
+    /// (hot set for priority entity-descriptions).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities_created: Vec<String>,
+    /// GAP-CLI-PRIO-01 / G-T-ONESHOT-02: enrich operations the operator
+    /// should run next (e.g. `["entity-descriptions"]` after curated graph).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enrich_recommended: Vec<String>,
 }
 
 /// Individual item returned by the `recall` query.
@@ -526,6 +536,8 @@ mod tests {
             name_was_normalized: false,
             original_name: None,
             backend_invoked: None,
+            entities_created: vec![],
+            enrich_recommended: vec![],
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("memory_id"));

@@ -5,5 +5,5 @@
 
 #[test]
 fn telemetry_init_fn_is_accessible() {
-    let _fn_ptr = sqlite_graphrag::telemetry::init_tracing as fn(&str, &str);
+    let _fn_ptr = sqlite_graphrag::tracing_init::init_tracing as fn(&str, &str);
 }

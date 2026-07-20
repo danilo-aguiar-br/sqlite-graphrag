@@ -28,22 +28,38 @@
 /// follows the precedence env > database > default (see [`embedding_dim`]).
 pub const DEFAULT_EMBEDDING_DIM: usize = 384;
 
+/// Default OpenRouter chat completions endpoint (override via XDG
+/// `network.openrouter.chat_url` or alias `network.chat_url`).
+pub const DEFAULT_OPENROUTER_CHAT_URL: &str =
+    "https://openrouter.ai/api/v1/chat/completions";
+
+/// Default OpenRouter embeddings endpoint (override via XDG
+/// `network.openrouter.embeddings_url` or alias `network.embed_url`).
+pub const DEFAULT_OPENROUTER_EMBEDDINGS_URL: &str =
+    "https://openrouter.ai/api/v1/embeddings";
+
+/// Fail-fast probe budget for LLM backends before spawning (ms).
+/// Override via XDG `llm.probe_timeout_ms`.
+pub const DEFAULT_LLM_PROBE_TIMEOUT_MS: u64 = 800;
+
+/// Per-call timeout for query embedding (recall/hybrid Auto chain).
+/// Short budget so dead OAuth falls back to FTS quickly (GAP-E2E-06).
+/// Override via XDG `llm.query_embed_timeout_secs`.
+pub const DEFAULT_QUERY_EMBED_TIMEOUT_SECS: u64 = 3;
+
 /// Active embedding dimensionality for this process. `0` means unresolved.
 static ACTIVE_EMBEDDING_DIM: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 /// Resolves the active embedding dimensionality (single source of truth).
 ///
-/// Precedence:
-/// 1. `SQLITE_GRAPHRAG_EMBEDDING_DIM` env var (also set by the global
-///    `--embedding-dim` flag before dispatch);
-/// 2. the value recorded via [`set_active_embedding_dim`] — populated from
-///    the `dim` key of `schema_meta` when the database is opened, so
-///    existing 384-dim databases keep working unchanged;
+/// Precedence (G-T-XDG-04):
+/// 1. CLI `--embedding-dim` / XDG `embedding.dim` via [`crate::runtime_config`];
+/// 2. the value recorded via [`set_active_embedding_dim`] — from `schema_meta`;
 /// 3. [`DEFAULT_EMBEDDING_DIM`].
 pub fn embedding_dim() -> usize {
-    if let Some(env_dim) = embedding_dim_from_env() {
-        return env_dim;
+    if let Some(dim) = embedding_dim_from_runtime() {
+        return dim;
     }
     let active = ACTIVE_EMBEDDING_DIM.load(std::sync::atomic::Ordering::Acquire);
     if active != 0 {
@@ -52,24 +68,23 @@ pub fn embedding_dim() -> usize {
     DEFAULT_EMBEDDING_DIM
 }
 
-/// Reads and validates the env-var override. Values outside [8, 4096]
-/// are rejected (returns `None`) so a typo cannot produce degenerate
-/// vectors or multi-MB embedding rows.
-pub fn embedding_dim_from_env() -> Option<usize> {
-    let raw = std::env::var("SQLITE_GRAPHRAG_EMBEDDING_DIM").ok()?;
-    match raw.parse::<usize>() {
-        Ok(n) if (8..=4096).contains(&n) => Some(n),
-        // G49: an invalid value silently fell back to the default (64),
-        // letting a typo permanently stamp a new database with the wrong
-        // dimensionality. Warn loudly instead of discarding in silence.
-        _ => {
-            tracing::warn!(
-                value = %raw,
-                "SQLITE_GRAPHRAG_EMBEDDING_DIM is invalid (expected an integer in [8, 4096]); ignoring and using the database/default dimensionality"
-            );
-            None
-        }
+/// Reads CLI/XDG override. Values outside [8, 4096] are rejected.
+pub fn embedding_dim_from_runtime() -> Option<usize> {
+    let n = crate::runtime_config::embedding_dim_override()? as usize;
+    if (8..=4096).contains(&n) {
+        Some(n)
+    } else {
+        tracing::warn!(
+            value = n,
+            "embedding.dim override invalid (expected [8, 4096]); ignoring"
+        );
+        None
     }
+}
+
+/// Backward-compatible alias (no product env).
+pub fn embedding_dim_from_env() -> Option<usize> {
+    embedding_dim_from_runtime()
 }
 
 /// Records the dimensionality found in the opened database
@@ -160,11 +175,12 @@ pub const MAX_ENTITIES_PER_MEMORY: usize = 50;
 /// Stress tests showed inputs with 33-46 candidates being truncated at the old cap of 30.
 /// Values outside [1, 1000] fall back to the default.
 pub fn max_entities_per_memory() -> usize {
-    std::env::var("SQLITE_GRAPHRAG_MAX_ENTITIES_PER_MEMORY")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| (1..=1_000).contains(&n))
-        .unwrap_or(MAX_ENTITIES_PER_MEMORY)
+    let n = crate::runtime_config::max_entities_per_memory(MAX_ENTITIES_PER_MEMORY);
+    if (1..=1_000).contains(&n) {
+        n
+    } else {
+        MAX_ENTITIES_PER_MEMORY
+    }
 }
 
 /// Upper bound on distinct relationships persisted per memory.
@@ -176,11 +192,12 @@ pub const MAX_RELATIONSHIPS_PER_MEMORY: usize = 50;
 /// Audit found that rich documents silently hit the cap; users with dense technical corpora
 /// can raise it via env. Values outside [1, 10000] fall back to the default.
 pub fn max_relationships_per_memory() -> usize {
-    std::env::var("SQLITE_GRAPHRAG_MAX_RELATIONS_PER_MEMORY")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| (1..=10_000).contains(&n))
-        .unwrap_or(MAX_RELATIONSHIPS_PER_MEMORY)
+    let n = crate::runtime_config::max_relations_per_memory(MAX_RELATIONSHIPS_PER_MEMORY);
+    if (1..=10_000).contains(&n) {
+        n
+    } else {
+        MAX_RELATIONSHIPS_PER_MEMORY
+    }
 }
 
 /// Character length of the description preview shown in `list` output.

@@ -63,10 +63,30 @@ impl EntityType {
     ///
     /// Matching is case-insensitive and treats hyphens as underscores, so
     /// `"Issue-Tracker"` resolves to [`EntityType::IssueTracker`].
+    /// Exact match against the 13 canonical kinds (case/hyphen-insensitive).
+    fn parse_exact(key: &str) -> Option<EntityType> {
+        match key {
+            "concept" => Some(EntityType::Concept),
+            "date" => Some(EntityType::Date),
+            "dashboard" => Some(EntityType::Dashboard),
+            "decision" => Some(EntityType::Decision),
+            "file" => Some(EntityType::File),
+            "incident" => Some(EntityType::Incident),
+            "issue_tracker" => Some(EntityType::IssueTracker),
+            "location" => Some(EntityType::Location),
+            "memory" => Some(EntityType::Memory),
+            "organization" => Some(EntityType::Organization),
+            "person" => Some(EntityType::Person),
+            "project" => Some(EntityType::Project),
+            "tool" => Some(EntityType::Tool),
+            _ => None,
+        }
+    }
+
     pub fn map_to_canonical(s: &str) -> EntityType {
         let key = s.trim().to_lowercase().replace('-', "_");
         // Exact canonical (and case/hyphen-insensitive) match first.
-        if let Ok(et) = key.parse::<EntityType>() {
+        if let Some(et) = Self::parse_exact(&key) {
             return et;
         }
         match key.as_str() {
@@ -110,20 +130,17 @@ impl EntityType {
     }
 }
 
-/// v1.1.1 (P7, Limitação 9): manual `Deserialize` that delegates to
-/// [`std::str::FromStr`], so EVERY JSON entry point (`--graph-stdin`,
-/// `--entities-file`, `--graph-file`, enrich payloads) rejects an invalid
-/// `entity_type` EARLY — before any embedding — with the full list of the 13
-/// valid values and the memory-type→entity-type hints (`reference`→`concept`,
-/// `document`→`file`, `user`→`person`), instead of serde's terse
-/// `unknown variant`. Also case-insensitive, matching the CLI parse path.
+/// v1.1.8: manual `Deserialize` folds aliases via [`EntityType::map_to_canonical`]
+/// so EVERY JSON entry point (`--graph-stdin`, `--entities-file`, enrich)
+/// accepts extraction labels like `module`/`platform` without dropping nodes.
+/// Persistence always stores the 13 canonical kinds.
 impl<'de> serde::Deserialize<'de> for EntityType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        s.parse::<EntityType>().map_err(serde::de::Error::custom)
+        Ok(EntityType::map_to_canonical(&s))
     }
 }
 
@@ -136,45 +153,10 @@ impl std::fmt::Display for EntityType {
 impl std::str::FromStr for EntityType {
     type Err = AppError;
 
+    /// Folds non-canonical labels onto the nearest kind (never rejects).
+    /// Canonical kinds round-trip exactly; aliases like `module` → Concept.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "concept" => Ok(EntityType::Concept),
-            "date" => Ok(EntityType::Date),
-            "dashboard" => Ok(EntityType::Dashboard),
-            "decision" => Ok(EntityType::Decision),
-            "file" => Ok(EntityType::File),
-            "incident" => Ok(EntityType::Incident),
-            "issue_tracker" => Ok(EntityType::IssueTracker),
-            "location" => Ok(EntityType::Location),
-            "memory" => Ok(EntityType::Memory),
-            "organization" => Ok(EntityType::Organization),
-            "person" => Ok(EntityType::Person),
-            "project" => Ok(EntityType::Project),
-            "tool" => Ok(EntityType::Tool),
-            other => {
-                let hint = match other {
-                    "reference" | "skill" | "note" | "feedback" => Some("concept"),
-                    "document" => Some("file"),
-                    "user" => Some("person"),
-                    _ => None,
-                };
-                let msg = if let Some(suggested) = hint {
-                    format!(
-                        "invalid entity_type '{other}'; '{other}' is a MEMORY type, not an entity type. \
-                         Try '{suggested}' instead. Valid entity types: concept, date, dashboard, \
-                         decision, file, incident, issue_tracker, location, memory, organization, \
-                         person, project, tool"
-                    )
-                } else {
-                    format!(
-                        "invalid entity type: {other}; expected one of: concept, date, dashboard, \
-                         decision, file, incident, issue_tracker, location, memory, organization, \
-                         person, project, tool"
-                    )
-                };
-                Err(AppError::Validation(msg))
-            }
-        }
+        Ok(EntityType::map_to_canonical(s))
     }
 }
 
@@ -197,20 +179,25 @@ impl rusqlite::types::ToSql for EntityType {
 mod tests {
     use super::*;
 
-    // v1.1.1 (P7): serde now delegates to FromStr — invalid entity_type fails
-    // at the JSON boundary with the full valid-values list and hints.
+    // v1.1.8: serde folds aliases via map_to_canonical (never rejects).
     #[test]
-    fn deserialize_invalid_entity_type_lists_valid_values_and_hint() {
-        let err = serde_json::from_str::<EntityType>("\"reference\"").unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("MEMORY type"), "obtido: {msg}");
-        assert!(msg.contains("Try 'concept'"), "obtido: {msg}");
-        assert!(msg.contains("issue_tracker"), "obtido: {msg}");
-
-        let err = serde_json::from_str::<EntityType>("\"banana\"").unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("expected one of"), "obtido: {msg}");
-        assert!(msg.contains("dashboard"), "obtido: {msg}");
+    fn deserialize_folds_aliases_and_unknown_to_canonical() {
+        assert_eq!(
+            serde_json::from_str::<EntityType>("\"reference\"").unwrap(),
+            EntityType::Concept
+        );
+        assert_eq!(
+            serde_json::from_str::<EntityType>("\"module\"").unwrap(),
+            EntityType::Concept
+        );
+        assert_eq!(
+            serde_json::from_str::<EntityType>("\"document\"").unwrap(),
+            EntityType::File
+        );
+        assert_eq!(
+            serde_json::from_str::<EntityType>("\"banana\"").unwrap(),
+            EntityType::Concept
+        );
     }
 
     #[test]
@@ -257,12 +244,10 @@ mod tests {
     }
 
     #[test]
-    fn from_str_invalid_returns_err() {
-        let result = "invalid".parse::<EntityType>();
-        assert!(result.is_err());
-        let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("invalid entity type"));
-    }
+    fn from_str_unknown_folds_to_concept() {
+            let result = "not-a-real-type".parse::<EntityType>();
+            assert_eq!(result.unwrap(), EntityType::Concept);
+        }
 
     #[test]
     fn as_str_returns_canonical_lowercase() {

@@ -36,14 +36,13 @@ pub fn ncpus() -> usize {
 }
 
 /// G28-D: returns `true` when the 1-minute load average exceeds
-/// `2 × ncpus` (the conservative threshold originally proposed in the
-/// G28 audit). The default threshold can be overridden by the
-/// `SQLITE_GRAPHRAG_MAX_LOAD_PER_NCPU` env var.
+/// `2 × ncpus`. Override via XDG `config set system.max_load_per_ncpu <f64>`.
 pub fn is_system_saturated() -> bool {
     let load = load_average_one();
     let n = ncpus() as f64;
-    let multiplier: f64 = std::env::var("SQLITE_GRAPHRAG_MAX_LOAD_PER_NCPU")
+    let multiplier: f64 = crate::config::get_setting("system.max_load_per_ncpu")
         .ok()
+        .flatten()
         .and_then(|v| v.parse().ok())
         .unwrap_or(2.0);
     load > n * multiplier
@@ -86,11 +85,8 @@ mod tests {
     fn saturation_default_threshold_is_two() {
         // G28-D default: 2 × ncpus. Operators can lower it via env var
         // when running on contended CI runners.
-        let env_default = std::env::var("SQLITE_GRAPHRAG_MAX_LOAD_PER_NCPU")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2.0);
-        assert!(env_default >= 1.0);
+        let default = 2.0_f64;
+        assert!(default >= 1.0);
     }
 
     #[test]

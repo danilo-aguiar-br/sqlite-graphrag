@@ -131,10 +131,10 @@ pub struct DeepResearchArgs {
         help = "Limit neighbours per entity per hop for graph traversal (default: unlimited)"
     )]
     pub max_neighbors_per_hop: Option<usize>,
-    /// Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global).
+    /// Namespace (flag / XDG namespace.default / global).
     #[arg(
         long,
-        help = "Namespace (env: SQLITE_GRAPHRAG_NAMESPACE, default: global)"
+        help = "Namespace (flag / XDG namespace.default / global)"
     )]
     pub namespace: Option<String>,
     /// Research mode: `none` (local heuristic, default), `claude-code`, `codex` (v1.1.0).
@@ -151,7 +151,7 @@ pub struct DeepResearchArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Database path.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Sub-query strategy: `heuristic` (default, syntactic + single-token aspects)
     /// or `manual` (requires `--sub-queries-file`).
@@ -175,9 +175,10 @@ pub struct DeepResearchArgs {
     /// `{ "written": "<path>", "bytes": N, "blake3": "..." }` instead of the full
     /// envelope — preventing shell redirect truncation of multi-MB payloads.
     #[arg(
+        short = 'o',
         long,
         value_name = "PATH",
-        help = "Atomic JSON output path (atomwrite algorithm)"
+        help = "Atomic JSON output path (atomwrite algorithm; short -o)"
     )]
     pub output: Option<std::path::PathBuf>,
 }
@@ -698,8 +699,22 @@ async fn run_async(
         // v1.1.05 Bug 2: atomic write avoids truncated envelopes under SIGTERM /
         // shell redirect races. Full envelope goes to the file; stdout gets a
         // small confirmation so pipelines can still check exit 0 + path.
+        // v1.1.8 GAP-CLI-DR-01..03: short `-o` is registered; fail-fast if the
+        // path was requested and the final file is missing or empty.
         crate::atomic_io::write_json_atomic(path, &response)?;
+        if !path.exists() {
+            return Err(AppError::Validation(format!(
+                "deep-research --output failed: path does not exist after atomic write: {}",
+                path.display()
+            )));
+        }
         let meta = std::fs::metadata(path).map_err(AppError::Io)?;
+        if meta.len() == 0 {
+            return Err(AppError::Validation(format!(
+                "deep-research --output failed: written file is empty (0 bytes): {}",
+                path.display()
+            )));
+        }
         let file_bytes = std::fs::read(path).map_err(AppError::Io)?;
         let digest = blake3::hash(&file_bytes).to_hex().to_string();
         #[derive(Serialize)]
@@ -1645,5 +1660,50 @@ mod tests {
             3,
             "capped to 2 must yield seed + 2 neighbours"
         );
+    }
+
+    /// GAP-CLI-DR-02: materialize path writes non-empty JSON and yields
+    /// `{written,bytes,blake3}` semantics (mirrors --output / -o post-write checks).
+    #[test]
+    fn output_path_materializes_file_with_ack_fields() {
+        use crate::atomic_io::write_json_atomic;
+        use serde_json::json;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "sqlite-graphrag-dr02-{}-{}.json",
+            std::process::id(),
+            nanos
+        ));
+        let envelope = json!({
+            "query": "auth",
+            "hits": [{"memory": "m1"}],
+            "stats": {
+                "sub_queries_total": 2,
+                "unique_memories_found": 1,
+                "elapsed_ms": 12
+            }
+        });
+        write_json_atomic(&path, &envelope).expect("atomic write must succeed");
+        assert!(path.exists(), "GAP-CLI-DR-02: -o/--output must materialize a file");
+        let meta = std::fs::metadata(&path).expect("metadata");
+        assert!(meta.len() > 0, "GAP-CLI-DR-02: written file must be non-empty");
+        let file_bytes = std::fs::read(&path).expect("read");
+        let digest = blake3::hash(&file_bytes).to_hex().to_string();
+        assert_eq!(digest.len(), 64, "blake3 hex digest length");
+        // Ack shape contract (fields consumers read after deep-research -o)
+        let ack = json!({
+            "written": path.display().to_string(),
+            "bytes": meta.len(),
+            "blake3": digest,
+        });
+        assert!(ack["written"].as_str().unwrap().ends_with(".json"));
+        assert!(ack["bytes"].as_u64().unwrap() > 0);
+        assert_eq!(ack["blake3"].as_str().unwrap().len(), 64);
+        let _ = std::fs::remove_file(&path);
     }
 }

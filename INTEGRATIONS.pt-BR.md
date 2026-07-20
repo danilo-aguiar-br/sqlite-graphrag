@@ -7,6 +7,7 @@
 
 - Leia a versão em inglês em [INTEGRATIONS.md](INTEGRATIONS.md)
 - Cada receita abaixo está pronta para copiar e custa zero para executar
+- **v1.1.8 — Configuração via XDG, não env de produto.** Precedência: **flag CLI > XDG `config set` > default**. Help scrub (sem product env / sem Box about). URLs OpenRouter em `network.openrouter.*`. Use `config list --effective`, `pending-embeddings status`, `cache stats`, `purge --now`. Schema permanece v16. Schedulers: cron/systemd/launchd/Task Scheduler **local** — sem GitHub Actions como caminho de produto.
 - **v1.0.79: todo build é apenas LLM e one-shot.** A geração de embedding delega para um subprocesso headless `claude code` ou `codex` (OAuth). O daemon, o runtime ONNX e a feature `embedding-legacy` foram totalmente removidos; os embeddings são em lote, paralelos (`--llm-parallelism`) e com 384 dimensões por padrão (`--embedding-dim`, faixa [8, 4096]).
 
 
@@ -26,6 +27,15 @@
 - `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` e `SQLITE_GRAPHRAG_GLINER_THRESHOLD` são aceitas por compatibilidade mas NÃO têm efeito desde a v1.0.79.
 - Para extração de entidades/relacionamentos curada por LLM use `ingest --mode claude-code` ou `ingest --mode codex`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
+
+## Novos Comandos e Flags (desde v1.1.8)
+
+- Crate **`1.1.8`**; **sem migração** de schema (v16). Fecha auditoria de qualidade/latência/contrato do enrich + poison QISO da fila.
+- Config: `config set|get|list|unset`, `config list --effective`; keys `network.openrouter.*`, `llm.query_embed_timeout_secs`.
+- UX: `pending-embeddings status`, `cache stats`, `purge --now`; `remember-batch` exige `description` na criação.
+- Normalizações: EntityType `module`→Concept; `related_to`→`related`; alias telemetry removido.
+- Help: sem env de produto; harness offline `scripts/e2e_offline_v118.sh` **16/16**.
+- Residuais: monólitos >800; live LQ = operador.
 
 ## Novos Comandos e Flags (desde v1.1.06)
 
@@ -271,7 +281,7 @@
 | OpenRouter | Roteador IA | qualquer | `sqlite-graphrag recall "regra" --json` | https://openrouter.ai/docs |
 | Shells POSIX | Shell | qualquer | `sqlite-graphrag recall "$query" --json` | https://www.gnu.org/software/bash |
 | Nushell | Shell | 0.90+ | `^sqlite-graphrag recall "query" --k 5 --json \| from json \| get results` | https://www.nushell.sh/book |
-| GitHub Actions | CI/CD | qualquer | workflow YAML | https://docs.github.com/actions |
+| Agendador local cron/systemd/launchd/Task Scheduler | Ops | qualquer | one-shot local | (sem CI cloud) |
 | GitLab CI | CI/CD | qualquer | `.gitlab-ci.yml` | https://docs.gitlab.com/ee/ci |
 | CircleCI | CI/CD | qualquer | `.circleci/config.yml` | https://circleci.com/docs |
 | Jenkins | CI/CD | 2.400+ | Jenkinsfile | https://www.jenkins.io/doc |
@@ -619,48 +629,15 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 - Dica de ouro é encadear `| select name score` para exibir tabela de memória ranqueada no Nu
 
 
-## GitHub Actions
-### CI/CD — Qualquer Runner Recente
-- Receita pronta para copiar em `.github/workflows/`, zero custo, roda em qualquer runner GitHub
-- Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala em segundos via cargo em qualquer runner
-- Propósito é rodar manutenção de memória e backups em workflows agendados do GitHub Actions
-- Use workflow cron que executa `sqlite-graphrag purge --days 30 --yes` e `vacuum` agendados
-- Versão mínima funciona em qualquer runner `ubuntu-latest` `macos-latest` ou `windows-latest`
-- Docs oficiais em https://docs.github.com/actions descrevendo sintaxe de workflows agendados
-- Dica de ouro é fazer upload do sync-safe-copy como artifact do build para capacidade de rollback
-
-
-## GitLab CI
-### CI/CD — Runner Recente
-- Receita pronta para copiar em `.gitlab-ci.yml`, zero custo, roda em qualquer runner GitLab
-- Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala em segundos via cargo em qualquer runner
-- Propósito é rodar manutenção sqlite-graphrag em pipelines agendados do GitLab CI rotineiramente
-- Use stage `.gitlab-ci.yml` agendado que invoca `cargo install --path .` primeiro
-- Versão mínima suporta runner recente do GitLab com toolchain Rust disponível para instalação
-- Docs oficiais em https://docs.gitlab.com/ee/ci descrevendo configuração de pipelines agendados
-- Dica de ouro é cachear o diretório cargo install entre runs para startup de job mais rápido
-
-
-## CircleCI
-### CI/CD — Executor Recente
-- Receita pronta para copiar na config CircleCI, zero custo, binário instala via cargo em segundos
-- Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala em segundos via cargo em qualquer executor
-- Propósito é rodar manutenção e backups sqlite-graphrag em workflows agendados do CircleCI
-- Use workflow agendado com `cargo install --path .` seguido dos passos do job
-- Versão mínima suporta executor Linux ou macOS recente do CircleCI com toolchain Rust
-- Docs oficiais em https://circleci.com/docs descrevendo pipelines agendados e workflows suportados
-- Dica de ouro é persistir o DB no workspace para jobs downstream auditarem o snapshot gerado
-
-
-## Jenkins
-### CI/CD — Jenkins 2.400+
-- Receita pronta para colar em stage de Jenkinsfile, zero custo, funciona em ambientes air-gapped
-- Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala via cargo e roda como subprocesso one-shot sem daemon algum (o daemon foi removido na v1.0.79)
-- Propósito é integrar backups sqlite-graphrag em pipelines Jenkins self-hosted para ambientes regulados
-- Use stage em Jenkinsfile rodando `cargo install --path .` e comandos operacionais
-- Versão mínima exige Jenkins 2.400 ou posterior para pipeline declarative e gerência de agent estáveis
-- Docs oficiais em https://www.jenkins.io/doc cobrindo sintaxe de pipeline declarative a fundo
-- Dica de ouro é arquivar a saída do sync-safe-copy como artifact para retenção de longo prazo
+## Agendadores locais (sem GitHub Actions / CI cloud)
+### Linux systemd user / cron — macOS launchd — Windows Task Scheduler
+- O produto **proíbe** GitHub Actions / workflows CI no repositório (releases manuais).
+- Use agendadores **locais** multiplataforma para manutenção one-shot:
+  - Linux: timer `systemd --user` ou `cron` com `sqlite-graphrag purge --days 30 --yes` e `vacuum`
+  - macOS: plist `launchd` invocando o binário instalado via cargo
+  - Windows: Task Scheduler com o mesmo binário one-shot
+- Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala via cargo e encerra após cada execução
+- Dica de ouro: arquive a saída de `sync-safe-copy` no filesystem local para rollback
 
 
 ## Docker e Podman Alpine

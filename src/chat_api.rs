@@ -33,7 +33,7 @@ use secrecy::{ExposeSecret, SecretBox};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-const OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+use crate::constants::DEFAULT_OPENROUTER_CHAT_URL;
 // GAP-SG-17: raised from 300 to 600 — the per-request fallback budget when a
 // caller passes `0`. Dense bodies near the model's ~32K-token context ceiling
 // regularly need more than five minutes to generate.
@@ -234,9 +234,8 @@ pub struct OpenRouterChatClient {
     client: reqwest::Client,
     api_key: SecretBox<String>,
     model: String,
-    /// Endpoint each request is POSTed to. Always [`OPENROUTER_CHAT_URL`] in
-    /// production; only the test-only Self::new_with_url constructor
-    /// repoints it at a local mock server.
+    /// Endpoint each request is POSTed to. Resolved from XDG/config at
+    /// construction (default: [`DEFAULT_OPENROUTER_CHAT_URL`]).
     base_url: String,
 }
 
@@ -250,6 +249,18 @@ impl OpenRouterChatClient {
         model: String,
         timeout_secs: u64,
     ) -> Result<Self, AppError> {
+        let base_url =
+            crate::runtime_config::openrouter_chat_url(DEFAULT_OPENROUTER_CHAT_URL);
+        Self::new_with_base_url(api_key, model, timeout_secs, base_url)
+    }
+
+    /// Build a client posting to an explicit `base_url` (XDG override, tests, gateways).
+    pub fn new_with_base_url(
+        api_key: SecretBox<String>,
+        model: String,
+        timeout_secs: u64,
+        base_url: String,
+    ) -> Result<Self, AppError> {
         let timeout_secs = if timeout_secs == 0 {
             DEFAULT_TIMEOUT_SECS
         } else {
@@ -258,8 +269,6 @@ impl OpenRouterChatClient {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
-            // Derived from the crate version so the UA never drifts again
-            // (GAP-SG-75 recurrence caught at the v1.1.01 release gate).
             .user_agent(concat!("sqlite-graphrag/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| AppError::Validation(format!("failed to build HTTP client: {e}")))?;
@@ -268,13 +277,11 @@ impl OpenRouterChatClient {
             client,
             api_key,
             model,
-            base_url: OPENROUTER_CHAT_URL.to_string(),
+            base_url,
         })
     }
 
-    /// Test-only constructor that POSTs to an arbitrary `base_url` (such as a
-    /// `wiremock::MockServer`) instead of the public OpenRouter endpoint.
-    /// Behaviour is otherwise identical to [`Self::new`].
+    /// Test-only constructor that POSTs to an arbitrary `base_url`.
     #[cfg(test)]
     pub fn new_with_url(
         api_key: SecretBox<String>,
@@ -282,9 +289,7 @@ impl OpenRouterChatClient {
         base_url: String,
         timeout_secs: u64,
     ) -> Result<Self, AppError> {
-        let mut client = Self::new(api_key, model, timeout_secs)?;
-        client.base_url = base_url;
-        Ok(client)
+        Self::new_with_base_url(api_key, model, timeout_secs, base_url)
     }
 
     /// Returns the model bound to this client.
@@ -828,7 +833,7 @@ mod tests {
     fn new_defaults_base_url_to_public_endpoint() {
         let client = OpenRouterChatClient::new(key(), "z-ai/glm-5.2".to_string(), 30)
             .expect("client builds");
-        assert_eq!(client.base_url, OPENROUTER_CHAT_URL);
+        assert_eq!(client.base_url, DEFAULT_OPENROUTER_CHAT_URL);
     }
 
     #[test]

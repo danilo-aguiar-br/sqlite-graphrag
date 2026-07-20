@@ -60,7 +60,7 @@ pub struct FtsRebuildArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -71,7 +71,7 @@ pub struct FtsCheckArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 
@@ -82,7 +82,7 @@ pub struct FtsStatsArgs {
     #[arg(long, hide = true)]
     pub json: bool,
     /// Path to the SQLite database file.
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
 }
 

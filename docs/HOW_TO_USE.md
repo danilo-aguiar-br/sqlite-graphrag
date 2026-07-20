@@ -1,10 +1,78 @@
-# HOW TO USE sqlite-graphrag (v1.1.06 — entity-connect O(k) scan, schema v16)
+# HOW TO USE sqlite-graphrag (v1.1.8 — XDG config, E2E seal, schema v16)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
 
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
+
+## Configuration (XDG — v1.1.8)
+
+- Runtime knobs resolve as **CLI flag > XDG `config set` > named default**
+- Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime (forbidden for product configuration)
+- Secrets: `config add-key --provider openrouter` (stdin) or `--openrouter-api-key` per call
+- Inspect: `config path`, `config list`, `config list --effective`, `config doctor`
+- OpenRouter URLs: `config set network.openrouter.chat_url …` / `network.openrouter.embeddings_url …`
+- Fail-fast offline recall: `config set llm.query_embed_timeout_secs 3` and/or `--llm-backend none`
+- Soft-delete cleanup: `purge --now --yes` for immediate hard-delete; default retention is 90 days and `--yes` alone does **not** wipe recent soft-deletes
+- Allowed OS env only: locale (`LANG`/`LC_*`), `PATH`, `HOME`/`USERPROFILE`, XDG base dirs, `NO_COLOR`, plus subprocess OAuth whitelist (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, …)
+- Offline gate: `bash scripts/e2e_offline_v118.sh` (16/16). Pin library consumers to `=1.1.8`. Schema stays at **v16** (no migrate if already on v16)
+
+```bash
+sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
+sqlite-graphrag config list --effective --json
+sqlite-graphrag purge --now --yes --json   # after forget, when you want immediate hard-delete
+```
+
+## What Changed in v1.1.8 — XDG Config + Enrich Quality/Latency (No Migration)
+
+- Crate **1.1.8**; schema **unchanged** at **v16**. No main-DB migration.
+- Help scrub: no product env tables, no Box about on ingest/enrich.
+- OpenRouter URLs wired from XDG; Auto query embed fail-fast (`llm.query_embed_timeout_secs` default 3s + probe).
+- EntityType fold: `"module"` → Concept; `related_to` → `related`.
+- `remember-batch` requires non-empty `description` on create.
+- Aliases: `pending-embeddings status`, `cache stats`; `purge --now`; `config list --effective`.
+- QISO: enrich queue claim is scoped by `operation` (memory-bindings cannot claim entity/pair rows).
+- entity-descriptions: multi-domain neutral prompt, corpus grounding, `--force-redescribe` for low-quality rewrite.
+- Status honesty: `enrich --status --force-redescribe` reports `scan_backlog_low_quality`, `quality_pct`, `state=blocked_dead` when applicable.
+- Names: `--entity-names` / `--memory-names` (alias `--names` with per-operation semantics).
+- remember hot-set: envelope fields `entities_created` / `enrich_recommended`; flag `--enqueue-enrich`.
+- deep-research short `-o` alias of `--output`; atomic write + ack `{written,bytes,blake3}`.
+- memory-entities forward JSON includes `entities[].description`.
+- entity-connect remains fully implemented (persists relationships); large-DB: `--anchor-memory`, adaptive limits, yield, `budget_exhausted` / `preempted_for_gate`.
+- Recommended order after write: entity-descriptions (hot) then entity-connect (cold).
+- Telemetry lib alias removed. Residual: monólitos >800 LOC partial; live LQ backfill is operator campaign (`--force-redescribe` + LLM).
+- See [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](../CHANGELOG.md) `[1.1.8]`.
+
+### Recipes — enrich quality and hot-set (v1.1.8)
+
+```bash
+# After curated remember: parse enrich_recommended, then priority ED
+sqlite-graphrag remember --name demo --type note --description "d" --body "ICMS fiscal note" \
+  --graph-stdin --enqueue-enrich --json <<'EOF'
+{"entities":[{"name":"icms-p05","entity_type":"concept"}],"relationships":[]}
+EOF
+# envelope may include entities_created[] and enrich_recommended:["entity-descriptions"]
+
+# Audit entity descriptions for one memory
+sqlite-graphrag memory-entities --name demo --json | jaq '.entities[] | {name, description}'
+
+# Priority pass on named entities (not memory names)
+sqlite-graphrag enrich --operation entity-descriptions \
+  --entity-names icms-p05 --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+
+# Rewrite low-quality descriptions already filled
+sqlite-graphrag enrich --operation entity-descriptions --force-redescribe \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --limit 20 --json
+sqlite-graphrag enrich --operation entity-descriptions --status --force-redescribe --json
+
+# deep-research short -o (same as --output)
+sqlite-graphrag deep-research "auth decisions" -o /tmp/dr.json --quiet --json
+
+# memory-bindings uses memory names
+sqlite-graphrag enrich --operation memory-bindings --memory-names demo --dry-run --json
+```
+
 
 ## What Changed in v1.1.06 — Entity-Connect Scan O(k) (No Migration)
 
@@ -546,7 +614,8 @@ includes the schema and the response is larger).
 
 ## LLM Quality Tools (inherited from v1.0.69)
 ### `enrich` — LLM-Augmented Graph Quality
-- The `enrich` subcommand runs LLM-curated graph-quality operations. Fully implemented (persist): `memory-bindings` (extract entities from orphan memories), `augment-bindings` (extra bindings on already-bound memories; requires `--names`/`--names-file`), `entity-descriptions` (fill NULL/empty entity descriptions), `body-enrich` (expand short memory bodies), `re-embed` (vectors only), `entity-connect` (v1.1.04+ convergent via `entity_connect_seen`; **v1.1.06** O(k) co-occurrence + hub×island scan, keys `pair:{id1}:{id2}` / `item_type=entity_pair`, first-scan InterruptHandle → Timeout exit 1), `cross-domain-bridges` (same fully-implemented path as entity-connect / `entity_connect_seen`), and `body-extract` with `--body-extract-graph-only` (graph only, no body rewrite).
+- The `enrich` subcommand runs LLM-curated graph-quality operations. Fully implemented (persist): `memory-bindings` (extract entities from orphan memories), `augment-bindings` (extra bindings on already-bound memories; requires `--names`/`--memory-names`/`--names-file`), `entity-descriptions` (fill NULL/empty **or** rewrite low-quality with `--force-redescribe`; multi-domain prompt + grounding; v1.1.8), `body-enrich` (expand short memory bodies), `re-embed` (vectors only), `entity-connect` (fully implemented — **persists** relationships; v1.1.04+ convergent via `entity_connect_seen`; **v1.1.06** O(k) co-occurrence + hub×island; **v1.1.8** adaptive budget/yield/`--anchor-memory`/`preempted_for_gate`), `cross-domain-bridges` (same fully-implemented path), and `body-extract` with `--body-extract-graph-only` (graph only, no body rewrite).
+- Name filters: `--entity-names` for entity-scoped ops (entity-descriptions); `--memory-names` for memory-scoped ops (memory-bindings, augment-bindings); `--names` remains a backward-compatible alias with per-operation semantics.
 - Remaining scan-only operations surface candidate lists without rewriting: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth` (and `body-extract` without `--body-extract-graph-only` when used as advisory).
 - `--mode <claude-code|codex|opencode|openrouter>` selects the JUDGE provider and is **REQUIRED** — there is NO default (the `claude-code` default was removed in v1.0.94). `claude-code`, `codex` and `opencode` are OAuth-only local CLIs; `openrouter` (v1.0.95) calls the `/chat/completions` REST endpoint with no subprocess.
 - With `--mode openrouter` (v1.0.95): `--openrouter-model` is REQUIRED (NO default; omitting it → exit 1 before any network call). `--openrouter-api-key` reads from env `OPENROUTER_API_KEY` or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional. Example: `enrich --operation memory-bindings --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json`.

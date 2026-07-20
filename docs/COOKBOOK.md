@@ -1,3 +1,215 @@
+# v1.1.8 recipes (XDG config + enrich quality + E2E seal)
+
+> Current crate **1.1.8**, schema **v16** (no main-DB migration). Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v118.sh` (16/16).
+> Portuguese recipes: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
+
+## How To Rewrite Low-Quality Entity Descriptions (`--force-redescribe`)
+
+### Problem
+- entity-descriptions is write-once for empty strings; wrong filled text stays forever without a rescan
+- Live graphs can show `scan_backlog=0` while thousands of descriptions are software jargon noise
+
+### Solution
+```bash
+# Honest quality backlog (no LLM)
+sqlite-graphrag enrich --operation entity-descriptions --status --force-redescribe --json
+# Parse: scan_backlog_low_quality, quality_pct, quality_sample_n, state
+
+# Controlled rewrite batch (LLM cost)
+sqlite-graphrag enrich --operation entity-descriptions \
+  --force-redescribe \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
+  --limit 20 --json
+```
+
+### Explanation
+- Multi-domain neutral prompt + grounding against linked memory bodies (shared with body-enrich)
+- QISO: queue claim is scoped by `operation` so other drains cannot poison this op
+- Live pollution is an operator campaign — the harness does not auto-clean production graphs
+
+## How To Enqueue Hot Entity-Descriptions After Remember
+
+### Problem
+- New entities after `remember --graph-stdin` compete with global entity-connect backlog
+- Agents need an explicit hot set without scanning the whole namespace
+
+### Solution
+```bash
+sqlite-graphrag remember --name fiscal-note --type note --description "ICMS" \
+  --body "Nota sobre ICMS-P05 e NFC-e ordenada" \
+  --enqueue-enrich --json \
+  --graph-stdin <<'EOF'
+{"entities":[{"name":"icms-p05","entity_type":"concept"},{"name":"nfce-ordenada","entity_type":"concept"}],"relationships":[]}
+EOF
+# Parse entities_created[] and enrich_recommended (often ["entity-descriptions"])
+
+# Explicit entity-name priority (not memory names)
+sqlite-graphrag enrich --operation entity-descriptions \
+  --entity-names icms-p05,nfce-ordenada \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
+```
+
+### Explanation
+- `--enqueue-enrich` pushes hot entity-descriptions with queue priority
+- Prefer `--entity-names` for ED; use `--memory-names` for memory-bindings
+- Recommended order: write → entity-descriptions (hot) → entity-connect (cold)
+
+## How To Audit Entity Descriptions Per Memory
+
+### Problem
+- Forward `memory-entities` historically omitted description, forcing N+1 lookups
+
+### Solution
+```bash
+sqlite-graphrag memory-entities --name fiscal-note --json \
+  | jaq '.entities[] | {name, entity_type, description}'
+# Empty or junk description → schedule entity-descriptions / --force-redescribe
+```
+
+### Explanation
+- v1.1.8 forward JSON includes `entities[].description` (GAP-CLI-ME-01)
+
+## How To deep-research With Short `-o`
+
+### Problem
+- Agents assume Unix short `-o` for output files; only long `--output` used to work
+
+### Solution
+```bash
+sqlite-graphrag deep-research "authentication decisions" -o /tmp/dr.json --quiet --json
+# same as --output /tmp/dr.json
+# stdout = short ack {written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}
+# file   = full envelope (atomwrite: tempfile → fsync → rename)
+```
+
+### Explanation
+- Fail-fast if the path was requested and the final file is missing or zero bytes
+- Never redirect stdout+stderr together with `&>` into a JSON consumer
+
+## How To Configure OpenRouter URLs via XDG
+
+### Problem
+- You need chat/embeddings endpoints that match a proxy, regional gateway, or self-hosted OpenRouter-compatible URL
+- Product env tables are no longer the config path
+
+### Solution
+```bash
+sqlite-graphrag config set network.openrouter.chat_url "https://openrouter.ai/api/v1/chat/completions"
+sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
+# aliases also accepted: network.chat_url / network.embed_url
+sqlite-graphrag config list --effective --json | jaq '.settings'
+# Secrets: prefer stdin key store
+printf '%s' "$OPENROUTER_API_KEY" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# or per-call: --openrouter-api-key (avoid shell history when possible)
+```
+
+### Explanation
+- Production HTTP clients resolve URLs from XDG via `runtime_config` (not hardcoded-only)
+- API key precedence: CLI flag > XDG `config add-key` > (deprecated product env ignored for product knobs)
+
+## How To Fail-Fast Offline Recall (llm-backend none / probe)
+
+### Problem
+- Offline or FTS-only hosts hung ~20s on dead OAuth when Auto tried to embed the query
+
+### Solution
+```bash
+# Fail-fast query embed budget (default 3s) + probe
+sqlite-graphrag config set llm.query_embed_timeout_secs 3
+sqlite-graphrag config set llm.probe_timeout_ms 800
+# Explicit offline path
+sqlite-graphrag recall "auth tests" --k 5 --llm-backend none --json
+sqlite-graphrag hybrid-search "auth tests" --k 5 --llm-backend none --json
+```
+
+### Explanation
+- Credential probe + `llm.query_embed_timeout_secs` abort the Auto embed attempt quickly so FTS/hybrid paths stay interactive
+
+## How To purge --now After forget
+
+### Problem
+- Soft-deleted memories linger for the default **90-day** retention; `--yes` alone does **not** wipe recent soft-deletes
+
+### Solution
+```bash
+sqlite-graphrag forget --name obsolete-note --json
+sqlite-graphrag purge --dry-run --json          # preview (90d retention)
+sqlite-graphrag purge --now --yes --json        # immediate hard-delete of all soft-deletes
+# equivalent: purge --retention-days 0 --yes
+```
+
+### Explanation
+- `--now` is an alias for `--retention-days 0`; always pair destructive purge with `--yes`
+
+## How To Use pending-embeddings status / cache stats
+
+### Problem
+- Agents expect `status` / `stats` verbs that historically lived only under sibling subcommands
+
+### Solution
+```bash
+sqlite-graphrag pending-embeddings status --json   # alias of embedding status
+sqlite-graphrag embedding status --json
+sqlite-graphrag cache stats --json                 # alias of cache list
+sqlite-graphrag cache list --json
+```
+
+### Explanation
+- v1.1.8 UX aliases exit 0 with the same envelopes as the canonical verbs
+
+## How To remember-batch With Required Description
+
+### Problem
+- Empty description on create was accepted on batch but rejected on single `remember` (contract drift)
+
+### Solution
+```bash
+printf '%s\n' \
+  '{"name":"batch-a","type":"note","description":"required blurb","body":"hello a"}' \
+  '{"name":"batch-b","type":"note","description":"required blurb","body":"hello b"}' \
+  | sqlite-graphrag remember-batch --json --fail-fast
+# Missing/empty description on create → validation error (parity with remember)
+```
+
+### Explanation
+- On create, `type` and non-empty `description` are required; force-merge may inherit existing fields
+
+## How To Map Entity Type module → concept
+
+### Problem
+- LLM graph payloads emit free labels such as `"module"` that used to fail Deserialize
+
+### Solution
+```bash
+# graph-stdin / entities-file: "module" folds to Concept via map_to_canonical
+printf '%s' '{"body":"x","entities":[{"name":"auth-module","entity_type":"module"}],"relationships":[]}' \
+  | sqlite-graphrag remember --name fold-module --type note --description "fold demo" --graph-stdin --json
+sqlite-graphrag memory-entities --name fold-module --json | jaq '.entities[] | {name, entity_type, description}'
+```
+
+### Explanation
+- `EntityType::map_to_canonical` normalizes non-canonical labels (`module` → Concept) on parse/serde
+
+## How To Inspect Effective Config (config list --effective)
+
+### Problem
+- Operators need the resolved flag > XDG > default view without guessing compiled defaults
+
+### Solution
+```bash
+sqlite-graphrag config path --json
+sqlite-graphrag config list --json
+sqlite-graphrag config list --effective --json
+sqlite-graphrag config doctor --json
+sqlite-graphrag config get network.openrouter.embeddings_url --json
+sqlite-graphrag config unset llm.query_embed_timeout_secs --json
+```
+
+### Explanation
+- `--effective` fills well-known defaults (OpenRouter URLs, probe/timeout, embedding.dim, log.level, display.tz, …) when not stored in XDG
+
+---
+
 ## How To Use Custom Anthropic-Compatible Providers (v1.0.83+)
 
 ### Problem
@@ -158,7 +370,7 @@ sqlite-graphrag health --json
 
 ### See Also
 - Recipe "How to integrate sqlite-graphrag with Claude Code subprocess loop"
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 
 
 ## How To Use OpenRouter For Fast Embedding (v1.0.93)
@@ -838,7 +1050,7 @@ sqlite-graphrag cleanup-orphans --yes --json
 
 
 ### See Also
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 - Recipe "How to remove a graph edge with unlink"
 
 
@@ -1041,31 +1253,27 @@ sqlite-graphrag sync-safe-copy --dest ~/Dropbox/sqlite-graphrag/snapshot.sqlite
 
 
 ### See Also
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 - Recipe "How to version control the SQLite database with Git LFS"
 
 
-## How To Schedule Purge And Vacuum In Cron Or GitHub Actions
+## How To Schedule Purge And Vacuum With Cron, systemd.timer, Or launchd
 ### Problem
 - Soft-deleted memories pile up and inflate disk usage over months of heavy agent use
 - Your SQLite file balloons past 10 GB because `VACUUM` never runs in automation
 
 
 ### Solution
-```yaml
-# .github/workflows/ng-maintenance.yml
-name: sqlite-graphrag maintenance
-on:
-  schedule: [{ cron: "0 3 * * 0" }]
-jobs:
-  maintenance:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: cargo install --path .
-      - run: sqlite-graphrag purge --retention-days 30 --yes
-      - run: sqlite-graphrag vacuum --json
-      - run: sqlite-graphrag optimize --json
+```bash
+# Local cron (Linux/macOS) — never GitHub Actions for product maintenance
+# crontab -e
+# 0 3 * * 0  $HOME/.cargo/bin/sqlite-graphrag purge --retention-days 30 --yes \
+#   && $HOME/.cargo/bin/sqlite-graphrag vacuum --json \
+#   && $HOME/.cargo/bin/sqlite-graphrag optimize --json
+
+sqlite-graphrag purge --retention-days 30 --yes
+sqlite-graphrag vacuum --json
+sqlite-graphrag optimize --json
 ```
 
 
@@ -1079,7 +1287,7 @@ jobs:
 
 ### Variants
 - Run on `cron 0 3 * * *` nightly when your team writes thousands of memories per day
-- Replace GitHub Actions with `systemd.timer` for air-gapped environments without internet
+- Prefer `cron`, `systemd.timer` (Linux), or `launchd` (macOS); do **not** use GitHub Actions workflows as the product maintenance path
 
 
 ### See Also
@@ -1114,7 +1322,7 @@ sqlite-graphrag export > memories-$(date +%Y%m%d).ndjson
 
 ### See Also
 - Recipe "How to version control the SQLite database with Git LFS"
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 
 
 ## How To Version Control The SQLite Database With Git LFS
@@ -1260,7 +1468,7 @@ sqlite-graphrag debug-schema --json | jaq '{schema_version, objects: (.objects |
 
 
 ### See Also
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 - Recipe "How to benchmark hybrid-search against pure vec search"
 
 
@@ -1286,7 +1494,7 @@ sqlite-graphrag stats --json | jaq '{memories, entities, relationships}'
 
 ### See Also
 - Recipe "How to debug slow queries with health and stats"
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 
 
 ## How To Benchmark hybrid-search Against Pure vec search
@@ -1756,7 +1964,7 @@ sqlite-graphrag recall "decision" --json
 
 
 ### See Also
-- Recipe "How to schedule purge and vacuum in cron or GitHub Actions"
+- Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 - Recipe "How to export memories to NDJSON for backup"
 
 

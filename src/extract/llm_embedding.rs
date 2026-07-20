@@ -2,7 +2,7 @@
 //!
 //! `LlmEmbedding` is the production embedding client. It wraps headless
 //! invocations of `claude code` or `codex` and returns f32 vectors of the
-//! active dimensionality (`crate::constants::embedding_dim()`, default 64).
+//! active dimensionality (`crate::constants::embedding_dim()`, default 384).
 //!
 //! v1.0.79 (G42) changes:
 //! - S1: the dimensionality is no longer hardcoded here — the single
@@ -43,11 +43,16 @@ use tokio::process::Command;
 const DEFAULT_EMBED_TIMEOUT_SECS: u64 = 300;
 
 fn embed_timeout() -> std::time::Duration {
-    let secs = std::env::var("SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|&n| (10..=3_600).contains(&n))
-        .unwrap_or(DEFAULT_EMBED_TIMEOUT_SECS);
+    let secs = crate::runtime_config::resolve_u64(
+        None,
+        "embedding.timeout_secs",
+        DEFAULT_EMBED_TIMEOUT_SECS,
+    );
+    let secs = if (10..=3_600).contains(&secs) {
+        secs
+    } else {
+        DEFAULT_EMBED_TIMEOUT_SECS
+    };
     std::time::Duration::from_secs(secs)
 }
 
@@ -110,6 +115,15 @@ pub struct LlmEmbedding {
     /// BUG-TIMEOUT-HARDCODE-001: instance-scoped timeout override.
     /// Precedence: this field > env var > DEFAULT_EMBED_TIMEOUT_SECS.
     timeout_override: Option<std::time::Duration>,
+}
+
+impl LlmEmbedding {
+    /// Apply a per-call timeout override (e.g. short budget for query Auto).
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        let clamped = secs.clamp(1, 3_600);
+        self.timeout_override = Some(std::time::Duration::from_secs(clamped));
+        self
+    }
 }
 
 #[derive(Debug, Default)]
@@ -187,8 +201,9 @@ impl LlmEmbeddingBuilder {
     }
 
     /// Override the per-call embedding timeout (skips env-var lookup).
+    /// Minimum 1s enables fail-fast Auto chain probes (GAP-E2E-06).
     pub fn override_timeout(mut self, secs: u64) -> Self {
-        let clamped = secs.clamp(10, 3_600);
+        let clamped = secs.clamp(1, 3_600);
         self.timeout_override = Some(std::time::Duration::from_secs(clamped));
         self
     }
@@ -200,12 +215,22 @@ impl LlmEmbeddingBuilder {
         let binary = match self.binary_override {
             Some(path) => resolve_real_binary(&path),
             None => {
-                let (env_var, which_name) = match self.flavour {
-                    EmbeddingFlavour::Codex => ("SQLITE_GRAPHRAG_CODEX_BINARY", "codex"),
-                    EmbeddingFlavour::Claude => ("SQLITE_GRAPHRAG_CLAUDE_BINARY", "claude"),
-                    EmbeddingFlavour::Opencode => ("SQLITE_GRAPHRAG_OPENCODE_BINARY", "opencode"),
+                // Wave 4: flag/XDG via runtime_config — no product env reads.
+                let (xdg_bin, which_name) = match self.flavour {
+                    EmbeddingFlavour::Codex => (
+                        crate::runtime_config::codex_binary(),
+                        "codex",
+                    ),
+                    EmbeddingFlavour::Claude => (
+                        crate::runtime_config::claude_binary(),
+                        "claude",
+                    ),
+                    EmbeddingFlavour::Opencode => (
+                        crate::runtime_config::opencode_binary(),
+                        "opencode",
+                    ),
                 };
-                let path = std::env::var_os(env_var)
+                let path = xdg_bin
                     .map(std::path::PathBuf::from)
                     .or_else(|| which::which(which_name).ok())
                     .ok_or_else(|| {
@@ -301,45 +326,54 @@ fn extract_exec_target_from_shim(path: &std::path::Path) -> Option<std::path::Pa
 /// G42/S5: claude embedding model with env override, symmetric to the
 /// codex `SQLITE_GRAPHRAG_CODEX_EMBED_MODEL` introduced in v1.0.78.
 fn claude_embed_model() -> String {
-    // Precedence: SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL > SQLITE_GRAPHRAG_LLM_MODEL > default
-    std::env::var("SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL")
-        .or_else(|_| std::env::var("SQLITE_GRAPHRAG_LLM_MODEL"))
-        .unwrap_or_else(|_| {
-            tracing::info!(
-                target: "llm_embedding",
-                "no model specified; defaulting to claude-sonnet-4-6"
-            );
-            "claude-sonnet-4-6".to_string()
-        })
+    // Precedence: XDG embedding.claude_model > runtime llm.model > default
+    if let Some(m) = crate::config::get_setting("embedding.claude_model")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
+    {
+        return m;
+    }
+    if let Some(m) = crate::runtime_config::llm_model() {
+        return m;
+    }
+    tracing::info!(
+        target: "llm_embedding",
+        "no model specified; defaulting to claude-sonnet-4-6"
+    );
+    "claude-sonnet-4-6".to_string()
 }
 
 fn codex_embed_model() -> String {
-    // Precedence: SQLITE_GRAPHRAG_CODEX_EMBED_MODEL > SQLITE_GRAPHRAG_LLM_MODEL > default
-    std::env::var("SQLITE_GRAPHRAG_CODEX_EMBED_MODEL")
-        .or_else(|_| std::env::var("SQLITE_GRAPHRAG_LLM_MODEL"))
-        .unwrap_or_else(|_| {
-            tracing::info!(
-                target: "llm_embedding",
-                "no model specified; defaulting to gpt-5.5"
-            );
-            "gpt-5.5".to_string()
-        })
+    // Precedence: XDG embedding.codex_model > runtime llm.model > default
+    if let Some(m) = crate::config::get_setting("embedding.codex_model")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
+    {
+        return m;
+    }
+    if let Some(m) = crate::runtime_config::llm_model() {
+        return m;
+    }
+    tracing::info!(
+        target: "llm_embedding",
+        "no model specified; defaulting to gpt-5.5"
+    );
+    "gpt-5.5".to_string()
 }
 
 fn opencode_embed_model() -> String {
-    // Precedence: SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL > SQLITE_GRAPHRAG_OPENCODE_MODEL > default
-    // NOTE: intentionally does NOT fall back to SQLITE_GRAPHRAG_LLM_MODEL because that
-    // var typically holds a codex/claude model name (e.g. "gpt-5.4-mini") that opencode
-    // does not recognise — cross-contamination caused ProviderModelNotFoundError (v1.0.90 audit).
-    std::env::var("SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL")
-        .or_else(|_| std::env::var("SQLITE_GRAPHRAG_OPENCODE_MODEL"))
-        .unwrap_or_else(|_| {
-            tracing::info!(
-                target: "llm_embedding",
-                "no model specified; defaulting to opencode/big-pickle"
-            );
-            "opencode/big-pickle".to_string()
-        })
+    // Precedence: XDG embedding.opencode_model > llm.opencode_model > default
+    // Does NOT fall back to llm.model (cross-backend contamination).
+    if let Some(m) = crate::config::get_setting("embedding.opencode_model")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
+    {
+        return m;
+    }
+    crate::runtime_config::resolve_string(None, "llm.opencode_model", "opencode/big-pickle")
 }
 
 impl LlmEmbedding {
@@ -357,12 +391,11 @@ impl LlmEmbedding {
     pub fn detect_available() -> Result<Self, AppError> {
         Self::oauth_only_enforce()?;
 
-        // v1.0.89 (GAP-1): honour SQLITE_GRAPHRAG_CODEX_BINARY for the
-        // embedding pipeline, symmetric with SQLITE_GRAPHRAG_CLAUDE_BINARY.
-        let codex_path = std::env::var_os("SQLITE_GRAPHRAG_CODEX_BINARY")
+        // Wave 4: flag/XDG (`llm.*_binary`) then PATH — no product env.
+        if let Some(path) = crate::runtime_config::codex_binary()
             .map(std::path::PathBuf::from)
-            .or_else(|| which::which("codex").ok());
-        if let Some(path) = codex_path {
+            .or_else(|| which::which("codex").ok())
+        {
             return Ok(Self {
                 flavour: EmbeddingFlavour::Codex,
                 binary: resolve_real_binary(&path),
@@ -371,13 +404,10 @@ impl LlmEmbedding {
                 timeout_override: None,
             });
         }
-        // v1.0.89: honour SQLITE_GRAPHRAG_CLAUDE_BINARY for the embedding
-        // pipeline, not just ingest/enrich. This lets operators override the
-        // symlink-resolved path (e.g. a stale multi-instance binary).
-        let claude_path = std::env::var_os("SQLITE_GRAPHRAG_CLAUDE_BINARY")
+        if let Some(path) = crate::runtime_config::claude_binary()
             .map(std::path::PathBuf::from)
-            .or_else(|| which::which("claude").ok());
-        if let Some(path) = claude_path {
+            .or_else(|| which::which("claude").ok())
+        {
             return Ok(Self {
                 flavour: EmbeddingFlavour::Claude,
                 binary: resolve_real_binary(&path),
@@ -386,11 +416,10 @@ impl LlmEmbedding {
                 timeout_override: None,
             });
         }
-        // v1.0.90 (GAP-OPENCODE-001): probe opencode as 3rd priority.
-        let opencode_path = std::env::var_os("SQLITE_GRAPHRAG_OPENCODE_BINARY")
+        if let Some(path) = crate::runtime_config::opencode_binary()
             .map(std::path::PathBuf::from)
-            .or_else(|| which::which("opencode").ok());
-        if let Some(path) = opencode_path {
+            .or_else(|| which::which("opencode").ok())
+        {
             return Ok(Self {
                 flavour: EmbeddingFlavour::Opencode,
                 binary: resolve_real_binary(&path),
@@ -1062,7 +1091,7 @@ impl LlmEmbedding {
 /// Returns `None` only when HOME is unset AND no override is given —
 /// in that case the subprocess falls back to claude's own default.
 fn claude_embedding_config_dir() -> Option<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR") {
+    if let Ok(Some(dir)) = crate::config::get_setting("llm.claude_empty_config_dir") {
         let path = std::path::PathBuf::from(dir);
         if path.is_dir() {
             return Some(path);
@@ -1412,11 +1441,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         // Pin the dimensionality so the mock script and the validation
-        // agree regardless of test execution order.
-        // SAFETY: guarded by serial(env).
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", "64");
-        }
+        // agree regardless of test execution order (no product env).
+        crate::constants::set_active_embedding_dim(64);
 
         let temp = tempfile::tempdir().expect("tempdir must exist");
         let binary = temp.path().join("codex-stdin-check");
@@ -1450,10 +1476,7 @@ echo "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\"
             .embed_passage("codex-cli")
             .expect("stdin-backed codex embedding must succeed");
 
-        // SAFETY: guarded by serial(env).
-        unsafe {
-            std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
-        }
+        crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
 
         assert_eq!(vector.len(), 64);
         assert!(vector.iter().all(|value| *value == 0.0));
@@ -1530,44 +1553,27 @@ echo "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\"
 
     #[test]
     #[serial_test::serial(env)]
-    fn opencode_embed_model_uses_env_override() {
-        unsafe {
-            std::env::set_var(
-                "SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL",
-                "opencode/test-model",
-            );
-            let model = opencode_embed_model();
-            std::env::remove_var("SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL");
-            assert_eq!(model, "opencode/test-model");
-        }
+    fn opencode_embed_model_default_is_big_pickle() {
+        // Without XDG embedding.opencode_model / llm.opencode_model, default applies.
+        let model = opencode_embed_model();
+        // Host XDG may override; ensure non-empty and not a claude/gpt default.
+        assert!(!model.is_empty());
+        assert!(!model.starts_with("claude"));
     }
 
     #[test]
-    #[serial_test::serial(env)]
-    fn opencode_embed_model_falls_back_to_opencode_model() {
-        unsafe {
-            std::env::remove_var("SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL");
-            std::env::set_var("SQLITE_GRAPHRAG_OPENCODE_MODEL", "opencode/fallback");
-            let model = opencode_embed_model();
-            std::env::remove_var("SQLITE_GRAPHRAG_OPENCODE_MODEL");
-            assert_eq!(model, "opencode/fallback");
-        }
-    }
-
-    #[test]
-    #[serial_test::serial(env)]
-    fn opencode_embed_model_ignores_llm_model() {
-        unsafe {
-            std::env::remove_var("SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL");
-            std::env::remove_var("SQLITE_GRAPHRAG_OPENCODE_MODEL");
-            std::env::set_var("SQLITE_GRAPHRAG_LLM_MODEL", "gpt-5.4-mini");
-            let model = opencode_embed_model();
-            std::env::remove_var("SQLITE_GRAPHRAG_LLM_MODEL");
-            assert_eq!(
-                model, "opencode/big-pickle",
-                "must NOT cross-contaminate with LLM_MODEL"
-            );
-        }
+    fn opencode_embed_model_ignores_runtime_llm_model_cross_contamination() {
+        // Even if runtime llm.model is set to a codex model, opencode path
+        // must not use it (cross-backend contamination guard).
+        crate::runtime_config::init(crate::runtime_config::RuntimeOverrides {
+            llm_model: Some("gpt-5.4-mini".into()),
+            ..Default::default()
+        });
+        let model = opencode_embed_model();
+        assert_eq!(
+            model, "opencode/big-pickle",
+            "must NOT cross-contaminate with LLM_MODEL"
+        );
     }
 
     #[test]

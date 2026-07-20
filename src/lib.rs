@@ -158,8 +158,9 @@ pub fn should_obey_shutdown() -> bool {
 fn is_ignore_shutdown_set() -> bool {
     // PROC: read once per call; this is not on a hot path. Tests set the env
     // var in a `serial(env)` block so concurrent invocations cannot race.
-    std::env::var("SQLITE_GRAPHRAG_IGNORE_SHUTDOWN")
+    crate::config::get_setting("shutdown.ignore")
         .ok()
+        .flatten()
         .map(|v| {
             let v = v.trim().to_ascii_lowercase();
             v == "1" || v == "true" || v == "yes" || v == "on"
@@ -178,6 +179,7 @@ pub mod extraction;
 pub mod extract;
 
 /// `clap` definitions for the top-level `sqlite-graphrag` binary.
+pub mod backend_choice;
 pub mod cli;
 
 /// XDG-based API key management for OpenRouter and other providers.
@@ -286,13 +288,17 @@ pub mod system_load;
 /// Persistence layer: memories, entities, chunks and version history.
 pub mod storage;
 
+/// Runtime config: flag > XDG > default (no product env) — G-T-XDG-04.
+pub mod runtime_config;
+
 /// Centralized tracing subscriber initialization with panic hook and log bridge.
-pub mod telemetry;
+/// Local tracing subscriber init only (no remote telemetry / OTEL export).
+pub mod tracing_init;
 
 /// Cross-platform terminal initialization: UTF-8 console, ANSI colors, NO_COLOR.
 pub mod terminal;
 
-/// Display time zone for `*_iso` fields (flag `--tz`, env `SQLITE_GRAPHRAG_DISPLAY_TZ`, fallback UTC).
+/// Display time zone for `*_iso` fields (flag `--tz`, XDG `display.tz`, fallback UTC).
 pub mod tz;
 
 /// Stdin reader with configurable timeout to prevent indefinite blocking.

@@ -17,6 +17,21 @@
 - Exclui teste exploratório manual e projetos consumidores downstream
 
 
+## Gate de regressão v1.1.8 (XDG + qualidade do enrich + E2E offline)
+
+- Comando: `bash scripts/e2e_offline_v118.sh` (espera **16/16 PASS**; binário 1.1.8+)
+- Companheiro unitário/integração: contrato de help `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config
+- Escopo: harness só XDG; config set/list/effective; purge --now dry-run; fold de EntityType; description em remember-batch; pending-embeddings status; cache stats; scrub de help (sem Box about)
+- Smoke de contrato (manual ou suite):
+  - `deep-research "q" -o /tmp/dr.json --quiet --json` materializa arquivo + ack blake3
+  - `memory-entities --name … --json` inclui `entities[].description`
+  - `remember … --enqueue-enrich --json` pode emitir `entities_created` / `enrich_recommended`
+  - `enrich --operation entity-descriptions --status --force-redescribe --json` expõe campos de qualidade
+  - entity-connect é totalmente implementado (persiste); não documentado como scan-only
+- Critério: harness offline 16/16; zero propaganda de product env no help
+- Docs complementares: [TESTING.pt-BR.md](TESTING.pt-BR.md), [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md), [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.1.8]`
+
+
 ## Gate de regressão v1.1.06 (scan O(k) do entity-connect)
 - Comando: `/usr/bin/timeout 300 cargo test --test v1106_entity_connect_scan_regression`
 - Escopo: cobertura na fronteira da CLI + unitários para GAP-ENTITY-CONNECT-SCAN-CARTESIAN fechado na v1.1.06

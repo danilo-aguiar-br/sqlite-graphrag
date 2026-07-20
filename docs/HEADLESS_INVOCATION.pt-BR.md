@@ -16,13 +16,24 @@
 
 ## Resumo
 
-## Contrato stdout/stderr e --quiet (v1.1.05)
+## Atualização v1.1.8 — XDG, qualidade do enrich, hot-set headless
+
+- Config de knobs de produto: flag CLI > XDG `config set` > default. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` não são lidas no hot path. Harnesses DEVEM usar XDG isolado + flags — nunca exportar product env como contrato de config.
+- Após `remember` curado, PARSEIE `entities_created` / `enrich_recommended` e/ou PASSE `--enqueue-enrich` para entity-descriptions prioritário antes de drains longos de entity-connect.
+- Polle qualidade sem LLM: `enrich --operation entity-descriptions --status --force-redescribe --json` (`scan_backlog_low_quality`, `quality_pct`, `state` incluindo `blocked_dead`).
+- Filtros de nome: `--entity-names` para entity-descriptions; `--memory-names` para memory-bindings.
+- Audite bindings: `memory-entities --name <mem> --json` inclui `entities[].description`.
+- entity-connect é totalmente implementado (persiste relações). Em DBs grandes espere `budget_exhausted` / `preempted_for_gate`; prefira ED quente → EC frio.
+- Gate offline de produto: `bash scripts/e2e_offline_v118.sh` (16/16).
+- Seções históricas abaixo que listam knobs `SQLITE_GRAPHRAG_*` são documentação legada, não config corrente.
+
+## Contrato stdout/stderr e --quiet (v1.1.05) + alias `-o` (v1.1.8)
 
 ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs` (nome da suite **v1105**).
 
 - JSON estruturado SEMPRE no stdout; logs de tracing SEMPRE no stderr
 - Use `--quiet`/`-q` (global) para suprimir tracing não-erro — útil em pipelines headless que parseiam stdout com `jaq`
-- Para envelopes grandes de `deep-research`, prefira `--output PATH` (escrita atômica atomwrite) em vez de redirecionar stdout para arquivo misturado com stderr. Ack no stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Schema: `docs/schemas/deep-research-output-ack.schema.json`
+- Para envelopes grandes de `deep-research`, prefira `-o PATH` ou `--output PATH` (escrita atômica atomwrite) em vez de redirecionar stdout para arquivo misturado com stderr. Ack no stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Schema: `docs/schemas/deep-research-output-ack.schema.json`
 - Queries de token único em `deep-research` expandem para sub-queries com `source: "aspect"` (fan-out multi-ângulo); estratégia manual via `--sub-query-strategy manual --sub-queries-file`
 - Em scripts headless, use `graph traverse --fuzzy` quando o nome canônico for desconhecido; sem match exato, exit 4 inclui sugestões
 - Prefira `link --from-id`/`--to-id` em automações que só têm IDs; NUNCA passe dígitos puros em `--from`/`--to` com `--create-missing`
@@ -36,7 +47,7 @@ mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
   deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
-  --output "$OUTDIR/research.json" --json
+  -o "$OUTDIR/research.json" --json
 # Parseie o ack no stdout; envelope completo no arquivo
 # Facetas manuais opcionais:
 # printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"

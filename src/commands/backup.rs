@@ -41,7 +41,7 @@ pub struct BackupArgs {
     pub output: PathBuf,
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    #[arg(long, env = "SQLITE_GRAPHRAG_DB_PATH")]
+    #[arg(long)]
     pub db: Option<String>,
     /// Number of pages copied per backup step. Default: 1000 (was 100 before v1.0.69).
     /// Larger values finish faster on local SSD but may contend on NFS.
