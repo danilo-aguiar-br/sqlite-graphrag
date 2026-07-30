@@ -17,19 +17,23 @@
 - Excludes manual exploratory testing and downstream consumer projects
 
 
-## v1.1.8 regression gate (XDG + enrich quality + offline E2E)
+## v1.2.0 regression gate (XDG + dim 1024 + offline E2E)
 
-- Command: `bash scripts/e2e_offline_v118.sh` (expects **16/16 PASS**; binary 1.1.8+)
-- Companion unit/integration: help contract `tests/help_no_product_env` — help must not advertise product `SQLITE_GRAPHRAG_*` env as config
-- Scope: XDG-only harness; config set/list/effective; purge --now dry-run; EntityType fold; remember-batch description; pending-embeddings status; cache stats; help scrub (no Box about)
+- Command: `bash scripts/e2e_offline_v120.sh` (expects **20/20 PASS** — 15 `check()` + 5 manual PASS; binary 1.2.0+; historical wrapper `e2e_offline_v118.sh` superseded)
+- Companion unit/integration:
+  - Help contract `tests/help_no_product_env` — help must not advertise product `SQLITE_GRAPHRAG_*` env as config
+  - **GAP-SG-139** regression `tests/cli_db_noop_host_surfaces_regression.rs` — host/XDG leaves accept `--db` as documented no-op (`src/cli_db_noop.rs`: config×9, slots×3, cache×3, codex-models, completions)
+- Scope: XDG-only harness; config set/list/effective; purge --now dry-run; EntityType fold; remember-batch description; pending-embeddings status; cache stats; help scrub (no Box about); **`list-skipped` / `requeue-skipped`** offline flags + help presence; effective **DEFAULT_EMBEDDING_DIM=1024** (`embedding.dim`)
 - Contract smoke (manual or suite):
   - `deep-research "q" -o /tmp/dr.json --quiet --json` materializes file + ack blake3
   - `memory-entities --name … --json` includes `entities[].description`
   - `remember … --enqueue-enrich --json` may emit `entities_created` / `enrich_recommended`
   - `enrich --operation entity-descriptions --status --force-redescribe --json` exposes quality fields
+  - `enrich --operation entity-descriptions --list-skipped --json` / `--requeue-skipped` recover skipped sink without raw SQL
   - entity-connect is fully implemented (persists); not documented as scan-only
-- Pass criterion: offline harness 16/16; zero help product-env advertisements
-- Companion docs: [TESTING.md](TESTING.md), [MIGRATION.md](MIGRATION.md), [CHANGELOG.md](../CHANGELOG.md) `[1.1.8]`
+  - host leaf no-op: `config doctor --db /tmp/x.sqlite` accepts `--db` without opening that path
+- Pass criterion: offline harness **20/20**; zero help product-env advertisements; GAP-SG-139 regression green
+- Companion docs: [TESTING.md](TESTING.md), [MIGRATION.md](MIGRATION.md), [CHANGELOG.md](../CHANGELOG.md) `[1.2.0]`
 
 
 ## v1.1.06 regression gate (entity-connect O(k) scan)
@@ -158,7 +162,7 @@ The Claude Backend Split test plan (ADR-0042) and the Five-Gap Remediation test 
 
 ### GAP-001 — deep-research nested-Tokio-runtime panic
 
-- Reproduction (pre-fix panicked): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 deep-research "<query>" --k 5 --max-hops 2 --json` must emit a structured JSON envelope (success OR structured error), NEVER a panic.
+- Reproduction (pre-fix panicked): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 deep-research "<query>" --k 5 --max-hops 2 --json` must emit a structured JSON envelope (success OR structured error), NEVER a panic.
 - Regression test `tests/deep_research_nested_runtime_regression.rs`: invokes `deep_research::run` within an active Tokio runtime; asserts `Ok`/structured `Err`, not panic.
 - Validates `compute_sub_embeddings` helper (embeddings computed BEFORE T1 construction) and the `Handle::try_current()` + `block_in_place(|| handle.block_on(fut))` pattern in the three OpenRouter paths of `embedder.rs`.
 

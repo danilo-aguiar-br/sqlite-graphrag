@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/config-list.schema.json",
+  "title": "ConfigListResponse",
+  "description": "Response emitted by `sqlite-graphrag config list` (and `config list --effective`) as a single JSON object of operational settings (no secrets).",
+  "type": "object",
+  "required": [
+    "settings",
+    "effective"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "settings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Map of operational setting keys to string values stored in XDG config (plus defaults when --effective)."
+    },
+    "effective": {
+      "type": "boolean",
+      "description": "True when well-known defaults were merged into settings via --effective."
+    }
+  }
+}

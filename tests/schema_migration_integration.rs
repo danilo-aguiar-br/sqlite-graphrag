@@ -2,7 +2,7 @@
 
 // Suite 3 — Schema and migrations validation V001-V009
 //
-// ISOLATION: each test uses `SQLITE_GRAPHRAG_DB_PATH` pointing to a SQLite
+// ISOLATION: each test uses planted `db.path` / `--db` under an exclusive TempDir
 // file in an exclusive `TempDir`. Introspection runs through rusqlite directly,
 // without depending on any binary output.
 //
@@ -44,16 +44,32 @@ mod common;
 // helpers
 // ---------------------------------------------------------------------------
 
+/// GAP-SG-101: isolated command bound to `db_path` via planted `db.path`
+/// (product env is not read — G-T-XDG-04).
+fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
+    let mut c = sgr_cmd();
+    common::plant_db_path(&tmp.path().join("config"), db_path);
+    c.env("HOME", tmp.path().join("home"))
+        .env("XDG_CACHE_HOME", tmp.path().join("xdg_cache"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("xdg_config"))
+        .env("XDG_DATA_HOME", tmp.path().join("xdg_data"))
+        .env("XDG_RUNTIME_DIR", tmp.path().join("xdg_runtime"))
+        .arg("--config-dir")
+        .arg(tmp.path().join("config"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
+        .arg("--skip-memory-guard");
+    c
+}
+
 /// Runs `sqlite-graphrag init` on an isolated temporary database and returns
 /// the `TempDir` (to keep the database alive) and the SQLite file path.
 fn init_isolated_db() -> (TempDir, std::path::PathBuf) {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
@@ -110,7 +126,7 @@ fn index_exists(conn: &Connection, name: &str) -> bool {
 #[test]
 #[serial]
 fn init_creates_16_migrations_v001_to_v016() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let versions: Vec<i64> = {
@@ -142,7 +158,7 @@ fn init_creates_16_migrations_v001_to_v016() {
 #[test]
 #[serial]
 fn trigger_trg_fts_ai_exists() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -158,7 +174,7 @@ fn trigger_trg_fts_ai_exists() {
 #[test]
 #[serial]
 fn trigger_trg_fts_ad_exists() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -180,7 +196,7 @@ fn trigger_trg_fts_ad_exists() {
 #[test]
 #[serial]
 fn trigger_trg_fts_au_absent_handled_in_rust() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -200,7 +216,7 @@ fn trigger_trg_fts_au_absent_handled_in_rust() {
 #[test]
 #[serial]
 fn memory_embeddings_blob_dim_384() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let ddl: String = conn
@@ -248,7 +264,7 @@ fn memory_embeddings_blob_dim_384() {
 #[test]
 #[serial]
 fn memory_embeddings_partition_indexes() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let has_ns_index: i64 = conn
@@ -283,7 +299,7 @@ fn memory_embeddings_partition_indexes() {
 #[test]
 #[serial]
 fn fts_memories_tokenizer_unicode61_remove_diacritics() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let ddl: String = conn
@@ -317,20 +333,14 @@ fn fts5_matching_with_accents_cafe_cafe() {
     let db_path = tmp.path().join("test.sqlite");
 
     // DB init
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
     // Insert memory with accented text
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "global")
+    sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "remember",
             "--name",
             "nota-cafe",
@@ -368,7 +378,7 @@ fn fts5_matching_with_accents_cafe_cafe() {
 #[test]
 #[serial]
 fn all_main_tables_exist_after_init() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let tables = [
@@ -398,7 +408,7 @@ fn all_main_tables_exist_after_init() {
 #[test]
 #[serial]
 fn main_indexes_exist_after_init() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let indexes = [
@@ -431,7 +441,7 @@ fn main_indexes_exist_after_init() {
 #[test]
 #[serial]
 fn schema_meta_required_keys_exist() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let expected_keys = [
@@ -462,7 +472,7 @@ fn schema_meta_required_keys_exist() {
 #[test]
 #[serial]
 fn schema_version_meta_equals_16() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let version: String = conn
@@ -493,20 +503,14 @@ fn v009_document_type_lifecycle_e2e() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init applies V001..V009 in a fresh DB.
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
     // Insert a memory with the new type=document accepted by V009.
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "global")
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "remember",
             "--name",
             "doc-test",
@@ -528,11 +532,8 @@ fn v009_document_type_lifecycle_e2e() {
     );
 
     // List filtered by type=document must return the inserted record.
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "list",
             "--type",
             "document",
@@ -554,10 +555,8 @@ fn v009_document_type_lifecycle_e2e() {
     assert_eq!(items[0]["type"], "document");
 
     // Recall via FTS5/vector must surface the freshly inserted document.
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "recall", "Sample", "--json"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["recall", "Sample", "--json"])
         .output()
         .expect("recall must run");
     assert!(
@@ -586,19 +585,13 @@ fn v009_note_type_lifecycle_e2e() {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "global")
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "remember",
             "--name",
             "note-test",
@@ -619,10 +612,8 @@ fn v009_note_type_lifecycle_e2e() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "list", "--type", "note", "--json"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["list", "--type", "note", "--json"])
         .output()
         .expect("list must run");
     assert!(
@@ -638,10 +629,8 @@ fn v009_note_type_lifecycle_e2e() {
     assert_eq!(items.len(), 1, "expected exactly 1 note, got {items:?}");
     assert_eq!(items[0]["type"], "note");
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "recall", "scratch", "--json"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["recall", "scratch", "--json"])
         .output()
         .expect("recall must run");
     assert!(
@@ -673,19 +662,13 @@ fn v009_invalid_type_rejected() {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "global")
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "remember",
             "--name",
             "x",
@@ -727,11 +710,10 @@ fn v009_invalid_type_rejected() {
 #[test]
 #[serial]
 fn migrate_rehash_is_noop_on_healthy_db() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate", "--rehash"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["migrate", "--rehash"])
         .output()
         .expect("migrate --rehash must run");
 
@@ -754,7 +736,7 @@ fn migrate_rehash_is_noop_on_healthy_db() {
 #[test]
 #[serial]
 fn migrate_rehash_fixes_corrupted_checksum() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
     // Corrupt the V001 checksum so the next `migrate` would fail.
     let conn = conn_ro(&db_path);
@@ -765,9 +747,8 @@ fn migrate_rehash_fixes_corrupted_checksum() {
     drop(conn);
 
     // Sanity: a regular `migrate` should now fail.
-    let bad = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate"])
+    let bad = sgr_on(&tmp, &db_path)
+        .args(["migrate"])
         .output()
         .expect("migrate must run");
     assert!(
@@ -778,9 +759,8 @@ fn migrate_rehash_fixes_corrupted_checksum() {
 
     // `migrate --rehash` should detect the mismatch, rewrite the row,
     // and exit 0 with status=ok_rewritten.
-    let good = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate", "--rehash"])
+    let good = sgr_on(&tmp, &db_path)
+        .args(["migrate", "--rehash"])
         .output()
         .expect("migrate --rehash must run");
     assert!(
@@ -796,9 +776,8 @@ fn migrate_rehash_fixes_corrupted_checksum() {
     assert_eq!(json["rewritten"][0]["old_checksum"], "999999999999");
 
     // And a subsequent plain `migrate` should now succeed.
-    let after = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate"])
+    let after = sgr_on(&tmp, &db_path)
+        .args(["migrate"])
         .output()
         .expect("migrate must run");
     assert!(
@@ -811,12 +790,10 @@ fn migrate_rehash_fixes_corrupted_checksum() {
 #[test]
 #[serial]
 fn migrate_to_llm_only_reports_no_vec_tables_on_fresh_db() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "migrate",
             "--to-llm-only",
             "--drop-vec-tables",
@@ -843,11 +820,10 @@ fn migrate_to_llm_only_reports_no_vec_tables_on_fresh_db() {
 #[test]
 #[serial]
 fn migrate_to_llm_only_requires_drop_vec_tables_safety_guard() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate", "--to-llm-only"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["migrate", "--to-llm-only"])
         .output()
         .expect("migrate --to-llm-only must run");
 
@@ -868,7 +844,7 @@ fn migrate_to_llm_only_requires_drop_vec_tables_safety_guard() {
 #[test]
 #[serial]
 fn migrate_rehash_fixes_null_applied_on() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
     // NULL out applied_on for all rows to simulate the G40 bug.
     let conn = conn_ro(&db_path);
@@ -877,9 +853,8 @@ fn migrate_rehash_fixes_null_applied_on() {
     drop(conn);
 
     // migrate --rehash must succeed and fix the NULL rows.
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate", "--rehash"])
+    let output = sgr_on(&tmp, &db_path)
+        .args(["migrate", "--rehash"])
         .output()
         .expect("migrate --rehash must run");
 
@@ -897,9 +872,8 @@ fn migrate_rehash_fixes_null_applied_on() {
     );
 
     // A subsequent plain migrate must also succeed (runner reads applied_on).
-    let after = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .args(["--skip-memory-guard", "migrate"])
+    let after = sgr_on(&tmp, &db_path)
+        .args(["migrate"])
         .output()
         .expect("migrate must run");
     assert!(
@@ -923,17 +897,15 @@ fn migrate_rehash_fixes_null_applied_on() {
 #[test]
 #[serial]
 fn migrate_to_llm_only_fixes_null_applied_on() {
-    let (_tmp, db_path) = init_isolated_db();
+    let (tmp, db_path) = init_isolated_db();
 
     let conn = conn_ro(&db_path);
     conn.execute_batch("UPDATE refinery_schema_history SET applied_on = NULL")
         .expect("nullify applied_on");
     drop(conn);
 
-    let output = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
+    let output = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "migrate",
             "--to-llm-only",
             "--drop-vec-tables",

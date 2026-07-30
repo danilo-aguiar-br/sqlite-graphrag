@@ -15,17 +15,24 @@ use serde::Serialize;
     sqlite-graphrag cleanup-orphans --dry-run\n\n  \
     # Cleanup within a specific namespace\n  \
     sqlite-graphrag cleanup-orphans --namespace my-project --yes")]
+/// Cleanup orphans args.
 pub struct CleanupOrphansArgs {
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Show what would happen without making changes.
     #[arg(long)]
     pub dry_run: bool,
+    /// Yes.
     #[arg(long)]
     pub yes: bool,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -40,6 +47,7 @@ struct CleanupResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: CleanupOrphansArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -55,9 +63,7 @@ pub fn run(args: CleanupOrphansArgs) -> Result<(), AppError> {
         0
     } else {
         if orphan_count > 0 && !args.yes {
-            return Err(AppError::Validation(format!(
-                "refusing to delete {orphan_count} orphan entities without --yes (use --dry-run to preview)"
-            )));
+            return Err(AppError::Validation(crate::i18n::validation::refuse_delete_orphans_without_yes(orphan_count)));
         }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let removed = entities::delete_entities_by_ids(&tx, &orphan_ids)?;

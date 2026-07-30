@@ -32,6 +32,7 @@ NOTE:\n  \
 VALID ENTITY TYPES:\n  \
     project, tool, person, file, concept, incident, decision,\n  \
     memory, dashboard, issue_tracker, organization, location, date")]
+/// Reclassify args.
 pub struct ReclassifyArgs {
     /// Entity name to reclassify (single mode). Mutually exclusive with --from-type + --batch.
     #[arg(long, conflicts_with_all = ["from_type", "batch"])]
@@ -57,12 +58,16 @@ pub struct ReclassifyArgs {
     /// Enable batch reclassification (--from-type to --to-type). Requires --from-type and --to-type.
     #[arg(long, default_value_t = false, requires = "from_type")]
     pub batch: bool,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -78,6 +83,7 @@ struct ReclassifyResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
@@ -90,10 +96,10 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
     let count = if args.batch {
         // Batch mode: --from-type + --to-type + --batch
         let from_type = args.from_type.ok_or_else(|| {
-            AppError::Validation("--from-type is required in batch mode".to_string())
+            AppError::Validation(crate::i18n::validation::from_type_required_batch())
         })?;
         let to_type = args.to_type.ok_or_else(|| {
-            AppError::Validation("--to-type is required in batch mode".to_string())
+            AppError::Validation(crate::i18n::validation::to_type_required_batch())
         })?;
 
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -116,7 +122,7 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
         let entity_name = args
             .name
             .as_deref()
-            .ok_or_else(|| AppError::Validation("--name is required in single mode".to_string()))?;
+            .ok_or_else(|| AppError::Validation(crate::i18n::validation::name_required_single_mode()))?;
         if args.new_type.is_none() && args.description.is_none() {
             return Err(AppError::Validation(
                 "at least one of --new-type or --description is required in single mode"

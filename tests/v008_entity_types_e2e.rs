@@ -17,9 +17,9 @@ use tempfile::TempDir;
 mod common;
 
 fn system_cache_dir() -> std::path::PathBuf {
-    if let Ok(d) = std::env::var("SQLITE_GRAPHRAG_CACHE_DIR") {
-        return std::path::PathBuf::from(d);
-    }
+    // `ProjectDirs` already honours `XDG_CACHE_HOME` on Linux AND appends the
+    // application subdirectory. Reading the env by hand here would return the
+    // parent and silently miss `<root>/sqlite-graphrag`.
     directories::ProjectDirs::from("", "", "sqlite-graphrag")
         .map(|p| p.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from(".cache"))
@@ -31,12 +31,11 @@ fn cmd(temp: &TempDir) -> Command {
     let mut c = Command::cargo_bin("sqlite-graphrag").expect("sqlite-graphrag binary not found");
     c.env_clear()
         .env("HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-        .env("SQLITE_GRAPHRAG_LANG", "en")
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "warn")
+        .env("HOME", temp.path())
+        .env("XDG_CACHE_HOME", &cache)
+        .arg("--lang").arg("en")
         .env("PATH", common::prepend_path(&mock_dir))
-        .env("SQLITE_GRAPHRAG_LLM_MODEL", "mock-model")
+        .arg("--llm-model").arg("mock-model")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {
@@ -61,7 +60,7 @@ fn v008_entity_types_organization_location_date_round_trip() {
         if code == 11 {
             eprintln!(
                 "skipping v008_entity_types_e2e: embedding model unavailable (exit 11). \
-                 Pre-download the model or set SQLITE_GRAPHRAG_FORCE_DOWNLOAD=1."
+                 Pre-download the model before running this test."
             );
             return;
         }

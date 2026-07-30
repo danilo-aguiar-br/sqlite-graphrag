@@ -1,6 +1,19 @@
 //! Auto-extracted tests (Wave C1).
 
-    use super::*;
+    use super::args::{low_memory_setting_enabled, resolve_parallelism};
+    use super::persist::persist_staged;
+    use super::report::IngestDryRunBudget;
+    use super::scan_fs::{
+        collect_files, derive_kebab_name, matches_pattern, unique_name, validate_name_prefix,
+        MAX_NAME_COLLISION_SUFFIX,
+    };
+    use super::stage::StagedFile;
+    use super::validate::validate_mode_conditional_flags_ingest;
+    use crate::chunking;
+    use crate::constants::DERIVED_NAME_MAX_LEN;
+    use crate::errors::AppError;
+    use rusqlite::Connection;
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     // v1.1.1 (P12): --name-prefix validation and budget arithmetic.
@@ -411,68 +424,69 @@
         assert!(!is_canonical_relation("implements"));
     }
 
-    // ── v1.0.40 H-A1: --low-memory flag and SQLITE_GRAPHRAG_LOW_MEMORY env var ──
+    // ── `--low-memory` flag and the XDG setting `ingest.low_memory` ──
+    //
+    // GAP-SG-83/84: these cases used to be named after the retired product env
+    // `SQLITE_GRAPHRAG_LOW_MEMORY`, which no reader consults since `G-T-XDG-04`.
+    // The names now state what is actually asserted: the env path is INERT and
+    // the XDG setting is the only channel.
 
     use serial_test::serial;
 
-    /// Helper: scrubs the env var around a closure to keep tests deterministic.
-    fn with_env_var<F: FnOnce()>(value: Option<&str>, f: F) {
-        let key = "SQLITE_GRAPHRAG_LOW_MEMORY";
-        let prev = std::env::var(key).ok();
+    /// Retired product env, kept here only so the inertness cases can set it.
+    const RETIRED_LOW_MEMORY_ENV: &str = "SQLITE_GRAPHRAG_LOW_MEMORY";
+
+    /// Sets (or clears) the retired env around a closure and restores it after,
+    /// so a leaked value cannot make a sibling case pass for the wrong reason.
+    fn with_retired_env<F: FnOnce()>(value: Option<&str>, f: F) {
+        let prev = std::env::var(RETIRED_LOW_MEMORY_ENV).ok();
         match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+            Some(v) => std::env::set_var(RETIRED_LOW_MEMORY_ENV, v),
+            None => std::env::remove_var(RETIRED_LOW_MEMORY_ENV),
         }
         f();
         match prev {
-            Some(p) => std::env::set_var(key, p),
-            None => std::env::remove_var(key),
+            Some(p) => std::env::set_var(RETIRED_LOW_MEMORY_ENV, p),
+            None => std::env::remove_var(RETIRED_LOW_MEMORY_ENV),
         }
     }
 
     #[test]
     #[serial]
-    fn env_low_memory_enabled_unset_returns_false() {
-        with_env_var(None, || assert!(!env_low_memory_enabled()));
+    fn low_memory_setting_absent_returns_false() {
+        with_retired_env(None, || assert!(!low_memory_setting_enabled()));
     }
 
+    /// The decisive case: a truthy retired env must NOT enable low-memory.
+    /// Asserting the negative is the whole point — a test that merely calls the
+    /// function would keep passing if the env path were reintroduced.
     #[test]
     #[serial]
-    fn env_low_memory_enabled_empty_returns_false() {
-        with_env_var(Some(""), || assert!(!env_low_memory_enabled()));
-    }
-
-    #[test]
-    #[serial]
-    fn env_low_memory_enabled_truthy_values_return_true() {
-        // G-T-XDG-04: product env is ignored; truthy only via XDG ingest.low_memory.
-        // Without host config, unset returns false.
-        with_env_var(Some("1"), || {
-            // env no longer enables low-memory
-            let _ = env_low_memory_enabled();
-        });
-    }
-
-    #[test]
-    #[serial]
-    fn env_low_memory_enabled_falsy_values_return_false() {
-        for v in ["0", "false", "FALSE", "no", "off"] {
-            with_env_var(Some(v), || {
-                assert!(!env_low_memory_enabled(), "value {v:?} should be falsy")
+    fn truthy_retired_env_does_not_enable_low_memory() {
+        for v in ["1", "true", "yes", "on"] {
+            with_retired_env(Some(v), || {
+                assert!(
+                    !low_memory_setting_enabled(),
+                    "retired env {RETIRED_LOW_MEMORY_ENV}={v:?} must stay inert"
+                );
             });
         }
     }
 
     #[test]
     #[serial]
-    fn env_low_memory_enabled_unrecognized_value_returns_false() {
-        with_env_var(Some("maybe"), || assert!(!env_low_memory_enabled()));
+    fn falsy_and_unrecognized_retired_env_stay_inert() {
+        for v in ["", "0", "false", "FALSE", "no", "off", "maybe"] {
+            with_retired_env(Some(v), || {
+                assert!(!low_memory_setting_enabled(), "value {v:?} must be falsy")
+            });
+        }
     }
 
     #[test]
     #[serial]
     fn resolve_parallelism_flag_forces_one_overriding_explicit_value() {
-        with_env_var(None, || {
+        with_retired_env(None, || {
             assert_eq!(resolve_parallelism(true, Some(4)), 1);
             assert_eq!(resolve_parallelism(true, Some(8)), 1);
             assert_eq!(resolve_parallelism(true, None), 1);
@@ -481,9 +495,9 @@
 
     #[test]
     #[serial]
-    fn resolve_parallelism_env_no_longer_forces_one() {
-        // Product env SQLITE_GRAPHRAG_LOW_MEMORY is not read (G-T-XDG-04).
-        with_env_var(Some("1"), || {
+    fn resolve_parallelism_ignores_retired_env() {
+        // G-T-XDG-04: the retired product env must not shrink the pool.
+        with_retired_env(Some("1"), || {
             assert_eq!(resolve_parallelism(false, Some(4)), 4);
         });
     }
@@ -491,7 +505,7 @@
     #[test]
     #[serial]
     fn resolve_parallelism_falsy_env_does_not_override() {
-        with_env_var(Some("0"), || {
+        with_retired_env(Some("0"), || {
             assert_eq!(resolve_parallelism(false, Some(4)), 4);
         });
     }
@@ -499,7 +513,7 @@
     #[test]
     #[serial]
     fn resolve_parallelism_explicit_value_when_low_memory_off() {
-        with_env_var(None, || {
+        with_retired_env(None, || {
             assert_eq!(resolve_parallelism(false, Some(3)), 3);
             assert_eq!(resolve_parallelism(false, Some(1)), 1);
         });
@@ -508,7 +522,7 @@
     #[test]
     #[serial]
     fn resolve_parallelism_default_when_unset() {
-        with_env_var(None, || {
+        with_retired_env(None, || {
             let p = resolve_parallelism(false, None);
             assert!((1..=4).contains(&p), "default must be in [1, 4]; got {p}");
         });

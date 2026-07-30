@@ -28,6 +28,7 @@ const ORPHAN_MIN_AGE_SECS: u64 = 60;
 #[cfg(unix)]
 const ORPHAN_SCAN_TARGETS: &[&str] = &["claude", "codex", "sqlite-graphrag"];
 
+/// Reaper report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReaperReport {
     /// Number of orphan processes detected.

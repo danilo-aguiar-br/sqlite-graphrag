@@ -1,39 +1,35 @@
 //! Enrichment queue — SQLite-backed scan/retry/dead-letter DB.
 
-use super::*;
-/* wave-c1-imports */
+use super::args::EnrichOperation;
+use crate::errors::AppError;
 use rusqlite::Connection;
 use serde::Serialize;
-use crate::errors::AppError;
 
 
 // ---------------------------------------------------------------------------
 // Queue DB
 // ---------------------------------------------------------------------------
 
-/// Opens or creates the enrichment queue database.
+/// Opens or creates the enrichment queue database (`.enrich-queue.sqlite`).
 ///
-/// The queue schema mirrors `ingest_claude` for resume/retry parity.
-/// Uses a different filename (`.enrich-queue.sqlite`) to avoid collision.
+/// # Schema note (GAP-SG-121)
 ///
-/// # DRY note
+/// This schema is **not** the same product as the ingest sidecars
+/// (`.ingest-queue.sqlite` in `ingest_claude` / `ingest_codex`), which key on
+/// `file_path` for file-progress tracking. Shared connection setup lives in
+/// [`crate::pragmas::apply_sidecar_queue_pragmas`]; table DDL stays separate.
 ///
-/// This is a near-verbatim copy of `open_queue_db` in `ingest_claude.rs`.
-/// Both should be unified in a shared `llm_runner.rs` module by the
-/// Integration stream.
-pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connection, AppError> {
+/// GAP-SG-95: namespace-scoped queue with ternary UNIQUE
+/// `(namespace, operation, item_key)`. Fresh DBs get the final schema;
+/// legacy sidecars are rebuilt below when `namespace` is missing.
+pub(crate) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connection, AppError> {
     let conn = Connection::open(path)?;
-    conn.pragma_update(None, "journal_mode", "wal")?;
-    // GAP-SG-76: without an explicit busy_timeout, a lock contention window
-    // between the dequeue claim and a concurrent worker/main-DB writer
-    // surfaces as SQLITE_BUSY immediately instead of retrying briefly.
-    // Reuses the project-wide canonical value (see rules_rust_sqlite.md —
-    // "DEFINIR busy_timeout em milissegundos explícitos por conexão").
-    conn.pragma_update(None, "busy_timeout", crate::constants::BUSY_TIMEOUT_MILLIS)?;
+    crate::pragmas::apply_sidecar_queue_pragmas(&conn)?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS queue (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_key    TEXT NOT NULL UNIQUE,
+            namespace   TEXT NOT NULL DEFAULT '',
+            item_key    TEXT NOT NULL,
             item_type   TEXT NOT NULL DEFAULT 'memory',
             status      TEXT NOT NULL DEFAULT 'pending',
             memory_id   INTEGER,
@@ -45,7 +41,16 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
             attempt     INTEGER DEFAULT 0,
             elapsed_ms  INTEGER,
             created_at  TEXT DEFAULT (datetime('now')),
-            done_at     TEXT
+            done_at     TEXT,
+            error_class TEXT,
+            next_retry_at TEXT,
+            operation   TEXT,
+            finish_reason TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            claimed_at  INTEGER,
+            priority    INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (namespace, operation, item_key)
         );
         CREATE INDEX IF NOT EXISTS idx_enrich_queue_status ON queue(status);",
     )?;
@@ -74,6 +79,8 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
     let mut has_claimed_at = false;
     // GAP-CLI-PRIO-03: priority column (hot > normal). Higher values claim first.
     let mut has_priority = false;
+    // GAP-SG-95: namespace column for multi-namespace isolation.
+    let mut has_namespace = false;
     {
         let mut stmt = conn.prepare("PRAGMA table_info(queue)")?;
         let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
@@ -87,6 +94,7 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
                 "output_tokens" => has_output_tokens = true,
                 "claimed_at" => has_claimed_at = true,
                 "priority" => has_priority = true,
+                "namespace" => has_namespace = true,
                 _ => {}
             }
         }
@@ -124,13 +132,74 @@ pub(super) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
         "UPDATE queue SET operation = 'LegacyUnscoped' WHERE operation IS NULL OR operation = ''",
         [],
     )?;
+    // GAP-SG-95: SQLite cannot ADD a composite UNIQUE via ALTER. When the
+    // legacy global UNIQUE(item_key) schema is still present, rebuild the
+    // table with UNIQUE(namespace, operation, item_key).
+    if !has_namespace {
+        migrate_queue_add_namespace(&conn)?;
+    }
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_enrich_queue_eligible ON queue(status, next_retry_at);
          CREATE INDEX IF NOT EXISTS idx_enrich_queue_operation ON queue(operation, status);
          CREATE INDEX IF NOT EXISTS idx_enrich_queue_memory ON queue(memory_id);
-         CREATE INDEX IF NOT EXISTS idx_enrich_queue_priority ON queue(status, priority DESC, id)",
+         CREATE INDEX IF NOT EXISTS idx_enrich_queue_priority ON queue(status, priority DESC, id);
+         CREATE INDEX IF NOT EXISTS idx_enrich_queue_ns ON queue(namespace, operation, status)",
     )?;
     Ok(conn)
+}
+
+/// Rebuild `queue` with a `namespace` column and ternary UNIQUE
+/// `(namespace, operation, item_key)`. Legacy rows get `namespace = ''`.
+fn migrate_queue_add_namespace(conn: &Connection) -> Result<(), AppError> {
+    tracing::info!(target: "enrich", "migrating enrich queue to namespace-scoped UNIQUE");
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE queue_v120 (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            namespace   TEXT NOT NULL DEFAULT '',
+            item_key    TEXT NOT NULL,
+            item_type   TEXT NOT NULL DEFAULT 'memory',
+            status      TEXT NOT NULL DEFAULT 'pending',
+            memory_id   INTEGER,
+            entity_id   INTEGER,
+            entities    INTEGER DEFAULT 0,
+            rels        INTEGER DEFAULT 0,
+            error       TEXT,
+            cost_usd    REAL DEFAULT 0.0,
+            attempt     INTEGER DEFAULT 0,
+            elapsed_ms  INTEGER,
+            created_at  TEXT DEFAULT (datetime('now')),
+            done_at     TEXT,
+            error_class TEXT,
+            next_retry_at TEXT,
+            operation   TEXT,
+            finish_reason TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            claimed_at  INTEGER,
+            priority    INTEGER NOT NULL DEFAULT 0,
+            UNIQUE (namespace, operation, item_key)
+         );
+         INSERT OR IGNORE INTO queue_v120 (
+            id, namespace, item_key, item_type, status, memory_id, entity_id,
+            entities, rels, error, cost_usd, attempt, elapsed_ms, created_at,
+            done_at, error_class, next_retry_at, operation, finish_reason,
+            input_tokens, output_tokens, claimed_at, priority
+         )
+         SELECT
+            id, '', item_key, item_type, status, memory_id, entity_id,
+            entities, rels, error, cost_usd, attempt, elapsed_ms, created_at,
+            done_at, error_class, next_retry_at,
+            COALESCE(NULLIF(operation, ''), 'LegacyUnscoped'),
+            finish_reason, input_tokens, output_tokens, claimed_at,
+            COALESCE(priority, 0)
+         FROM queue;
+         DROP TABLE queue;
+         ALTER TABLE queue_v120 RENAME TO queue;
+         COMMIT;",
+    )
+    .map_err(|e| AppError::Validation(crate::i18n::validation::queue_namespace_migration_failed(&e)))?;
+    Ok(())
 }
 
 /// Priority level for hot-set entity-descriptions after `remember`
@@ -143,9 +212,10 @@ pub(super) fn count_priority_pending(
     operation: &str,
     min_priority: i64,
 ) -> Result<i64, rusqlite::Error> {
+    // GAP-SG-97: status is a string literal — must be quoted.
     queue_conn.query_row(
         "SELECT COUNT(*) FROM queue \
-         WHERE status=pending \
+         WHERE status='pending' \
            AND (operation = ?1 OR operation IS NULL) \
            AND COALESCE(priority, 0) >= ?2",
         rusqlite::params![operation, min_priority],
@@ -172,21 +242,51 @@ pub(super) fn enqueue_candidate(
     item_type: &str,
     operation: &str,
 ) {
+    // G-PR-8 / GAP-SG-102: refuse to enqueue keys that do not exist in the
+    // target namespace (prevents multi-ns residual and CAPA6 dependency).
     let memory_id: Option<i64> = if item_type == "memory" {
-        main_conn
-            .query_row(
-                "SELECT id FROM memories WHERE namespace=?1 AND name=?2 AND deleted_at IS NULL",
-                rusqlite::params![namespace, key],
-                |r| r.get(0),
-            )
-            .ok()
+        match main_conn.query_row(
+            "SELECT id FROM memories WHERE namespace=?1 AND name=?2 AND deleted_at IS NULL",
+            rusqlite::params![namespace, key],
+            |r| r.get(0),
+        ) {
+            Ok(id) => Some(id),
+            Err(_) => {
+                tracing::warn!(
+                    target: "enrich",
+                    namespace,
+                    key,
+                    "enqueue rejected: memory not found in namespace"
+                );
+                return;
+            }
+        }
+    } else if item_type == "entity" {
+        match main_conn.query_row(
+            "SELECT id FROM entities WHERE namespace=?1 AND name=?2",
+            rusqlite::params![namespace, key],
+            |r| r.get::<_, i64>(0),
+        ) {
+            Ok(_) => None,
+            Err(_) => {
+                tracing::warn!(
+                    target: "enrich",
+                    namespace,
+                    key,
+                    "enqueue rejected: entity not found in namespace"
+                );
+                return;
+            }
+        }
     } else {
+        // entity_pair / prefixed keys: trust the scanner; still scope by ns.
         None
     };
     if let Err(e) = queue_conn.execute(
-        "INSERT OR IGNORE INTO queue (item_key, item_type, status, operation, memory_id, priority) \
-         VALUES (?1, ?2, 'pending', ?3, ?4, 0)",
-        rusqlite::params![key, item_type, operation, memory_id],
+        "INSERT OR IGNORE INTO queue \
+         (namespace, item_key, item_type, status, operation, memory_id, priority) \
+         VALUES (?1, ?2, ?3, 'pending', ?4, ?5, 0)",
+        rusqlite::params![namespace, key, item_type, operation, memory_id],
     ) {
         tracing::warn!(target: "enrich", error = %e, "queue insert failed");
     }
@@ -200,9 +300,13 @@ pub(super) fn enqueue_candidate_with_priority(
     operation: &str,
     priority: i64,
 ) {
+    // Priority hot-path historically lacked namespace; store under '' so the
+    // ternary UNIQUE still applies (callers that know the ns should use
+    // enqueue_candidate after validating the entity).
     if let Err(e) = queue_conn.execute(
-        "INSERT OR IGNORE INTO queue (item_key, item_type, status, operation, memory_id, priority) \
-         VALUES (?1, ?2, 'pending', ?3, NULL, ?4)",
+        "INSERT OR IGNORE INTO queue \
+         (namespace, item_key, item_type, status, operation, memory_id, priority) \
+         VALUES ('', ?1, ?2, 'pending', ?3, NULL, ?4)",
         rusqlite::params![key, item_type, operation, priority],
     ) {
         tracing::warn!(target: "enrich", error = %e, "priority queue insert failed");

@@ -21,48 +21,69 @@ fn sgr_cmd() -> Command {
 #[path = "common/mod.rs"]
 mod common;
 
-fn cmd_lang(tmp: &TempDir, lang: &str) -> Command {
+/// Sandbox config directory for `tmp`.
+fn cfg_dir(tmp: &TempDir) -> std::path::PathBuf {
+    tmp.path().join("config")
+}
+
+/// Sandbox cache directory for `tmp`.
+fn cache_dir(tmp: &TempDir) -> std::path::PathBuf {
+    tmp.path().join("cache")
+}
+
+/// Base command wired to the sandbox, with every language channel neutral.
+///
+/// GAP-SG-101: this file used to isolate with `SQLITE_GRAPHRAG_DB_PATH` and to
+/// drive language with `SQLITE_GRAPHRAG_LANG`. Neither is read by production
+/// code, so the database landed in the developer's real XDG data directory and
+/// the "language via env" tests were decided by the developer's real
+/// `config.toml`. On a machine without `i18n.lang=pt` they would have failed.
+///
+/// The supported channels are `--lang`, XDG `i18n.lang`, and the POSIX locale
+/// (`LC_ALL` > `LC_MESSAGES` > `LANG`) — see `Language::from_env_or_locale`.
+/// `--config-dir` / `--cache-dir` work on every OS, unlike `XDG_*`.
+fn base_cmd(tmp: &TempDir) -> Command {
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env_remove("SQLITE_GRAPHRAG_LANG");
     c.env_remove("LC_ALL");
+    c.env_remove("LC_MESSAGES");
     c.env_remove("LANG");
+    c.arg("--config-dir").arg(cfg_dir(tmp));
+    c.arg("--cache-dir").arg(cache_dir(tmp));
+    c
+}
+
+fn cmd_lang(tmp: &TempDir, lang: &str) -> Command {
+    let mut c = base_cmd(tmp);
     c.arg("--lang").arg(lang);
     c
 }
 
-fn cmd_env_lang(tmp: &TempDir, lang_val: &str) -> Command {
-    let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env("SQLITE_GRAPHRAG_LANG", lang_val);
-    c.env_remove("LC_ALL");
-    c.env_remove("LANG");
-    c
+/// Command whose language comes from the XDG setting `i18n.lang`.
+///
+/// This is the real replacement for the retired `SQLITE_GRAPHRAG_LANG` channel.
+fn cmd_xdg_lang(tmp: &TempDir, lang_val: &str) -> Command {
+    base_cmd(tmp)
+        .args(["config", "set", "i18n.lang", lang_val])
+        .assert()
+        .success();
+    base_cmd(tmp)
 }
 
 fn cmd_no_lang(tmp: &TempDir) -> Command {
-    let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env_remove("SQLITE_GRAPHRAG_LANG");
-    c.env_remove("LC_ALL");
-    c.env_remove("LANG");
-    c
+    base_cmd(tmp)
 }
 
+/// Points the sandbox config at a database inside `tmp` and initializes it.
+///
+/// Uses the XDG `db.path` key rather than `--db` so callers can append their own
+/// subcommand arguments without having to thread `--db` through every call.
 fn init_db(tmp: &TempDir) {
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .arg("init")
+    base_cmd(tmp)
+        .args(["config", "set", "db.path"])
+        .arg(tmp.path().join("test.sqlite"))
         .assert()
         .success();
+    base_cmd(tmp).arg("init").assert().success();
 }
 
 // ---------------------------------------------------------------------------
@@ -316,15 +337,15 @@ fn lang_en_body_excede_limite_stderr_ingles() {
 }
 
 // ---------------------------------------------------------------------------
-// Testes E2E via env var SQLITE_GRAPHRAG_LANG
+// Testes E2E via XDG i18n.lang (canal real; SQLITE_GRAPHRAG_LANG nunca foi lida)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn env_var_sqlite_graphrag_lang_pt_aplica_portugues() {
+fn xdg_i18n_lang_pt_aplica_portugues() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    cmd_env_lang(&tmp, "pt")
+    cmd_xdg_lang(&tmp, "pt")
         .args(["read", "--name", "inexistente"])
         .assert()
         .failure()
@@ -332,11 +353,11 @@ fn env_var_sqlite_graphrag_lang_pt_aplica_portugues() {
 }
 
 #[test]
-fn env_var_sqlite_graphrag_lang_en_aplica_ingles() {
+fn xdg_i18n_lang_en_aplica_ingles() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    cmd_env_lang(&tmp, "en")
+    cmd_xdg_lang(&tmp, "en")
         .args(["read", "--name", "inexistente"])
         .assert()
         .failure()
@@ -344,11 +365,11 @@ fn env_var_sqlite_graphrag_lang_en_aplica_ingles() {
 }
 
 #[test]
-fn env_var_sqlite_graphrag_lang_pt_br_aplica_portugues() {
+fn xdg_i18n_lang_pt_br_aplica_portugues() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    cmd_env_lang(&tmp, "pt-BR")
+    cmd_xdg_lang(&tmp, "pt-BR")
         .args(["read", "--name", "inexistente"])
         .assert()
         .failure()
@@ -356,21 +377,15 @@ fn env_var_sqlite_graphrag_lang_pt_br_aplica_portugues() {
 }
 
 // ---------------------------------------------------------------------------
-// Flag --lang vence env var SQLITE_GRAPHRAG_LANG
+// Flag --lang vence a chave XDG i18n.lang
 // ---------------------------------------------------------------------------
 
 #[test]
-fn flag_lang_en_overrides_env_lang_pt() {
+fn flag_lang_en_overrides_xdg_lang_pt() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env("SQLITE_GRAPHRAG_LANG", "pt");
-    c.env_remove("LC_ALL");
-    c.env_remove("LANG");
+    let mut c = cmd_xdg_lang(&tmp, "pt");
     c.arg("--lang").arg("en");
     c.args(["read", "--name", "inexistente"]);
 
@@ -380,17 +395,11 @@ fn flag_lang_en_overrides_env_lang_pt() {
 }
 
 #[test]
-fn flag_lang_pt_overrides_env_lang_en() {
+fn flag_lang_pt_overrides_xdg_lang_en() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env("SQLITE_GRAPHRAG_LANG", "en");
-    c.env_remove("LC_ALL");
-    c.env_remove("LANG");
+    let mut c = cmd_xdg_lang(&tmp, "en");
     c.arg("--lang").arg("pt");
     c.args(["read", "--name", "inexistente"]);
 
@@ -404,7 +413,7 @@ fn flag_lang_pt_overrides_env_lang_en() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default_without_lang_and_without_env_returns_english() {
+fn default_without_flag_without_xdg_without_locale_returns_english() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -416,19 +425,15 @@ fn default_without_lang_and_without_env_returns_english() {
 }
 
 // ---------------------------------------------------------------------------
-// Locale LC_ALL=pt_BR.UTF-8 without flag and without SQLITE_GRAPHRAG_LANG → Portuguese
+// Locale LC_ALL=pt_BR.UTF-8 without flag and without XDG i18n.lang → Portuguese
 // ---------------------------------------------------------------------------
 
 #[test]
-fn locale_ptbr_without_flag_without_env_applies_portuguese() {
+fn locale_ptbr_without_flag_without_xdg_applies_portuguese() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env_remove("SQLITE_GRAPHRAG_LANG");
+    let mut c = base_cmd(&tmp);
     c.env("LC_ALL", "pt_BR.UTF-8");
     c.args(["read", "--name", "inexistente"]);
 
@@ -486,15 +491,7 @@ fn alias_english_accepted_by_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let saida = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .env_remove("SQLITE_GRAPHRAG_LANG")
-        .env_remove("LC_ALL")
-        .env_remove("LANG")
-        .arg("--lang")
-        .arg("en")
+    let saida = cmd_lang(&tmp, "en")
         .arg("health")
         .assert()
         .success()
@@ -511,15 +508,7 @@ fn alias_pt_br_accepted_by_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let saida = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .env_remove("SQLITE_GRAPHRAG_LANG")
-        .env_remove("LC_ALL")
-        .env_remove("LANG")
-        .arg("--lang")
-        .arg("pt")
+    let saida = cmd_lang(&tmp, "pt")
         .arg("health")
         .assert()
         .success()

@@ -16,16 +16,62 @@
 
 ## Resumo
 
-## Atualização v1.1.8 — XDG, qualidade do enrich, hot-set headless
+## Atualização v1.2.0 — XDG, dim 1024, list-skipped, GAP-SG-139, hot-set headless
 
-- Config de knobs de produto: flag CLI > XDG `config set` > default. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` não são lidas no hot path. Harnesses DEVEM usar XDG isolado + flags — nunca exportar product env como contrato de config.
+- Config de knobs de produto: **flag CLI > XDG `config set` > default**. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` **não** são lidas no hot path. Harnesses DEVEM usar XDG isolado + flags — nunca exportar product env como contrato de config.
+- **DEFAULT_EMBEDDING_DIM=1024** (override via `--embedding-dim` / XDG `embedding.dim`; bancos existentes mantêm `schema_meta.dim` até re-embed).
+- Recuperar dívida da fila `skipped` / `preservation_failed` sem SQL cru:
+  ```bash
+  sqlite-graphrag enrich --list-skipped --json
+  sqlite-graphrag enrich --requeue-skipped --json
+  ```
+- **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado — agentes headless podem anexar `--db` em todo spawn sem clap exit 2.
 - Após `remember` curado, PARSEIE `entities_created` / `enrich_recommended` e/ou PASSE `--enqueue-enrich` para entity-descriptions prioritário antes de drains longos de entity-connect.
 - Polle qualidade sem LLM: `enrich --operation entity-descriptions --status --force-redescribe --json` (`scan_backlog_low_quality`, `quality_pct`, `state` incluindo `blocked_dead`).
 - Filtros de nome: `--entity-names` para entity-descriptions; `--memory-names` para memory-bindings.
 - Audite bindings: `memory-entities --name <mem> --json` inclui `entities[].description`.
 - entity-connect é totalmente implementado (persiste relações). Em DBs grandes espere `budget_exhausted` / `preempted_for_gate`; prefira ED quente → EC frio.
-- Gate offline de produto: `bash scripts/e2e_offline_v118.sh` (16/16).
-- Seções históricas abaixo que listam knobs `SQLITE_GRAPHRAG_*` são documentação legada, não config corrente.
+- Gate offline de produto: `bash scripts/e2e_offline_v120.sh` espera **20/20 PASS** (canônico; wrapper histórico `e2e_offline_v118.sh` / 16/16 supersedido).
+- **Nota CURRENT sobre texto histórico abaixo:** seções que ensinam product env como config descrevem comportamento pré-v1.2.0 — a v1.2.0 **não** lê product env no hot path (somente XDG + flags). A whitelist OAuth/custom-provider de env para subprocessos LLM permanece válida e **não** é config de knobs de produto.
+- Segredos: prefira `config add-key --provider openrouter` (stdin) ou `--openrouter-api-key`; `OPENROUTER_API_KEY` ainda pode resolver como entrada opcional de chave.
+
+## Inventário completo de comandos CLI para agentes headless (v1.2.0)
+
+Orquestradores headless precisam conhecer a superfície completa de produto mesmo quando as receitas de spawn focam em `remember` / `enrich` / `deep-research`. Comandos de topo de produto (de `sqlite-graphrag --help`, excluindo o meta `help`):
+
+- `init` — cria/abre DB + migrações + smoke-test LLM
+- `remember` — grava uma memória (+ grafo opcional / `--enqueue-enrich`)
+- `remember-batch` — criação em lote NDJSON (`description` obrigatória)
+- `ingest` — ingere arquivos em massa como memórias
+- `recall` — busca semântica KNN
+- `read` / `list` / `forget` / `purge` / `rename` / `split-body` / `edit` / `history` / `restore` — CRUD e ciclo de vida de memórias
+- `hybrid-search` — FTS5 + vetor RRF
+- `health` / `migrate` / `namespace-detect` / `optimize` / `stats` — ops e diagnóstico
+- `sync-safe-copy` / `backup` / `vacuum` — durabilidade e espaço
+- `link` / `unlink` / `related` / `graph` / `export` — arestas e exportação
+- `deep-research` — GraphRAG multi-hop (`-o` / `--output` atomwrite)
+- `fts` / `vec` — famílias de manutenção de índice
+- `codex-models` — lista de modelos OAuth ChatGPT Pro (`--db` no-op, GAP-SG-139)
+- `prune-relations` / `prune-ner` / `cleanup-orphans` — higiene do grafo
+- `slots` / `pending` / `embedding` / `pending-embeddings` — concorrência e filas
+- `memory-entities` / `delete-entity` / `reclassify` / `rename-entity` / `merge-entities` / `reclassify-relation` / `normalize-entities` — admin de entidades
+- `enrich` — qualidade do grafo via LLM + inspetores de fila (`--list-skipped` / `--requeue-skipped`)
+- `cache` / `completions` / `config` — folhas host/XDG (`--db` no-op)
+
+### Famílias aninhadas (resumo)
+
+- `graph` — `traverse`, `stats`, `entities`, `recompute-degree`
+- `embedding` — `status`, `list`, `abandon`
+- `pending` — `list`, `show`, `cleanup`
+- `pending-embeddings` — `list`, `status`, `abandon`
+- `slots` — `status`, `release`, `cleanup`
+- `cache` — `clear-models`, `list`, `stats`
+- `config` — `add-key`, `list-keys`, `remove-key`, `doctor`, `path`, `set`, `get`, `list`, `unset`
+- `fts` — `rebuild`, `check`, `stats`
+- `vec` — `orphan-list`, `purge-orphan`, `stats`
+- `enrich` flags — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, inspetores prune-orphan
+
+> Inventário completo em uma linha: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 
 ## Contrato stdout/stderr e --quiet (v1.1.05) + alias `-o` (v1.1.8)
 
@@ -45,7 +91,7 @@ ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regre
 OUTDIR=/tmp/graphrag-out
 mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
-  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
   deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
   -o "$OUTDIR/research.json" --json
 # Parseie o ack no stdout; envelope completo no arquivo

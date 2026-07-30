@@ -10,16 +10,24 @@ use crate::embedder::f32_to_bytes;
 use crate::errors::AppError;
 use rusqlite::{params, Connection};
 
+/// Chunk.
 #[derive(Debug, Clone)]
 pub struct Chunk {
+    /// Memory identifier.
     pub memory_id: i64,
+    /// Chunk idx.
     pub chunk_idx: i32,
+    /// Chunk text.
     pub chunk_text: String,
+    /// Start offset.
     pub start_offset: i32,
+    /// End offset.
     pub end_offset: i32,
+    /// Token count.
     pub token_count: i32,
 }
 
+/// Insert chunks.
 pub fn insert_chunks(conn: &Connection, chunks: &[Chunk]) -> Result<(), AppError> {
     for chunk in chunks {
         conn.execute(
@@ -38,6 +46,7 @@ pub fn insert_chunks(conn: &Connection, chunks: &[Chunk]) -> Result<(), AppError
     Ok(())
 }
 
+/// Insert chunk slices.
 pub fn insert_chunk_slices(
     conn: &Connection,
     memory_id: i64,
@@ -61,6 +70,7 @@ pub fn insert_chunk_slices(
     Ok(())
 }
 
+/// Upsert chunk VEC.
 pub fn upsert_chunk_vec(
     conn: &Connection,
     _rowid: i64,
@@ -95,6 +105,7 @@ pub fn upsert_chunk_vec(
     Ok(())
 }
 
+/// Delete chunks.
 pub fn delete_chunks(conn: &Connection, memory_id: i64) -> Result<(), AppError> {
     conn.execute(
         "DELETE FROM memory_chunks WHERE memory_id = ?1",
@@ -118,17 +129,19 @@ pub fn count_for_memory(conn: &Connection, memory_id: i64) -> Result<usize, AppE
     Ok(n as usize)
 }
 
+/// KNN search chunks.
 pub fn knn_search_chunks(
     conn: &Connection,
     embedding: &[f32],
     k: usize,
 ) -> Result<Vec<(i64, i32, f32)>, AppError> {
     if embedding.len() != crate::constants::embedding_dim() {
-        return Err(AppError::Embedding(format!(
-            "knn_search_chunks embedding has {} dims, expected {}",
-            embedding.len(),
-            crate::constants::embedding_dim()
-        )));
+        return Err(AppError::Embedding(
+            crate::i18n::validation::embedding_knn_search_chunks_dim_mismatch(
+                embedding.len(),
+                crate::constants::embedding_dim(),
+            ),
+        ));
     }
     // v1.0.76: full table scan + in-process cosine similarity. The
     // `chunk_embeddings` table no longer has a `distance` column;
@@ -158,6 +171,7 @@ pub fn knn_search_chunks(
     Ok(scored)
 }
 
+/// Get chunks by memory.
 pub fn get_chunks_by_memory(conn: &Connection, memory_id: i64) -> Result<Vec<Chunk>, AppError> {
     let mut stmt = conn.prepare_cached(
         "SELECT memory_id, chunk_idx, chunk_text, start_offset, end_offset, token_count

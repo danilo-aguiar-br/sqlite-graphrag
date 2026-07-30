@@ -42,8 +42,8 @@ const DEFAULT_SUBPROCESS_MEMORY_LIMIT_MB: u64 = 4096;
 ///
 /// On Linux, applies the limit in a `pre_exec` hook before the child process
 /// starts.  On non-Linux platforms, falls back to an unlimited spawn.
-/// The limit is read from `SQLITE_GRAPHRAG_SUBPROCESS_MEMORY_LIMIT_MB`
-/// (default: 4096 MiB).
+/// The limit is read from XDG `spawn.subprocess_memory_limit_mb`
+/// (`config set`; default: 4096 MiB).
 #[cfg(target_os = "linux")]
 pub fn spawn_with_memory_limit(cmd: &mut Command) -> std::io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
@@ -121,15 +121,24 @@ pub fn spawn_with_memory_limit(cmd: &mut Command) -> std::io::Result<std::proces
 /// Parsed output element from `claude -p --output-format json`.
 #[derive(Debug, serde::Deserialize)]
 pub struct ClaudeOutputElement {
+    /// Item.
     pub r#type: Option<String>,
+    /// Subtype.
     pub subtype: Option<String>,
+    /// Is error.
     #[serde(default)]
     pub is_error: bool,
+    /// Structured output.
     pub structured_output: Option<serde_json::Value>,
+    /// Result.
     pub result: Option<String>,
+    /// Total cost usd.
     pub total_cost_usd: Option<f64>,
+    /// Error message, if any.
     pub error: Option<String>,
+    /// Terminal reason.
     pub terminal_reason: Option<String>,
+    /// API key source.
     #[serde(rename = "apiKeySource")]
     pub api_key_source: Option<String>,
 }
@@ -137,17 +146,19 @@ pub struct ClaudeOutputElement {
 /// Result of a successful Claude invocation.
 #[derive(Debug)]
 pub struct ClaudeResult {
+    /// Value.
     pub value: serde_json::Value,
+    /// Cost usd.
     pub cost_usd: f64,
+    /// Is oauth.
     pub is_oauth: bool,
 }
 
 /// Validates that the Claude binary meets the minimum version requirement.
 pub fn validate_claude_version(binary: &Path) -> Result<String, AppError> {
     let resolved = which::which(binary).map_err(|_| {
-        AppError::Validation(format!(
-            "executable '{}' not found in PATH; ensure it is installed and accessible",
-            binary.display()
+        AppError::Validation(crate::i18n::validation::executable_not_in_path_generic(
+            &binary.display().to_string(),
         ))
     })?;
     let output = Command::new(&resolved)
@@ -165,7 +176,7 @@ pub fn validate_claude_version(binary: &Path) -> Result<String, AppError> {
     }
 
     let version_str = String::from_utf8(output.stdout)
-        .map_err(|_| AppError::Validation("claude --version output is not UTF-8".to_string()))?;
+        .map_err(|_| AppError::Validation(crate::i18n::validation::claude_version_not_utf8()))?;
     let version = version_str.trim().to_string();
     let numeric = version.split([' ', '(']).next().unwrap_or("").trim();
 
@@ -185,9 +196,11 @@ pub fn validate_claude_version(binary: &Path) -> Result<String, AppError> {
 
     if let (Some(actual), Some(min)) = (parse_semver(numeric), parse_semver(MIN_CLAUDE_VERSION)) {
         if actual < min {
-            return Err(AppError::Validation(format!(
-                "Claude Code version {numeric} is below minimum required {MIN_CLAUDE_VERSION}"
-            )));
+            return Err(AppError::Validation(crate::i18n::validation::version_below_minimum(
+                    "Claude Code",
+                    numeric,
+                    MIN_CLAUDE_VERSION,
+                )));
         }
     }
 
@@ -225,7 +238,7 @@ pub fn validate_claude_version(binary: &Path) -> Result<String, AppError> {
 /// GitHub issue [anthropics/claude-code#10787] documents that earlier
 /// Claude Code CLI builds sometimes ignored `--strict-mcp-config` and
 /// fell back to `~/.mcp.json`. We still pass the flags as defence-in-depth
-/// and ALSO honour `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` so users
+/// and ALSO honour XDG `llm.claude_empty_config_dir` so users
 /// who need belt-and-suspenders isolation can point Claude at an empty
 /// config directory (no MCP, no hooks, no settings).
 ///
@@ -245,7 +258,7 @@ pub fn build_claude_command(
         // intentionally do NOT pass `--bare` (PROHIBITED) and we do NOT
         // allow the API-key path at all. The second marker arg is the
         // orientative hint surfaced via the diagnostic pipeline (ADR-0041).
-        let mut cmd = Command::new("false");
+        let mut cmd = crate::spawn::failing_command();
         cmd.env_clear();
         cmd.env("PATH", "/nonexistent");
         cmd.arg("--oauth-only-violation-anthropic-api-key-set");
@@ -340,7 +353,7 @@ pub fn parse_claude_output_opts(
     tolerate_max_turns: bool,
 ) -> Result<ClaudeResult, AppError> {
     let elements: Vec<ClaudeOutputElement> = serde_json::from_str(stdout).map_err(|e| {
-        AppError::Validation(format!("failed to parse claude output as JSON array: {e}"))
+        AppError::Validation(crate::i18n::validation::failed_to_parse_claude_json_array(&e))
     })?;
 
     let is_oauth = elements
@@ -354,7 +367,7 @@ pub fn parse_claude_output_opts(
         .iter()
         .find(|e| e.r#type.as_deref() == Some("result"))
         .ok_or_else(|| {
-            AppError::Validation("claude output missing 'result' element".to_string())
+            AppError::Validation(crate::i18n::validation::claude_output_missing_result())
         })?;
 
     // G03: detect max_turns exhaustion before checking is_error
@@ -385,16 +398,16 @@ pub fn parse_claude_output_opts(
                 "Claude Code authentication failed. Re-authenticate interactively with: claude"
             );
         }
-        return Err(AppError::Validation(format!(
-            "claude extraction failed: {err_msg}"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::claude_extraction_failed(err_msg)));
     }
 
     let value = if let Some(v) = result_elem.structured_output.clone() {
         v
     } else if let Some(text) = &result_elem.result {
         serde_json::from_str(text).map_err(|e| {
-            AppError::Validation(format!("failed to parse claude result field as JSON: {e}"))
+            AppError::Validation(crate::i18n::validation::failed_to_parse_claude_result_field(
+                &e,
+            ))
         })?
     } else {
         return Err(AppError::Validation(
@@ -473,7 +486,7 @@ pub fn run_claude(
             }
 
             let stdout_str = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation("claude -p stdout is not valid UTF-8".into()))?;
+                .map_err(|_| AppError::Validation(crate::i18n::validation::claude_p_stdout_not_utf8()))?;
 
             // G03: parse stdout even on failure to detect terminal_reason
             if !exit_status.success() {
@@ -487,10 +500,10 @@ pub fn run_claude(
                         "Claude Code authentication may have failed. Re-authenticate with: claude"
                     );
                 }
-                return Err(AppError::Validation(format!(
-                    "claude -p exited with code {:?}: {}",
+                return Err(AppError::Validation(crate::i18n::validation::process_exited(
+                    "claude -p",
                     exit_status.code(),
-                    stderr_str.trim()
+                    stderr_str.trim(),
                 )));
             }
 
@@ -499,8 +512,9 @@ pub fn run_claude(
         None => {
             tracing::warn!(target: "claude_runner", timeout_secs, "claude -p timed out, terminating");
             terminate_gracefully(&mut child, 3);
-            Err(AppError::Validation(format!(
-                "claude -p timed out after {timeout_secs} seconds"
+            Err(AppError::Validation(crate::i18n::validation::process_timed_out(
+                "claude -p",
+                timeout_secs,
             )))
         }
     }

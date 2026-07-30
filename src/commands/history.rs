@@ -23,6 +23,7 @@ DIFF OUTPUT:\n  \
     When --diff is active, each version (except the first) includes a `changes`\n  \
     object with `added_chars` and `removed_chars` — the character count difference\n  \
     between that version and its predecessor.")]
+/// History args.
 pub struct HistoryArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -39,6 +40,7 @@ pub struct HistoryArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Omit body content from each version to reduce response size.
     #[arg(
@@ -54,9 +56,10 @@ pub struct HistoryArgs {
         help = "Include character-level change summary between consecutive versions"
     )]
     pub diff: bool,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
+    /// Path to graphrag.sqlite. Overrides the XDG `db.path` setting.
     #[arg(
         long,
                 help = "Path to graphrag.sqlite"
@@ -124,11 +127,12 @@ struct HistoryResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: HistoryArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     // Resolve name from positional or --name flag; both are optional, at least one is required.
     let name = args.name_positional.or(args.name).ok_or_else(|| {
-        AppError::Validation("name required: pass as positional argument or via --name".to_string())
+        AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
     })?;
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;

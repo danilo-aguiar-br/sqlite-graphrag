@@ -21,10 +21,9 @@ fn sgr_cmd() -> Command {
 mod common;
 
 fn cmd(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c
 }
 
@@ -100,25 +99,30 @@ fn test_vacuum_json_contem_tamanhos() {
 }
 
 #[test]
-fn test_vacuum_via_env_db_path() {
+fn test_vacuum_via_db_flag() {
+    // GAP-SG-101: product env is not a path channel. --db after the
+    // subcommand is the only way to select a non-default database.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("custom.sqlite");
 
     let mut init_cmd = sgr_cmd();
+    common::wire_assert_cmd(&tmp, &mut init_cmd, "unused.sqlite");
     init_cmd
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .arg("init")
+        .args(["init", "--db"])
+        .arg(&db_path)
         .assert()
         .success();
 
     let mut vac_cmd = sgr_cmd();
+    common::wire_assert_cmd(&tmp, &mut vac_cmd, "unused.sqlite");
     vac_cmd
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .arg("vacuum")
+        .args(["vacuum", "--db"])
+        .arg(&db_path)
         .assert()
         .success();
+
+    assert!(
+        db_path.exists(),
+        "--db must create/use the explicit database path"
+    );
 }

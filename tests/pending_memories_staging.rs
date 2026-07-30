@@ -28,9 +28,8 @@ fn cmd_base(tmp: &TempDir) -> Command {
     let mock_dir = common::mock_llm_path();
     let mut c = Command::cargo_bin("sqlite-graphrag").expect("sqlite-graphrag binary not found");
     c.env("PATH", common::prepend_path(&mock_dir));
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
+    c.env("XDG_CACHE_HOME", tmp.path().join("cache"));
     c.arg("--skip-memory-guard");
     c
 }

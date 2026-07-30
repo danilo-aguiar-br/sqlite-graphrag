@@ -36,6 +36,7 @@ pub struct HybridSearchArgs {
         allow_hyphen_values = true,
         help = "Hybrid search query (vector KNN + FTS5 BM25 fused via RRF)"
     )]
+    /// Search query text.
     pub query: String,
     /// Maximum number of fused results to return after RRF combines vector + FTS5 candidates.
     ///
@@ -43,10 +44,13 @@ pub struct HybridSearchArgs {
     /// limit). Each underlying search fetches `k * 2` candidates before fusion.
     #[arg(short = 'k', long, aliases = ["limit", "top-k"], default_value = "10", value_parser = crate::parsers::parse_k_range)]
     pub k: usize,
+    /// Rrf k.
     #[arg(long, default_value = "60")]
     pub rrf_k: u32,
+    /// Weight VEC.
     #[arg(long, default_value = "1.0")]
     pub weight_vec: f32,
+    /// Weight FTS.
     #[arg(long, default_value = "1.0")]
     pub weight_fts: f32,
     /// Filter by memory.type. Note: distinct from graph entity_type
@@ -54,8 +58,10 @@ pub struct HybridSearchArgs {
     /// used in --entities-file.
     #[arg(long, value_enum)]
     pub r#type: Option<MemoryType>,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// With graph.
     #[arg(long)]
     pub with_graph: bool,
     /// G58 (v1.0.80): skip the live query embedding and serve FTS5 BM25 only.
@@ -68,8 +74,10 @@ pub struct HybridSearchArgs {
     /// Minimum edge weight for graph traversal (requires --with-graph; default 0.3 when active).
     #[arg(long)]
     pub min_weight: Option<f64>,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Accept `--json` as a no-op because output is already JSON by default.
@@ -77,23 +85,34 @@ pub struct HybridSearchArgs {
     pub json: bool,
 }
 
+/// Hybrid search item.
 #[derive(serde::Serialize)]
 pub struct HybridSearchItem {
+    /// Memory identifier.
     pub memory_id: i64,
+    /// Name of this item.
     pub name: String,
+    /// Namespace scope.
     pub namespace: String,
+    /// Memory type classification.
     #[serde(rename = "type")]
     pub memory_type: String,
+    /// Human-readable description.
     pub description: String,
+    /// Full text body.
     pub body: String,
+    /// Snippet.
     pub snippet: String,
+    /// Combined score.
     pub combined_score: f64,
     /// Alias of `combined_score` for the documented contract in SKILL.md.
     pub score: f64,
     /// Source of the match: always "hybrid" (RRF of vec + fts). Added in v2.0.1.
     pub source: String,
+    /// VEC rank.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vec_rank: Option<usize>,
+    /// FTS rank.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fts_rank: Option<usize>,
     /// Combined RRF score — explicit alias of `combined_score` for integration contracts.
@@ -116,19 +135,26 @@ pub struct HybridSearchItem {
 /// RRF weights used in hybrid search: vec (vector) and fts (text).
 #[derive(serde::Serialize)]
 pub struct Weights {
+    /// VEC.
     pub vec: f32,
+    /// FTS.
     pub fts: f32,
 }
 
+/// Hybrid search response.
 #[derive(serde::Serialize)]
 pub struct HybridSearchResponse {
+    /// Search query text.
     pub query: String,
+    /// Maximum number of results to return.
     pub k: usize,
     /// RRF k parameter used in the combined ranking.
     pub rrf_k: u32,
     /// Weights applied to vec and fts sources in the RRF fusion.
     pub weights: Weights,
+    /// Results.
     pub results: Vec<HybridSearchItem>,
+    /// Graph matches.
     pub graph_matches: Vec<RecallItem>,
     /// True when FTS5 failed and the response is vec-only.
     ///
@@ -174,6 +200,7 @@ pub struct HybridSearchResponse {
     pub elapsed_ms: u64,
 }
 
+/// Run.
 #[tracing::instrument(skip_all, level = "debug", name = "hybrid_search")]
 pub fn run(
     args: HybridSearchArgs,
@@ -214,7 +241,7 @@ pub fn run(
     // FTS5-only results. The RRF degenerates to a pure BM25 ranking and the
     // envelope surfaces `vec_degraded` + `vec_error` + `warning`.
     // v1.0.84 (ADR-0042): tuple de 4 elementos. `backend_invoked` carrega
-    // o discriminador do backend que efetivamente rodou (ou `None` quando
+    // discriminator of the backend that actually ran (or `None` when
     // o caller pediu `--fallback-fts-only` e nunca chamou o subprocesso).
     let (embedding, vec_degraded, vec_error, backend_invoked) = if args.fallback_fts_only {
         (
@@ -226,10 +253,10 @@ pub fn run(
     } else {
         // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
         // v1.0.84 (ADR-0042): extrai o backend que efetivamente invocou o
-        // LLM para popular `backend_invoked` no envelope de resposta.
+        // LLM to populate `backend_invoked` in the response envelope.
         // v1.0.85 (G58 / ADR-0043): retry determinístico em OAuthQuota
         // (codex ↔ claude) e backoff 750ms em SlotExhausted antes de
-        // aceitar a degradação para FTS5-puro.
+        // accept degradation to pure FTS5.
         match crate::embedder::try_embed_query_with_embedding_choice(
             &paths.models,
             &args.query,

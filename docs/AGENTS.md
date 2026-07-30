@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.1.8 — XDG config contract, schema stays v16)
+# sqlite-graphrag for AI Agents (v1.2.0 — XDG config, DEFAULT_EMBEDDING_DIM=1024, schema stays v16)
 
 - Portuguese version: [AGENTS.pt-BR.md](AGENTS.pt-BR.md)
 - Back to [README.md](../README.md)
@@ -20,12 +20,12 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> **Current release v1.1.8:** config precedence is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Keys via `config add-key` or `--openrouter-api-key`. Schema stays **v16**. Offline gate: `scripts/e2e_offline_v118.sh` (16/16).
+> **Current release v1.2.0:** config precedence is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Keys via `config add-key` or `--openrouter-api-key`. Schema stays **v16**. **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
 > Previous release v1.1.06: closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — O(k) entity-connect / cross-domain-bridges pair scan; schema stays v16. ADR-0066.
 > Previous release v1.1.05: five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (schema stays v16).
 > Previous releases: v1.1.04 (V016 schema v15→v16); v1.1.03; v1.1.02; v1.1.01.
 
-## New in v1.1.8 — XDG Config Contract (No Migration, Schema v16)
+## New in v1.2.0 — dim 1024 + XDG Config Contract (No Migration, Schema v16)
 
 - **REQUIRED precedence** for operational settings: CLI flag > XDG `config set` > named default. Product environment variables `SQLITE_GRAPHRAG_*` are **NOT** read at runtime on the hot path.
 - **REQUIRED keys**: `echo "sk-or-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin` or one-shot `--openrouter-api-key` (avoid shell history). Prefer `config doctor --json`.
@@ -43,9 +43,11 @@
 - **REQUIRED deep-research output**: PASS `-o PATH` or `--output PATH`; PARSE stdout ack `{written,bytes,blake3,…}`; NEVER assume short `-o` is ignored.
 - **REQUIRED entity-connect**: fully implemented (persists relationships); NOT scan-only; large DB may emit `budget_exhausted` / `preempted_for_gate`; prefer write → ED hot → EC cold.
 - **REQUIRED order**: after write, run entity-descriptions (hot) before long entity-connect drains.
+- **REQUIRED skipped-sink recovery (GAP-SG-96 / G-PR-3/4)**: `enrich --list-skipped` / `enrich --requeue-skipped` recover `status=skipped` / `preservation_failed` without raw SQL — skipped-sink counterpart of `--list-dead` / `--requeue-dead`.
+- **REQUIRED GAP-SG-139**: host/XDG leaves accept `--db` as a documented **no-op** so agents that always append `--db` do not get clap exit 2. Surfaces: `config` (×9), `slots` (×3), `cache` (×3), `codex-models`, `completions`. Helper `src/cli_db_noop.rs`; regression `tests/cli_db_noop_host_surfaces_regression.rs`. Graph-scoped commands still resolve storage via `--db` / XDG `db.path`.
 - **FORBIDDEN**: product env as primary config; no lib telemetry alias; no product telemetry; no teaching entity-connect as scan-only.
-- **HISTORICAL sections below** that mention `SQLITE_GRAPHRAG_*` knobs describe pre-v1.1.8 behaviour — do NOT treat them as current configuration.
-- Offline E2E gate: `scripts/e2e_offline_v118.sh` (16/16). Help contract: `tests/help_no_product_env`. Schema **v16** unchanged.
+- **HISTORICAL sections below** that mention `SQLITE_GRAPHRAG_*` knobs describe pre-v1.2.0 behaviour — do NOT treat them as current configuration.
+- Offline E2E gate: `scripts/e2e_offline_v120.sh` — expects **20/20 PASS** (15 `check()` + 5 manual PASS; canonical; historical wrapper `e2e_offline_v118.sh` superseded). Help contract: `tests/help_no_product_env`. Schema **v16** unchanged. Default embedding dim **DEFAULT_EMBEDDING_DIM=1024**.
 
 ## New in v1.1.06 — Entity-Connect Scan O(k) (No Migration)
 
@@ -154,13 +156,13 @@
 
 ## v1.0.79 Architecture (LLM-Only)
 
+> **HISTORICAL (v1.0.79):** the narrative below describes the release as shipped then (default dim 64, product env knobs).  
+> **CURRENT (v1.2.0):** `DEFAULT_EMBEDDING_DIM=1024`; active dim = CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` on open > 1024. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Models/timeouts/binaries via XDG `config set` or flags.
+
 The CLI is a thin orchestrator. Every embedding call spawns a
 claude code, codex, or opencode subprocess that returns an f32 vector of
-the ACTIVE dimensionality in JSON — default 64 since v1.0.79
-(G42/S1), configurable via `SQLITE_GRAPHRAG_EMBEDDING_DIM`
-(range [8, 4096]); pre-existing databases keep their recorded
-`schema_meta.dim` (e.g. 384). Since v1.0.79 calls are BATCHED
-(`{items:[{i,v}]}`, chunks at 8, entity names at 25 at dim 64, dim-adaptive — G44) and run
+the ACTIVE dimensionality in JSON — **current default 1024** (historical default was 64 in v1.0.79 G42/S1). Pre-existing databases keep their recorded `schema_meta.dim` (e.g. 64/384). Calls are BATCHED
+(`{items:[{i,v}]}`, chunks at 8, entity names at 25 at calibration base, dim-adaptive — G44) and run
 under a bounded `Semaphore` fan-out (`--llm-parallelism`).
 Every entity extraction call does the same with a different
 output schema. The CLI never holds an embedding model in
@@ -258,16 +260,17 @@ Agents that try to set them will see a clear validation error.
 - `delete-entity --name <entity> --json` — deletes an entity node; use `--cascade` to also remove all edges connected to the entity; without `--cascade` fails with exit 4 if edges exist
 - `reclassify --name <entity> --new-type <type> --json` — changes the `entity_type` of an existing entity in place without touching its edges or memory links
 - `merge-entities --names "a,b,c" --into <target> --json` — merges two or more source entities into a target entity; all edges from source nodes are redirected to the target; source nodes are deleted after merge
-- `memory-entities --name <memory> --json` — lists all entity nodes linked to a given memory; each item includes `entity_id`, `name`, `entity_type`, and `description` (v1.1.8 forward parity)
+- `memory-entities --name <memory> --json` — lists all entity nodes linked to a given memory; each item includes `entity_id`, `name`, `entity_type`, and `description` (v1.2.0 forward parity)
 - `prune-ner --entity <name> --json` — removes all NER-derived bindings for a given entity name without deleting the entity node itself; useful for cleaning up low-quality auto-extracted entities
 
 ## New in v1.0.79
+> **HISTORICAL release notes.** Product env names below are pre-v1.2.0. **CURRENT:** dim 1024; models via XDG `embedding.claude_model` / `embedding.codex_model` / `embedding.timeout_secs` / `llm.claude_empty_config_dir` or flags — no `SQLITE_GRAPHRAG_*` hot path.
 ### REQUIRED — G42: Fast, Parallel, Batched LLM Embedding Pipeline
-- The default embedding dimensionality dropped from 384 to 64 (MRL, arXiv 2205.13147). Precedence: `SQLITE_GRAPHRAG_EMBEDDING_DIM` env (range [8, 4096]) > `schema_meta.dim` of the opened database > 64. Pre-existing databases keep their recorded dimensionality unchanged — ZERO schema change.
-- Embedding calls are BATCHED (G42/S2): N numbered texts per LLM call with the `{items:[{i,v}]}` schema; chunks batch at 8, entity names at 25 (calibration bases at dim 64; since G44 the batch adapts as clamp(base×64/dim, 1, base) — 384-dim databases use 1/4) — 39 subprocess spawns collapse into 4-5.
-- Real bounded parallelism (G42/S3): `Arc<Semaphore>` + `JoinSet` fan-out; new `--llm-parallelism <N>` flag on `remember` (default 4), `ingest` (default 2) and `edit` (default 4), clamp [1, 32]; permits = min(flag, cpus, free RAM × 0.5 / 350 MB per worker, 32).
-- `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` selects the claude embedding model (G42/S5, symmetric to the codex var); `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` (default 300) bounds each LLM call, with `kill_on_drop(true)` on every subprocess.
-- The embedding path uses an EMPTY `CLAUDE_CONFIG_DIR` by default (G42/S6): honours `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`, else a managed `~/.local/state/sqlite-graphrag/claude-empty-config`; the MCP-isolation flags are silently ignored upstream (anthropics/claude-code#10787) and a populated `~/.claude` cost ~223k cache tokens per call (~40-50s → ~10-15s).
+- **HISTORICAL:** default dim dropped 384→64 (MRL). **CURRENT (v1.2.0):** default **1024**; precedence CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Pre-existing DBs keep recorded dim — ZERO schema change for open.
+- Embedding calls are BATCHED (G42/S2): N numbered texts per LLM call with the `{items:[{i,v}]}` schema; chunks batch at 8, entity names at 25 (calibration bases; G44 adapts with dim) — 39 subprocess spawns collapse into 4-5.
+- Real bounded parallelism (G42/S3): `Arc<Semaphore>` + `JoinSet` fan-out; `--llm-parallelism <N>` on `remember` (default 4), `ingest` (default 2) and `edit` (default 4), clamp [1, 32]; permits = min(flag, cpus, free RAM × 0.5 / 350 MB per worker, 32).
+- **CURRENT model/timeout:** XDG `embedding.claude_model` / `embedding.codex_model` / `embedding.timeout_secs` (default 300) with `kill_on_drop(true)`. (**HISTORICAL** env names `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` / `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` are not read.)
+- The embedding path uses an EMPTY `CLAUDE_CONFIG_DIR` by default (G42/S6): XDG `llm.claude_empty_config_dir`, else managed `~/.local/state/sqlite-graphrag/claude-empty-config`. (**HISTORICAL** `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` not read.)
 - `enrich --operation re-embed --limit N --resume` is the canonical one-shot re-embed path; `edit --force-reembed` regenerates one embedding without changing the body (G42/S9).
 - No silent dimension normalisation (G42/C5): divergent vectors fail with an explicit error instead of being truncated or zero-padded.
 - Panic-free signal handler (G42/S8): second signal exits 130 with ZERO I/O — eliminates the SIGABRT on orphaned processes.
@@ -858,13 +861,13 @@ let output = Command::new("sqlite-graphrag")
 
 
 ## Global Configuration
-### REQUIRED — Precedence (v1.1.8)
+### REQUIRED — Precedence (v1.2.0)
 - RESOLVE settings as **CLI flag > XDG `config set` > named default**
 - FORBIDDEN: product env `SQLITE_GRAPHRAG_*` as the config mechanism — not read on the hot path
 - USE `config set <key> <value>`, `config get <key>`, `config list --effective --json`, `config unset <key>`, `config path`, `config doctor --json`
 ### REQUIRED — Database Path
 - USE `--db <PATH>` when the database is not in the current directory (prefer flags for one-shot agents)
-- SET persistent default with `sqlite-graphrag config set db.default_path <PATH>`
+- SET persistent default with `sqlite-graphrag config set db.path <PATH>`
 - NOTE that `--db` takes precedence over XDG
 - DEFAULT is `graphrag.sqlite` in the current invocation directory when neither flag nor XDG is set
 ### REQUIRED — Namespace
@@ -896,7 +899,7 @@ let output = Command::new("sqlite-graphrag")
 - APPLY on hosts with less than 4 GB of available RAM
 - TRADE-OFF is 3 to 4 times more wall-clock time
 ### REQUIRED — Query Auto Fail-Fast
-- KNOW `llm.query_embed_timeout_secs` defaults to **3s** (v1.1.8); keep query embed paths tight
+- KNOW `llm.query_embed_timeout_secs` defaults to **3s** (v1.2.0); keep query embed paths tight
 ### NOTE — ONNX Runtime No Longer Required (v1.0.76)
 - The ONNX runtime and fastembed model were removed in v1.0.76
 - Embedding is OpenRouter REST and/or LLM subprocess (claude / codex / opencode)
@@ -912,7 +915,7 @@ let output = Command::new("sqlite-graphrag")
 - PASS `--force-merge` in idempotent loops; also restores soft-deleted memories and updates them in one step (since v1.0.51); `--type` and `--description` are optional with `--force-merge` — existing values are inherited when omitted
 - USE `--dry-run` to validate the payload (body size, entity/relationship schema, name uniqueness) without persisting anything; exits 0 on success, non-zero on validation failure
 - USE `--clear-body` with `--force-merge` to explicitly set the body to empty string instead of inheriting the existing body
-- NER is disabled by default; pass `--enable-ner` or set `SQLITE_GRAPHRAG_ENABLE_NER=1` to activate automatic extraction — URL-regex ONLY since v1.0.79 (the GLiNER pipeline was removed)
+- NER is disabled by default; pass `--enable-ner` to activate automatic extraction (**HISTORICAL:** product env `SQLITE_GRAPHRAG_ENABLE_NER` is not read in v1.2.0) — URL-regex ONLY since v1.0.79 (the GLiNER pipeline was removed)
 - `--skip-extraction` is deprecated since v1.0.45 and has no effect; `--gliner-variant` was REMOVED in v1.1.02 (clap rejects it with exit 2, following the `--max-entity-degree` precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored
 - Response field `extraction_method` reports the method used: `url-regex` (URL extraction ran) or `none:extraction-failed`; the `gliner-<variant>+regex` and `regex-only` values are HISTORICAL (≤ v1.0.75)
 - RESPECT the limit of 512000 bytes and 512 chunks per body
@@ -1041,7 +1044,7 @@ let output = Command::new("sqlite-graphrag")
 - `--mode codex` spawns `codex exec --json` per file for LLM-curated extraction via OpenAI Codex CLI
 - Requires Codex CLI installed; uses `--output-schema` for structured JSON output
 - Codex flags: `--codex-binary`, `--codex-model`, `--codex-timeout` (default 300s)
-- Environment variable `SQLITE_GRAPHRAG_CODEX_BINARY` overrides PATH lookup
+- **CURRENT:** override codex binary via XDG `llm.codex_binary` (`config set`) or the backend binary flag — **not** product env. (**HISTORICAL:** `SQLITE_GRAPHRAG_CODEX_BINARY` was documented pre-v1.2.0 and is not read.)
 - Full embedding pipeline applied for recall and hybrid-search
 ### Correct Pattern — Claude Code Ingest Examples
 - `sqlite-graphrag ingest ./docs --mode claude-code --recursive --json`
@@ -1792,12 +1795,13 @@ cargo install --path . && sqlite-graphrag init
 
 ## New in v1.0.97 — Enrich Dead-Letter Recovery + Write Ergonomics (GAP-20, SG-32)
 - Dead-letter recovery: `enrich --requeue-dead` moves terminal `dead` items back to `pending`; `enrich --list-dead` is a read-only JSON listing of each dead item with its `error_class` and `message`; `enrich --ignore-backoff` dequeues eligible items immediately, bypassing the `next_retry_at` cooldown; `enrich --prune-dead-orphans` deletes dead-letter rows (`status='dead'`, `item_type='memory'`) whose `item_key` (memory name) is absent from the main DB — read-only inspector (no LLM, no singleton), only the `.enrich-queue.sqlite` sidecar is mutated; entity-keyed dead rows are untouched; clears orphan dead-letter from memories renamed or purged after enqueue (`--requeue-dead` would only re-fail those); `DeadSummary` JSON gains a `pruned` count (ADR-0058, GAP-SG-66, v1.0.97). v1.1.02 adds `--prune-dead-entity-orphans` as the entity-keyed counterpart (ADR-0062, mutually exclusive with `--prune-dead-orphans`).
+- **Skipped-sink recovery (v1.2.0, GAP-SG-96 / G-PR-3/4)**: `enrich --list-skipped` / `enrich --requeue-skipped` are the skipped-sink counterpart of `--list-dead` / `--requeue-dead` — recover `status=skipped` / `preservation_failed` without raw SQL (no LLM required for list/requeue).
 - `enrich --status`, `--list-dead`, `--requeue-dead` and `--prune-dead-orphans` now run WITHOUT `--operation`/`--mode` (previously `--mode` was mandatory) — agents can poll/recover the queue without naming an operation.
 - New operation `enrich --operation augment-bindings` adds bindings to memories that are ALREADY linked and REQUIRES `--names`/`--names-file`; `enrich --operation body-extract --body-extract-graph-only` extracts the graph read-only without rewriting the body.
 - Defaults raised: `enrich --max-attempts` default is now 8 (range 1..=20); `enrich --openrouter-timeout` default is now 600s. The per-namespace singleton is unchanged, with `--rest-concurrency` (clamp 1..=16, default 8) as the throughput remedy (GAP-20).
 - `remember --graph-file <path>` loads the entity graph from a file (combinable with `--body-file`); `remember --strict-name` rejects a non-kebab name instead of normalizing; `remember --replace-graph` (with `--force-merge`) zeroes existing bindings before writing.
 - `ingest --force-merge` updates duplicate files instead of skipping them (dedup by `body_hash`); oversized bodies auto-split natively into chunks. `read --format raw` prints the pure body with no JSON envelope. `unlink --memory <name> --entity <name>` removes a single curated memory-to-entity binding.
-- `embedding status --json` adds a `coverage` object (real vector counts per table); `stats --json` adds a top-level `total_memories`. `--db <PATH>` must be placed AFTER the subcommand. Historical note (pre-v1.1.8): `SQLITE_GRAPHRAG_DB_PATH` was documented as position-independent override (SG-32) — **v1.1.8 does not read product env on the hot path**; use `--db` or XDG `db.default_path`. No migration; schema stays at v15 in that historical release.
+- `embedding status --json` adds a `coverage` object (real vector counts per table); `stats --json` adds a top-level `total_memories`. `--db <PATH>` must be placed AFTER the subcommand. Historical note (pre-v1.2.0): `SQLITE_GRAPHRAG_DB_PATH` was documented as position-independent override (SG-32) — **v1.2.0 does not read product env on the hot path**; use `--db` or XDG `db.path`. No migration; schema stays at v15 in that historical release.
 
 ## New in v1.0.96 — Enrich Dead-Letter + OpenRouter REST Fan-Out (ADR-0055)
 - Dead-letter (GAP-ENRICH-BACKLOG-CONVERGE): the enrich queue gains a terminal `dead` status plus `error_class` and `next_retry_at` columns (idempotent `ALTER TABLE` + `idx_enrich_queue_eligible`); the live set strictly decreases so the backlog always converges.
@@ -1814,7 +1818,7 @@ cargo install --path . && sqlite-graphrag init
 - All 13/13 verified models pass. No migration; schema stays at v15. The four `enrich` modes are now `claude-code`, `codex`, `opencode`, `openrouter`.
 
 ## New in v1.0.94 — Four-Gap Remediation (ADR-0053)
-- Default embedding dimension is now 384 (was 64); `init` stamps `dim=384`. Legacy 64-dim databases keep working via `schema_meta.dim`.
+- Default embedding dimension is **1024** (v1.2.0); `init` stamps `dim=1024`. Legacy 64/384-dim databases keep working via `schema_meta.dim`.
 - `enrich --mode` is REQUIRED (`claude-code`|`codex`|`opencode`); omitting it is rejected with exit 2 (prevents accidental `claude -p` spawn inheriting `.mcp.json`).
 - Entity embedding in `remember`/`remember-batch`/`ingest` honours `--embedding-backend`/`--llm-backend`; `remember` with new entities ~119s to ~0.9s under OpenRouter.
 - Embedding subprocess timeout 120s to 300s.

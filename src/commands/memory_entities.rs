@@ -20,18 +20,24 @@ use serde::Serialize;
     # With namespace\n  \
     sqlite-graphrag memory-entities --name my-memory --namespace project"
 )]
+/// Memory entities args.
 pub struct MemoryEntitiesArgs {
+    /// Name positional.
     #[arg(value_name = "NAME", conflicts_with = "name", help = "Memory name")]
     pub name_positional: Option<String>,
+    /// Name of this item.
     #[arg(long, conflicts_with_all = ["entity"])]
     pub name: Option<String>,
     /// Entity name — list memories bound to this entity (reverse lookup).
     #[arg(long, conflicts_with_all = ["name", "name_positional"])]
     pub entity: Option<String>,
+    /// Namespace scope.
     #[arg(long, help = "Namespace (default: global; override via CLI flag)")]
     pub namespace: Option<String>,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true)]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long, help = "Database path (default: XDG data dir)")]
     pub db: Option<String>,
 }
@@ -69,6 +75,7 @@ struct EntityMemoriesResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: MemoryEntitiesArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;

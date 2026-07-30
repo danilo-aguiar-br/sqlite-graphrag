@@ -4,6 +4,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-07-29
+
+### Highlights
+- **DEFAULT_EMBEDDING_DIM = 1024** (flag `--embedding-dim` / XDG `embedding.dim` still override; existing DBs keep `schema_meta.dim`).
+- **Enrich queue multi-namespace** — column `namespace` + `UNIQUE(namespace, operation, item_key)`; scoped `DELETE`; SQL `status='pending'` fix.
+- **`--list-skipped` / `--requeue-skipped`** — recover `preservation_failed` / skipped sink without raw SQL (G-PR-3/4).
+- **Enqueue validates** memory/entity exists in the target namespace (G-PR-8).
+- **`chars_before`** on description grounding failure uses the prior description length (G-PR-5).
+- **`blocked_dead`** no longer masks skipped debt (G-PR-7).
+- **tracing-appender** optional file logs via XDG `log.to_file` / `log.rotation`; flush on second signal.
+- **Exit-code hints** English by default (agent-native); namespace hint no longer cites product env.
+- **config list --effective** dim/log defaults from `constants` (no hard-coded `"384"`).
+- **Portable `failing_command()`** for OAuth-only stubs (Windows-safe).
+- **llm_slots** path via cache/XDG runtime — no `"/tmp"` literal.
+- E2E harness: `scripts/e2e_offline_v120.sh`.
+- Main-DB schema stays at **v16** (sidecar queue migrate only).
+
+### Added / Fixed in residual seal
+- **Tests/benches hermetic** — `IsolatedEnv` / `wire_assert_cmd`; **ZERO** operational `SQLITE_GRAPHRAG_*` product env (GAP-SG-101/118); 12 `xdg_isolation_guard` tests.
+- **GAP-SG-117** — docstrings/logs cite XDG keys, not product env.
+- **GAP-SG-121** — shared sidecar WAL/busy pragmas; enrich vs ingest queue schemas documented as distinct.
+- **GAP-SG-122** — `paths.cache` legacy → `cache.dir`.
+- **GAP-SG-125** — `optimize --fts-dry-run` returns `AppError` (exit 1) instead of bare `process::exit`.
+- **GAP-SG-126** — minimal `LlmSpawnBackend` trait in `spawn/`.
+- **G-PR-1/2** — tighter low-quality SQL prefilter + Rust post-filter + FP unit tests.
+- **GAP-SG-119** — SQL fixtures use `DEFAULT_EMBEDDING_DIM` (1024), not 384.
+- **SRP** — orphan monólitos `scan_tests.rs` / `queue_tests.rs` removed (live suites are `*_a`/`*_b`).
+- **Skills/README** — default dim **1024**, `db.path`, graph-stdin entity key allowlist (SGR-E02), list/requeue-skipped.
+- **e2e_offline_v118.sh** — thin wrapper → `e2e_offline_v120.sh`.
+
+### Residual seal completion (same release)
+- **GAP-SG-139** — host/XDG leaves (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) accept `--db` as a documented **no-op** (`src/cli_db_noop.rs`); graph surfaces unchanged; regression `tests/cli_db_noop_host_surfaces_regression.rs`.
+- **`#![deny(missing_docs)]`** on lib — 866 public items documented (EN); only `embed_migrations!` module allows missing_docs.
+- **Monographs** — README/llms/AGENTS/TESTING/MIGRATION/COOKBOOK/HEADLESS/INTEGRATIONS → **v1.2.0**, gate `e2e_offline_v120.sh`, dim canonic **1024**, `db.path`.
+- **SRP** — split `ingest/`, `embedder/`, `storage/entities/`, `deep_research/` (parents LOC↓; new files ≤800).
+- **`--print-schema`** — list / recall / enrich / config list (embedded schemas, clean stdout).
+- **15** `xdg_isolation_guard` hermetic tests; product env asserts negative only.
+- **OpenCode** on `LlmSpawnBackend`; quality_sample helpers hash-order (G-PR-6); WorkerGuard flush on main exit.
+- **e2e_v118** historical wrapper only.
+
+### Residual (honest, tracked in gaps.md)
+- Some monólitos remain >800 LOC (ingest_claude/codex, chat_api, health, migrate, …) — further SRP optional. Validation i18n catalog covers hot paths (~67 sites); remaining ad-hoc Validation strings outside those paths can expand later without blocking the seal.
+- Offline E2E **20/20** on `scripts/e2e_offline_v120.sh` with release binary 1.2.0; `cargo test --lib` **1112** passed; `cargo clippy --lib -D warnings` clean; `#![deny(missing_docs)]` on.
+
 ## [1.1.8] - 2026-07-19
 
 ### Residual completion (same release)
@@ -1859,7 +1903,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 - v1.0.37 was tagged in git and pushed to GitHub (commit `4a4be74`) but never published to crates.io; v1.0.38 is the public release that bundles those changes together with the 8 additional fixes above. The v1.0.37 changelog entry is preserved below for transparency on the git history.
-- Out of scope (backlog v1.0.39+): refactor of 6 production `.clone()` calls in `src/extraction.rs` hot path (`Cow<'_, str>` or `Arc<str>` decision pending), `tokio::sync::Semaphore` bound on `spawn_blocking` calls in `src/daemon.rs`, and `rusqlite 0.37 → 0.39` upgrade investigation (pending `context7` review of breaking changes).
+- Out of scope (backlog v1.0.39+): refactor of 6 production `.clone()` calls in `src/extraction.rs` hot path (`Cow<'_, str>` or `Arc<str>` decision pending), `tokio::sync::Semaphore` bound on `spawn_blocking` calls in `src/daemon.rs`, and `rusqlite 0.37 → 0.39` upgrade investigation (pending `context7-cli` review of breaking changes).
 - Out of scope permanently (per user decision): JSON field deduplication (`id`/`memory_id`, `memories`/`memories_total`, `entities`/`entities_total`, `relationships`/`relationships_total`, `db_size_bytes`/`db_bytes`) — kept for stable consumer compatibility.
 - The `daemon` deliberate orphan child detach (`src/daemon.rs:489-501`) is preserved as documented behavior; the 8-line `SAFETY` comment justifying the lifecycle (spawn lock + readiness file + `Stdio::null()`) remains the source of truth.
 

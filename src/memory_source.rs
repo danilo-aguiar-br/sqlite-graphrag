@@ -97,14 +97,14 @@ impl TryFrom<&str> for MemorySource {
             "system" => Ok(Self::System),
             "import" => Ok(Self::Import),
             "sync" => Ok(Self::Sync),
-            other => Err(AppError::Validation(format!(
-                "invalid memory source: {other:?}; expected one of {}",
-                Self::ALL
-                    .iter()
-                    .map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))),
+            other => Err(AppError::Validation(crate::i18n::validation::invalid_memory_source(
+                    &format!("{other:?}"),
+                    &Self::ALL
+                        .iter()
+                        .map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ))),
         }
     }
 }
@@ -136,14 +136,14 @@ pub fn validate_source(raw: &str) -> Result<&'static str, AppError> {
         "system" => Ok("system"),
         "import" => Ok("import"),
         "sync" => Ok("sync"),
-        other => Err(AppError::Validation(format!(
-            "invalid memory source: {other:?}; expected one of {}",
-            MemorySource::ALL
-                .iter()
-                .map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))),
+        other => Err(AppError::Validation(crate::i18n::validation::invalid_memory_source(
+                &format!("{other:?}"),
+                &MemorySource::ALL
+                    .iter()
+                    .map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ))),
     }
 }
 

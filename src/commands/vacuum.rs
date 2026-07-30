@@ -19,7 +19,9 @@ NOTE:\n  \
     reclaimed_bytes may report 0 even after `purge` if removed memories did not\n  \
     span entire SQLite pages (page size = 4 KB). Run `vacuum` regularly only on\n  \
     large databases (> 10 MB) for measurable gains.")]
+/// Vacuum args.
 pub struct VacuumArgs {
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
     /// Run a WAL checkpoint before and after `VACUUM`.
@@ -28,6 +30,7 @@ pub struct VacuumArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -45,6 +48,7 @@ struct VacuumResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: VacuumArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let _ = args.format;

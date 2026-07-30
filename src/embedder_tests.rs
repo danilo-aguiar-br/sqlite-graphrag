@@ -1,7 +1,13 @@
 //! Auto-extracted tests (Wave C1).
 
     use super::*;
+    use super::batch::{
+        adaptive_batch_for_dim, build_batches, entity_cache_key, entity_embed_cache,
+        reassemble_ordered, run_bounded,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn reassemble_ordered_restores_input_order() {
@@ -280,17 +286,40 @@
         assert_eq!(adaptive_batch_for_dim(0, 64), 1);
     }
 
-    /// G44 end-to-end: the public wrappers follow the env-dim override.
+    /// G44 end-to-end: the public wrappers follow the ACTIVE dim.
+    ///
+    /// GAP-SG-84: this case used to set `SQLITE_GRAPHRAG_EMBEDDING_DIM` and
+    /// assert batch sizes for 384 dims. No reader consults that env, so the
+    /// assertions only held because the compiled default happened to be 384 —
+    /// the test proved nothing about the override and broke the moment the
+    /// default moved. It now drives the dim through the real channel.
     #[test]
     #[serial_test::serial(env)]
-    fn adaptive_wrappers_follow_env_dim() {
-        std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", "384");
+    fn adaptive_wrappers_follow_active_dim() {
+        crate::constants::set_active_embedding_dim(384);
         let chunk = chunk_embed_batch_size();
         let entity = entity_embed_batch_size();
-        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
         crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
         assert_eq!(chunk, 1, "384-dim chunk batch must shrink to 1 (G44)");
         assert_eq!(entity, 4, "384-dim entity batch must shrink to 4 (G44)");
+    }
+
+    /// The retired product env must not move the batch size.
+    ///
+    /// Asserting the negative is the point: without it, reintroducing an env
+    /// read would go unnoticed by the suite.
+    #[test]
+    #[serial_test::serial(env)]
+    fn retired_embedding_dim_env_is_inert() {
+        crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
+        let before = chunk_embed_batch_size();
+        std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", "384");
+        let during = chunk_embed_batch_size();
+        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
+        assert_eq!(
+            before, during,
+            "SQLITE_GRAPHRAG_EMBEDDING_DIM must not change the active dim"
+        );
     }
 
     // ---------------------------------------------------------------

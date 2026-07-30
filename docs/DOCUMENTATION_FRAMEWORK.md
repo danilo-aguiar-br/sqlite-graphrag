@@ -1,11 +1,10 @@
+## v1.2.0 — Coverage Update (XDG + dim 1024 + E2E seal)
 
-## v1.1.8 — Coverage Update (XDG + enrich quality/latency seal)
-
-- Current product docs target **crate 1.1.8**, schema **v16** (no main-DB migration).
-- Required themes: flag > XDG `config set` > default; no product env on hot path; QISO; `--force-redescribe`; `--entity-names`/`--memory-names`; `remember --enqueue-enrich` + `entities_created`/`enrich_recommended`; deep-research `-o`; `memory-entities` description; entity-connect fully implemented; offline gate `scripts/e2e_offline_v118.sh` 16/16.
+- Current product docs target **crate 1.2.0**, schema **v16** (no main-DB migration).
+- Required themes: flag > XDG `config set` > default; no product env on hot path; **DEFAULT_EMBEDDING_DIM=1024**; legacy map `db.default_path`→`db.path`; QISO; `--force-redescribe`; `--entity-names`/`--memory-names`; `remember --enqueue-enrich` + `entities_created`/`enrich_recommended`; deep-research `-o`; `memory-entities` description; entity-connect fully implemented; `enrich --list-skipped` / `--requeue-skipped`; GAP-SG-139 `--db` no-op on host leaves; offline gate `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` superseded).
 - Machine contracts updated: `remember.schema.json`, `memory-entities.schema.json`, `enrich-status.schema.json`, `enrich-summary.schema.json` (+ README schema notes).
-- Residual: historical sections in long monographs may still mention product env — treat as historical, not current guidance. Live low-quality description backfill remains an operator campaign.
-- See [CHANGELOG.md](../CHANGELOG.md) `[1.1.8]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+- Residual seal notes: **CHANGELOG.pt-BR.md must include `[1.2.0]`**; **SECURITY Supported Versions includes 1.2.x**; offline gate documents `scripts/e2e_offline_v120.sh` (**20/20**). Docs monographs (`HOW_TO_USE`, `COOKBOOK`, `HEADLESS_INVOCATION`, `AGENTS`, `TESTING`, `MIGRATION`, `docs/schemas/README`) must carry seal themes: `enrich --list-skipped` / `--requeue-skipped`, **GAP-SG-139** (`--db` no-op on host leaves), offline gate **20/20**, and a full CLI inventory where the monograph is operator-facing. Historical sections in long monographs may still mention product env — treat as historical, not current guidance. Live low-quality description backfill remains an operator campaign. GAP-SG-89 LOC≤800 largely closed; residual monólitos optional. No new ADR required for the v1.2.0 seal (product notes live in CHANGELOG + monographs).
+- See [CHANGELOG.md](../CHANGELOG.md) `[1.2.0]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
 
 ## v1.0.86, v1.0.87, v1.0.88, v1.0.89 — Coverage Update
 
@@ -180,27 +179,27 @@ This section updates the framework to cover the documentation generated for the 
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.1.06 (entity-connect O(k) scan) | v1.1.06 (espelhado) | Current |
-| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.1.06 (100%) | v1.1.06 (100%) | Current |
+| `README.md` / `README.pt-BR.md` | v1.2.0 (dim 1024 + XDG + e2e_v120) | v1.2.0 (espelhado) | Current |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.0 (100%) | v1.2.0 (must include `[1.2.0]`) | Current |
 | `AGENTS.md` / `AGENTS.pt-BR.md` | root exclude — not crates package | root exclude | N/A (excluded) |
-| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.1.06 (entity-connect O(k)) | v1.1.06 (espelhado) | Current |
-| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.1.06 Supported Versions 1.1.x + Timeout exit 1 ≠ 75 | espelhado | Current |
-| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.1.06 (v1106 suite) | v1.1.06 (espelhado) | Current |
-| `llms.txt` / `llms.pt-BR.txt` | v1.1.06 (entity-connect O(k)) | v1.1.06 (espelhado) | Current |
-| `llms-full.txt` | v1.1.06 patch notes | N/A | Current |
-| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.1.06 (O(k) scan + exit 1) | v1.1.06 (espelhado) | Current |
-| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.1.06 (upgrade + recipes) | v1.1.06 (espelhado) | Current |
-| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.1.06 (O(k) + bridges fully-impl) | v1.1.06 (espelhado) | Current |
-| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.1.06 (no-migration upgrade) | v1.1.06 (espelhado) | Current |
-| `TESTING.md` / `TESTING.pt-BR.md` | v1.1.06 (v1106 regression suite) | v1.1.06 (espelhado) | Current |
-| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.1.06 operator notes | v1.1.06 (espelhado) | Current |
-| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.1.06 (scan_start / Timeout exit 1) | v1.1.06 (espelhado) | Current |
-| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.1.06 (v1106 regression gate) | v1.1.06 (espelhado) | Current |
-| `DOCUMENTATION_FRAMEWORK.md` | v1.1.06 (EN-canonical meta-doc) | N/A (historical exception — no mandatory PT pair) | Current |
-| `skill/sqlite-graphrag-en` / `skill/sqlite-graphrag-pt` | v1.1.06 (entity-connect O(k) contract) | v1.1.06 (espelhado) | Current |
-| `docs/decisions/adr-0066-…` EN+PT | v1.1.06 Accepted | v1.1.06 Accepted | Current |
-| `docs/decisions/` (60 ADRs, 0007–0066) | 100% (60/60) incl. ADR-0066 | 80% (48/60) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
-| `docs/schemas/` (70+ schemas) | 100% + v1.1.06 schema notes (no DB migration; pair keys / NDJSON) | N/A | Current |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.0 (list-skipped / GAP-SG-139 / dim 1024) | v1.2.0 (espelhado) | Current |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.0 Supported Versions **1.2.x** + Timeout exit 1 ≠ 75 | espelhado | Current |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.0 (hermetic tests + clippy + deny missing_docs) | v1.2.0 (espelhado) | Current |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.0 (export + list-skipped + 20/20) | v1.2.0 (espelhado) | Current |
+| `llms-full.txt` | v1.2.0 patch notes | N/A | Current |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.0 (XDG + dim 1024 + e2e_v120) | v1.2.0 (espelhado) | Current |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.0 (list-skipped + GAP-SG-139 + 20/20 + recipes) | v1.2.0 (espelhado) | Current |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.0 (dim 1024 + XDG + list-skipped + GAP-SG-139 + 20/20 + full CLI inventory) | v1.2.0 (espelhado) | Current |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.0 (no-migration upgrade; dim 1024; list-skipped + GAP-SG-139 + 20/20) | v1.2.0 (espelhado) | Current |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.0 (hermetic + e2e_offline_v120 **20/20** + seal themes) | v1.2.0 (espelhado) | Current |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.0 operator notes | v1.2.0 (espelhado) | Current |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.0 (XDG + GAP-SG-139 + list-skipped + 20/20) | v1.2.0 (espelhado) | Current |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.0 (e2e_offline_v120 **20/20** gate) | v1.2.0 (espelhado) | Current |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.0 (EN-canonical meta-doc; seal matrix) | N/A (historical exception — no mandatory PT pair) | Current |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.0 (dim 1024 + list-skipped) | v1.2.0 (espelhado) | Current |
+| `docs/decisions/adr-0066-…` EN+PT | v1.1.06 Accepted (historical) | v1.1.06 Accepted | Current |
+| `docs/decisions/` (60 ADRs, 0007–0066) | 100% (60/60) incl. ADR-0066; v1.2.0 seal → CHANGELOG (no ADR-0067) | 80% (48/60) | 12 ADRs missing PT-BR (adr-0007 through adr-0018) |
+| `docs/schemas/` (70+ schemas) | 100% + v1.2.0 notes (list-skipped envelope reuse; GAP-SG-139 input-only; dim 1024; **20/20**; config-list; no cache.schema.json) | N/A (bilingual inline README) | Current |
 
 ### Framework Update — Mandatory Coverage of v1.0.86+
 

@@ -206,10 +206,11 @@ exit 0
 #[test]
 #[serial(env)]
 fn strict_env_clear_drops_custom_provider_credentials() {
+    // GAP-SG-101: product env SQLITE_GRAPHRAG_STRICT_ENV_CLEAR is not the
+    // channel — use --strict-env-clear (or config set spawn.strict_env_clear).
     // SAFETY: serial_test::serial(env) serialises env mutations.
     unsafe {
         std::env::set_var("ANTHROPIC_AUTH_TOKEN", "sk-cp-strict-test");
-        std::env::set_var("SQLITE_GRAPHRAG_STRICT_ENV_CLEAR", "1");
     }
     let (dir, script_path, env_dump) = spawn_capture_claude_env();
 
@@ -220,6 +221,7 @@ fn strict_env_clear_drops_custom_provider_credentials() {
     );
     let _output = AssertCmd::new(assert_cmd::cargo::cargo_bin!("sqlite-graphrag"))
         .args([
+            "--strict-env-clear",
             "remember",
             "--name",
             "test-v183-strict-mode",
@@ -228,7 +230,6 @@ fn strict_env_clear_drops_custom_provider_credentials() {
         ])
         .env("PATH", path_with_mock)
         .env("ANTHROPIC_AUTH_TOKEN", "sk-cp-strict-test")
-        .env("SQLITE_GRAPHRAG_STRICT_ENV_CLEAR", "1")
         .env("HOME", dir.path())
         .timeout(std::time::Duration::from_secs(30))
         .output()
@@ -237,7 +238,6 @@ fn strict_env_clear_drops_custom_provider_credentials() {
     // Cleanup
     unsafe {
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
-        std::env::remove_var("SQLITE_GRAPHRAG_STRICT_ENV_CLEAR");
     }
 
     // In strict mode, the mock script IS invoked but receives ONLY

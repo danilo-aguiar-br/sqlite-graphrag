@@ -39,6 +39,7 @@ LOCK WAITING:\n  \
     Purely numeric names are rejected so --create-missing cannot spawn ghosts.\n  \
     Memory names are managed via remember/read/edit/forget; entities are curated via\n  \
     remember --graph-stdin, created by enrich, or auto-created via --create-missing.")]
+/// Link args.
 pub struct LinkArgs {
     /// Source ENTITY name (graph node, not memory). Entities are curated via
     /// `remember --graph-stdin`, created by `enrich`, or auto-created via `--create-missing`.
@@ -67,14 +68,19 @@ pub struct LinkArgs {
     /// is also accepted as a custom relation.
     #[arg(long, value_parser = crate::parsers::parse_relation, value_name = "RELATION")]
     pub relation: String,
+    /// Relationship weight.
     #[arg(long)]
     pub weight: Option<f64>,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Auto-create entities when they do not exist. Created entities default to
@@ -115,6 +121,7 @@ struct LinkResponse {
     warnings: Vec<String>,
 }
 
+/// Run.
 pub fn run(args: LinkArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
@@ -205,10 +212,9 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
     let is_canonical = crate::parsers::is_canonical_relation(&args.relation);
     if !is_canonical {
         if args.strict_relations {
-            return Err(AppError::Validation(format!(
-                "non-canonical relation '{}': use --strict-relations=false or choose from: {}",
-                args.relation,
-                crate::parsers::CANONICAL_RELATIONS.join(", ")
+            return Err(AppError::Validation(validation::non_canonical_relation(
+                &args.relation,
+                &crate::parsers::CANONICAL_RELATIONS.join(", "),
             )));
         }
         warnings.push(format!("non-canonical relation '{}'", args.relation));

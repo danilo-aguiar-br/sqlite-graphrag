@@ -13,10 +13,14 @@ fn max_concurrency_ceiling() -> usize {
         .unwrap_or(8)
 }
 
+/// Graph export format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum GraphExportFormat {
+    /// JSON variant.
     Json,
+    /// DOT variant.
     Dot,
+    /// Mermaid variant.
     Mermaid,
     /// Stream one JSON object per entity, then one per edge, then a summary line.
     Ndjson,
@@ -35,8 +39,9 @@ pub use crate::backend_choice::{EmbeddingBackendChoice, LlmBackendChoice};
     sqlite-graphrag remember --db ./graphrag.sqlite --name mem --type note ...\n  \
     Placing it before the subcommand (e.g. `sqlite-graphrag --db x.sqlite remember`) is rejected.\n  \
     Prefer `--db` on every invocation (one-shot agents). Optional XDG defaults:\n    \
-    `sqlite-graphrag config set db.default_path ./graphrag.sqlite`\n  \
+    `sqlite-graphrag config set db.path ./graphrag.sqlite`\n  \
     Product environment variables are not read at runtime; use flags + `config set/get`.")]
+/// CLI.
 pub struct Cli {
     /// Maximum number of simultaneous CLI invocations allowed (default: 4).
     ///
@@ -106,6 +111,22 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "IANA")]
     pub tz: Option<chrono_tz::Tz>,
 
+    /// Directory holding `config.toml`. Overrides the OS config directory.
+    ///
+    /// Precedence (G-T-XDG-04): this flag > OS default. It deliberately does
+    /// NOT consult a `config set` key, because the config file itself lives in
+    /// this directory and reading it to find itself would be circular.
+    /// Hidden: it exists for hermetic test isolation and sandboxed hosts.
+    #[arg(long, global = true, hide = true, value_name = "DIR")]
+    pub config_dir: Option<std::path::PathBuf>,
+
+    /// Directory for lock files, model files and other cache artifacts.
+    ///
+    /// Precedence (G-T-XDG-04): this flag > XDG `cache.dir` > OS default.
+    /// Hidden for the same reason as `--config-dir`.
+    #[arg(long, global = true, hide = true, value_name = "DIR")]
+    pub cache_dir: Option<std::path::PathBuf>,
+
     /// Increase logging verbosity (-v=info, -vv=debug, -vvv=trace).
     ///
     /// Overrides XDG `log.level` when present. Logs are emitted
@@ -131,10 +152,10 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "KIND", default_value = "llm")]
     pub extraction_backend: Option<String>,
 
-    /// v1.0.79 (G42/S1): embedding dimensionality override (default 64).
+    /// Embedding dimensionality override (default 1024 since v1.2.0).
     ///
     /// Precedence: this flag > XDG `embedding.dim` >
-    /// the `dim` recorded in the database `schema_meta` > 64. Existing
+    /// the `dim` recorded in the database `schema_meta` > 1024. Existing
     /// databases keep their recorded dimensionality automatically; use
     /// this flag only to migrate a corpus to a new dimensionality
     /// (followed by `enrich --operation re-embed`). Range: [8, 4096].
@@ -267,6 +288,7 @@ pub struct Cli {
     )]
     pub openrouter_api_key: Option<String>,
 
+    /// Subcommand to execute.
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -319,6 +341,7 @@ impl Commands {
         )
     }
 
+    /// Return whether this command occupies a CLI concurrency slot.
     pub fn uses_cli_slot(&self) -> bool {
         true
     }
@@ -336,8 +359,11 @@ impl Commands {
                 args.status
                     || args.list_dead
                     || args.requeue_dead
+                    || args.list_skipped
+                    || args.requeue_skipped
                     || args.prune_dead_orphans
                     || args.prune_dead_entity_orphans
+                    || args.print_schema
             }
             _ => false,
         }
@@ -348,13 +374,19 @@ impl Commands {
 /// agents that append `--json` to every subcommand never see clap errors.
 /// The handler in `main.rs` always emits JSON on stdout; this flag is
 /// accepted and ignored for parity with the rest of the CLI surface.
+///
+/// GAP-SG-139: also accepts `--db` as a no-op for agent uniformity (host surface).
 #[derive(Debug, clap::Args)]
 pub struct CodexModelsArgs {
     /// No-op; JSON is always emitted on stdout by `codex-models`.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// GAP-SG-139: accepted as a no-op for agent uniformity (no graph I/O).
+    #[command(flatten)]
+    pub db_noop: crate::cli_db_noop::DbNoopArgs,
 }
 
+/// Commands.
 #[derive(Subcommand)]
 pub enum Commands {
     /// Initialize database and download embedding model
@@ -364,7 +396,7 @@ pub enum Commands {
         # Initialize at a specific path\n  \
         sqlite-graphrag init --db /path/to/graphrag.sqlite\n\n  \
         # Persist default db path via XDG config (no product env)\n  \
-        sqlite-graphrag config set db.default_path /data/graphrag.sqlite\n  \
+        sqlite-graphrag config set db.path /data/graphrag.sqlite\n  \
         sqlite-graphrag init\n\n\
         NOTES:\n  \
         - `init` is OPTIONAL: any subsequent CRUD command auto-initializes graphrag.sqlite if missing.\n  \
@@ -507,6 +539,7 @@ pub enum Commands {
     NormalizeEntities(normalize_entities::NormalizeEntitiesArgs),
     /// Generate shell completions for Bash, Zsh, Fish, PowerShell, or Elvish
     Completions(completions::CompletionsArgs),
+    /// `debug-schema` subcommand.
     #[command(name = "debug-schema", hide = true)]
     DebugSchema(debug_schema::DebugSchemaArgs),
     /// Manage API keys and diagnose provider configuration (v1.0.93)
@@ -576,17 +609,27 @@ impl std::fmt::Debug for Commands {
     }
 }
 
+/// Memory type.
 #[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
 pub enum MemoryType {
+    /// User variant.
     User,
+    /// Feedback variant.
     Feedback,
+    /// Project variant.
     Project,
+    /// Reference variant.
     Reference,
+    /// Decision variant.
     Decision,
+    /// Incident variant.
     Incident,
+    /// Skill variant.
     Skill,
+    /// Document variant.
     #[default]
     Document,
+    /// Note variant.
     Note,
 }
 
@@ -596,6 +639,7 @@ mod heavy_concurrency_tests;
 
 
 impl MemoryType {
+    /// Return the canonical string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::User => "user",

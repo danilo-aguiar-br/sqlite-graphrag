@@ -18,6 +18,7 @@ use serde::Serialize;
     cat updated.md | sqlite-graphrag edit onboarding --body-stdin\n\n  \
     # Update only the description\n  \
     sqlite-graphrag edit onboarding --description \"new short description\"")]
+/// Edit args.
 pub struct EditArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -51,14 +52,18 @@ pub struct EditArgs {
         long_help = "Optimistic lock: reject if updated_at does not match. \
 Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     )]
+    /// Expected updated at.
     pub expected_updated_at: Option<i64>,
     #[arg(
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// G42/S9 (v1.0.79): regenerate the embedding even when the body is
@@ -96,6 +101,7 @@ struct EditResponse {
     backend_invoked: Option<&'static str>,
 }
 
+/// Run.
 pub fn run(
     args: EditArgs,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -107,7 +113,7 @@ pub fn run(
     tracing::debug!(target: "edit", name = ?args.name_positional.as_deref().or(args.name.as_deref()), "updating memory");
     // Resolve name from positional or --name flag; both are optional, at least one is required.
     let name = args.name_positional.or(args.name).ok_or_else(|| {
-        AppError::Validation("name required: pass as positional argument or via --name".to_string())
+        AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
     })?;
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
 
@@ -215,7 +221,7 @@ pub fn run(
         );
         // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
         // v1.0.84 (ADR-0042): tuple (Vec<f32>, LlmBackendKind) — extrai o
-        // backend que efetivamente rodou para popular `backend_invoked`.
+        // backend that actually ran — populate `backend_invoked`.
         let skip_embed = crate::embedder::should_skip_embedding_on_failure();
         let embedding: Option<(Vec<f32>, &'static str)> =
             match crate::embedder::embed_passage_with_embedding_choice(

@@ -4,9 +4,14 @@
 # The real `claude` binary requires OAuth login and a network round-trip to
 # Anthropic. Tests must run hermetically on CI runners, so we substitute a
 # shell script that returns deterministic zero vectors in the requested
-# dimensionality (default 64 since v1.0.79, G42/S1; G51: the dim is parsed
-# from the prompt or from the --output-schema file, enabling end-to-end
-# tests against non-64 databases such as legacy 384-dim ones).
+# dimensionality (fallback 64; G51: the dim is parsed from the prompt or from
+# the schema, enabling end-to-end tests against databases of any width).
+#
+# The schema arrives in TWO shapes and both must be handled: codex passes
+# `--output-schema <PATH>` (a tempfile) while claude passes `--json-schema
+# <INLINE-JSON>` since Claude Code 2.1. Treating the argument as a path only
+# made the inline form fall through to the 64 fallback, so every claude-backed
+# test silently exercised 64 dims no matter what the database recorded.
 #
 # Two response shapes are supported, mirroring
 # src/extract/llm_embedding.rs:
@@ -30,24 +35,31 @@ text = os.environ['ARGS']
 if not sys.stdin.isatty():
     text += ' ' + sys.stdin.read()
 # G51: honour the requested dimensionality instead of hardcoding 64.
-# Batch prompts carry it inline; the single path only carries it in the
-# --output-schema JSON file (minItems), so read that file when present.
+# Batch prompts state it inline; the single path only carries it as the
+# schema's minItems, which may be a file path OR the schema itself.
 dim = 64
 dm = re.search(r'(\d+)-dimensional', text)
 if dm:
     dim = int(dm.group(1))
 else:
     argv = text.split()
+    schema = None
     for flag in ('--output-schema', '--json-schema'):
         if flag in argv:
             try:
-                schema = open(argv[argv.index(flag) + 1]).read()
-                sm = re.search(r'\"minItems\"\s*:\s*(\d+)', schema)
-                if sm:
-                    dim = int(sm.group(1))
-            except (IndexError, OSError):
-                pass
+                token = argv[argv.index(flag) + 1]
+            except IndexError:
+                break
+            try:
+                schema = open(token).read()
+            except OSError:
+                # Not a path: claude passes the schema as inline JSON.
+                schema = token
             break
+    # Last resort: the schema may reach us joined into the prompt text.
+    sm = re.search(r'\"minItems\"\s*:\s*(\d+)', schema if schema else text)
+    if sm:
+        dim = int(sm.group(1))
 m = re.search(r'EXACTLY (\d+) items', text)
 if m:
     n = int(m.group(1))

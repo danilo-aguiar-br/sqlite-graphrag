@@ -10,8 +10,13 @@ pub mod compat_matrix;
 pub mod env_whitelist;
 pub mod error_propagator;
 pub mod executor_version;
+pub mod llm_spawn_backend;
 pub mod opencode_adapter;
 pub mod preflight;
+
+pub use llm_spawn_backend::{
+    ClaudeSpawnBackend, CodexSpawnBackend, LlmSpawnBackend, OpencodeSpawnBackend,
+};
 
 use crate::errors::AppError;
 use async_trait::async_trait;
@@ -22,23 +27,33 @@ use std::process::Stdio;
 /// Result of parsing a subprocess output stream.
 #[derive(Debug, Clone)]
 pub struct ParsedOutput {
+    /// Items.
     pub items: Vec<serde_json::Value>,
+    /// Raw stdout.
     pub raw_stdout: String,
+    /// Raw stderr.
     pub raw_stderr: String,
+    /// Exit code.
     pub exit_code: i32,
 }
 
 /// Detected capability of a given executor version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutorCapabilities {
+    /// Supports mcp map.
     pub supports_mcp_map: bool,
+    /// Supports ask for approval flag.
     pub supports_ask_for_approval_flag: bool,
+    /// Supports strict schema.
     pub supports_strict_schema: bool,
+    /// Default flags.
     pub default_flags: Vec<String>,
+    /// Removed flags.
     pub removed_flags: Vec<String>,
 }
 
 impl ExecutorCapabilities {
+    /// Empty.
     pub fn empty() -> Self {
         Self {
             supports_mcp_map: false,
@@ -86,6 +101,7 @@ pub enum CompatMode {
 }
 
 impl CompatMode {
+    /// Parse from a string.
     pub fn parse(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "strict" => Self::Strict,
@@ -103,20 +119,24 @@ pub struct VersionCache {
 }
 
 impl VersionCache {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Get.
     pub fn get(&self, name: &str) -> Option<ExecutorVersion> {
         self.inner.lock().ok().and_then(|m| m.get(name).cloned())
     }
 
+    /// Put.
     pub fn put(&self, name: &str, version: ExecutorVersion) {
         if let Ok(mut m) = self.inner.lock() {
             m.insert(name.to_string(), version);
         }
     }
 
+    /// Clear.
     pub fn clear(&self) {
         if let Ok(mut m) = self.inner.lock() {
             m.clear();
@@ -126,6 +146,7 @@ impl VersionCache {
 
 static VERSION_CACHE: std::sync::OnceLock<VersionCache> = std::sync::OnceLock::new();
 
+/// Global version cache.
 pub fn global_version_cache() -> &'static VersionCache {
     VERSION_CACHE.get_or_init(VersionCache::new)
 }
@@ -177,6 +198,21 @@ pub fn apply_cwd_isolation_tokio(
     Ok(dir)
 }
 
+/// Portable command that exits non-zero without depending on `/bin/false`
+/// (absent on Windows). Used by OAuth-only violation stubs and tests.
+pub fn failing_command() -> std::process::Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", "exit", "1"]);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("false")
+    }
+}
+
 #[cfg(test)]
 mod isolation_tests {
     use super::*;
@@ -198,7 +234,7 @@ mod isolation_tests {
 
     #[test]
     fn test_apply_cwd_isolation_modifies_command() {
-        let mut cmd = std::process::Command::new("false");
+        let mut cmd = super::failing_command();
         let dir = apply_cwd_isolation(&mut cmd).unwrap();
         assert!(dir.exists());
         let debug = format!("{cmd:?}");

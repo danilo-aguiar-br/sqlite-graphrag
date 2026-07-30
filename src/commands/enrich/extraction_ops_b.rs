@@ -16,7 +16,7 @@ pub(crate) fn call_weight_calibrate(
 ) -> Result<EnrichItemResult, AppError> {
     let rel_id: i64 = item_key
         .parse()
-        .map_err(|_| AppError::Validation(format!("invalid relationship id: {item_key}")))?;
+        .map_err(|_| AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key)))?;
     let (source_name, target_name, relation, current_weight): (String, String, String, f64) = conn
         .query_row(
             "SELECT e1.name, e2.name, r.relation, r.weight \
@@ -69,7 +69,7 @@ pub(crate) fn call_weight_calibrate(
     let calibrated = value
         .get("calibrated_weight")
         .and_then(|v| v.as_f64())
-        .ok_or_else(|| AppError::Validation("LLM result missing 'calibrated_weight'".into()))?;
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_calibrated_weight()))?;
 
     conn.execute(
         "UPDATE relationships SET weight = ?1 WHERE id = ?2",
@@ -100,7 +100,7 @@ pub(crate) fn call_relation_reclassify(
 ) -> Result<EnrichItemResult, AppError> {
     let rel_id: i64 = item_key
         .parse()
-        .map_err(|_| AppError::Validation(format!("invalid relationship id: {item_key}")))?;
+        .map_err(|_| AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key)))?;
     let (source_name, target_name, current_relation): (String, String, String) = conn
         .query_row(
             "SELECT e1.name, e2.name, r.relation \
@@ -153,7 +153,7 @@ pub(crate) fn call_relation_reclassify(
     let new_relation = value
         .get("relation")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation("LLM result missing 'relation'".into()))?;
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_relation()))?;
     let new_strength = value
         .get("strength")
         .and_then(|v| v.as_f64())

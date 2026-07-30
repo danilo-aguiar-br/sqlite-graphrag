@@ -96,7 +96,10 @@ pub fn register_shutdown_handler() {
 fn handle_first_signal(signal_name: &'static str, signal_number: u8) {
     let prev = crate::SIGNAL_COUNT.fetch_add(1, Ordering::AcqRel);
     if prev != 0 {
-        // Second signal: forced shutdown, NO I/O (G42/S8).
+        // Second signal: forced shutdown. GAP-SG-99: best-effort flush of the
+        // non-blocking file appender before exit so the last diagnostics land.
+        // Avoid stdout I/O (G42/S8); flush is stderr/file only.
+        crate::tracing_init::flush_tracing();
         std::process::exit(130);
     }
     crate::SHUTDOWN.store(true, Ordering::Release);

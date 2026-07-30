@@ -2,8 +2,10 @@
 
 #![allow(clippy::empty_line_after_doc_comments)]
 
-use super::*;
+use super::args::{EnrichOperation, ReEmbedTarget};
 use super::predicates::{entity_description_scan_predicate, *};
+use crate::errors::AppError;
+use rusqlite::Connection;
 
 pub(super) fn scan_entities_for_type_validation(
     conn: &Connection,
@@ -12,7 +14,7 @@ pub(super) fn scan_entities_for_type_validation(
 ) -> Result<Vec<(i64, String, String)>, AppError> {
     let limit_clause = limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
     let sql = format!(
-        "SELECT id, name, type FROM entities WHERE namespace = ?1 ORDER BY id {limit_clause}"
+        "SELECT id, name, type FROM entities WHERE namespace = ?1 ORDER BY (id * 2654435761) % 2147483647 {limit_clause}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
@@ -33,7 +35,7 @@ pub(super) fn scan_generic_descriptions(
     let sql = format!(
         "SELECT id, name, description FROM memories WHERE namespace = ?1 AND deleted_at IS NULL \
          AND {GENERIC_DESCRIPTION_PREDICATE} \
-         ORDER BY id {limit_clause}"
+         ORDER BY (id * 2654435761) % 2147483647 {limit_clause}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
@@ -98,11 +100,14 @@ pub(super) fn sample_entity_description_quality(
         |r| r.get(0),
     )?;
 
+    // G-PR-6 / GAP-SG Phase 5: stable but non-sequential sample (ORDER BY id
+    // biased toward oldest rows). Hash-modulo keeps the sample deterministic
+    // across runs for the same namespace size.
     let mut stmt = conn.prepare(
         "SELECT id, description FROM entities \
          WHERE namespace = ?1 \
            AND description IS NOT NULL AND description != '' \
-         ORDER BY id \
+         ORDER BY (id * 2654435761) % 2147483647 \
          LIMIT ?2",
     )?;
     let rows = stmt.query_map(
@@ -146,12 +151,20 @@ pub(super) fn sample_entity_description_quality(
         };
         scores.push(score);
     }
-    let _ = scores;
 
+    // Use scores for a mean-weighted quality signal when the binary accept
+    // rate alone would hide near-threshold failures.
+    let mean_score = if scores.is_empty() {
+        1.0
+    } else {
+        scores.iter().sum::<f64>() / scores.len() as f64
+    };
     let quality_pct = if sampled == 0 {
         1.0
     } else {
-        f64::from(grounded) / f64::from(sampled)
+        // Blend accept-rate with mean Jaccard so operators see continuous signal.
+        let accept_rate = f64::from(grounded) / f64::from(sampled);
+        (0.5 * accept_rate + 0.5 * mean_score).clamp(0.0, 1.0)
     };
     let low_frac = (1.0 - quality_pct).clamp(0.0, 1.0);
     let low_grounding_est = (low_frac * total_with_description as f64).round() as i64;
@@ -194,12 +207,34 @@ pub(super) fn count_operation_backlog_with_force(
             conn.query_row(&sql, rusqlite::params![namespace], |r| r.get::<_, i64>(0))?
         }
         EnrichOperation::EntityDescriptions => {
-            let pred = entity_description_scan_predicate(force_redescribe);
-            let sql = format!(
-                "SELECT COUNT(*) FROM entities \
-                 WHERE namespace = ?1 AND {pred}"
-            );
-            conn.query_row(&sql, rusqlite::params![namespace], |r| r.get::<_, i64>(0))?
+            // G-PR-2: with --force-redescribe, SQL is a high-precision prefilter;
+            // re-apply `is_low_quality_description` so status COUNT matches scan.
+            if force_redescribe {
+                let pred = entity_description_scan_predicate(true);
+                let sql = format!(
+                    "SELECT COALESCE(description, '') FROM entities \
+                     WHERE namespace = ?1 AND {pred}"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let descs = stmt.query_map(rusqlite::params![namespace], |r| {
+                    r.get::<_, String>(0)
+                })?;
+                let mut n = 0i64;
+                for d in descs {
+                    let desc = d?;
+                    if desc.trim().is_empty() || is_low_quality_description(&desc) {
+                        n += 1;
+                    }
+                }
+                n
+            } else {
+                let pred = entity_description_scan_predicate(false);
+                let sql = format!(
+                    "SELECT COUNT(*) FROM entities \
+                     WHERE namespace = ?1 AND {pred}"
+                );
+                conn.query_row(&sql, rusqlite::params![namespace], |r| r.get::<_, i64>(0))?
+            }
         }
         EnrichOperation::BodyEnrich => {
             let sql = format!(
@@ -283,7 +318,7 @@ pub(super) fn count_operation_backlog_with_force(
         }
         EnrichOperation::EntityConnect => {
             // Proxy O(n): entidades degree-0 com binding NER (ilhadas e conectaveis).
-            // Nao conta pares O(n^2) — seria proibitivo para 82k entidades.
+            // Do not count O(n^2) pairs — prohibitive for ~82k entities.
             let sql = "SELECT COUNT(*) FROM entities e \
                        WHERE e.namespace = ?1 AND e.degree = 0 \
                        AND EXISTS (SELECT 1 FROM memory_entities me WHERE me.entity_id = e.id)";

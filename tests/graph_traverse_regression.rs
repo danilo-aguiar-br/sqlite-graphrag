@@ -23,16 +23,31 @@ fn sgr_cmd() -> Command {
 #[path = "common/mod.rs"]
 mod common;
 
+/// Base command bound to the sandbox.
+///
+/// GAP-SG-101: this file used `SQLITE_GRAPHRAG_DB_PATH`, which no production
+/// code reads (`src/paths.rs` documents this normatively). Every `remember`
+/// below therefore landed in the developer's REAL database, and the second run
+/// failed on a duplicate created by the first — the flakiness that made this
+/// file the acceptance case for the gap. `--config-dir` / `--cache-dir` are
+/// honoured on every OS, unlike `XDG_*`, which `directories` reads on Linux
+/// only.
 fn cmd_base(tmp: &TempDir) -> Command {
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    c.arg("--config-dir").arg(tmp.path().join("config"));
+    c.arg("--cache-dir").arg(tmp.path().join("cache"));
     c.arg("--skip-memory-guard");
     c
 }
 
 fn init_db(tmp: &TempDir) {
+    // Select the database through the XDG key so callers do not have to thread
+    // `--db` after every subcommand.
+    cmd_base(tmp)
+        .args(["config", "set", "db.path"])
+        .arg(tmp.path().join("test.sqlite"))
+        .assert()
+        .success();
     cmd_base(tmp).arg("init").assert().success();
 }
 

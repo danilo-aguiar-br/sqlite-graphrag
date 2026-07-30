@@ -18,11 +18,13 @@ use serde::Serialize;
     sqlite-graphrag list --limit 20 --offset 40\n\n  \
     # Include soft-deleted memories\n  \
     sqlite-graphrag list --include-deleted")]
+/// List args.
 pub struct ListArgs {
     #[arg(
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Filter by memory.type. Note: distinct from graph entity_type
     /// (project/tool/person/file/concept/incident/decision/memory/dashboard/issue_tracker/organization/location/date)
@@ -33,6 +35,7 @@ pub struct ListArgs {
         long,
         help = "Maximum number of memories to return (default: 50 for text, all for JSON)"
     )]
+    /// Maximum number of items.
     pub limit: Option<usize>,
     /// Number of memories to skip before returning results.
     #[arg(long, default_value = "0", help = "Number of memories to skip")]
@@ -43,14 +46,19 @@ pub struct ListArgs {
     /// Include soft-deleted memories in the listing (deleted_at IS NOT NULL).
     #[arg(long, default_value_t = false, help = "Include soft-deleted memories")]
     pub include_deleted: bool,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
+    /// Path to graphrag.sqlite. Overrides the XDG `db.path` setting.
     #[arg(
         long,
                 help = "Path to graphrag.sqlite"
     )]
     pub db: Option<String>,
+    /// Emit the JSON Schema for this command's stdout envelope and exit 0
+    /// without opening the database (agent-native R-AN-01).
+    #[arg(long, default_value_t = false, help = "Print JSON Schema for list output and exit")]
+    pub print_schema: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -100,7 +108,11 @@ struct ListResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: ListArgs) -> Result<(), AppError> {
+    if args.print_schema {
+        return crate::print_schema::emit(crate::print_schema::SchemaId::List);
+    }
     if args.limit == Some(0) {
         return Err(AppError::Validation(
             "--limit must be greater than zero".to_string(),

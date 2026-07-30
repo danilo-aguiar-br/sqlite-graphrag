@@ -19,9 +19,10 @@
 //! # DRY note
 //!
 //! v1.0.97: `claude_runner.rs` now hosts the shared Claude invocation helpers
-//! (`run_claude`, `parse_claude_output`, `spawn_with_memory_limit`). The queue
-//! DB schema in `ingest_claude.rs` still duplicates `open_queue_db` here — a
-//! future pass can unify them.
+//! (`run_claude`, `parse_claude_output`, `spawn_with_memory_limit`).
+//! GAP-SG-121: enrich vs ingest queue table shapes are different products
+//! (item_key/operation vs file_path); only sidecar WAL/busy pragmas are shared
+//! via [`crate::pragmas::apply_sidecar_queue_pragmas`].
 
 mod args;
 mod drain_parallel;
@@ -43,10 +44,6 @@ mod scheduler;
 mod schemas;
 mod status;
 
-// Surface schemas + defaults for sibling modules (`super::BINDINGS_SCHEMA`, etc.).
-#[allow(unused_imports)]
-pub(crate) use schemas::*;
-
 pub(crate) const DEFAULT_RATE_LIMIT_WAIT: u64 = 60;
 pub(crate) const DEFAULT_BODY_ENRICH_MIN_CHARS: usize = 500;
 pub(crate) const DEFAULT_BODY_ENRICH_MAX_CHARS: usize = 2000;
@@ -55,36 +52,7 @@ pub use args::{EnrichArgs, EnrichMode, EnrichOperation, ReEmbedTarget};
 pub use queue::{cleanup_queue_entry, DeadItem, DeadSummary, EnrichStatus, WaitingItem};
 pub use run::run;
 
-// External types re-exported so historical `use super::*` in child modules keeps working.
-#[allow(unused_imports)]
-pub(crate) use crate::commands::ingest_claude::find_claude_binary;
-#[allow(unused_imports)]
-pub(crate) use crate::constants::MAX_MEMORY_BODY_LEN;
-#[allow(unused_imports)]
-pub(crate) use crate::entity_type::EntityType;
-#[allow(unused_imports)]
-pub(crate) use crate::errors::AppError;
-#[allow(unused_imports)]
-pub(crate) use crate::paths::AppPaths;
-#[allow(unused_imports)]
-pub(crate) use crate::storage::connection::{ensure_db_ready, open_rw};
-#[allow(unused_imports)]
-pub(crate) use crate::storage::entities::{self as entities, NewEntity, NewRelationship};
-#[allow(unused_imports)]
-pub(crate) use crate::storage::memories;
-#[allow(unused_imports)]
-pub(crate) use rusqlite::Connection;
-#[allow(unused_imports)]
-pub(crate) use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-pub(crate) use std::io::Write;
-#[allow(unused_imports)]
-pub(crate) use std::path::{Path, PathBuf};
-#[allow(unused_imports)]
-pub(crate) use std::time::Instant;
-#[allow(unused_imports)]
-pub(crate) use prompts::ENTITY_DESCRIPTION_PROMPT_PREFIX;
-
+use crate::errors::AppError;
 use queue::{enqueue_candidate_with_priority, open_queue_db, PRIORITY_HOT};
 
 /// GAP-CLI-PRIO-02: enqueue entity-descriptions for a hot set of entity names
@@ -116,7 +84,11 @@ pub fn enqueue_priority_entity_descriptions(
 mod tests {
     use super::*;
     use super::events::{enrich_operation_cli_name, is_sqlite_interrupt, scan_operation_with_deadline};
-    use rusqlite::ErrorCode;
+    use super::schemas::{
+        BINDINGS_SCHEMA, BODY_ENRICH_SCHEMA, ENTITY_DESCRIPTION_SCHEMA,
+    };
+    use crate::errors::AppError;
+    use rusqlite::{Connection, ErrorCode};
     use std::time::{Duration, Instant};
 
     #[test]

@@ -57,8 +57,8 @@ pub fn passage_token_offsets(text: &str) -> Result<Vec<(usize, usize)>, AppError
 
 /// Returns the model's max input length. Since we no longer have a
 /// tokenizer config, this returns the constant from `constants.rs`.
-/// Operators that need a different ceiling should set
-/// `SQLITE_GRAPHRAG_EMBEDDING_MAX_TOKENS` in the environment.
+/// Operators that need a different ceiling should change the compile-time
+/// constant or the XDG embedding token policy when exposed via `config set`.
 pub fn get_model_max_length() -> usize {
     crate::constants::EMBEDDING_MAX_TOKENS
 }

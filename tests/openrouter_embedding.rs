@@ -25,9 +25,8 @@ fn sgr_cmd() -> Command {
 
 fn cmd_base(tmp: &TempDir) -> Command {
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
+    c.env("XDG_CACHE_HOME", tmp.path().join("cache"));
     c.env_remove("OPENROUTER_API_KEY");
     c.arg("--skip-memory-guard");
     c

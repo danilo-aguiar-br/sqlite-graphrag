@@ -7,8 +7,8 @@
 
 - Leia a versão em inglês em [INTEGRATIONS.md](INTEGRATIONS.md)
 - Cada receita abaixo está pronta para copiar e custa zero para executar
-- **v1.1.8 — Configuração via XDG, não env de produto.** Precedência: **flag CLI > XDG `config set` > default**. Help scrub (sem product env / sem Box about). URLs OpenRouter em `network.openrouter.*`. Use `config list --effective`, `pending-embeddings status`, `cache stats`, `purge --now`. Schema permanece v16. Schedulers: cron/systemd/launchd/Task Scheduler **local** — sem GitHub Actions como caminho de produto.
-- **v1.0.79: todo build é apenas LLM e one-shot.** A geração de embedding delega para um subprocesso headless `claude code` ou `codex` (OAuth). O daemon, o runtime ONNX e a feature `embedding-legacy` foram totalmente removidos; os embeddings são em lote, paralelos (`--llm-parallelism`) e com 384 dimensões por padrão (`--embedding-dim`, faixa [8, 4096]).
+- **v1.2.0 — Configuração via XDG, não env de produto.** Precedência: **flag CLI > XDG `config set` > default**. **DEFAULT_EMBEDDING_DIM=1024**. Help scrub (sem product env / sem Box about). URLs OpenRouter em `network.openrouter.*`. Use `config list --effective`, `pending-embeddings status`, `cache stats`, `purge --now`. Schema permanece v16. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico v118 supersedido). Schedulers: cron/systemd/launchd/Task Scheduler **local** — sem GitHub Actions como caminho de produto.
+- **v1.0.79: todo build é apenas LLM e one-shot.** A geração de embedding delega para um subprocesso headless `claude code` ou `codex` (OAuth). O daemon, o runtime ONNX e a feature `embedding-legacy` foram totalmente removidos; os embeddings são em lote, paralelos (`--llm-parallelism`) e com **1024** dimensões por padrão (`--embedding-dim`, faixa [8, 4096]; v1.2.0).
 
 
 ## Aliases de Flags CLI (desde v1.0.35)
@@ -28,14 +28,16 @@
 - Para extração de entidades/relacionamentos curada por LLM use `ingest --mode claude-code` ou `ingest --mode codex`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
-## Novos Comandos e Flags (desde v1.1.8)
+## Novos Comandos e Flags (desde v1.2.0)
 
-- Crate **`1.1.8`**; **sem migração** de schema (v16). Fecha auditoria de qualidade/latência/contrato do enrich + poison QISO da fila.
-- Config: `config set|get|list|unset`, `config list --effective`; keys `network.openrouter.*`, `llm.query_embed_timeout_secs`.
-- UX: `pending-embeddings status`, `cache stats`, `purge --now`; `remember-batch` exige `description` na criação.
-- Normalizações: EntityType `module`→Concept; `related_to`→`related`; alias telemetry removido.
-- Help: sem env de produto; harness offline `scripts/e2e_offline_v118.sh` **16/16**.
-- Residuais: monólitos >800; live LQ = operador.
+- Crate **`1.2.0`**; pin de consumidores de biblioteca `=1.2.0`. Schema do DB principal permanece em **v16** (sem migrate se já em v16; migrate só da fila sidecar).
+- **DEFAULT_EMBEDDING_DIM=1024** — flag `--embedding-dim` / XDG `embedding.dim` ainda sobrescrevem; DBs existentes mantêm `schema_meta.dim` até re-embed.
+- Precedência de config: **flag CLI > XDG `config set` > default nomeado**. Product env `SQLITE_GRAPHRAG_*` **não** é o caminho de config (ignorada em runtime).
+- `enrich --list-skipped` / `enrich --requeue-skipped` — recuperam sink `preservation_failed` / skipped sem SQL cru (G-PR-3/4).
+- Fila enrich multi-namespace — coluna `namespace` + `UNIQUE(namespace, operation, item_key)`; `DELETE` escopado; correção SQL `status='pending'`.
+- **GAP-SG-139** — folhas host/XDG (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado (`src/cli_db_noop.rs`); superfícies de grafo inalteradas.
+- Aliases UX: `pending-embeddings status` (= `embedding status`), `cache stats` (= `cache list`); `purge --now` (alias de `--retention-days 0`); `config list --effective` (defaults de dim/log via `constants`, sem `"384"` hard-coded).
+- Seal offline: `scripts/e2e_offline_v120.sh` (wrapper histórico `e2e_offline_v118.sh` supersedido; **20/20** no binário de release 1.2.0).
 
 ## Novos Comandos e Flags (desde v1.1.06)
 
@@ -183,7 +185,7 @@
 - O subcomando `daemon` foi DEPRECIADO na v1.0.76 e TOTALMENTE REMOVIDO na v1.0.79 (antecipando o cronograma da v1.1.0).  O subprocesso LLM é o "model loader"; a CLI é 100% one-shot com zero IPC.
 
 ## Novos Comandos e Flags (v1.0.79 — pipeline de embedding G42)
-- Flag global `--embedding-dim <N>` define a dimensionalidade do embedding (padrão 384, faixa [8, 4096]); precedência: flag > env `SQLITE_GRAPHRAG_EMBEDDING_DIM` > o `dim` gravado em `schema_meta` > 384; bancos 384-dim existentes continuam funcionando sem mudança
+- Flag global `--embedding-dim <N>` define a dimensionalidade do embedding (padrão **1024**, faixa [8, 4096]); precedência: flag > XDG `embedding.dim` > o `dim` gravado em `schema_meta` > 1024; bancos 384-dim existentes continuam via dim gravada
 - `--llm-parallelism <N>` agora disponível em `remember` (padrão 4), `ingest` (padrão 2) e `edit` — fan-out limitado via `Semaphore` + `JoinSet`, permits com clamp [1, 32]
 - `enrich --operation re-embed --limit N --resume` é o caminho canônico de re-embed one-shot (ex.: após mudar `--embedding-dim`)
 - `edit --force-reembed` regenera o embedding de uma memória sem alterar o corpo

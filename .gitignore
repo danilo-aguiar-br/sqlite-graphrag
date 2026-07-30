@@ -68,6 +68,9 @@ graphrag.sqlite-wal
 *.bak.*
 **/*.bak.*
 
+# Local archives (never commit or ship)
+*.7z
+
 # Internal analysis
 gaps.md
 

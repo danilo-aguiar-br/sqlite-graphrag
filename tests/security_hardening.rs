@@ -21,10 +21,9 @@ fn sgr_cmd() -> Command {
 mod common;
 
 fn cmd_base(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.arg("--skip-memory-guard");
     c
 }
@@ -38,16 +37,15 @@ fn init_db(tmp: &TempDir) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_path_traversal_rejected_in_db_path() {
+fn test_path_traversal_rejected_in_db_flag() {
+    // GAP-SG-101: product env is not a path channel. Validate --db.
     let tmp = TempDir::new().unwrap();
     let traversal = format!("{}/../../../etc/passwd", tmp.path().display());
 
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", &traversal);
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.args(["init"]);
+    c.args(["init", "--db", &traversal]);
 
     c.assert().failure().code(predicates::ord::lt(128i32));
 }
@@ -57,11 +55,9 @@ fn test_path_traversal_double_dot_rejected() {
     let tmp = TempDir::new().unwrap();
 
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", "../../../tmp/malicioso.sqlite");
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.args(["init"]);
+    c.args(["init", "--db", "../../../tmp/malicioso.sqlite"]);
 
     c.assert().failure();
 }
@@ -109,11 +105,9 @@ fn test_symlink_to_etc_rejected() {
     // The binary must reject the traversed path via symlink
     // (validation of .. in the path OR failure when trying to open /etc/hosts as SQLite)
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", &link_path);
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.args(["init"]);
+    c.args(["init", "--db"]).arg(&link_path);
 
     // Must fail: either exit 1 (validation) or exit 10 (database - file is not SQLite)
     c.assert().failure();

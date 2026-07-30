@@ -1,6 +1,13 @@
 // E2E integration tests for the sqlite-graphrag slot semaphore.
 //
-// ISOLATION: every test sets `SQLITE_GRAPHRAG_CACHE_DIR` pointing
+// GAP-SG-101: `XDG_CACHE_HOME` is the real isolation channel; the retired
+// product env `SQLITE_GRAPHRAG_CACHE_DIR` that these tests used before v1.2.0
+// had no reader, so the binary competed for slots in the developer's real
+// cache. Because `ProjectDirs::cache_dir()` appends the application directory,
+// lock files land under `<XDG_CACHE_HOME>/sqlite-graphrag`, not at the root —
+// see `slots_root`.
+//
+// ISOLATION: every test sets `XDG_CACHE_HOME` pointing
 // to an exclusive `TempDir`, ensuring lock files do not pollute
 // `~/.cache/sqlite-graphrag` nor collide between tests.
 //
@@ -38,10 +45,22 @@ mod common;
 // helpers
 // ---------------------------------------------------------------------------
 
+/// Directory where the binary actually writes CLI slot locks.
+///
+/// `ProjectDirs::cache_dir()` appends the application directory under
+/// `XDG_CACHE_HOME`, so locks land one level below the sandbox root. Tests that
+/// plant or inspect lock files by hand MUST go through this helper; using
+/// `tmp.path()` directly looks right and silently inspects an empty directory.
+fn slots_root(tmp: &TempDir) -> std::path::PathBuf {
+    let dir = tmp.path().join("sqlite-graphrag");
+    std::fs::create_dir_all(&dir).expect("slots_root: mkdir must succeed");
+    dir
+}
+
 /// Returns the lock file path for the given slot (1-based)
 /// within the provided `TempDir`, mirroring the logic of `lock.rs`.
 fn slot_path(tmp: &TempDir, slot: usize) -> std::path::PathBuf {
-    tmp.path().join(format!("cli-slot-{slot}.lock"))
+    slots_root(tmp).join(format!("cli-slot-{slot}.lock"))
 }
 
 // ---------------------------------------------------------------------------
@@ -57,14 +76,14 @@ fn slot_released_after_process_exits() {
 
     // First invocation — must acquire and release slot 1.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args(["--skip-memory-guard", "namespace-detect"])
         .assert()
         .success();
 
     // Second invocation — must acquire the slot again without error.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args(["--skip-memory-guard", "namespace-detect"])
         .assert()
         .success();
@@ -74,7 +93,7 @@ fn slot_released_after_process_exits() {
 // Scenario 2 — slot file is created in the configured cache dir
 // ---------------------------------------------------------------------------
 // Confirms that the binary creates `cli-slot-1.lock` in the directory overridden via
-// `SQLITE_GRAPHRAG_CACHE_DIR`.
+// `XDG_CACHE_HOME`.
 
 #[test]
 #[serial]
@@ -82,7 +101,7 @@ fn slot_file_created_in_cache_dir() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
 
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args(["--skip-memory-guard", "namespace-detect"])
         .assert()
         .success();
@@ -127,7 +146,7 @@ fn wait_lock_zero_returns_75_when_slots_busy() {
 
     // Invocation with all slots busy and --wait-lock 0 → exit 75.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -180,7 +199,7 @@ fn slot_bloqueia_segunda_instancia_com_exit_75() {
 
     // Second instance must fail immediately with exit 75.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -238,7 +257,7 @@ fn wait_lock_espera_e_adquire_slot() {
 
     // --wait-lock 10 must wait for release and complete successfully.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",

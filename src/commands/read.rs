@@ -17,6 +17,7 @@ use serde::Serialize;
     sqlite-graphrag read --id 42 --json\n\n  \
     # Read from a specific namespace\n  \
     sqlite-graphrag read onboarding --namespace my-project")]
+/// Read args.
 pub struct ReadArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -39,6 +40,7 @@ pub struct ReadArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Include linked entities and relationships in the response.
     #[arg(
@@ -56,8 +58,10 @@ pub struct ReadArgs {
         help = "Output format: json (default) or raw (pure body to stdout)"
     )]
     pub format: ReadFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -67,8 +71,10 @@ pub struct ReadArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum, Default)]
 #[value(rename_all = "lowercase")]
 pub enum ReadFormat {
+    /// JSON variant.
     #[default]
     Json,
+    /// Raw variant.
     Raw,
 }
 
@@ -127,6 +133,7 @@ fn epoch_to_iso(epoch: i64) -> String {
     crate::tz::epoch_to_iso(epoch)
 }
 
+/// Run.
 pub fn run(args: ReadArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;

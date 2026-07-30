@@ -32,7 +32,7 @@ pub fn extract_heuristic_description(body: &str, path_hint: Option<&str>) -> Str
     if let Some(desc) = from_body {
         return desc;
     }
-    // Fallback contextual: usar stem do path quando heurística do body falhar.
+    // Contextual fallback: use path stem when body heuristics fail.
     if let Some(stem) = path_hint.and_then(derive_stem) {
         return stem;
     }

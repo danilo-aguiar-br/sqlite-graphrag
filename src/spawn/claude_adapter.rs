@@ -7,6 +7,7 @@ use crate::errors::AppError;
 use async_trait::async_trait;
 use std::process::Command;
 
+/// Claude adapter.
 pub struct ClaudeAdapter;
 
 #[async_trait]

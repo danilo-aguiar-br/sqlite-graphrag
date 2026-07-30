@@ -41,6 +41,7 @@ pub const DEFAULT_SPLIT_THRESHOLD: usize = 25_000;
             so its history and searchability are preserved. Each child memory\n  \
             gets a canonical `replaces` graph relationship to the original."
 )]
+/// Split body args.
 pub struct SplitBodyArgs {
     /// Memory name to split (single mode). Mutually exclusive with `--batch`.
     #[arg(long, value_name = "NAME", conflicts_with = "batch")]
@@ -55,6 +56,7 @@ pub struct SplitBodyArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Preview the split(s) without writing. Emits the planned child names and
     /// body lengths.
@@ -63,8 +65,10 @@ pub struct SplitBodyArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -363,15 +367,11 @@ fn split_single(
 
 fn validate_child_name(child: &str, parent: &str) -> Result<(), AppError> {
     if child.is_empty() || child.len() > MAX_MEMORY_NAME_LEN {
-        return Err(AppError::Validation(format!(
-            "child name '{child}' derived from '{parent}' exceeds MAX_MEMORY_NAME_LEN ({MAX_MEMORY_NAME_LEN})"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::child_name_exceeds_max(child, parent, MAX_MEMORY_NAME_LEN)));
     }
     let slug_re = crate::constants::name_slug_regex();
     if !slug_re.is_match(child) {
-        return Err(AppError::Validation(format!(
-            "child name '{child}' is not kebab-case ASCII; rename the parent memory"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::child_name_not_kebab(child)));
     }
     Ok(())
 }

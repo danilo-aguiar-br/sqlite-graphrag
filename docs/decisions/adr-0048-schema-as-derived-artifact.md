@@ -19,7 +19,7 @@ Adopt `schemars = "0.8"` as a regular dependency and generate the schema from th
 
 ### 1. Add `schemars = "0.8"` to `[dependencies]`
 
-Pinned to 0.8 because schemars 1.0 introduced breaking API changes (notably the `schema_for!` macro signature and the reworked `Schema` enum). The 0.8 line is stable, widely deployed, and matches the example documented in `context7 docs /gresau/schemars` (ID `/gresau/schemars`, trustScore 8.8).
+Pinned to 0.8 because schemars 1.0 introduced breaking API changes (notably the `schema_for!` macro signature and the reworked `Schema` enum). The 0.8 line is stable, widely deployed, and matches the example documented in `context7-cli docs /gresau/schemars` (ID `/gresau/schemars`, trustScore 8.8).
 
 `s chemars` lives in `[dependencies]` (not `[dev-dependencies]`) because the `JsonSchema` derive macro is applied to the production struct `HealthResponse` in `src/commands/health.rs` — the lib crate needs the macro at compile time, not just tests.
 
@@ -86,7 +86,7 @@ The regenerated schema now contains 36 properties (matches `HealthResponse` exac
 
 ## Cross-references
 
-- `context7 docs /gresau/schemars` (ID `/gresau/schemars`, trustScore 8.8) — schemars 0.8 API documentation
+- `context7-cli docs /gresau/schemars` (ID `/gresau/schemars`, trustScore 8.8) — schemars 0.8 API documentation
 - `docs_rules/rules_rust_json_e_ndjson.md` line 33, 537, 547, 555 — Must-Ignore mandate, Draft 2020-12 mandate
 - RFC 7493 (I-JSON) — definition of Must-Ignore (`additionalProperties` defaulting to true)
 - `src/commands/health.rs::HealthResponse` — the source of truth

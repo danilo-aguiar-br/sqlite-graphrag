@@ -1,9 +1,9 @@
-# MIGRATING TO v1.1.8 (No Schema Migration)
+# MIGRATING TO v1.2.0 (No Schema Migration)
 
 - Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
 - Back to [README.md](../README.md)
 
-> This guide covers upgrading from v1.1.07 / v1.1.06 (or any install already on schema **v16**) to **v1.1.8**. **No numbered database migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.1.8"`. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.1.8`. Offline gate: [`scripts/e2e_offline_v118.sh`](../scripts/e2e_offline_v118.sh) (**16/16**). Earlier upgrade paths remain as historical sections below.
+> This guide covers upgrading from v1.1.8 / v1.1.07 (or any install already on schema **v16**) to **v1.2.0**. **No numbered database migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.2.0"`. **DEFAULT_EMBEDDING_DIM=1024** (existing DBs keep `schema_meta.dim` until re-embed). Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.0`. Offline gate: [`scripts/e2e_offline_v120.sh`](../scripts/e2e_offline_v120.sh) (historical wrapper `e2e_offline_v118.sh` superseded). Earlier upgrade paths remain as historical sections below.
 
 ## What changed (behaviour + contract — no schema)
 
@@ -19,6 +19,9 @@
 - **config list --effective** — shows well-known defaults even when not stored.
 - **related_to → related** — non-canonical relation folds to canonical `related`.
 - **Enrich quality** — entity-descriptions multi-domain prompt + grounding; `--force-redescribe`; status `quality_pct` / `scan_backlog_low_quality`; entity-connect help is fully implemented (persists relations, not scan-only); deep-research short `-o`; `memory-entities` forward includes `description`; `remember --enqueue-enrich` + envelope `entities_created` / `enrich_recommended`.
+- **Skipped-sink recovery (GAP-SG-96 / G-PR-3/4)** — `enrich --list-skipped` / `enrich --requeue-skipped` recover `status=skipped` / `preservation_failed` without raw SQL (skipped-sink counterpart of `--list-dead` / `--requeue-dead`).
+- **GAP-SG-139** — host/XDG leaves accept `--db` as a documented **no-op**: `config` (×9), `slots` (×3), `cache` (×3), `codex-models`, `completions`. Helper `src/cli_db_noop.rs`; regression `tests/cli_db_noop_host_surfaces_regression.rs`. Example: `config doctor --db /tmp/x.sqlite` does **not** open that path.
+- **DEFAULT_EMBEDDING_DIM=1024** — new databases and effective default when no `--embedding-dim` / XDG `embedding.dim` / `schema_meta.dim` apply; existing DBs keep recorded dim until re-embed.
 - **Names** — `--entity-names` / `--memory-names` (alias `--names` with per-operation semantics).
 - **EC scale** — `--anchor-memory`, adaptive limits, yield, summary fields `budget_exhausted` / `pairs_remaining_estimate` / `preempted_for_gate`.
 - **telemetry lib alias removed** — no product telemetry surface.
@@ -27,8 +30,8 @@
 ## Operator action
 
 - Reinstall: `cargo install sqlite-graphrag --locked --force`.
-- Confirm version: `sqlite-graphrag --version` (expect `1.1.8`).
-- Library API pin: change to `=1.1.8`.
+- Confirm version: `sqlite-graphrag --version` (expect `1.2.0`).
+- Library API pin: change to `=1.2.0`.
 - Do **not** run `migrate` solely for this upgrade if already on schema v16 (from v1.1.04+).
 - Migrate any shell recipes that exported `SQLITE_GRAPHRAG_*` product knobs to flags + `config set` / `config add-key`.
 - Smoke XDG config and aliases:
@@ -40,14 +43,18 @@
   sqlite-graphrag cache stats --json
   # After forget: immediate hard-delete of soft-deleted rows
   sqlite-graphrag purge --now --yes --json
+  # Skipped-sink recovery (no raw SQL)
+  sqlite-graphrag enrich --operation entity-descriptions --list-skipped --json
+  # GAP-SG-139: host leaves accept --db as no-op (does not open that path)
+  sqlite-graphrag config doctor --db /tmp/x.sqlite
   ```
-- Optional offline gate: `bash scripts/e2e_offline_v118.sh` (expect 16/16).
+- Optional offline gate: `bash scripts/e2e_offline_v120.sh` (expect **20/20 PASS**).
 - Optional live quality (LLM cost): `enrich --operation entity-descriptions --force-redescribe …` on production graphs.
 - After curated remember: parse `enrich_recommended` / use `--enqueue-enrich`; audit with `memory-entities --name … | jaq '.entities[] | {name, description}'`.
 
 ## Breaking contract notes
 
-| Contract | Pre-v1.1.8 (historical) | v1.1.8 |
+| Contract | Pre-v1.1.8 (historical) | v1.2.0 |
 | --- | --- | --- |
 | Product config | Many `SQLITE_GRAPHRAG_*` env knobs documented | **Ignored** at runtime; use flag / XDG `config set` |
 | OpenRouter base URLs | Hardcoded constants (XDG knobs not wired) | Resolved from XDG `network.openrouter.*` |
@@ -63,7 +70,7 @@
 
 ### If you are still on schema v15 or older
 
-- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.1.8.
+- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.2.0.
 
 ---
 
@@ -105,7 +112,7 @@ Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). 
 
 ### If you are still on schema v15 or older
 
-- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.1.06.
+- Apply the **v1.1.04** path below first (`migrate --json` for V016 `entity_connect_seen`), then install v1.2.0.
 
 ---
 

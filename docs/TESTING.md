@@ -16,20 +16,23 @@
 - Formal test plan with layers, triggers and release gates: [TEST_PLAN.md](TEST_PLAN.md)
 
 
-## Offline E2E Gate — v1.1.8 (`scripts/e2e_offline_v118.sh`)
-- **REQUIRED product offline gate for v1.1.8**: `scripts/e2e_offline_v118.sh` (expects **16/16 PASS**).
+## Offline E2E Gate — v1.2.0 (`scripts/e2e_offline_v120.sh`)
+- **REQUIRED product offline gate for v1.2.0**: `scripts/e2e_offline_v120.sh` (expects **20/20 PASS** — 15 `check()` + 5 manual PASS; historical wrapper `e2e_offline_v118.sh` superseded).
 - Scope: no product env, no OpenRouter key, XDG dirs isolated under `$TMPDIR`, flags-only (`--db`), local only.
-- Asserts include: `config set`, `purge --now --dry-run`, help contract (no product-env advertising / no clippy `Box` about), EntityType fold, remember-batch description, pending-embeddings status, cache stats, and related v1.1.8 contracts.
+- Asserts include: `config set` / `config doctor`, `purge --now --dry-run`, help contract (`help_contract` — no product-env advertising / no clippy `Box` about), EntityType fold, remember-batch description, pending-embeddings status, cache stats, **`list-skipped` / `requeue-skipped` help + offline flags** (`list_skipped`, `requeue_skipped`, `help_skipped_flags`), **effective `embedding.dim` 1024** (`effective_dim_1024`; **DEFAULT_EMBEDDING_DIM=1024**), and related v1.2.0 contracts.
 - Companion contract smoke (see [TEST_PLAN.md](TEST_PLAN.md)): deep-research `-o` materialization, `memory-entities` `description`, remember `entities_created`/`enrich_recommended`, `enrich --status --force-redescribe` quality fields, entity-connect fully-implemented help honesty.
-- Companion unit/integration contract: `tests/help_no_product_env` — help must not advertise product `SQLITE_GRAPHRAG_*` env as a config mechanism.
+- Companion unit/integration contracts:
+  - `tests/help_no_product_env` — help must not advertise product `SQLITE_GRAPHRAG_*` env as a config mechanism.
+  - `tests/cli_db_noop_host_surfaces_regression.rs` — **GAP-SG-139**: host/XDG leaves (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) accept `--db` as a documented no-op (`src/cli_db_noop.rs`).
 - **NOT** a required GitHub Actions product CI path — run locally (or host cron/systemd/launchd). GitHub Actions is optional operator infrastructure, not the release gate for this CLI.
 - Build prerequisite: release binary at `target/release/sqlite-graphrag` (script builds if missing).
 
 ```bash
 cargo build --release
-./scripts/e2e_offline_v118.sh
-# optional help contract:
+scripts/e2e_offline_v120.sh
+# optional help + GAP-SG-139 contracts:
 cargo test --test help_no_product_env
+cargo test --test cli_db_noop_host_surfaces_regression
 ```
 
 ## Test Infrastructure — Feature CI Matrix (2 features since v1.0.79)
@@ -447,8 +450,8 @@ As of v1.1.06: lib enrich unit tests plus `tests/v1106_entity_connect_scan_regre
 - `RUST_TEST_THREADS=N` — controls nextest parallelism at the process level
 - `CARGO_TERM_COLOR=always` — preserves color in CI logs
 - `NEXTEST_PROFILE=ci` — overrides the active nextest profile from the environment
-### sqlite-graphrag-Specific Notes (v1.1.8)
-- Product env `SQLITE_GRAPHRAG_*` is **not** the runtime config mechanism — prefer `--db` flags and isolated XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) in harnesses, as in `scripts/e2e_offline_v118.sh`.
+### sqlite-graphrag-Specific Notes (v1.2.0)
+- Product env `SQLITE_GRAPHRAG_*` is **not** the runtime config mechanism — prefer `--db` flags and isolated XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) in harnesses, as in `scripts/e2e_offline_v120.sh`.
 - Test isolation: pass `--db /tmp/test/graphrag.sqlite` (or unique temp paths) per test; do not rely on product env for DB path.
 - Host defaults for logs/timezone in operator shells: XDG `config set log.format json`, `config set display.tz America/Sao_Paulo` (flags still win).
 - `tests/help_no_product_env` guards help text against product-env advertising.

@@ -25,10 +25,9 @@ mod common;
 
 /// Builds an isolated `Command` with a per-test `TempDir` database and shared model cache.
 fn cmd(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c
 }
 
@@ -39,19 +38,21 @@ fn init_db(tmp: &TempDir) {
 fn isolated_cmd_in(dir: &std::path::Path) -> Command {
     let mut c = sgr_cmd();
     c.current_dir(dir);
-    c.env_remove("SQLITE_GRAPHRAG_NAMESPACE");
-    c.env_remove("SQLITE_GRAPHRAG_DB_PATH");
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", dir.join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    c.env("HOME", dir.join("home"));
+    c.env("XDG_CACHE_HOME", dir.join("cache"));
+    c.env("XDG_CONFIG_HOME", dir.join("config_home"));
+    c.env("XDG_DATA_HOME", dir.join("data"));
+    c.arg("--config-dir").arg(dir.join("config"));
+    c.arg("--cache-dir").arg(dir.join("cache"));
     c
 }
 
 // ---------------------------------------------------------------------------
-// Database path resolution via SQLITE_GRAPHRAG_HOME
+// Database path resolution via HOME
 // ---------------------------------------------------------------------------
 
 /// Isolated helper that does NOT inject `SQLITE_GRAPHRAG_DB_PATH`, letting
-/// resolution fall back to `SQLITE_GRAPHRAG_HOME` or `current_dir`. Uses
+/// resolution fall back to `HOME` or `current_dir`. Uses
 /// `env_clear` to ensure CI environment vars do not leak.
 fn home_isolated_cmd(cwd: &std::path::Path) -> Command {
     let mock_dir = common::mock_llm_path();
@@ -64,8 +65,7 @@ fn home_isolated_cmd(cwd: &std::path::Path) -> Command {
         c.env("HOME", home_var);
     }
     c.current_dir(cwd);
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", cwd.join("cache"));
+    c.env("XDG_CACHE_HOME", cwd.join("cache"));
     c
 }
 
@@ -77,18 +77,18 @@ fn cli_home_env_creates_db_in_target_dir() {
     let banco_no_cwd = cwd_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
-        .env("SQLITE_GRAPHRAG_HOME", home_dir.path())
+        .env("HOME", home_dir.path())
         .arg("init")
         .assert()
         .success();
 
     assert!(
         banco_no_home.exists(),
-        "init com SQLITE_GRAPHRAG_HOME deve criar o banco no diretório indicado"
+        "init com HOME deve criar o banco no diretório indicado"
     );
     assert!(
         !banco_no_cwd.exists(),
-        "init com SQLITE_GRAPHRAG_HOME NÃO deve criar banco no current_dir"
+        "init com HOME NÃO deve criar banco no current_dir"
     );
 }
 
@@ -97,34 +97,45 @@ fn cli_home_traversal_rejected() {
     let cwd_dir = TempDir::new().expect("cwd tempdir");
 
     home_isolated_cmd(cwd_dir.path())
-        .env("SQLITE_GRAPHRAG_HOME", "/tmp/../etc")
+        .env("HOME", "/tmp/../etc")
         .arg("init")
         .assert()
         .failure();
 }
 
 #[test]
-fn cli_db_path_overrides_home_env() {
+fn cli_product_env_db_path_is_ignored_flag_wins() {
+    // GAP-SG-101 / G-T-XDG-04: SQLITE_GRAPHRAG_DB_PATH is not read.
+    // --db after the subcommand is the only override; product env must not
+    // create a database at the env path.
     let home_dir = TempDir::new().expect("home tempdir");
-    let db_dir = TempDir::new().expect("db tempdir");
+    let env_dir = TempDir::new().expect("env tempdir");
+    let flag_dir = TempDir::new().expect("flag tempdir");
     let cwd_dir = TempDir::new().expect("cwd tempdir");
-    let db_explicito = db_dir.path().join("explicito.sqlite");
+    let db_from_env = env_dir.path().join("from-env.sqlite");
+    let db_flag = flag_dir.path().join("via-flag.sqlite");
     let banco_no_home = home_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
-        .env("SQLITE_GRAPHRAG_HOME", home_dir.path())
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_explicito)
-        .arg("init")
+        .env("HOME", home_dir.path())
+        // Intentionally set: must be ignored (negative assertion).
+        .env("SQLITE_GRAPHRAG_DB_PATH", &db_from_env)
+        .args(["init", "--db"])
+        .arg(&db_flag)
         .assert()
         .success();
 
     assert!(
-        db_explicito.exists(),
-        "SQLITE_GRAPHRAG_DB_PATH deve vencer SQLITE_GRAPHRAG_HOME"
+        db_flag.exists(),
+        "--db must create the explicit database"
+    );
+    assert!(
+        !db_from_env.exists(),
+        "SQLITE_GRAPHRAG_DB_PATH must be ignored (G-T-XDG-04)"
     );
     assert!(
         !banco_no_home.exists(),
-        "HOME não deve ser usado quando DB_PATH está presente"
+        "HOME must not be used when --db is present"
     );
 }
 
@@ -137,14 +148,14 @@ fn cli_flag_db_overrides_home_env() {
     let banco_no_home = home_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
-        .env("SQLITE_GRAPHRAG_HOME", home_dir.path())
+        .env("HOME", home_dir.path())
         .args(["init", "--db", db_flag.to_str().unwrap()])
         .assert()
         .success();
 
     assert!(
         db_flag.exists(),
-        "flag --db deve vencer SQLITE_GRAPHRAG_HOME"
+        "flag --db deve vencer HOME"
     );
     assert!(
         !banco_no_home.exists(),
@@ -381,7 +392,7 @@ fn test_daemon_subcommand_is_removed() {
 
     sgr_cmd()
         .current_dir(tmp.path())
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
         .args(["daemon", "--ping", "--json"])
         .assert()
         .failure()
@@ -396,7 +407,7 @@ fn test_help_does_not_list_daemon() {
 
     let output = sgr_cmd()
         .current_dir(tmp.path())
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
         .args(["--help"])
         .assert()
         .success()

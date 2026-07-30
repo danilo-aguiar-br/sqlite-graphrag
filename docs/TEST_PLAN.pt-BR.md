@@ -17,19 +17,23 @@
 - Exclui teste exploratório manual e projetos consumidores downstream
 
 
-## Gate de regressão v1.1.8 (XDG + qualidade do enrich + E2E offline)
+## Gate de regressão v1.2.0 (XDG + dim 1024 + E2E offline)
 
-- Comando: `bash scripts/e2e_offline_v118.sh` (espera **16/16 PASS**; binário 1.1.8+)
-- Companheiro unitário/integração: contrato de help `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config
-- Escopo: harness só XDG; config set/list/effective; purge --now dry-run; fold de EntityType; description em remember-batch; pending-embeddings status; cache stats; scrub de help (sem Box about)
+- Comando: `bash scripts/e2e_offline_v120.sh` (espera **20/20 PASS** — 15 `check()` + 5 PASS manuais; binário 1.2.0+; wrapper histórico `e2e_offline_v118.sh` supersedido)
+- Companheiros unitários/integração:
+  - Contrato de help `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config
+  - Regressão **GAP-SG-139** `tests/cli_db_noop_host_surfaces_regression.rs` — folhas host/XDG aceitam `--db` como no-op documentado (`src/cli_db_noop.rs`: config×9, slots×3, cache×3, codex-models, completions)
+- Escopo: harness só XDG; config set/list/effective; purge --now dry-run; fold de EntityType; description em remember-batch; pending-embeddings status; cache stats; scrub de help (sem Box about); flags offline **`list-skipped` / `requeue-skipped`** + presença no help; **DEFAULT_EMBEDDING_DIM=1024** efetivo (`embedding.dim`)
 - Smoke de contrato (manual ou suite):
   - `deep-research "q" -o /tmp/dr.json --quiet --json` materializa arquivo + ack blake3
   - `memory-entities --name … --json` inclui `entities[].description`
   - `remember … --enqueue-enrich --json` pode emitir `entities_created` / `enrich_recommended`
   - `enrich --operation entity-descriptions --status --force-redescribe --json` expõe campos de qualidade
+  - `enrich --operation entity-descriptions --list-skipped --json` / `--requeue-skipped` recuperam o sink skipped sem SQL bruto
   - entity-connect é totalmente implementado (persiste); não documentado como scan-only
-- Critério: harness offline 16/16; zero propaganda de product env no help
-- Docs complementares: [TESTING.pt-BR.md](TESTING.pt-BR.md), [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md), [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.1.8]`
+  - no-op de folha host: `config doctor --db /tmp/x.sqlite` aceita `--db` sem abrir esse path
+- Critério: harness offline **20/20**; zero propaganda de product env no help; regressão GAP-SG-139 verde
+- Docs complementares: [TESTING.pt-BR.md](TESTING.pt-BR.md), [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md), [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.2.0]`
 
 
 ## Gate de regressão v1.1.06 (scan O(k) do entity-connect)
@@ -158,7 +162,7 @@ O plano de teste do Split do Backend Claude (ADR-0042) e o plano de teste da Rem
 
 ### GAP-001 — pânico de runtime Tokio aninhado no deep-research
 
-- Reprodução (pré-correção entrava em pânico): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 deep-research "<query>" --k 5 --max-hops 2 --json` deve emitir um envelope JSON estruturado (sucesso OU erro estruturado), NUNCA um pânico.
+- Reprodução (pré-correção entrava em pânico): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config sqlite-graphrag --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 deep-research "<query>" --k 5 --max-hops 2 --json` deve emitir um envelope JSON estruturado (sucesso OU erro estruturado), NUNCA um pânico.
 - Teste de regressão `tests/deep_research_nested_runtime_regression.rs`: invoca `deep_research::run` dentro de um runtime Tokio ativo; afirma `Ok`/`Err` estruturado, não pânico.
 - Valida o helper `compute_sub_embeddings` (embeddings computados ANTES da construção do T1) e o padrão `Handle::try_current()` + `block_in_place(|| handle.block_on(fut))` nos três caminhos OpenRouter de `embedder.rs`.
 

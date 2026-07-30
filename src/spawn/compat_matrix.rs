@@ -5,6 +5,7 @@
 use super::ExecutorCapabilities;
 use crate::spawn::executor_version::ExecutorVersion;
 
+/// Codex capabilities.
 pub fn codex_capabilities(version: &ExecutorVersion) -> ExecutorCapabilities {
     let mut caps = ExecutorCapabilities::empty();
     caps.supports_strict_schema = true;
@@ -37,6 +38,7 @@ pub fn codex_capabilities(version: &ExecutorVersion) -> ExecutorCapabilities {
     caps
 }
 
+/// Claude capabilities.
 pub fn claude_capabilities(version: &ExecutorVersion) -> ExecutorCapabilities {
     let mut caps = ExecutorCapabilities::empty();
     caps.supports_strict_schema = true;
@@ -52,6 +54,7 @@ pub fn claude_capabilities(version: &ExecutorVersion) -> ExecutorCapabilities {
     caps
 }
 
+/// Opencode capabilities.
 pub fn opencode_capabilities(_version: &ExecutorVersion) -> ExecutorCapabilities {
     let mut caps = ExecutorCapabilities::empty();
     caps.supports_mcp_map = true;

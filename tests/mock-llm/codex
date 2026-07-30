@@ -26,24 +26,31 @@ text = os.environ['ARGS']
 if not sys.stdin.isatty():
     text += ' ' + sys.stdin.read()
 # G51: honour the requested dimensionality instead of hardcoding 64.
-# Batch prompts carry it inline; the single path only carries it in the
-# --output-schema JSON file (minItems), so read that file when present.
+# Batch prompts state it inline; the single path only carries it as the
+# schema's minItems, which may be a file path OR the schema itself.
 dim = 64
 dm = re.search(r'(\d+)-dimensional', text)
 if dm:
     dim = int(dm.group(1))
 else:
     argv = text.split()
+    schema = None
     for flag in ('--output-schema', '--json-schema'):
         if flag in argv:
             try:
-                schema = open(argv[argv.index(flag) + 1]).read()
-                sm = re.search(r'\"minItems\"\s*:\s*(\d+)', schema)
-                if sm:
-                    dim = int(sm.group(1))
-            except (IndexError, OSError):
-                pass
+                token = argv[argv.index(flag) + 1]
+            except IndexError:
+                break
+            try:
+                schema = open(token).read()
+            except OSError:
+                # Not a path: claude passes the schema as inline JSON.
+                schema = token
             break
+    # Last resort: the schema may reach us joined into the prompt text.
+    sm = re.search(r'\"minItems\"\s*:\s*(\d+)', schema if schema else text)
+    if sm:
+        dim = int(sm.group(1))
 m = re.search(r'EXACTLY (\d+) items', text)
 if m:
     n = int(m.group(1))

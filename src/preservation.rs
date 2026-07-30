@@ -33,6 +33,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// Default minimum evidence length (Unicode scalars) before grounding is
+/// enforced. Below this, G-PR-6 accepts the candidate to avoid mass
+/// `preservation_failed` on weak corpora. Overridable via XDG
+/// `enrich.entity_description.min_corpus_chars`.
+pub const DEFAULT_GROUNDING_MIN_CORPUS_CHARS: usize = 40;
+
 /// Computes the trigram-Jaccard similarity between two strings.
 ///
 /// The score is `|A ∩ B| / |A ∪ B|` where `A` and `B` are the sets of
@@ -101,13 +107,26 @@ fn trigrams(input: &str) -> HashSet<[char; 3]> {
 #[serde(tag = "verdict", rename_all = "snake_case")]
 pub enum PreservationVerdict {
     /// The rewritten body is at least `threshold`-similar to the original.
-    Preserved { score: f64, threshold: f64 },
+    Preserved {
+        /// Computed preservation score.
+        score: f64,
+        /// Configured threshold.
+        threshold: f64,
+    },
     /// The rewritten body diverges too much from the original and was
     /// rejected by the gate.
-    Rejected { score: f64, threshold: f64 },
+    Rejected {
+        /// Computed preservation score.
+        score: f64,
+        /// Configured threshold.
+        threshold: f64,
+    },
     /// The original and rewritten bodies are byte-equal (no rewrite was
     /// needed); preserved by definition.
-    Unchanged { byte_len: usize },
+    Unchanged {
+        /// Payload size in bytes.
+        byte_len: usize,
+    },
 }
 
 impl PreservationVerdict {
@@ -130,26 +149,65 @@ impl PreservationVerdict {
     }
 
     /// Grounding gate for short LLM text against longer corpus evidence
-    /// (GAP-CLI-ED-03 / G-T-DRY-01).
+    /// (GAP-CLI-ED-03 / G-T-DRY-01 / G-PR-6).
     ///
     /// Uses [`grounding_coverage`] so a 10–20 word description can be
     /// checked against multi-sentence memory bodies without requiring
     /// symmetric Jaccard (which under-scores short-vs-long pairs).
+    ///
+    /// Adaptive policy (G-PR-6):
+    /// - empty evidence → accept (entities without bindings stay describable)
+    /// - evidence shorter than `min_corpus_chars` → accept (weak corpus)
+    /// - weak-but-present corpus (`min..2*min` chars) → half threshold
+    /// - dense corpus → full `threshold`
     pub fn evaluate_grounding(candidate: &str, evidence: &str, threshold: f64) -> Self {
+        Self::evaluate_grounding_adaptive(
+            candidate,
+            evidence,
+            threshold,
+            DEFAULT_GROUNDING_MIN_CORPUS_CHARS,
+        )
+    }
+
+    /// Adaptive grounding with explicit minimum corpus size (G-PR-6).
+    pub fn evaluate_grounding_adaptive(
+        candidate: &str,
+        evidence: &str,
+        threshold: f64,
+        min_corpus_chars: usize,
+    ) -> Self {
         let threshold = threshold.clamp(0.0, 1.0);
-        if evidence.trim().is_empty() {
-            // No corpus to ground against — accept conservatively so
-            // entities without bindings are still describable.
+        let evidence_trim = evidence.trim();
+        if evidence_trim.is_empty() {
             return Self::Preserved {
                 score: 1.0,
                 threshold,
             };
         }
-        let score = grounding_coverage(candidate, evidence);
-        if score >= threshold {
-            Self::Preserved { score, threshold }
+        let corpus_chars = evidence_trim.chars().count();
+        if corpus_chars < min_corpus_chars.max(1) {
+            // Short/weak corpus: do not mass-reject with Jaccard noise.
+            return Self::Preserved {
+                score: 1.0,
+                threshold,
+            };
+        }
+        let effective = if corpus_chars < min_corpus_chars.saturating_mul(2) {
+            (threshold * 0.5).clamp(0.0, 1.0)
         } else {
-            Self::Rejected { score, threshold }
+            threshold
+        };
+        let score = grounding_coverage(candidate, evidence_trim);
+        if score >= effective {
+            Self::Preserved {
+                score,
+                threshold: effective,
+            }
+        } else {
+            Self::Rejected {
+                score,
+                threshold: effective,
+            }
         }
     }
 
@@ -196,8 +254,30 @@ mod tests {
     }
 
     #[test]
+    fn short_corpus_accepts_without_strict_grounding() {
+        let evidence = "ICMS tax"; // well under DEFAULT_GROUNDING_MIN_CORPUS_CHARS
+        let description = "A configuration file used in software system design pipelines";
+        let verdict = PreservationVerdict::evaluate_grounding_adaptive(
+            description,
+            evidence,
+            0.5,
+            DEFAULT_GROUNDING_MIN_CORPUS_CHARS,
+        );
+        assert!(
+            verdict.is_accepted(),
+            "short corpus must accept under G-PR-6 adaptive policy"
+        );
+    }
+
+    #[test]
+    fn empty_corpus_still_accepts() {
+        let verdict = PreservationVerdict::evaluate_grounding("anything goes", "", 0.5);
+        assert!(verdict.is_accepted());
+    }
+
+    #[test]
     fn grounding_coverage_rejects_software_jargon_on_fiscal_corpus() {
-        let evidence = "ICMS P05 is a Brazilian state tax rule for NFC-e fiscal documents.";
+        let evidence = "ICMS P05 is a Brazilian state tax rule for NFC-e fiscal documents and ordered invoice sequences with additional fiscal context for dense corpus enforcement.";
         let description = "A configuration file used in software system design pipelines";
         let score = grounding_coverage(description, evidence);
         let verdict = PreservationVerdict::evaluate_grounding(description, evidence, 0.25);

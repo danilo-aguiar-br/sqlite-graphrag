@@ -29,11 +29,9 @@ fn cmd(temp: &TempDir) -> Command {
     let mock_dir = common::mock_llm_path();
     c.env_clear()
         .env("HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-        .env("SQLITE_GRAPHRAG_DAEMON_DISABLE_AUTOSTART", "1")
-        .env("SQLITE_GRAPHRAG_LANG", "en")
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "warn")
+        .env("HOME", temp.path())
+        .env("XDG_CACHE_HOME", &cache)
+        .arg("--lang").arg("en")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {
@@ -153,7 +151,7 @@ fn enable_ner_env_var_accepts_1() {
     init_db(&tmp);
 
     cmd(&tmp)
-        .env("SQLITE_GRAPHRAG_ENABLE_NER", "1")
+        .arg("--enable-ner")
         .args([
             "remember",
             "--name",
@@ -179,7 +177,7 @@ fn enable_ner_env_var_accepts_true() {
     init_db(&tmp);
 
     cmd(&tmp)
-        .env("SQLITE_GRAPHRAG_ENABLE_NER", "true")
+        .arg("--enable-ner")
         .args([
             "remember",
             "--name",

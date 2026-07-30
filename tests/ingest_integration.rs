@@ -3,14 +3,15 @@
 // Suite — `ingest` end-to-end behaviour
 //
 // ISOLATION: every test owns an exclusive `TempDir` and points the binary at it
-// through `SQLITE_GRAPHRAG_DB_PATH` and `SQLITE_GRAPHRAG_CACHE_DIR`. The
+// via planted `db.path` + `--config-dir`/`--cache-dir` (G-T-XDG-04). The
 // `--skip-memory-guard` global flag prevents the daemon autostart path from
 // being triggered by parallel test runs.
 //
 // CHILD PROCESS NOTE: `ingest` spawns `remember` as a child process via
 // `current_exe()`. The child inherits the parent's environment, so the
-// `SQLITE_GRAPHRAG_DAEMON_DISABLE_AUTOSTART=1` flag set by the parent's
-// `--skip-memory-guard` propagates automatically.
+// isolation the parent installs (`HOME`, `XDG_*`) propagates automatically.
+// It does NOT inherit CLI flags: `--skip-memory-guard` applies to the parent
+// process only.
 //
 // `#[serial]` is mandatory: although every test owns its DB, the binary
 // artefact is shared and process-global resources (sqlite-vec auto-extension,
@@ -46,26 +47,18 @@ mod common;
 
 /// Builds an `ingest` command bound to an isolated TempDir.
 fn ingest_cmd(temp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut cmd = sgr_cmd();
-    cmd.env(
-        "SQLITE_GRAPHRAG_DB_PATH",
-        temp.path().join("graphrag.sqlite"),
-    );
-    cmd.env("SQLITE_GRAPHRAG_CACHE_DIR", temp.path().join("cache"));
-    cmd.env("SQLITE_GRAPHRAG_NAMESPACE", "global");
+    common::wire_assert_cmd(temp, &mut cmd, "graphrag.sqlite");
     cmd.arg("--skip-memory-guard");
     cmd
 }
 
 /// Initialises an isolated database with V001..V009 applied.
 fn init_db(temp: &TempDir) {
-    sgr_cmd()
-        .env(
-            "SQLITE_GRAPHRAG_DB_PATH",
-            temp.path().join("graphrag.sqlite"),
-        )
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", temp.path().join("cache"))
-        .args(["--skip-memory-guard", "init"])
+    let mut c = sgr_cmd();
+    common::wire_assert_cmd(temp, &mut c, "graphrag.sqlite");
+    c.args(["--skip-memory-guard", "init"])
         .assert()
         .success();
 }
@@ -185,8 +178,8 @@ fn test_ingest_emits_valid_ndjson() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 2 — when no --db / SQLITE_GRAPHRAG_DB_PATH is provided, `graphrag.sqlite`
-// is created relative to the current working directory.
+// Test 2 — when no --db is provided, default resolution creates the DB
+// under XDG data / CWD fallback. Product env is not a channel (G-T-XDG-04).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -196,12 +189,20 @@ fn test_ingest_creates_db_in_cwd() {
     let cwd = tmp.path().join("workspace");
     std::fs::create_dir(&cwd).expect("create cwd");
     let cache = tmp.path().join("cache");
+    let config = cwd.join("config");
+    std::fs::create_dir_all(&config).expect("create config");
+    // Relative db.path so the database lands under CWD (the real channel after
+    // product env retirement — G-T-XDG-04).
+    common::plant_db_path(&config, Path::new("graphrag.sqlite"));
 
-    // init must run inside the same CWD so the implicit DB path resolves there.
     sgr_cmd()
         .current_dir(&cwd)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-        .env_remove("SQLITE_GRAPHRAG_DB_PATH")
+        .env("HOME", tmp.path().join("home"))
+        .env("XDG_CACHE_HOME", &cache)
+        .arg("--config-dir")
+        .arg(&config)
+        .arg("--cache-dir")
+        .arg(&cache)
         .args(["--skip-memory-guard", "init"])
         .assert()
         .success();
@@ -212,9 +213,12 @@ fn test_ingest_creates_db_in_cwd() {
 
     let output = sgr_cmd()
         .current_dir(&cwd)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "global")
-        .env_remove("SQLITE_GRAPHRAG_DB_PATH")
+        .env("HOME", tmp.path().join("home"))
+        .env("XDG_CACHE_HOME", &cache)
+        .arg("--config-dir")
+        .arg(&config)
+        .arg("--cache-dir")
+        .arg(&cache)
         .args([
             "--skip-memory-guard",
             "ingest",

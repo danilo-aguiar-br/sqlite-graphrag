@@ -12,7 +12,7 @@
 //!
 //! To execute:
 //!
-//!   SQLITE_GRAPHRAG_BENCH_OPT_IN=1 cargo bench --bench retrieval_bench
+//!   SGR_TEST_BENCH_OPT_IN=1 cargo bench --bench retrieval_bench
 //!
 //! Without the env var, the bench panics at startup with a clear
 //! "opt-in required" message — the CI gate that runs `cargo bench
@@ -20,9 +20,8 @@
 //!
 //! Mock LLM CLI: the bench honours the same `tests/mock-llm/{claude,
 //! codex}` stubs that the integration suite uses. When a real OAuth
-//! subscription is wired (env `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`
-//! or `codex` authed), the bench transparently exercises the live path
-//! without changing the harness.
+//! subscription is wired (or `codex` authed), the bench transparently
+//! exercises the live path without changing the harness.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::path::PathBuf;
@@ -66,11 +65,31 @@ fn cargo_bin_path() -> PathBuf {
     PathBuf::from("sqlite-graphrag")
 }
 
+fn plant_db(tmp: &TempDir, db_name: &str) {
+    let config_dir = tmp.path().join("config");
+    let db = tmp.path().join(db_name);
+    std::fs::create_dir_all(&config_dir).expect("mkdir config");
+    let cfg = format!(
+        r#"schema_version = 1
+
+[settings]
+"db.path" = "{}"
+"#,
+        db.display()
+    );
+    std::fs::write(config_dir.join("config.toml"), cfg).expect("write config");
+}
+
 fn bench_cmd(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
+    plant_db(tmp, "bench.sqlite");
     let mut cmd = Command::new(cargo_bin_path());
-    cmd.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("bench.sqlite"));
-    cmd.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    cmd.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    cmd.env("HOME", tmp.path().join("home"));
+    cmd.env("XDG_CACHE_HOME", tmp.path().join("xdg_cache"));
+    cmd.env("XDG_CONFIG_HOME", tmp.path().join("xdg_config"));
+    cmd.env("XDG_DATA_HOME", tmp.path().join("xdg_data"));
+    cmd.arg("--config-dir").arg(tmp.path().join("config"));
+    cmd.arg("--cache-dir").arg(tmp.path().join("cache"));
     cmd.arg("--skip-memory-guard");
     cmd
 }
@@ -180,10 +199,10 @@ fn opt_in_guard() {
     // The CI gate that runs `cargo bench --bench regression_baseline`
     // does NOT touch this bench, but explicit invocations are
     // forced to acknowledge the LLM dependency.
-    if std::env::var("SQLITE_GRAPHRAG_BENCH_OPT_IN").as_deref() != Ok("1") {
+    if std::env::var("SGR_TEST_BENCH_OPT_IN").as_deref() != Ok("1") {
         eprintln!(
             "G54 retrieval_bench is opt-in. Re-run with:\n  \
-             SQLITE_GRAPHRAG_BENCH_OPT_IN=1 cargo bench --bench retrieval_bench"
+             SGR_TEST_BENCH_OPT_IN=1 cargo bench --bench retrieval_bench"
         );
         std::process::exit(0);
     }

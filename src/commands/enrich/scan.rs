@@ -1,6 +1,10 @@
 //! Scan functions — select candidates for each enrichment operation.
 
-use super::*;
+use super::args::{EnrichArgs, EnrichOperation, ReEmbedTarget};
+use crate::errors::AppError;
+use rusqlite::Connection;
+use std::path::Path;
+
 pub(super) use super::quality_sample::*;
 pub(super) use super::scan_ec::*;
 
@@ -24,17 +28,15 @@ mod tests_b;
 const UNBOUND_MEMORY_PREDICATE: &str =
     "NOT EXISTS (SELECT 1 FROM memory_entities me WHERE me.memory_id = m.id)";
 
-/// `entity-descriptions`: entities whose description is NULL or empty.
+/// `entity-descriptions`: empty-only predicate (kept for local docs; scan uses predicates::entity_description_scan_predicate).
+#[allow(dead_code)]
 const NULL_DESCRIPTION_PREDICATE: &str = "(description IS NULL OR description = '')";
 
 /// `body-enrich`: memory body shorter than the `?2` character threshold.
 const SHORT_BODY_PREDICATE: &str = "LENGTH(COALESCE(m.body,'')) < ?2";
 
-/// `description-enrich`: memories with generic/auto-generated descriptions.
-#[allow(dead_code)] // retained for optional force-redescribe expansions
-const GENERIC_DESCRIPTION_PREDICATE: &str = "(description LIKE '%ingested%' \
-     OR description LIKE '%imported%' OR description LIKE '%added%' \
-     OR length(description) < 30)";
+// GAP-SG-109: do not redeclare GENERIC_DESCRIPTION_PREDICATE here — the
+// single source of truth is `predicates::GENERIC_DESCRIPTION_PREDICATE`.
 
 /// `weight-calibrate`: relationships strong enough to warrant recalibration.
 const HIGH_WEIGHT_PREDICATE: &str = "r.weight >= 0.7";
@@ -213,7 +215,10 @@ pub(super) fn scan_bound_memories_for_augment(
 /// de-duplicated, order-preserving list of trimmed names.
 pub(super) fn read_names_file(path: &Path) -> Result<Vec<String>, AppError> {
     let content = std::fs::read_to_string(path).map_err(|e| {
-        AppError::Validation(format!("failed to read names file {}: {e}", path.display()))
+        AppError::Validation(crate::i18n::validation::failed_to_read_names_file(
+            &path.display().to_string(),
+            &e,
+        ))
     })?;
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -246,45 +251,65 @@ pub(super) fn resolve_name_filter(args: &EnrichArgs) -> Result<Vec<String>, AppE
 /// Returns entities with NULL or empty description.
 ///
 /// These are the targets for `entity-descriptions` enrichment.
+///
+/// With `--force-redescribe`, also selects high-precision SQL low-quality
+/// candidates, then applies [`super::predicates::is_low_quality_description`]
+/// so legitimate prose that still hits a LIKE prefilter is dropped (G-PR-2).
 pub(super) fn scan_entities_without_description(
     conn: &Connection,
     namespace: &str,
     limit: Option<usize>,
     name_filter: &[String],
+    force_redescribe: bool,
 ) -> Result<Vec<(i64, String, String)>, AppError> {
-    let limit_clause = limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
+    // Over-fetch slightly when force-redescribe so the Rust post-filter can
+    // drop false positives without under-filling an explicit LIMIT.
+    let sql_limit = limit.map(|n| {
+        if force_redescribe {
+            n.saturating_mul(2).max(n.saturating_add(32))
+        } else {
+            n
+        }
+    });
+    let limit_clause = sql_limit
+        .map(|n| format!("LIMIT {n}"))
+        .unwrap_or_default();
+    // GAP-SG-77 / GAP-CLI-ED-06: status COUNT and scan MUST share one predicate.
+    // Without force: NULL/empty only. With --force-redescribe: empty OR low-quality LIKEs.
+    let desc_pred = super::predicates::entity_description_scan_predicate(force_redescribe);
 
-    if name_filter.is_empty() {
+    // Always fetch description so force-redescribe can post-filter; empty path
+    // ignores it.
+    let rows: Vec<(i64, String, String, String)> = if name_filter.is_empty() {
         let sql = format!(
-            "SELECT id, name, type
+            "SELECT id, name, type, COALESCE(description, '')
              FROM entities
              WHERE namespace = ?1
-               AND {NULL_DESCRIPTION_PREDICATE}
+               AND {desc_pred}
              ORDER BY id
              {limit_clause}"
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
-            .query_map(rusqlite::params![namespace], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
+        let mapped = stmt.query_map(rusqlite::params![namespace], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        mapped.collect::<Result<Vec<_>, _>>()?
     } else {
         let placeholders: Vec<String> = (2..=name_filter.len() + 1)
             .map(|i| format!("?{i}"))
             .collect();
         let in_clause = placeholders.join(", ");
         let sql = format!(
-            "SELECT id, name, type
+            "SELECT id, name, type, COALESCE(description, '')
              FROM entities
              WHERE namespace = ?1
                AND name IN ({in_clause})
-               AND {NULL_DESCRIPTION_PREDICATE}
+               AND {desc_pred}
              ORDER BY id
              {limit_clause}"
         );
@@ -294,20 +319,37 @@ pub(super) fn scan_entities_without_description(
             params_vec.push(n);
         }
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
-            .query_map(
-                rusqlite::params_from_iter(params_vec.iter().copied()),
-                |r| {
-                    Ok((
-                        r.get::<_, i64>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                },
-            )?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
+        let mapped = stmt.query_map(
+            rusqlite::params_from_iter(params_vec.iter().copied()),
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            },
+        )?;
+        mapped.collect::<Result<Vec<_>, _>>()?
+    };
+
+    let mut out: Vec<(i64, String, String)> = Vec::with_capacity(rows.len());
+    for (id, name, ty, desc) in rows {
+        if force_redescribe {
+            // Keep empty/NULL (already selected) and true low-quality only.
+            let empty = desc.trim().is_empty();
+            if !empty && !super::predicates::is_low_quality_description(&desc) {
+                continue;
+            }
+        }
+        out.push((id, name, ty));
+        if let Some(n) = limit {
+            if out.len() >= n {
+                break;
+            }
+        }
     }
+    Ok(out)
 }
 
 /// Returns memories whose body length is below the configured minimum.
@@ -657,8 +699,13 @@ pub(super) fn scan_operation(
             scan_bound_memories_for_augment(conn, namespace, args.limit, &name_filter)
         }
         EnrichOperation::EntityDescriptions => {
-            let rows =
-                scan_entities_without_description(conn, namespace, args.limit, &name_filter)?;
+            let rows = scan_entities_without_description(
+                conn,
+                namespace,
+                args.limit,
+                &name_filter,
+                args.force_redescribe,
+            )?;
             Ok(rows.into_iter().map(|(_, name, _)| name).collect())
         }
         EnrichOperation::BodyEnrich => {
@@ -748,4 +795,3 @@ pub(super) fn scan_operation(
         }
     }
 }
-

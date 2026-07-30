@@ -22,25 +22,36 @@ const EXTRACTION_SCHEMA: &str = r#"Return ONLY a valid JSON object with this exa
   ]
 }"#;
 
+/// Extraction result.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ExtractionResult {
+    /// Extracted entities.
     #[serde(default)]
     pub entities: Vec<ExtractedEntity>,
+    /// Relationships.
     #[serde(default)]
     pub relationships: Vec<ExtractedRelationship>,
 }
 
+/// Extracted entity.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExtractedEntity {
+    /// Name of this item.
     pub name: String,
+    /// Entity type label.
     pub entity_type: String,
 }
 
+/// Extracted relationship.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExtractedRelationship {
+    /// Source side of the relationship.
     pub source: String,
+    /// Target side of the relationship.
     pub target: String,
+    /// Relationship type.
     pub relation: String,
+    /// Strength.
     #[serde(default = "default_strength")]
     pub strength: f64,
 }
@@ -49,6 +60,7 @@ fn default_strength() -> f64 {
     0.5
 }
 
+/// Extract with opencode.
 pub async fn extract_with_opencode(
     binary: &Path,
     model: &str,
@@ -75,14 +87,14 @@ fn emit_json(value: &serde_json::Value) {
     let _ = std::io::stdout().flush();
 }
 
+/// Run opencode ingest.
 pub fn run_opencode_ingest(args: &IngestArgs) -> Result<(), AppError> {
     let started = std::time::Instant::now();
 
     if !args.dir.exists() {
-        return Err(AppError::Validation(format!(
-            "directory not found: {}",
-            args.dir.display()
-        )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::directory_not_found(&args.dir.display().to_string()),
+        ));
     }
 
     let binary =
@@ -106,11 +118,12 @@ pub fn run_opencode_ingest(args: &IngestArgs) -> Result<(), AppError> {
     super::ingest::collect_files(&args.dir, &args.pattern, args.recursive, &mut files)?;
 
     if files.len() > args.max_files {
-        return Err(AppError::Validation(format!(
-            "found {} files exceeding --max-files cap of {}; aborting (all-or-nothing)",
-            files.len(),
-            args.max_files
-        )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::max_files_exceeded_all_or_nothing(
+                files.len(),
+                args.max_files,
+            ),
+        ));
     }
 
     files.sort();

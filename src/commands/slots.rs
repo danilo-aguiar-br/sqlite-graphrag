@@ -9,6 +9,7 @@
 use clap::{Args, Subcommand};
 use serde::Serialize;
 
+use crate::cli_db_noop::{DbNoopArgs, DB_NOOP_HELP};
 use crate::errors::AppError;
 use crate::llm_slots::{slot_path, slots_dir};
 use crate::output::emit_json_compact;
@@ -18,10 +19,12 @@ use crate::output::OutputFormat;
 /// variant while preserving the inner `Status | Release | Cleanup` subcommand tree.
 #[derive(Debug, Args)]
 pub struct SlotsArgs {
+    /// Cmd.
     #[command(subcommand)]
     pub cmd: SlotsCmd,
 }
 
+/// Slots cmd.
 #[derive(Debug, Subcommand)]
 pub enum SlotsCmd {
     /// List currently-held LLM slots and their PIDs.
@@ -37,6 +40,9 @@ pub enum SlotsCmd {
         /// JSON output (always on; accepted for CLI consistency).
         #[arg(long, hide = true)]
         json: bool,
+        /// GAP-SG-139: accepted as a no-op (host-wide slots; no graph I/O).
+        #[arg(long, value_name = "PATH", help = DB_NOOP_HELP)]
+        db: Option<String>,
     },
     /// Remove slot files older than `stale-after` seconds.
     Cleanup {
@@ -49,9 +55,13 @@ pub enum SlotsCmd {
         /// Dry-run: list what would be removed without touching the filesystem.
         #[arg(long)]
         dry_run: bool,
+        /// GAP-SG-139: accepted as a no-op (host-wide slots; no graph I/O).
+        #[arg(long, value_name = "PATH", help = DB_NOOP_HELP)]
+        db: Option<String>,
     },
 }
 
+/// Slots status args.
 #[derive(Debug, clap::Args)]
 pub struct SlotsStatusArgs {
     /// Output format.
@@ -60,6 +70,9 @@ pub struct SlotsStatusArgs {
     /// JSON output (always on; accepted for CLI consistency with other subcommands).
     #[arg(long, hide = true)]
     pub json: bool,
+    /// GAP-SG-139: accepted as a no-op for agent uniformity (host-wide slots).
+    #[command(flatten)]
+    pub db_noop: DbNoopArgs,
 }
 
 #[derive(Serialize)]
@@ -80,6 +93,7 @@ struct SlotsStatusOutput {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: SlotsArgs) -> Result<(), AppError> {
     run_cmd(args.cmd)
 }
@@ -91,16 +105,19 @@ fn run_cmd(cmd: SlotsCmd) -> Result<(), AppError> {
             slot_id,
             yes,
             json: _,
+            db: _,
         } => run_release(slot_id, yes),
         SlotsCmd::Cleanup {
             stale_after,
             yes,
             dry_run,
+            db: _,
         } => run_cleanup(stale_after, yes, dry_run),
     }
 }
 
 fn run_status(args: SlotsStatusArgs) -> Result<(), AppError> {
+    args.db_noop.ignore();
     let start = std::time::Instant::now();
     let max = crate::llm_slots::default_max_concurrency();
     let dir = slots_dir();
@@ -179,10 +196,10 @@ fn run_release(slot_id: u32, yes: bool) -> Result<(), AppError> {
         )));
     }
     if !yes {
-        return Err(AppError::Validation(format!(
-            "refusing to release slot {slot_id} without --yes (file: {})",
-            path.display()
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::refuse_release_slot_without_yes(
+                &slot_id.to_string(),
+                &path.display().to_string(),
+            )));
     }
     std::fs::remove_file(&path).map_err(AppError::Io)?;
     let out = serde_json::json!({
@@ -239,6 +256,7 @@ fn run_cleanup(stale_after: u64, yes: bool, dry_run: bool) -> Result<(), AppErro
 mod tests {
     use super::*;
     use crate::llm_slots::acquire_llm_slot;
+    use clap::Parser;
 
     #[test]
     fn acquire_then_drop_releases_slot() {
@@ -251,5 +269,30 @@ mod tests {
             !path.is_file(),
             "slot file must be removed after Drop (RAII guarantee)"
         );
+    }
+
+    #[test]
+    fn slots_status_accepts_db_as_noop() {
+        let cli = crate::cli::Cli::try_parse_from([
+            "sqlite-graphrag",
+            "slots",
+            "status",
+            "--db",
+            "/tmp/gap-sg-139-sentinel.sqlite",
+        ])
+        .expect("slots status must accept --db as a no-op (GAP-SG-139)");
+
+        match cli.command {
+            Some(crate::cli::Commands::Slots(args)) => match args.cmd {
+                SlotsCmd::Status(s) => {
+                    assert_eq!(
+                        s.db_noop.db.as_deref(),
+                        Some("/tmp/gap-sg-139-sentinel.sqlite")
+                    );
+                }
+                other => panic!("expected Status, got {other:?}"),
+            },
+            other => panic!("expected Slots, got {other:?}"),
+        }
     }
 }

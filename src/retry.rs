@@ -112,10 +112,11 @@ pub fn compute_delay(config: &RetryConfig, attempt: u32) -> Duration {
     Duration::from_millis(delay_ms)
 }
 
-/// Returns `true` if the env var `SQLITE_GRAPHRAG_DISABLE_RETRY` is set to `1`.
+/// Returns `true` if XDG `retry.disable` is truthy (`1` / `true` / `yes`).
 ///
 /// When active, all retry loops should propagate the error immediately without
-/// sleeping. Use during incidents to prevent retry storms.
+/// sleeping. Use during incidents to prevent retry storms
+/// (`config set retry.disable 1`).
 pub fn is_kill_switch_active() -> bool {
     crate::config::get_setting("retry.disable")
         .ok()

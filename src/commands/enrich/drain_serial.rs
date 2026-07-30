@@ -445,7 +445,7 @@ loop {
             let err_str = format!("{e}");
             if matches!(e, AppError::RateLimited { .. }) {
                 if crate::retry::is_kill_switch_active() {
-                    tracing::warn!(target: "enrich", "SQLITE_GRAPHRAG_DISABLE_RETRY=1, skipping rate-limit retry");
+                    tracing::warn!(target: "enrich", "retry.disable is set, skipping rate-limit retry");
                 } else if std::time::Instant::now() >= rate_limit_deadline {
                     tracing::error!(target: "enrich", total_elapsed_secs = enrich_started.elapsed().as_secs(), "rate-limit retry deadline (1h) exhausted");
                 } else {

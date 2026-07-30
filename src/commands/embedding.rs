@@ -31,11 +31,14 @@ use crate::storage::pending_embeddings::{self, PendingEmbedding, PendingEmbeddin
     sqlite-graphrag embedding abandon 7 --yes\n\n  \
     # Note: `embedding retry` requires re-running an LLM subprocess; for full\n  \
     # retry of every pending entry use `enrich --operation re-embed --pending-only`")]
+/// Embedding args.
 pub struct EmbeddingArgs {
+    /// Cmd.
     #[command(subcommand)]
     pub cmd: EmbeddingCmd,
 }
 
+/// Embedding cmd.
 #[derive(Debug, Subcommand)]
 pub enum EmbeddingCmd {
     /// Show queue health (counts by status).
@@ -46,8 +49,10 @@ pub enum EmbeddingCmd {
     Abandon(EmbeddingAbandonArgs),
 }
 
+/// Embedding status args.
 #[derive(Debug, Args)]
 pub struct EmbeddingStatusArgs {
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
@@ -55,8 +60,10 @@ pub struct EmbeddingStatusArgs {
     pub json: bool,
 }
 
+/// Embedding list args.
 #[derive(Debug, Args)]
 pub struct EmbeddingListArgs {
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Filter by status: pending | in_progress | done | abandoned. Default: pending.
@@ -70,12 +77,17 @@ pub struct EmbeddingListArgs {
     pub json: bool,
 }
 
+/// Embedding status filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 #[value(rename_all = "snake_case")]
 pub enum EmbeddingStatusFilter {
+    /// Pending variant.
     Pending,
+    /// In progress variant.
     InProgress,
+    /// Done variant.
     Done,
+    /// Abandoned variant.
     Abandoned,
 }
 
@@ -90,8 +102,10 @@ impl From<EmbeddingStatusFilter> for PendingEmbeddingStatus {
     }
 }
 
+/// Embedding abandon args.
 #[derive(Debug, Args)]
 pub struct EmbeddingAbandonArgs {
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Pending id to abandon.
@@ -232,6 +246,7 @@ struct EmbeddingAbandonOutput {
     yes: bool,
 }
 
+/// Run.
 pub fn run(args: EmbeddingArgs, llm_backend: LlmBackendChoice) -> Result<(), AppError> {
     match args.cmd {
         EmbeddingCmd::Status(a) => run_status(a, llm_backend),

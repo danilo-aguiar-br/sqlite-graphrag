@@ -1,6 +1,16 @@
 // E2E concurrency limit tests for the sqlite-graphrag slot semaphore.
 //
-// ISOLATION: `SQLITE_GRAPHRAG_CACHE_DIR` points to a `TempDir` unique per test.
+// ISOLATION: `XDG_CACHE_HOME` points to a `TempDir` unique per test.
+//
+// GAP-SG-101: these tests used to set `SQLITE_GRAPHRAG_CACHE_DIR`, a retired
+// product env that `lock::cache_dir` never reads — it resolves the XDG key
+// `paths.cache` and then `ProjectDirs::cache_dir()`. The locks therefore landed
+// in a temp directory the binary never inspected, while the binary itself
+// competed for slots in the developer's REAL cache directory. That made
+// `all_slots_busy_return_75` pass or fail depending on leftover
+// `cli-slot-*.lock` files from earlier runs. `XDG_CACHE_HOME` is honoured by
+// `ProjectDirs` and is an OS env, so it is a legitimate isolation channel.
+//
 // `#[serial]` is required in all tests to avoid filesystem races between tests
 // that share the same compiled binary.
 //
@@ -46,7 +56,7 @@ fn limite_respeitado_sob_carga() {
     let handles: Vec<_> = (0..10)
         .map(|_| {
             std::process::Command::new(&bin)
-                .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+                .env("XDG_CACHE_HOME", tmp.path())
                 .args([
                     "--skip-memory-guard",
                     "--max-concurrency",
@@ -89,7 +99,7 @@ fn max_concurrency_zero_rejected_with_exit_2() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
 
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -116,10 +126,16 @@ fn all_slots_busy_return_75() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let max: usize = 4;
 
+    // `ProjectDirs::cache_dir()` appends the application directory under
+    // `XDG_CACHE_HOME`, so the locks must live one level down to land where
+    // `lock::cli_slot_path` will look for them.
+    let slots_dir = tmp.path().join("sqlite-graphrag");
+    std::fs::create_dir_all(&slots_dir).expect("slot dir deve ser criado");
+
     // Lock all slots directly to simulate 4 active instances.
     let mut handles = Vec::new();
     for slot in 1..=max {
-        let path = tmp.path().join(format!("cli-slot-{slot}.lock"));
+        let path = slots_dir.join(format!("cli-slot-{slot}.lock"));
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -134,7 +150,7 @@ fn all_slots_busy_return_75() {
 
     // Invocation with --wait-lock 0 must fail immediately with exit 75.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -167,7 +183,7 @@ fn skip_memory_guard_bypasses_ram_check() {
     // With --skip-memory-guard, the command must complete successfully even in
     // environments where available RAM could cause exit 77.
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args(["--skip-memory-guard", "namespace-detect"])
         .assert()
         .success();

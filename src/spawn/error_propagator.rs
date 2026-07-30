@@ -7,11 +7,14 @@ use std::process::Output;
 /// into a structured `AppError`. The previous behaviour in
 /// `src/commands/codex_spawn.rs` swallowed stderr; this propagates it.
 pub struct ErrorPropagator {
+    /// Binary.
     pub binary: String,
+    /// Command-line arguments for this subcommand.
     pub args: Vec<String>,
 }
 
 impl ErrorPropagator {
+    /// Create a new instance.
     pub fn new(binary: impl Into<String>, args: Vec<String>) -> Self {
         Self {
             binary: binary.into(),

@@ -35,9 +35,11 @@ NOTES:\n  \
 pub struct RecallArgs {
     #[arg(
         allow_hyphen_values = true,
+        required_unless_present = "print_schema",
         help = "Search query string (semantic vector search via sqlite-vec)"
     )]
-    pub query: String,
+    /// Search query text.
+    pub query: Option<String>,
     /// Maximum number of direct vector matches to return.
     ///
     /// Note: this flag controls only `direct_matches`. Graph traversal results
@@ -52,8 +54,10 @@ pub struct RecallArgs {
     /// used in --entities-file.
     #[arg(long, value_enum)]
     pub r#type: Option<MemoryType>,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// No graph.
     #[arg(long)]
     pub no_graph: bool,
     /// Disable -k cap and return all direct matches without truncation.
@@ -63,8 +67,10 @@ pub struct RecallArgs {
     /// callers need the complete set rather than a top-N preview.
     #[arg(long)]
     pub precise: bool,
+    /// Max hops.
     #[arg(long, default_value = "2")]
     pub max_hops: u32,
+    /// Min weight.
     #[arg(long, default_value = "0.3")]
     pub min_weight: f64,
     /// Cap the size of `graph_matches` to at most N entries.
@@ -80,8 +86,10 @@ pub struct RecallArgs {
     /// Default `1.0` disables the filter and preserves the top-k behavior.
     #[arg(long, alias = "min-distance", default_value = "1.0")]
     pub max_distance: f32,
+    /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Accept `--json` as a no-op because output is already JSON by default.
@@ -101,17 +109,26 @@ pub struct RecallArgs {
         help = "Skip live query embedding; use FTS5 BM25 + LIKE prefix only"
     )]
     pub fallback_fts_only: bool,
+    /// Emit the JSON Schema for this command's stdout envelope and exit 0
+    /// without opening the database or embedding (agent-native R-AN-01).
+    #[arg(long, default_value_t = false, help = "Print JSON Schema for recall output and exit")]
+    pub print_schema: bool,
 }
 
+/// Run.
 #[tracing::instrument(skip_all, level = "debug", name = "recall")]
 pub fn run(
     args: RecallArgs,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<(), AppError> {
+    if args.print_schema {
+        return crate::print_schema::emit(crate::print_schema::SchemaId::Recall);
+    }
     let start = std::time::Instant::now();
     let _ = args.format;
-    tracing::debug!(target: "recall", query = %args.query, k = args.k, "searching");
+    let query = args.query.as_deref().unwrap_or("").to_string();
+    tracing::debug!(target: "recall", query = %query, k = args.k, "searching");
 
     // G20: reject graph-specific flags when --no-graph is active
     if args.no_graph {
@@ -127,7 +144,7 @@ pub fn run(
         }
     }
 
-    if args.query.trim().is_empty() {
+    if query.trim().is_empty() {
         return Err(AppError::Validation(crate::i18n::validation::empty_query()));
     }
     // Resolve the list of namespaces to search:
@@ -161,7 +178,7 @@ pub fn run(
     // skip without even attempting the embedding subprocess.
     // v1.0.84 (ADR-0042): tuple de 4 elementos. `backend_invoked` carrega
     // o discriminador do backend que efetivamente invocou o LLM (ou `None`
-    // quando o caller pediu `--fallback-fts-only` e nunca chamou o subprocesso).
+    // when the caller asked for `--fallback-fts-only` and never invoked the subprocess).
     let (embedding, vec_degraded, vec_error, backend_invoked) = if args.fallback_fts_only {
         (
             None,
@@ -172,13 +189,13 @@ pub fn run(
     } else {
         // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
         // v1.0.84 (ADR-0042): extrai o backend que efetivamente invocou o
-        // LLM para popular `backend_invoked` no envelope de resposta.
+        // LLM to populate `backend_invoked` in the response envelope.
         // v1.0.85 (G58 / ADR-0043): retry determinístico em OAuthQuota
         // (codex ↔ claude) e backoff 750ms em SlotExhausted antes de
-        // aceitar a degradação para FTS5-puro.
+        // accept degradation to pure FTS5.
         match crate::embedder::try_embed_query_with_embedding_choice(
             &paths.models,
-            &args.query,
+            &query,
             embedding_backend,
             llm_backend,
         ) {
@@ -258,7 +275,7 @@ pub fn run(
             // results are kept to preserve the top-N contract.
             let fts_rows = memories::fts_search(
                 &conn,
-                &args.query,
+                &query,
                 &namespace_for_graph,
                 memory_type_str,
                 effective_k,
@@ -364,7 +381,7 @@ pub fn run(
         if !has_relevant {
             return Err(AppError::NotFound(errors_msg::no_recall_results(
                 args.max_distance,
-                &args.query,
+                &query,
                 &namespace_for_graph,
             )));
         }
@@ -386,7 +403,7 @@ pub fn run(
     };
 
     output::emit_json(&RecallResponse {
-        query: args.query,
+        query,
         k: args.k,
         direct_matches,
         graph_matches,

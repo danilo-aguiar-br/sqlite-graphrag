@@ -11,9 +11,16 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.1.x   | Supported   | Yes, receives fixes (current line; latest v1.1.07 / crate 1.1.7) |
-| 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.1.x recommended |
+| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.0 / crate 1.2.0) |
+| 1.1.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
+| 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 0.x     | Unsupported | No patches provided      |
+
+### v1.2.0 security-relevant notes
+- No product env (`SQLITE_GRAPHRAG_*`) on the hot path; runtime config is flag > XDG `config set` > default
+- `DEFAULT_EMBEDDING_DIM=1024` (override via `--embedding-dim` / XDG `embedding.dim`; existing DBs keep `schema_meta.dim`)
+- GAP-SG-139: host surfaces accept `--db` as a documented no-op (`config`, `slots`, `cache`, `codex-models`, `completions`); graph surfaces unchanged
+- Offline quality gate: `scripts/e2e_offline_v120.sh`
 
 
 ## Reporting a Vulnerability

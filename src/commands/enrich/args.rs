@@ -158,19 +158,21 @@ pub struct EnrichArgs {
         value_enum,
         value_name = "OPERATION",
         // GAP-CLI-DRY-01: dry-run is read-only (no LLM); still needs --operation.
-        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans", "prune_dead_entity_orphans"]
+        // R-AN-01: --print-schema exits before any work.
+        required_unless_present_any = ["status", "list_dead", "requeue_dead", "list_skipped", "requeue_skipped", "prune_dead_orphans", "prune_dead_entity_orphans", "print_schema"]
     )]
     pub operation: Option<EnrichOperation>,
 
     /// LLM provider to use. Required for write operations; not needed for the
     /// read-only queue inspectors (`--status` / `--list-dead` /
-    /// `--requeue-dead`), which never call the LLM (GAP-SG-31).
+    /// `--requeue-dead` / `--list-skipped` / `--requeue-skipped`), which never
+    /// call the LLM (GAP-SG-31).
     ///
     /// GAP-CLI-DRY-01 (v1.1.8): also optional for `--dry-run` (preview only).
     #[arg(
         long,
         value_enum,
-        required_unless_present_any = ["status", "list_dead", "requeue_dead", "prune_dead_orphans", "prune_dead_entity_orphans", "dry_run"]
+        required_unless_present_any = ["status", "list_dead", "requeue_dead", "list_skipped", "requeue_skipped", "prune_dead_orphans", "prune_dead_entity_orphans", "dry_run", "print_schema"]
     )]
     pub mode: Option<EnrichMode>,
 
@@ -346,6 +348,17 @@ pub struct EnrichArgs {
     /// No LLM call or singleton is taken — it only rewrites queue statuses.
     #[arg(long)]
     pub requeue_dead: bool,
+
+    /// GAP-SG-96 / G-PR-4: list every `status='skipped'` row for the operation
+    /// (preservation_failed / veto sink). Read-only — no LLM, no singleton.
+    #[arg(long)]
+    pub list_skipped: bool,
+
+    /// GAP-SG-96 / G-PR-3/4: resurrect skipped items — move every
+    /// `status='skipped'` row back to `pending`, zeroing attempt/backoff so a
+    /// lower grounding threshold or corpus fix can re-process them without SQL.
+    #[arg(long)]
+    pub requeue_skipped: bool,
 
     /// GAP-SG-66: prune ORPHAN dead-letter rows — remove every `status='dead'`
     /// memory row whose `item_key` (the memory name) no longer exists in the
@@ -557,6 +570,15 @@ pub struct EnrichArgs {
     /// stream as `provider_substituted: true` for traceability.
     #[arg(long, value_name = "MODEL")]
     pub codex_model_fallback: Option<String>,
+
+    /// Emit the JSON Schema for `enrich --status` stdout and exit 0 without
+    /// opening the database or calling the LLM (agent-native R-AN-01).
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Print JSON Schema for enrich --status output and exit"
+    )]
+    pub print_schema: bool,
 }
 
 impl EnrichArgs {

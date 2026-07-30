@@ -6,6 +6,18 @@ use rusqlite::ErrorCode;
 use std::thread;
 use std::time::Duration;
 
+/// Resolved SQLITE_BUSY retry budget: XDG `db.busy_retries` > factory default.
+///
+/// Clamped to at least 1 so a zero config cannot spin-zero or panic.
+fn resolved_busy_retries() -> u32 {
+    crate::runtime_config::db_busy_retries(MAX_SQLITE_BUSY_RETRIES).max(1)
+}
+
+/// Resolved base delay for the first busy retry: XDG `db.busy_base_delay_ms`.
+fn resolved_busy_base_delay_ms() -> u64 {
+    crate::runtime_config::db_busy_base_delay_ms(SQLITE_BUSY_BASE_DELAY_MS).max(1)
+}
+
 /// Returns `true` when `err` wraps an `SQLITE_BUSY` (or `SQLITE_LOCKED`)
 /// condition reported by rusqlite.
 ///
@@ -22,15 +34,13 @@ pub fn is_sqlite_busy(err: &AppError) -> bool {
     }
 }
 
-/// Executes `op` up to `MAX_SQLITE_BUSY_RETRIES` times with exponential
+/// Executes `op` up to the resolved busy-retry budget with exponential
 /// backoff whenever the operation fails with `SQLITE_BUSY` / `SQLITE_LOCKED`.
 ///
-/// Delay schedule (base = `SQLITE_BUSY_BASE_DELAY_MS`):
-/// - attempt 1 → `base` ms
-/// - attempt 2 → `base * 2` ms
-/// - attempt 3 → `base * 4` ms
-/// - attempt 4 → `base * 8` ms
-/// - attempt 5 → `base * 16` ms
+/// Policy (GAP-SG-87): XDG `db.busy_retries` / `db.busy_base_delay_ms` via
+/// [`crate::runtime_config`], falling back to [`MAX_SQLITE_BUSY_RETRIES`] and
+/// [`SQLITE_BUSY_BASE_DELAY_MS`]. Delay schedule (base = resolved base ms):
+/// attempt *n* → `base * 2^n` with half-jitter in `[base/2, base)`.
 ///
 /// After all retries are exhausted the last `SQLITE_BUSY` error is converted
 /// to [`AppError::DbBusy`] so callers can route on exit-code `15`.
@@ -38,22 +48,26 @@ pub fn with_busy_retry<T, F>(op: F) -> Result<T, AppError>
 where
     F: Fn() -> Result<T, AppError>,
 {
-    for attempt in 0..MAX_SQLITE_BUSY_RETRIES {
+    let max_retries = resolved_busy_retries();
+    let base_delay_ms = resolved_busy_base_delay_ms();
+    for attempt in 0..max_retries {
         match op() {
             Ok(v) => return Ok(v),
             Err(e) if is_sqlite_busy(&e) => {
                 if crate::retry::is_kill_switch_active() {
-                    tracing::warn!(target: "storage", "SQLITE_GRAPHRAG_DISABLE_RETRY=1, propagating SQLITE_BUSY immediately");
+                    tracing::warn!(target: "storage", "retry.disable is set, propagating SQLITE_BUSY immediately");
                     return Err(e);
                 }
-                let base_ms = SQLITE_BUSY_BASE_DELAY_MS * (1u64 << attempt);
+                // Saturating shift: attempt is bounded by max_retries (u32, small).
+                let shift = attempt.min(63);
+                let base_ms = base_delay_ms.saturating_mul(1u64 << shift);
                 let half = base_ms / 2;
                 let jitter = if half == 0 { 0 } else { fastrand::u64(0..half) };
                 let delay_ms = half + jitter;
                 tracing::debug!(
                     target: "storage",
                     attempt = attempt + 1,
-                    attempt_max = MAX_SQLITE_BUSY_RETRIES,
+                    attempt_max = max_retries,
                     delay_ms,
                     "SQLITE_BUSY retry with half-jitter"
                 );
@@ -65,11 +79,11 @@ where
 
     tracing::error!(
         target: "storage",
-        retries = MAX_SQLITE_BUSY_RETRIES,
+        retries = max_retries,
         "SQLITE_BUSY exhausted all retries"
     );
     Err(AppError::DbBusy(format!(
-        "SQLITE_BUSY after {MAX_SQLITE_BUSY_RETRIES} retries"
+        "SQLITE_BUSY after {max_retries} retries"
     )))
 }
 
@@ -178,10 +192,11 @@ mod tests {
             Err(make_busy_error())
         });
 
+        let expected = resolved_busy_retries();
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            MAX_SQLITE_BUSY_RETRIES,
-            "must attempt exactly MAX_SQLITE_BUSY_RETRIES times"
+            expected,
+            "must attempt exactly the resolved busy-retry budget"
         );
         assert!(
             matches!(result, Err(AppError::DbBusy(_))),
@@ -202,8 +217,8 @@ mod tests {
         let ok: Result<i64, AppError> = with_busy_retry(|| Ok(42i64));
         assert_eq!(ok.unwrap(), 42);
 
-        // (b) exhaustion path is bounded for a non-unit T: exactly
-        // MAX_SQLITE_BUSY_RETRIES attempts, then Err(DbBusy), never an
+        // (b) exhaustion path is bounded for a non-unit T: exactly the
+        // resolved retry budget attempts, then Err(DbBusy), never an
         // infinite retry loop.
         let calls = Arc::new(AtomicU32::new(0));
         let calls_clone = Arc::clone(&calls);
@@ -211,7 +226,14 @@ mod tests {
             calls_clone.fetch_add(1, Ordering::SeqCst);
             Err(make_busy_error())
         });
-        assert_eq!(calls.load(Ordering::SeqCst), MAX_SQLITE_BUSY_RETRIES);
+        assert_eq!(calls.load(Ordering::SeqCst), resolved_busy_retries());
         assert!(matches!(result, Err(AppError::DbBusy(_))));
+    }
+
+    /// GAP-SG-87: factory defaults remain active when no XDG override is set.
+    #[test]
+    fn resolved_busy_policy_defaults_match_constants() {
+        assert_eq!(resolved_busy_retries(), MAX_SQLITE_BUSY_RETRIES);
+        assert_eq!(resolved_busy_base_delay_ms(), SQLITE_BUSY_BASE_DELAY_MS);
     }
 }

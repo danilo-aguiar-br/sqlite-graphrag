@@ -31,9 +31,9 @@ mod common;
 // ---------------------------------------------------------------------------
 
 fn system_cache_dir() -> std::path::PathBuf {
-    if let Ok(d) = std::env::var("SQLITE_GRAPHRAG_CACHE_DIR") {
-        return std::path::PathBuf::from(d);
-    }
+    // `ProjectDirs` already honours `XDG_CACHE_HOME` on Linux AND appends the
+    // application subdirectory. Reading the env by hand here would return the
+    // parent and silently miss `<root>/sqlite-graphrag`.
     directories::ProjectDirs::from("", "", "sqlite-graphrag")
         .map(|p| p.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from(".cache"))
@@ -45,10 +45,9 @@ fn cmd(temp: &TempDir) -> Command {
     let mock_dir = common::mock_llm_path();
     c.env_clear()
         .env("HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-        .env("SQLITE_GRAPHRAG_LANG", "en")
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "warn")
+        .env("HOME", temp.path())
+        .env("XDG_CACHE_HOME", &cache)
+        .arg("--lang").arg("en")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {

@@ -14,6 +14,7 @@ use serde::Serialize;
 /// ignored; `schema_meta.model` records the CLI version (G46).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum EmbeddingModelChoice {
+    /// Multilingual E 5 small variant.
     #[value(name = "multilingual-e5-small")]
     MultilingualE5Small,
 }
@@ -26,10 +27,13 @@ pub enum EmbeddingModelChoice {
     sqlite-graphrag init --namespace my-project\n\n  \
     # Initialize at a custom database path\n  \
     sqlite-graphrag init --db /path/to/graphrag.sqlite")]
+/// Init args.
 pub struct InitArgs {
-    /// Path to graphrag.sqlite. Defaults to `./graphrag.sqlite` in the current directory.
-    /// Resolution precedence (highest to lowest): `--db` flag >
-    /// XDG `db.default_path` > cwd `./graphrag.sqlite`.
+    /// Path to graphrag.sqlite.
+    ///
+    /// Resolution precedence (highest to lowest): `--db` flag > XDG `db.path`
+    /// > `graphrag.sqlite` under the XDG data directory. The current working
+    /// > directory is NOT part of the cascade on a host with a home directory.
     #[arg(long)]
     pub db: Option<String>,
     /// Legacy embedding model identifier (accepted and ignored since the
@@ -44,6 +48,7 @@ pub struct InitArgs {
     /// When provided, overrides XDG `namespace.default`; otherwise falls back to `global`.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
 }
@@ -63,6 +68,7 @@ struct InitResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(
     args: InitArgs,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -101,7 +107,7 @@ pub fn run(
         rusqlite::params![crate::constants::SQLITE_GRAPHRAG_VERSION],
     )?;
     // G43: pre-v1.0.79 this hardcoded '384' as a literal, bypassing the
-    // active default (now 384 again, matching the production corpus).
+    // active default (DEFAULT_EMBEDDING_DIM = 1024).
     // INSERT OR IGNORE preserves the recorded dim on re-init of an existing
     // database; the active dim (env > database > default) fills new ones.
     conn.execute(
@@ -184,7 +190,7 @@ mod tests {
             db_path: "/tmp/test.sqlite".to_string(),
             schema_version: 6,
             model: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
-            dim: 384,
+            dim: crate::constants::DEFAULT_EMBEDDING_DIM,
             namespace: "global".to_string(),
             status: "ok".to_string(),
             elapsed_ms: 100,
@@ -193,7 +199,7 @@ mod tests {
         assert_eq!(json["db_path"], "/tmp/test.sqlite");
         assert_eq!(json["schema_version"], 6);
         assert_eq!(json["model"], crate::constants::SQLITE_GRAPHRAG_VERSION);
-        assert_eq!(json["dim"], 384usize);
+        assert_eq!(json["dim"], crate::constants::DEFAULT_EMBEDDING_DIM);
         assert_eq!(json["namespace"], "global");
         assert_eq!(json["status"], "ok");
         assert!(json["elapsed_ms"].is_number());
@@ -225,16 +231,33 @@ mod tests {
     }
 
     #[test]
-    fn init_default_dim_is_384() {
-        // The default dimensionality is 384 to match the production corpus
-        // (multilingual-e5-small); MRL (arXiv 2205.13147) truncation, when
-        // needed, happens server-side via the OpenRouter REST backend. The
-        // active dim may differ when an env override or an existing database
-        // sets it (precedence env > database > default).
+    fn init_default_dim_matches_the_registered_setting_default() {
+        // `init` stamps `schema_meta.dim` from `DEFAULT_EMBEDDING_DIM`, while
+        // `config doctor` advertises the default of the `embedding.dim` key.
+        // Asserting the two against each other — rather than against a literal
+        // repeated here — means this test keeps its meaning after the next
+        // change instead of becoming a third place to update.
+        let registered = crate::config::SETTING_KEYS
+            .iter()
+            .find(|entry| entry.key == "embedding.dim")
+            .and_then(|entry| entry.default)
+            .expect("embedding.dim must be registered with a literal default");
         assert_eq!(
-            crate::constants::DEFAULT_EMBEDDING_DIM,
-            384,
-            "default dim must be 384 to match the production corpus"
+            registered.parse::<usize>().ok(),
+            Some(crate::constants::DEFAULT_EMBEDDING_DIM),
+            "config doctor would advertise {registered} while init stamps {}",
+            crate::constants::DEFAULT_EMBEDDING_DIM
+        );
+    }
+
+    #[test]
+    fn init_default_dim_is_inside_the_accepted_range() {
+        // A default outside the range would be rejected by the very resolver
+        // that is supposed to fall back to it, leaving the dim unresolved.
+        assert!(
+            crate::constants::EMBEDDING_DIM_RANGE
+                .contains(&crate::constants::DEFAULT_EMBEDDING_DIM),
+            "default dim must sit inside EMBEDDING_DIM_RANGE"
         );
     }
 
@@ -245,7 +268,7 @@ mod tests {
             db_path: "/tmp/x.sqlite".to_string(),
             schema_version: 6,
             model: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
-            dim: 384,
+            dim: crate::constants::DEFAULT_EMBEDDING_DIM,
             namespace: "my-project".to_string(),
             status: "ok".to_string(),
             elapsed_ms: 0,

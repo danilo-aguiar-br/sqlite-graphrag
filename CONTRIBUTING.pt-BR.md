@@ -128,6 +128,13 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 ## Releases Recentes
 
+### v1.2.0 - 2026-07-29 — DEFAULT_EMBEDDING_DIM=1024, testes herméticos, residual seal
+- Harness de testes hermético: `IsolatedEnv` / `xdg_isolation_guard` (e `wire_assert_cmd`); **sem** product env `SQLITE_GRAPHRAG_*` como caminho operacional de config nos testes (apenas asserts negativos; GAP-SG-101/118).
+- Gate E2E offline: `scripts/e2e_offline_v120.sh` (**20/20** no binário de release 1.2.0); wrapper histórico `e2e_offline_v118.sh` supersedido.
+- **DEFAULT_EMBEDDING_DIM=1024** em `constants` (flag / XDG / `schema_meta.dim` ainda sobrescrevem; fixtures usam 1024, não 384).
+- Barra de qualidade: `cargo clippy --lib -D warnings` limpo; `#![deny(missing_docs)]` no crate lib (itens públicos documentados em EN).
+- Veja `CHANGELOG.pt-BR.md` `[1.2.0]`; pin `=1.2.0`; schema do DB principal permanece em v16.
+
 ### v1.1.06 - 2026-07-12 — Scan O(k) do entity-connect (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)
 - Suite de integração `tests/v1106_entity_connect_scan_regression.rs` mais unitários em `src/commands/enrich/` cobrem scan O(k) por coocorrência + hub×ilha, chaves `pair:{id1}:{id2}` / `entity_pair`, primeiro scan com InterruptHandle → Timeout exit 1, NDJSON `scan_start` / backlog dual, e drain por PK sem re-scan.
 - Sem migração de schema (permanece em v16). Veja `CHANGELOG.pt-BR.md` `[1.1.06]`, `gaps.md` (GAP Fechado) e ADR-0066.

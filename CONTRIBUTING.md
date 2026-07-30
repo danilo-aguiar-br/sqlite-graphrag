@@ -132,6 +132,13 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 ## Recent Releases
 
+### v1.2.0 - 2026-07-29 — DEFAULT_EMBEDDING_DIM=1024, hermetic tests, residual seal
+- Hermetic test harness: `IsolatedEnv` / `xdg_isolation_guard` (and `wire_assert_cmd`); **no** product env `SQLITE_GRAPHRAG_*` as the operational config path in tests (negative asserts only; GAP-SG-101/118).
+- Offline E2E gate: `scripts/e2e_offline_v120.sh` (**20/20** on release binary 1.2.0); historical wrapper `e2e_offline_v118.sh` superseded.
+- **DEFAULT_EMBEDDING_DIM=1024** in `constants` (flag / XDG / `schema_meta.dim` still override; fixtures use 1024, not 384).
+- Quality bar: `cargo clippy --lib -D warnings` clean; `#![deny(missing_docs)]` on the lib crate (public items documented EN).
+- See `CHANGELOG.md` `[1.2.0]`; pin `=1.2.0`; main-DB schema stays at v16.
+
 ### v1.1.06 - 2026-07-12 — Entity-connect scan O(k) (GAP-ENTITY-CONNECT-SCAN-CARTESIAN)
 - Integration suite `tests/v1106_entity_connect_scan_regression.rs` plus unit tests under `src/commands/enrich/` cover O(k) co-occurrence + hub×island scan, `pair:{id1}:{id2}` / `entity_pair` queue typing, first-scan InterruptHandle → Timeout exit 1, NDJSON `scan_start` / dual backlog fields, and drain-by-PK without re-scan.
 - No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.06]`, `gaps.md` (GAP Fechado), and ADR-0066.

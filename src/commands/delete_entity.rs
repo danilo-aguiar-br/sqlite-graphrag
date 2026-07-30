@@ -27,6 +27,7 @@ NOTE:\n  \
     All relationships where this entity is source or target are removed.\n  \
     All memory-entity bindings (memory_entities rows) are also removed.\n  \
     Run `sqlite-graphrag cleanup-orphans` afterwards to remove any newly orphaned entities.")]
+/// Delete entity args.
 pub struct DeleteEntityArgs {
     /// Entity name to delete (graph node, not memory name).
     #[arg(long)]
@@ -36,12 +37,16 @@ pub struct DeleteEntityArgs {
     /// Deletes all relationships and memory bindings attached to this entity.
     #[arg(long, default_value_t = false)]
     pub cascade: bool,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -57,6 +62,7 @@ struct DeleteEntityResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: DeleteEntityArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
 

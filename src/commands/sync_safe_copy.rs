@@ -15,6 +15,7 @@ use serde::Serialize;
     sqlite-graphrag sync-safe-copy --to /backup/graphrag-snapshot.sqlite\n\n  \
     # Snapshot a custom source database\n  \
     sqlite-graphrag sync-safe-copy --db /data/graphrag.sqlite --dest /backup/snapshot.sqlite")]
+/// Sync safe copy args.
 pub struct SyncSafeCopyArgs {
     /// Snapshot destination path as a positional argument. Alternative to `--dest`.
     #[arg(
@@ -26,11 +27,13 @@ pub struct SyncSafeCopyArgs {
     /// Snapshot destination path. Also accepts the aliases `--to` and `--output`.
     #[arg(long, alias = "to", alias = "output")]
     pub dest: Option<std::path::PathBuf>,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
     /// Output format: `json` or `text`. JSON is always emitted on stdout regardless of the value.
     #[arg(long, value_parser = ["json", "text"], hide = true)]
     pub format: Option<String>,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -45,6 +48,7 @@ struct SyncSafeCopyResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: SyncSafeCopyArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let _ = args.format; // --format is a no-op; JSON is always emitted on stdout

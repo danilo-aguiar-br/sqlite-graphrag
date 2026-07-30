@@ -16,9 +16,8 @@ fn cmd(temp: &TempDir) -> Command {
     let mut c = Command::cargo_bin("sqlite-graphrag").expect("sqlite-graphrag binary not found");
     c.env_clear()
         .env("HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_HOME", temp.path())
-        .env("SQLITE_GRAPHRAG_LANG", "en")
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "warn")
+        .env("HOME", temp.path())
+        .arg("--lang").arg("en")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {

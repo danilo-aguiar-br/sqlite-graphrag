@@ -19,6 +19,7 @@ use std::io::BufRead;
     sqlite-graphrag remember-batch --json\n\n  \
     # Atomic batch with --transaction\n  \
     cat memories.ndjson | sqlite-graphrag remember-batch --transaction --json")]
+/// Remember batch args.
 pub struct RememberBatchArgs {
     /// Apply all memories in a single transaction (all-or-nothing).
     #[arg(long)]
@@ -103,6 +104,7 @@ struct BatchSummary {
     enqueued_entity_descriptions: Option<usize>,
 }
 
+/// Run.
 pub fn run(
     args: RememberBatchArgs,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -312,13 +314,11 @@ fn process_line(
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<(BatchItemEvent, Vec<String>), AppError> {
     let input: BatchInputLine = serde_json::from_str(line)
-        .map_err(|e| AppError::Validation(format!("line {index}: invalid JSON: {e}")))?;
+        .map_err(|e| AppError::Validation(crate::i18n::validation::batch_line_invalid_json(index, &e)))?;
 
     let normalized_name = crate::parsers::normalize_entity_name(&input.name);
     if normalized_name.is_empty() {
-        return Err(AppError::Validation(format!(
-            "line {index}: name normalizes to empty string"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::batch_line_name_empty(index)));
     }
 
     // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings per NDJSON
@@ -332,9 +332,7 @@ fn process_line(
 
     // GAP-E2E-05: parity with `remember` — description required when creating.
     if existing.is_none() && input.description.trim().is_empty() {
-        return Err(AppError::Validation(format!(
-            "line {index}: --type and --description are required when creating a new memory"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::batch_line_type_description_required(index)));
     }
 
     let (memory_id, batch_action) = if let Some((existing_id, _updated_at, _version)) = existing {

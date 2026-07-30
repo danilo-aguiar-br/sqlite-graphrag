@@ -48,6 +48,7 @@ pub struct LlmBackend {
 }
 
 impl LlmBackend {
+    /// Create a new instance.
     pub fn new(config: LlmExtractorConfig) -> Self {
         Self { config }
     }
@@ -64,6 +65,7 @@ impl LlmBackend {
         Self::new(LlmExtractorConfig::default())
     }
 
+    /// With default claude.
     pub fn with_default_claude() -> Self {
         Self::new(LlmExtractorConfig {
             backend: "claude".to_string(),

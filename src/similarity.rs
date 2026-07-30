@@ -6,7 +6,7 @@
 //! `memory_embeddings`, `entity_embeddings`, and `chunk_embeddings`. The
 //! performance characteristics are O(N × D) per call where N is the
 //! number of rows in the embedding table and D is the embedding
-//! dimensionality (default 384). This is acceptable for the
+//! dimensionality (default 1024 via DEFAULT_EMBEDDING_DIM). This is acceptable for the
 //! tens-of-thousands scale that the GraphRAG memory is designed for;
 //! operators with million-scale corpora should partition by namespace
 //! and rely on FTS5 for coarse filtering before reaching these helpers.

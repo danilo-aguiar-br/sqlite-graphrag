@@ -307,16 +307,62 @@ sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 60
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 ```
 
-### v1.1.8 Update — XDG Config, Enrich Quality, Headless Hot-Set
+### v1.2.0 Update — XDG Config, dim 1024, list-skipped, GAP-SG-139, Headless Hot-Set
 
 - Config for product knobs is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **not** read on the hot path. Harnesses MUST use isolated XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) plus flags — never export product env as the config contract.
+- **DEFAULT_EMBEDDING_DIM=1024** (override via `--embedding-dim` / XDG `embedding.dim`; existing DBs keep `schema_meta.dim` until re-embed).
+- Recover skipped / `preservation_failed` queue debt without raw SQL:
+  ```bash
+  sqlite-graphrag enrich --list-skipped --json
+  sqlite-graphrag enrich --requeue-skipped --json
+  ```
+- **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** — headless agents may append `--db` on every spawn without clap exit 2.
 - After curated `remember`, PARSE `entities_created` / `enrich_recommended` and/or PASS `--enqueue-enrich` so entity-descriptions runs as a hot set before long entity-connect drains.
 - Poll quality without LLM: `enrich --operation entity-descriptions --status --force-redescribe --json` (`scan_backlog_low_quality`, `quality_pct`, `state` including `blocked_dead`).
 - Name filters: `--entity-names` for entity-descriptions; `--memory-names` for memory-bindings; do not assume `--names` always means memories.
 - Audit bindings: `memory-entities --name <mem> --json` includes `entities[].description`.
 - entity-connect is fully implemented (persists relationships). On large DBs expect adaptive budget fields (`budget_exhausted`, `preempted_for_gate`) and prefer ED hot → EC cold.
-- Offline product gate: `bash scripts/e2e_offline_v118.sh` (16/16).
-- Historical sections below that list product `SQLITE_GRAPHRAG_*` knobs are **legacy documentation**, not current runtime config.
+- Offline product gate: `bash scripts/e2e_offline_v120.sh` expects **20/20 PASS** (canonical; historical wrapper `e2e_offline_v118.sh` / 16/16 is superseded).
+- **CURRENT note on historical text below:** sections that teach product env as config describe pre-v1.2.0 behaviour — v1.2.0 does **not** read product env on the hot path (XDG + flags only). The OAuth/custom-provider env whitelist for LLM subprocesses remains valid and is **not** product-knob config.
+- Secrets: prefer `config add-key --provider openrouter` (stdin) or `--openrouter-api-key`; `OPENROUTER_API_KEY` may still resolve as optional key input.
+
+## Complete CLI command inventory for headless agents (v1.2.0)
+
+Headless orchestrators must know the full product surface even when spawn recipes focus on `remember` / `enrich` / `deep-research`. Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`):
+
+- `init` — create/open DB + migrations + LLM smoke-test
+- `remember` — write one memory (+ optional graph / `--enqueue-enrich`)
+- `remember-batch` — NDJSON batch create (description required)
+- `ingest` — bulk-ingest files as memories
+- `recall` — semantic KNN search
+- `read` / `list` / `forget` / `purge` / `rename` / `split-body` / `edit` / `history` / `restore` — memory CRUD + lifecycle
+- `hybrid-search` — FTS5 + vector RRF
+- `health` / `migrate` / `namespace-detect` / `optimize` / `stats` — ops & diagnostics
+- `sync-safe-copy` / `backup` / `vacuum` — durability & space
+- `link` / `unlink` / `related` / `graph` / `export` — graph edges & export
+- `deep-research` — multi-hop GraphRAG (`-o` / `--output` atomwrite)
+- `fts` / `vec` — index maintenance families
+- `codex-models` — ChatGPT Pro OAuth model list (`--db` no-op, GAP-SG-139)
+- `prune-relations` / `prune-ner` / `cleanup-orphans` — graph hygiene
+- `slots` / `pending` / `embedding` / `pending-embeddings` — concurrency & queues
+- `memory-entities` / `delete-entity` / `reclassify` / `rename-entity` / `merge-entities` / `reclassify-relation` / `normalize-entities` — entity admin
+- `enrich` — LLM graph quality + queue inspectors (`--list-skipped` / `--requeue-skipped`)
+- `cache` / `completions` / `config` — host/XDG leaves (`--db` no-op)
+
+### Nested families (brief)
+
+- `graph` — `traverse`, `stats`, `entities`, `recompute-degree`
+- `embedding` — `status`, `list`, `abandon`
+- `pending` — `list`, `show`, `cleanup`
+- `pending-embeddings` — `list`, `status`, `abandon`
+- `slots` — `status`, `release`, `cleanup`
+- `cache` — `clear-models`, `list`, `stats`
+- `config` — `add-key`, `list-keys`, `remove-key`, `doctor`, `path`, `set`, `get`, `list`, `unset`
+- `fts` — `rebuild`, `check`, `stats`
+- `vec` — `orphan-list`, `purge-orphan`, `stats`
+- `enrich` flags — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, prune-orphan inspectors
+
+> Full one-line inventory: [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v120) and [COOKBOOK.md](COOKBOOK.md).
 
 ### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output` / `-o`)
 
@@ -334,7 +380,7 @@ Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regressi
 OUTDIR=/tmp/graphrag-out
 mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
-  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
   deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
   -o "$OUTDIR/research.json" --json
 # Parse ack from stdout; full envelope from the file
