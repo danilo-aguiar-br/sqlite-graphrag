@@ -8,20 +8,27 @@ use crate::i18n::validation;
 use serde::Serialize;
 use std::path::Path;
 
+/// Namespace source.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NamespaceSource {
+    /// Explicit flag variant.
     ExplicitFlag,
     /// Resolved from XDG `namespace.default` (`config set`).
     #[serde(alias = "environment", alias = "Environment")]
     XdgConfig,
+    /// Default variant.
     Default,
 }
 
+/// Namespace resolution.
 #[derive(Debug, Clone, Serialize)]
 pub struct NamespaceResolution {
+    /// Namespace scope.
     pub namespace: String,
+    /// Source side of the relationship.
     pub source: NamespaceSource,
+    /// CWD.
     pub cwd: String,
 }
 

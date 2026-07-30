@@ -23,6 +23,7 @@ use serde::Serialize;
         sqlite-graphrag fts stats --json"
 )]
 pub struct FtsArgs {
+    /// Subcommand to execute.
     #[command(subcommand)]
     pub command: FtsSubcommand,
 }

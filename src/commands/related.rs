@@ -30,6 +30,7 @@ type Neighbour = (i64, String, String, String, f64);
     sqlite-graphrag related onboarding --max-hops 3 --relation related\n\n  \
     # Cap result count and require minimum edge weight\n  \
     sqlite-graphrag related onboarding --limit 5 --min-weight 0.5")]
+/// Related args.
 pub struct RelatedArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -50,16 +51,22 @@ pub struct RelatedArgs {
     /// Any kebab-case or snake_case string is also accepted as a custom relation.
     #[arg(long, value_parser = crate::parsers::parse_relation)]
     pub relation: Option<String>,
+    /// Min weight.
     #[arg(long, default_value_t = DEFAULT_MIN_WEIGHT)]
     pub min_weight: f64,
+    /// Maximum number of items.
     #[arg(long, default_value_t = DEFAULT_K_RECALL)]
     pub limit: usize,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -98,6 +105,7 @@ struct RelatedMemory {
     weight: Option<f64>,
 }
 
+/// Run.
 pub fn run(args: RelatedArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let name = args
@@ -112,7 +120,7 @@ pub fn run(args: RelatedArgs) -> Result<(), AppError> {
         .to_string();
 
     if name.trim().is_empty() {
-        return Err(AppError::Validation("name must not be empty".to_string()));
+        return Err(AppError::Validation(crate::i18n::validation::name_must_not_be_empty()));
     }
 
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;

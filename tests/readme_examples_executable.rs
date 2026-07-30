@@ -250,17 +250,14 @@ fn cli_bin() -> PathBuf {
 /// database and cache directories pinned to a TempDir for isolation. Mirrors the
 /// pattern used in `tests/cookbook_recipes.rs`.
 fn cmd_in(dir: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mock_dir = common::mock_llm_path();
     let mut c = Command::new(cli_bin());
     c.env_clear()
-        .env(
-            "SQLITE_GRAPHRAG_DB_PATH",
-            dir.path().join("graphrag.sqlite"),
-        )
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", dir.path().join("cache"))
         .env("PATH", common::prepend_path(&mock_dir))
         // Disable RAM guard so CI hosts with low free memory still run the suite.
         .arg("--skip-memory-guard");
+    common::wire_assert_cmd(dir, &mut c, "graphrag.sqlite");
     c
 }
 

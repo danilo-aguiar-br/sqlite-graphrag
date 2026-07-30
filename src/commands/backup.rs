@@ -35,12 +35,15 @@ NOTES:\n  \
     The destination is written atomically via tempfile-rename in the same directory.\n  \
     If the process is interrupted, the previous file (if any) remains intact.\n  \
     On Unix the destination is chmod 0600 after the backup completes.")]
+/// Backup args.
 pub struct BackupArgs {
     /// Destination path for the backup file. Required.
     #[arg(long, value_name = "PATH")]
     pub output: PathBuf,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Number of pages copied per backup step. Default: 1000 (was 100 before v1.0.69).
@@ -72,6 +75,7 @@ struct BackupResponse {
     step_size: usize,
 }
 
+/// Run.
 pub fn run(args: BackupArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;

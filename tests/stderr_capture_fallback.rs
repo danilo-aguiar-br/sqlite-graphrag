@@ -21,12 +21,11 @@ use tempfile::TempDir;
 mod common;
 
 fn cmd_base(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mock_dir = common::mock_llm_path();
     let mut c = Command::cargo_bin("sqlite-graphrag").expect("sqlite-graphrag binary not found");
     c.env("PATH", common::prepend_path(&mock_dir));
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.arg("--skip-memory-guard");
     c
 }

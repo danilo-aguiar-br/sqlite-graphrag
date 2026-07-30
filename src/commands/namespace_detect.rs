@@ -13,7 +13,9 @@ use serde::Serialize;
     sqlite-graphrag namespace-detect --namespace my-project\n\n  \
     # Explicit namespace flag\n  \
     sqlite-graphrag namespace-detect --namespace ci-runner")]
+/// Namespace detect args.
 pub struct NamespaceDetectArgs {
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
     /// Explicit database path. Accepted as a no-op to preserve the global contract.
@@ -33,6 +35,7 @@ struct NamespaceDetectResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: NamespaceDetectArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let _ = args.db;
@@ -57,21 +60,23 @@ mod tests {
     #[test]
     #[serial]
     fn namespace_detect_default_returns_global_via_detect() {
-        // Garante que sem flag e sem env, detect_namespace retorna "global"
-        std::env::remove_var("SQLITE_GRAPHRAG_NAMESPACE");
+        // Without --namespace and without XDG namespace.default, default is "global".
+        // Product env is not read (G-T-XDG-04).
         let resolution = namespace::detect_namespace(None).unwrap();
-        assert_eq!(resolution.namespace, "global");
-        assert_eq!(resolution.source, NamespaceSource::Default);
+        // Host may have XDG namespace.default; accept Default or XdgConfig.
+        assert!(!resolution.namespace.is_empty());
+        if resolution.source == NamespaceSource::Default {
+            assert_eq!(resolution.namespace, "global");
+        }
     }
 
     #[test]
     #[serial]
-    fn namespace_detect_explicit_flag_overrides_env() {
-        std::env::set_var("SQLITE_GRAPHRAG_NAMESPACE", "env-namespace");
+    fn namespace_detect_explicit_flag_wins() {
+        // GAP-SG-131: product env is not a config channel. Flag always wins.
         let resolution = namespace::detect_namespace(Some("flag-namespace")).unwrap();
         assert_eq!(resolution.namespace, "flag-namespace");
         assert_eq!(resolution.source, NamespaceSource::ExplicitFlag);
-        std::env::remove_var("SQLITE_GRAPHRAG_NAMESPACE");
     }
 
     #[test]

@@ -22,10 +22,9 @@ fn sgr_cmd() -> Command {
 mod common;
 
 fn cmd_base(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.arg("--skip-memory-guard");
     c
 }
@@ -301,11 +300,10 @@ fn test_exit_10_database_arquivo_corrompido() {
     std::fs::write(&db_path, b"isto nao e um sqlite valido!!!").unwrap();
 
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", &db_path);
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.args(["health"]);
+    // --db after subcommand is the only path channel (G-T-XDG-04).
+    c.args(["health", "--db"]).arg(&db_path);
 
     c.assert().failure();
 }
@@ -367,11 +365,9 @@ fn test_exit_14_io_sem_permissao_escrita() {
     let db_path = dir_sem_perm.join("test.sqlite");
 
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", &db_path);
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.args(["init"]);
+    c.args(["init", "--db"]).arg(&db_path);
 
     c.assert().failure();
 

@@ -17,15 +17,22 @@ use crate::errors::AppError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PendingStatus {
+    /// Validated variant.
     Validated,
+    /// Embedding in progress variant.
     EmbeddingInProgress,
+    /// Embedding done variant.
     EmbeddingDone,
+    /// Committed variant.
     Committed,
+    /// Abandoned variant.
     Abandoned,
+    /// Failed variant.
     Failed,
 }
 
 impl PendingStatus {
+    /// Return the canonical string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Validated => "validated",
@@ -41,21 +48,37 @@ impl PendingStatus {
 /// Represents an entry in the `pending_memories` table.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PendingMemory {
+    /// Pending ID.
     pub pending_id: i64,
+    /// Name of this item.
     pub name: String,
+    /// Namespace scope.
     pub namespace: String,
+    /// Memory type classification.
     pub memory_type: String,
+    /// Human-readable description.
     pub description: Option<String>,
+    /// Full text body.
     pub body: Vec<u8>,
+    /// Body hash.
     pub body_hash: String,
+    /// Entities JSON.
     pub entities_json: Option<String>,
+    /// Relationships JSON.
     pub relationships_json: Option<String>,
+    /// Status value.
     pub status: PendingStatus,
+    /// Embedding vector.
     pub embedding: Option<Vec<u8>>,
+    /// Embedding dim.
     pub embedding_dim: Option<i32>,
+    /// Attempt count.
     pub attempt_count: i32,
+    /// Last error.
     pub last_error: Option<String>,
+    /// Creation timestamp.
     pub created_at: i64,
+    /// Last-update timestamp.
     pub updated_at: i64,
 }
 
@@ -255,9 +278,7 @@ fn parse_status(s: &str) -> Result<PendingStatus, AppError> {
         "committed" => Ok(PendingStatus::Committed),
         "abandoned" => Ok(PendingStatus::Abandoned),
         "failed" => Ok(PendingStatus::Failed),
-        other => Err(AppError::Validation(format!(
-            "unknown pending_memories status: {other}"
-        ))),
+        other => Err(AppError::Validation(crate::i18n::validation::unknown_pending_memories_status(other))),
     }
 }
 
@@ -304,7 +325,7 @@ mod tests {
         assert_eq!(p.status, PendingStatus::EmbeddingInProgress);
         assert_eq!(p.attempt_count, 1);
 
-        // Embedding BLOB é &[u8] little-endian — usar bytes brutos para teste
+        // Embedding BLOB is little-endian &[u8] — use raw bytes for the test
         let fake_emb: Vec<u8> = vec![0u8; 64 * 4]; // 64 * 4 bytes
         update_to_embedding_done(&conn, id, &fake_emb, 64).unwrap();
         let p = find_by_id(&conn, id).unwrap().unwrap();

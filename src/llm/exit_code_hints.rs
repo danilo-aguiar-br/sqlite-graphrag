@@ -7,17 +7,19 @@ use std::sync::OnceLock;
 pub static EXIT_CODE_HINTS: OnceLock<HashMap<i32, &'static str>> = OnceLock::new();
 
 fn exit_code_hints_map() -> &'static HashMap<i32, &'static str> {
+    // GAP-SG-100: agent-facing diagnostics default to English. Locale-specific
+    // catalogues live in `i18n` when expanded; JSON envelopes stay parseable.
     EXIT_CODE_HINTS.get_or_init(|| {
         let mut m = HashMap::new();
-        m.insert(1, "subprocesso retornou erro genérico; verificar logs em ~/.local/share/sqlite-graphrag/llm-backend.log");
-        m.insert(2, "uso incorreto do CLI do subprocesso; rever flags passadas");
-        m.insert(101, "SIGABRT do kernel; possível panic no código do subprocesso");
-        m.insert(126, "binary não executável; executar chmod +x no binário");
-        m.insert(127, "binary não encontrado no PATH; verificar which codex ou which claude");
-        m.insert(134, "SIGABRT; abort interno do subprocesso — reportar bug upstream");
-        m.insert(137, "SIGKILL do OOM killer ou externo; verificar dmesg | grep -i kill e reduzir --llm-parallelism");
-        m.insert(139, "SIGSEGV; reportar bug upstream com stderr preservado");
-        m.insert(143, "SIGTERM externo; hook PreToolUse ou timeout cascateou");
+        m.insert(1, "subprocess returned a generic error; check logs under the XDG data dir (llm-backend.log)");
+        m.insert(2, "incorrect subprocess CLI usage; review flags passed to the binary");
+        m.insert(101, "kernel SIGABRT; possible panic inside the subprocess");
+        m.insert(126, "binary not executable; run chmod +x on the binary");
+        m.insert(127, "binary not found on PATH; verify which codex / which claude");
+        m.insert(134, "SIGABRT; internal subprocess abort — report upstream");
+        m.insert(137, "SIGKILL from OOM killer or external signal; check dmesg and lower --llm-parallelism");
+        m.insert(139, "SIGSEGV; report upstream with preserved stderr");
+        m.insert(143, "external SIGTERM; PreToolUse hook or timeout cascaded");
         m
     })
 }
@@ -26,10 +28,10 @@ fn exit_code_hints_map() -> &'static HashMap<i32, &'static str> {
 pub fn diagnose_exit_code(code: Option<i32>, signal: Option<i32>) -> String {
     if let Some(sig) = signal {
         return match sig {
-            2 => "SIGINT recebido; usuário cancelou operação".to_string(),
-            9 => "SIGKILL externo; OOM killer do kernel".to_string(),
-            15 => "SIGTERM externo; hook PreToolUse ou timeout cascateou".to_string(),
-            other => format!("signal Unix {other} não mapeado; consultar `kill -l`"),
+            2 => "SIGINT received; user cancelled the operation".to_string(),
+            9 => "external SIGKILL; kernel OOM killer".to_string(),
+            15 => "external SIGTERM; PreToolUse hook or timeout cascaded".to_string(),
+            other => format!("unmapped Unix signal {other}; see `kill -l`"),
         };
     }
     let code = code.unwrap_or(-1);
@@ -37,7 +39,7 @@ pub fn diagnose_exit_code(code: Option<i32>, signal: Option<i32>) -> String {
         .get(&code)
         .map(|s| s.to_string())
         .unwrap_or_else(|| {
-            format!("exit code {code} desconhecido; consultar upstream docs do binary")
+            format!("unknown exit code {code}; consult upstream docs for the binary")
         })
 }
 
@@ -130,7 +132,7 @@ pub enum LlmBackendError {
         source: String,
     },
     /// Subprocess exceeded the per-call timeout (default 300s,
-    /// override via `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS`).
+    /// override via XDG `embedding.timeout_secs` / `config set`).
     Timeout {
         /// Configured timeout in seconds.
         secs: u64,
@@ -156,7 +158,7 @@ impl LlmBackendError {
             Self::Timeout { secs, binary } => {
                 format!(
                     "subprocess '{binary}' exceeded the {secs}s timeout; \
-                     override via SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS"
+                     override via `config set embedding.timeout_secs <secs>`"
                 )
             }
             Self::NoBackendsAvailable => "no backends succeeded and no fallback was configured; \
@@ -228,7 +230,7 @@ impl std::error::Error for LlmBackendError {}
 /// the migration window. Once all call sites are migrated to return
 /// `LlmBackendError` directly, this helper can be deleted.
 pub fn into_legacy_embedding(err: &LlmBackendError) -> crate::errors::AppError {
-    crate::errors::AppError::Embedding(err.to_string())
+    crate::errors::AppError::Embedding(crate::i18n::validation::embedding_detail(err))
 }
 
 #[cfg(test)]
@@ -285,12 +287,12 @@ mod llm_backend_error_tests {
     }
 
     #[test]
-    fn timeout_hint_mentions_env_var() {
+    fn timeout_hint_mentions_config_key() {
         let err = LlmBackendError::Timeout {
             secs: 300,
             binary: "codex".into(),
         };
-        assert!(err.hint().contains("SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS"));
+        assert!(err.hint().contains("embedding.timeout_secs"));
     }
 
     #[test]

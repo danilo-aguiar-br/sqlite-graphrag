@@ -23,7 +23,9 @@ NOTES:\n  \
     `--yes` only confirms intent and does NOT override `--retention-days`.\n  \
     To wipe every soft-deleted memory immediately, use `--yes --now`\n  \
     (alias for `--retention-days 0`) or pair `--yes` with `--retention-days 0`.")]
+/// Purge args.
 pub struct PurgeArgs {
+    /// Name of this item.
     #[arg(long)]
     pub name: Option<String>,
     /// Namespace to purge. Defaults to contextual namespace (`config` / flag / global).
@@ -54,22 +56,34 @@ pub struct PurgeArgs {
     /// Equivalent to `--retention-days 0` (purge all soft-deleted, any age).
     #[arg(long, default_value_t = false)]
     pub now: bool,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
 
+/// Purge response.
 #[derive(Serialize)]
 pub struct PurgeResponse {
+    /// Action.
     pub action: String,
+    /// Purged count.
     pub purged_count: usize,
+    /// Bytes freed.
     pub bytes_freed: i64,
+    /// Oldest deleted at.
     pub oldest_deleted_at: Option<i64>,
+    /// Retention days used.
     pub retention_days_used: u32,
+    /// Show what would happen without making changes.
     pub dry_run: bool,
+    /// Namespace scope.
     pub namespace: Option<String>,
+    /// Cutoff epoch.
     pub cutoff_epoch: i64,
+    /// Warnings.
     pub warnings: Vec<String>,
     /// Total execution time in milliseconds from handler start to serialisation.
     pub elapsed_ms: u64,

@@ -6,6 +6,7 @@
 use crate::errors::AppError;
 use rusqlite::{params, Connection};
 
+/// Insert version.
 #[allow(clippy::too_many_arguments)]
 pub fn insert_version(
     conn: &Connection,
@@ -38,6 +39,7 @@ pub fn insert_version(
     Ok(())
 }
 
+/// Next version.
 pub fn next_version(conn: &Connection, memory_id: i64) -> Result<i64, AppError> {
     let v: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) + 1 FROM memory_versions WHERE memory_id = ?1",

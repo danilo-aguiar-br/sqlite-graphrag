@@ -10,11 +10,13 @@ use crate::errors::AppError;
 use async_trait::async_trait;
 use std::time::Instant;
 
+/// Composite backend.
 pub struct CompositeBackend {
     backends: Vec<SharedBackend>,
 }
 
 impl CompositeBackend {
+    /// Create a new instance.
     pub fn new(backends: Vec<SharedBackend>) -> Self {
         Self { backends }
     }

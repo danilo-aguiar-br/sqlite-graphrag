@@ -55,6 +55,7 @@
 | `enrich` (per-item event) | `enrich-item-event.schema.json` |
 | `enrich` (summary, updated v1.0.84, ADR-0042) | `enrich-summary.schema.json` |
 | `enrich --status` (v1.0.96, GAP-ENRICH-BACKLOG-CONVERGE) | `enrich-status.schema.json` |
+| `config list` / `config list --effective` | `config-list.schema.json` |
 | `ingest` (per-file event) | `ingest-file-event.schema.json` |
 | `ingest` (summary, updated v1.0.84, ADR-0042) | `ingest-summary.schema.json` |
 | `ingest --mode claude-code` (phase event) | `ingest-claude-phase.schema.json` |
@@ -88,6 +89,8 @@
 | error envelope (all commands) | `error-envelope.schema.json` |
 ### Commands Without JSON Schemas
 - `completions` emits shell completion scripts (Bash, Zsh, Fish, PowerShell, Elvish) as plain text — no JSON schema applies
+- `help` / `--help` is CLI meta (plain text) — no JSON schema applies
+- `cache` (`list` / `stats` / `clear-models`) has **no** dedicated `cache.schema.json`; JSON output is informal / operational (list + size stats). Agents should treat unexpected fields as Must-Ignore. Coverage of cache behaviour lives in monographs (`HOW_TO_USE`, `COOKBOOK`, `AGENTS`), not in this schema index
 - `daemon` was removed in v1.0.76 (remaining code deleted in v1.0.79) — no JSON schema applies (historical)
 ### Ingest Mode Schema Selection
 - `--mode none` uses `ingest-file-event.schema.json` and `ingest-summary.schema.json`; `--mode gliner` was REMOVED in v1.1.02 (the `IngestMode` enum now exposes only `none`, `claude-code`, `codex`, `opencode` — clap rejects `gliner` with exit 2)
@@ -184,7 +187,15 @@
 - `enrich-status.schema.json` — additive quality/status fields: `scan_backlog_empty`, `scan_backlog_low_quality`, `force_redescribe`, `quality_pct`, `quality_sample_n`, `scan_backlog_low_grounding_est`; `state` includes `blocked_dead` (QISO / CAPA3).
 - `enrich-summary.schema.json` — additive optional `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate` (EC scale + cooperative preempt).
 - `deep-research` short flag `-o` is a CLI alias of `--output`; ack schema unchanged (`deep-research-output-ack.schema.json`).
-- Offline gate: `scripts/e2e_offline_v118.sh` (16/16). Help must not advertise product `SQLITE_GRAPHRAG_*` env as config.
+- Offline gate: `scripts/e2e_offline_v120.sh` (**20/20**). Help must not advertise product `SQLITE_GRAPHRAG_*` env as config.
+
+### Schema Notes in v1.2.0 (product seal — no new schema files required)
+- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.0**.
+- **`DEFAULT_EMBEDDING_DIM=1024`** — `init` stamps `schema_meta.dim` from the default (or `--embedding-dim` / XDG override). Existing DBs keep their stamped dim until re-embed. This is a runtime/init constant change, **not** a new `*.schema.json` file.
+- **`enrich --list-skipped` / `enrich --requeue-skipped`** — recoverable skipped/preservation sink (mirrors `--list-dead` / `--requeue-dead`). **No new schema file**: list/requeue reuse the existing dead-inspector envelope (`DeadItem` lines + `DeadSummary` with `action: "list-skipped"` / `"requeue-skipped"`). If a payload looks enrich-status-like or carries extra observational fields, agents **MUST** treat unknown keys as Must-Ignore (do not hard-fail).
+- **GAP-SG-139 is a CLI input contract only** (no schema change): host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2. Graph subcommands still open the DB.
+- Index already covers `config-list.schema.json` for `config list` / `config list --effective`. There is **no** `cache.schema.json` (see Commands Without JSON Schemas).
+- Offline gate remains `scripts/e2e_offline_v120.sh` (**20/20** PASS).
 
 ### Schema Changes in v1.1.06 (ADR-0066)
 - **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
@@ -261,14 +272,18 @@
 | `graph traverse` | `graph-traverse.schema.json` |
 | `graph stats` | `graph-stats.schema.json` |
 | `graph entities` | `graph-entities.schema.json` |
+| `graph recompute-degree` (v1.1.01, P3) | `graph-recompute-degree.schema.json` |
 | `cleanup-orphans` | `cleanup-orphans.schema.json` |
 | `prune-relations` | `prune-relations.schema.json` |
 | `reclassify-relation` | `reclassify-relation.schema.json` |
+| `split-body` (v1.1.03, GAP-V8) | `split-body.schema.json` |
+| `entity_connect_seen` (v1.1.04, GAP-002) | implícito via migração V016 — grava `(source_id, target_id, namespace, verdict, relation, evaluated_at)` |
 | `normalize-entities` | `normalize-entities.schema.json` |
 | `enrich` (evento de fase) | `enrich-phase.schema.json` |
 | `enrich` (evento por item) | `enrich-item-event.schema.json` |
 | `enrich` (sumário, atualizado v1.0.84, ADR-0042) | `enrich-summary.schema.json` |
 | `enrich --status` (v1.0.96, GAP-ENRICH-BACKLOG-CONVERGE) | `enrich-status.schema.json` |
+| `config list` / `config list --effective` | `config-list.schema.json` |
 | `ingest` (evento por arquivo) | `ingest-file-event.schema.json` |
 | `ingest` (sumário, atualizado v1.0.84, ADR-0042) | `ingest-summary.schema.json` |
 | `ingest --mode claude-code` (evento de fase) | `ingest-claude-phase.schema.json` |
@@ -308,7 +323,21 @@
 - `enrich-status.schema.json` — campos de qualidade/status: `scan_backlog_empty`, `scan_backlog_low_quality`, `force_redescribe`, `quality_pct`, `quality_sample_n`, `scan_backlog_low_grounding_est`; `state` inclui `blocked_dead` (QISO).
 - `enrich-summary.schema.json` — opcionais `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate`.
 - Flag curta `-o` de `deep-research` é alias CLI de `--output`; schema de ack inalterado.
-- Gate offline: `scripts/e2e_offline_v118.sh` (16/16). Help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config.
+- Gate offline: `scripts/e2e_offline_v120.sh` (**20/20**). Help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config.
+
+### Notas de Schema na v1.2.0 (selo de produto — sem novos arquivos de schema)
+- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.0**.
+- **`DEFAULT_EMBEDDING_DIM=1024`** — `init` grava `schema_meta.dim` a partir do default (ou override `--embedding-dim` / XDG). Bancos existentes mantêm o dim carimbado até re-embed. Mudança de constante de runtime/init, **não** um novo arquivo `*.schema.json`.
+- **`enrich --list-skipped` / `enrich --requeue-skipped`** — sink recuperável de `skipped`/preservation (espelha `--list-dead` / `--requeue-dead`). **Sem novo schema**: list/requeue reutilizam o envelope do inspetor dead (`DeadItem` + `DeadSummary` com `action: "list-skipped"` / `"requeue-skipped"`). Se o payload parecer enrich-status ou trouxer campos observacionais extras, agentes **DEVEM** tratar chaves desconhecidas como Must-Ignore (não falhar de forma rígida).
+- **GAP-SG-139 é apenas contrato de entrada CLI** (sem mudança de schema): folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2. Subcomandos de grafo continuam abrindo o DB.
+- O índice já cobre `config-list.schema.json` para `config list` / `config list --effective`. **Não** existe `cache.schema.json` (veja Comandos Sem JSON Schema).
+- Gate offline permanece `scripts/e2e_offline_v120.sh` (**20/20** PASS).
+
+### Comandos Sem JSON Schema (PT)
+- `completions` emite scripts de completion de shell (Bash, Zsh, Fish, PowerShell, Elvish) como texto puro — nenhum schema JSON se aplica
+- `help` / `--help` é meta da CLI (texto puro) — nenhum schema JSON se aplica
+- `cache` (`list` / `stats` / `clear-models`) **não** tem `cache.schema.json` dedicado; a saída JSON é informal/operacional (lista + tamanhos). Agentes devem tratar campos inesperados como Must-Ignore. Cobertura do comportamento de cache está nos monógrafos (`HOW_TO_USE`, `COOKBOOK`, `AGENTS`), não neste índice de schemas
+- `daemon` foi removido na v1.0.76 (código restante deletado na v1.0.79) — nenhum schema JSON se aplica (histórico)
 
 ### Mudanças de Schema na v1.1.05 (ADR-0065)
 - **Sem migração de banco obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Operadores **não** precisam de `migrate` nesta release.

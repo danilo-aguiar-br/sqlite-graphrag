@@ -30,11 +30,31 @@ fn cargo_bin_path() -> PathBuf {
     PathBuf::from("sqlite-graphrag")
 }
 
+fn plant_db(tmp: &TempDir, db_name: &str) {
+    let config_dir = tmp.path().join("config");
+    let db = tmp.path().join(db_name);
+    std::fs::create_dir_all(&config_dir).expect("mkdir config");
+    let cfg = format!(
+        r#"schema_version = 1
+
+[settings]
+"db.path" = "{}"
+"#,
+        db.display()
+    );
+    std::fs::write(config_dir.join("config.toml"), cfg).expect("write config");
+}
+
 fn sqlite_graphrag_cmd(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
+    plant_db(tmp, "bench.sqlite");
     let mut cmd = Command::new(cargo_bin_path());
-    cmd.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("bench.sqlite"));
-    cmd.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    cmd.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    cmd.env("HOME", tmp.path().join("home"));
+    cmd.env("XDG_CACHE_HOME", tmp.path().join("xdg_cache"));
+    cmd.env("XDG_CONFIG_HOME", tmp.path().join("xdg_config"));
+    cmd.env("XDG_DATA_HOME", tmp.path().join("xdg_data"));
+    cmd.arg("--config-dir").arg(tmp.path().join("config"));
+    cmd.arg("--cache-dir").arg(tmp.path().join("cache"));
     cmd.arg("--skip-memory-guard");
     cmd
 }
@@ -48,15 +68,11 @@ fn init_db(tmp: &TempDir) {
 }
 
 fn populate_db(tmp: &TempDir, count: usize) {
-    let bin = cargo_bin_path();
-    let db_path = tmp.path().join("bench.sqlite");
-    let cache_path = tmp.path().join("cache");
     for i in 0..count {
         let name = format!("bench-memoria-{i:04}");
         let body = format!("Conteúdo da memória de benchmark número {i}. Este texto simula dados reais com palavras suficientes para embedding e busca semântica.");
-        let status = Command::new(&bin)
+        let status = sqlite_graphrag_cmd(tmp)
             .args([
-                "--skip-memory-guard",
                 "remember",
                 "--name",
                 &name,
@@ -67,9 +83,6 @@ fn populate_db(tmp: &TempDir, count: usize) {
                 "--body",
                 &body,
             ])
-            .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-            .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path)
-            .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
             .status()
             .expect("remember falhou");
         assert!(
@@ -107,10 +120,6 @@ fn bench_warm_recall(c: &mut Criterion) {
     init_db(&tmp);
     populate_db(&tmp, 10);
 
-    let db_path = tmp.path().join("bench.sqlite");
-    let cache_path = tmp.path().join("cache");
-    let bin = cargo_bin_path();
-
     let queries = [
         "memória de benchmark",
         "conteúdo projeto",
@@ -122,14 +131,11 @@ fn bench_warm_recall(c: &mut Criterion) {
     c.bench_function("warm_recall_10_mems", |b| {
         b.iter(|| {
             for q in &queries {
-                let output = Command::new(&bin)
-                    .args(["--skip-memory-guard", "recall", q, "-k", "5"])
-                    .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-                    .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path)
-                    .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
+                let output = sqlite_graphrag_cmd(&tmp)
+                    .args(["recall", q, "-k", "5"])
                     .output()
                     .expect("recall falhou");
-                // Aceita 0 (encontrou) ou 4 (not found) como válidos
+                // Accept 0 (found) or 4 (not found)
                 let code = output.status.code().unwrap_or(1);
                 criterion::black_box(code == 0 || code == 4);
             }
@@ -146,23 +152,10 @@ fn bench_hybrid_search(c: &mut Criterion) {
     init_db(&tmp);
     populate_db(&tmp, 50);
 
-    let db_path = tmp.path().join("bench.sqlite");
-    let cache_path = tmp.path().join("cache");
-    let bin = cargo_bin_path();
-
     c.bench_function("hybrid_search_50_mems", |b| {
         b.iter(|| {
-            let output = Command::new(&bin)
-                .args([
-                    "--skip-memory-guard",
-                    "hybrid-search",
-                    "benchmark",
-                    "-k",
-                    "10",
-                ])
-                .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-                .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path)
-                .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
+            let output = sqlite_graphrag_cmd(&tmp)
+                .args(["hybrid-search", "benchmark", "-k", "10"])
                 .output()
                 .expect("hybrid-search falhou");
             let code = output.status.code().unwrap_or(1);

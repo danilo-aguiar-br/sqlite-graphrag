@@ -2,8 +2,8 @@
 
 // Suite PRD Compliance — 31 testes cobrindo MUST/DEVE do PRD sqlite-graphrag v2.1.0
 //
-// Isolamento: cada teste usa TempDir exclusivo + SQLITE_GRAPHRAG_DB_PATH + SQLITE_GRAPHRAG_CACHE_DIR
-// via cmd_base(). --skip-memory-guard evita aborto de RAM em CI.
+// Isolation: each test uses an exclusive TempDir + planted db.path / --config-dir
+// via cmd_base(). --skip-memory-guard avoids RAM-guard aborts in CI.
 // #[serial] em testes que manipulam env vars ou filesystem compartilhado.
 
 use assert_cmd::Command;
@@ -34,11 +34,10 @@ mod common;
 // ---------------------------------------------------------------------------
 
 fn cmd_base(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
-    c.env("SQLITE_GRAPHRAG_LANG", "en");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
+    c.arg("--lang").arg("en");
     c.arg("--skip-memory-guard");
     c
 }
@@ -432,8 +431,7 @@ fn prd_five_instances_fifth_returns_exit_75() {
 
     // 5th invocation with --wait-lock 0 must return exit 75
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -480,48 +478,45 @@ fn prd_max_body_len_exceeded_returns_exit_6() {
 }
 
 // ---------------------------------------------------------------------------
-// 12 — SQLITE_GRAPHRAG_NAMESPACE env var works as default namespace
+// 12 — --namespace flag sets the memory namespace (product env is not a channel)
 // ---------------------------------------------------------------------------
 
 #[test]
 #[serial]
-fn prd_sqlite_graphrag_namespace_env_works() {
-    let tmp = TempDir::new().unwrap();
+fn prd_namespace_flag_sets_memory_namespace() {
+    // GAP-SG-101 / G-T-XDG-04: SQLITE_GRAPHRAG_NAMESPACE is not read.
+    // The real channel is --namespace (or config set namespace.default).
+let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    // Create memory passing namespace explicitly (--namespace takes precedence over env var)
-    // SQLITE_GRAPHRAG_NAMESPACE is supported by the CLI but the --namespace flag in remember.rs has
-    // default_value="global" that always injects Some("global") when not provided.
-    // The correct approach is to pass --namespace explicitly to guarantee the right namespace.
     cmd_base(&tmp)
-        .args([
-            "remember",
-            "--name",
-            "mem-via-env-ns",
+    .args([
+    "remember",
+        "--name",
+            "mem-via-flag-ns",
             "--type",
             "user",
             "--description",
-            "namespace via env",
+            "namespace via flag",
             "--namespace",
-            "ns-from-env",
+            "ns-from-flag",
             "--body",
-            "corpo namespace env",
+            "corpo namespace flag",
             "--skip-extraction",
-        ])
-        .assert()
+            ])
+            .assert()
         .success();
 
-    // Verify the memory was saved in the correct namespace
-    let conn = Connection::open(db_path(&tmp)).unwrap();
-    let ns: String = conn
-        .query_row(
-            "SELECT namespace FROM memories WHERE name='mem-via-env-ns'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(ns, "ns-from-env", "namespace deve ser o fornecido via flag");
-}
+        let conn = Connection::open(db_path(&tmp)).unwrap();
+let ns: String = conn
+    .query_row(
+    "SELECT namespace FROM memories WHERE name=mem-via-flag-ns",
+    [],
+        |r| r.get(0),
+            )
+            .unwrap();
+            assert_eq!(ns, "ns-from-flag", "namespace must match --namespace flag");
+        }
 
 // ---------------------------------------------------------------------------
 // 13 — health emite integrity_ok e schema_ok
@@ -934,20 +929,19 @@ fn prd_chmod_600_aplicado_apos_init() {
 }
 
 // ---------------------------------------------------------------------------
-// 25 — path traversal (..) rejeitado em SQLITE_GRAPHRAG_DB_PATH
+// 25 — path traversal (..) rejected in --db (product env is not a channel)
 // ---------------------------------------------------------------------------
 
 #[test]
 #[serial]
-fn prd_path_traversal_rejected_in_db_path() {
+fn prd_path_traversal_rejected_in_db_flag() {
     let tmp = TempDir::new().unwrap();
 
+    // GAP-SG-101: SQLITE_GRAPHRAG_DB_PATH is not read. Validate --db instead.
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", "../../../etc/passwd");
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
     c.arg("--skip-memory-guard");
-    c.arg("init");
+    c.args(["init", "--db", "../../../etc/passwd"]);
 
     c.assert().failure();
 }

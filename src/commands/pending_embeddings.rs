@@ -29,11 +29,14 @@ use crate::storage::pending_embeddings::{self, PendingEmbedding, PendingEmbeddin
     sqlite-graphrag pending-embeddings abandon --status pending --yes\n\n  \
     # Mark every abandoned entry as abandoned (no-op safe retry)\n  \
     sqlite-graphrag pending-embeddings abandon --status abandoned --yes")]
+/// Pending embeddings args.
 pub struct PendingEmbeddingsArgs {
+    /// Cmd.
     #[command(subcommand)]
     pub cmd: PendingEmbeddingsCmd,
 }
 
+/// Pending embeddings cmd.
 #[derive(Debug, Subcommand)]
 pub enum PendingEmbeddingsCmd {
     /// List all pending embeddings (alias of `embedding list`).
@@ -44,6 +47,7 @@ pub enum PendingEmbeddingsCmd {
     Abandon(PendingEmbeddingsAbandonArgs),
 }
 
+/// Pending embeddings list args.
 #[derive(Debug, Args)]
 pub struct PendingEmbeddingsListArgs {
     /// Filter by status: pending | in_progress | done | abandoned. Default: pending.
@@ -52,12 +56,15 @@ pub struct PendingEmbeddingsListArgs {
     /// Maximum number of entries to return. Default: 1000.
     #[arg(long, default_value_t = 1000)]
     pub limit: usize,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true)]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
 
+/// Pending embeddings abandon args.
 #[derive(Debug, Args)]
 pub struct PendingEmbeddingsAbandonArgs {
     /// Status to filter: pending | in_progress | done | abandoned. Default: pending.
@@ -69,8 +76,10 @@ pub struct PendingEmbeddingsAbandonArgs {
     /// Dry-run: count candidates without modifying.
     #[arg(long)]
     pub dry_run: bool,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true)]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -128,6 +137,7 @@ struct PendingEmbeddingsAbandonOutput {
     yes: bool,
 }
 
+/// Run.
 pub fn run(args: PendingEmbeddingsArgs) -> Result<(), AppError> {
     match args.cmd {
         PendingEmbeddingsCmd::List(a) => run_list(a),
@@ -144,9 +154,7 @@ fn parse_status(s: &str) -> Result<PendingEmbeddingStatus, AppError> {
         "in_progress" => Ok(PendingEmbeddingStatus::InProgress),
         "done" => Ok(PendingEmbeddingStatus::Done),
         "abandoned" => Ok(PendingEmbeddingStatus::Abandoned),
-        other => Err(AppError::Validation(format!(
-            "invalid status filter: {other} (expected pending|in_progress|done|abandoned)"
-        ))),
+        other => Err(AppError::Validation(crate::i18n::validation::invalid_status_filter(other))),
     }
 }
 

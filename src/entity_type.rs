@@ -15,18 +15,31 @@ use crate::errors::AppError;
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
 pub enum EntityType {
+    /// Concept variant.
     Concept,
+    /// Date variant.
     Date,
+    /// Dashboard variant.
     Dashboard,
+    /// Decision variant.
     Decision,
+    /// File variant.
     File,
+    /// Incident variant.
     Incident,
+    /// Issue tracker variant.
     IssueTracker,
+    /// Location variant.
     Location,
+    /// Memory variant.
     Memory,
+    /// Organization variant.
     Organization,
+    /// Person variant.
     Person,
+    /// Project variant.
     Project,
+    /// Tool variant.
     Tool,
 }
 
@@ -83,6 +96,7 @@ impl EntityType {
         }
     }
 
+    /// Map to canonical.
     pub fn map_to_canonical(s: &str) -> EntityType {
         let key = s.trim().to_lowercase().replace('-', "_");
         // Exact canonical (and case/hyphen-insensitive) match first.

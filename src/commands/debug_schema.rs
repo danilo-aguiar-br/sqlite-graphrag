@@ -13,11 +13,14 @@ use std::time::Instant;
     sqlite-graphrag __debug_schema\n\n  \
     # Dump schema of a database at a custom path\n  \
     sqlite-graphrag __debug_schema --db /path/to/graphrag.sqlite\n\n  \
-    # Use SQLITE_GRAPHRAG_DB_PATH env var\n  \
-    SQLITE_GRAPHRAG_DB_PATH=/data/graphrag.sqlite sqlite-graphrag __debug_schema")]
+    # Persist the default path in the XDG config instead of passing --db\n  \
+    sqlite-graphrag config set db.path /data/graphrag.sqlite")]
+/// Debug schema args.
 pub struct DebugSchemaArgs {
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -50,6 +53,7 @@ struct DebugSchemaResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: DebugSchemaArgs) -> Result<(), AppError> {
     let inicio = Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;

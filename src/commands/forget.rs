@@ -17,6 +17,7 @@ use serde::Serialize;
     sqlite-graphrag forget --name onboarding\n\n  \
     # Soft-delete from a specific namespace\n  \
     sqlite-graphrag forget onboarding --namespace my-project")]
+/// Forget args.
 pub struct ForgetArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -33,9 +34,12 @@ pub struct ForgetArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -58,12 +62,13 @@ struct ForgetResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: ForgetArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     tracing::debug!(target: "forget", name = ?args.name_positional.as_deref().or(args.name.as_deref()), "soft-deleting memory");
     // Resolve name from positional or --name flag; both are optional, at least one is required.
     let name = args.name_positional.or(args.name).ok_or_else(|| {
-        AppError::Validation("name required: pass as positional argument or via --name".to_string())
+        AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
     })?;
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;

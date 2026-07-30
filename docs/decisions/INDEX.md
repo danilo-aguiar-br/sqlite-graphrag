@@ -4,6 +4,11 @@ This index lists all Architecture Decision Records for the `sqlite-graphrag` pro
 
 Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazilian Portuguese (`adr-XXXX-slug.pt-BR.md`). PT-BR translations are produced after the English version stabilizes.
 
+## Recent — v1.2.0 product seal (no new ADR)
+
+- The **v1.2.0** product seal (XDG config precedence, `DEFAULT_EMBEDDING_DIM=1024`, `enrich --list-skipped` / `--requeue-skipped`, **GAP-SG-139** `--db` no-op on host leaves, offline gate `scripts/e2e_offline_v120.sh` **20/20**) is documented in [CHANGELOG.md](../../CHANGELOG.md) `[1.2.0]` and the monographs (`docs/HOW_TO_USE.md`, `docs/COOKBOOK.md`, `docs/HEADLESS_INVOCATION.md`, `docs/AGENTS.md`, `docs/schemas/README.md`).
+- **No new ADR** was required for this seal (last ADR remains **ADR-0066** / v1.1.06). Do not invent ADR-0067 unless a real architectural decision is recorded on disk.
+
 ## Index
 
 | ADR | Title | Version | Status | PT-BR |

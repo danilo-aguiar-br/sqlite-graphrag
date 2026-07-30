@@ -23,11 +23,15 @@ use serde::Serialize;
     sqlite-graphrag optimize --no-fts-skip-when-functional\n\n  \
     # Explicit database path\n  \
     sqlite-graphrag optimize --db /data/graphrag.sqlite")]
+/// Optimize args.
 pub struct OptimizeArgs {
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
+    /// Skip FTS.
     #[arg(long, default_value_t = false, help = "Skip FTS5 index rebuild")]
     pub skip_fts: bool,
     /// When true (default), the FTS5 rebuild step is skipped when
@@ -84,6 +88,7 @@ struct OptimizeResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -118,7 +123,11 @@ pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
             elapsed_ms: inicio.elapsed().as_millis() as u64,
         })?;
         if recommend_rebuild {
-            std::process::exit(1);
+            // GAP-SG-125: never bare process::exit — map through AppError so
+            // main emits the JSON error envelope and exit code 1 consistently.
+            return Err(AppError::Validation(
+                "FTS5 rebuild recommended (index unhealthy); re-run without --fts-dry-run".into(),
+            ));
         }
         return Ok(());
     }
@@ -238,13 +247,10 @@ mod tests {
     #[test]
     #[serial]
     fn optimize_auto_inits_when_db_missing() {
+        // GAP-SG-84 / GAP-SG-131: path comes only from OptimizeArgs.db (flag),
+        // never from product env. Product env is not read (G-T-XDG-04).
         let dir = TempDir::new().unwrap();
         let db_path = dir.path().join("missing.sqlite");
-        // SAFETY: `#[serial]` guarantees single-threaded execution.
-        unsafe {
-            std::env::set_var("SQLITE_GRAPHRAG_DB_PATH", db_path.to_str().unwrap());
-            std::env::set_var("LOG_LEVEL", "error");
-        }
 
         let args = OptimizeArgs {
             json: false,
@@ -265,11 +271,6 @@ mod tests {
             "auto-init must create the database file at {}",
             db_path.display()
         );
-        // SAFETY: `#[serial]` guarantees single-threaded execution.
-        unsafe {
-            std::env::remove_var("SQLITE_GRAPHRAG_DB_PATH");
-            std::env::remove_var("LOG_LEVEL");
-        }
     }
 
     #[test]

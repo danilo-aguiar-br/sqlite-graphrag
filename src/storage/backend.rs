@@ -41,10 +41,12 @@ pub struct SqliteBackend {
 }
 
 impl SqliteBackend {
+    /// Create a new instance.
     pub fn new(conn: Connection) -> Self {
         Self { conn }
     }
 
+    /// Into inner.
     pub fn into_inner(self) -> Connection {
         self.conn
     }

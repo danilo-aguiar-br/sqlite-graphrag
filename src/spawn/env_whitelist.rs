@@ -102,8 +102,8 @@ pub fn apply_env_whitelist(cmd: &mut Command, strict: bool) {
 
 /// Detect whether strict env-clear mode is requested.
 ///
-/// Returns true when `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR` is `1`, `true`,
-/// `TRUE` or `yes` (case-insensitive for `true`/`yes`).
+/// Returns true when `--strict-env-clear` or XDG `spawn.strict_env_clear`
+/// is truthy (`1`/`true`/`yes`/`on`, case-insensitive).
 pub fn is_strict_env_clear() -> bool {
     if crate::runtime_config::get().strict_env_clear {
         return true;
@@ -143,7 +143,7 @@ mod tests {
             std::env::set_var("ANTHROPIC_BASE_URL", "https://api.minimax.io/anthropic");
             std::env::set_var("OPENAI_BASE_URL", "https://api.openrouter.ai/v1");
         }
-        let mut cmd = std::process::Command::new("/usr/bin/false");
+        let mut cmd = crate::spawn::failing_command();
         apply_env_whitelist(&mut cmd, false);
         let envs = captured_env(&cmd);
         let has_token = envs
@@ -173,7 +173,7 @@ mod tests {
             std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-violation");
             std::env::set_var("OPENAI_API_KEY", "sk-violation");
         }
-        let mut cmd = std::process::Command::new("/usr/bin/false");
+        let mut cmd = crate::spawn::failing_command();
         apply_env_whitelist(&mut cmd, false);
         let envs = captured_env(&cmd);
         let has_anthropic_key = envs.iter().any(|(k, _)| k == "ANTHROPIC_API_KEY");
@@ -200,7 +200,7 @@ mod tests {
             std::env::set_var("ANTHROPIC_AUTH_TOKEN", "sk-cp-strict-test");
             std::env::set_var("PATH", "/usr/bin:/bin");
         }
-        let mut cmd = std::process::Command::new("/usr/bin/false");
+        let mut cmd = crate::spawn::failing_command();
         apply_env_whitelist(&mut cmd, true);
         let envs = captured_env(&cmd);
         let has_token = envs.iter().any(|(k, _)| k == "ANTHROPIC_AUTH_TOKEN");

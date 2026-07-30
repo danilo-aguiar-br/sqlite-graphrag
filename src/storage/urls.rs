@@ -8,7 +8,9 @@ use rusqlite::Connection;
 
 /// URL extracted from a memory body.
 pub struct MemoryUrl {
+    /// URL value.
     pub url: String,
+    /// Pagination offset.
     pub offset: Option<i64>,
 }
 

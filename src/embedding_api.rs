@@ -16,7 +16,9 @@ use std::time::Duration;
 use crate::constants::DEFAULT_OPENROUTER_EMBEDDINGS_URL;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
-const MAX_BATCH_SIZE: usize = 32;
+// Factory default for OpenRouter embed batching; runtime uses XDG
+// `embedding.batch_size` via [`crate::runtime_config::embedding_batch_size`].
+const DEFAULT_EMBED_HTTP_BATCH_SIZE: usize = crate::constants::FASTEMBED_BATCH_SIZE;
 
 #[derive(Serialize)]
 struct EmbeddingRequest<'a> {
@@ -135,12 +137,12 @@ impl From<EmbedError> for AppError {
     }
 }
 
+/// Open router client.
 pub struct OpenRouterClient {
     client: reqwest::Client,
     api_key: SecretBox<String>,
     model: String,
     dim: usize,
-    supports_mrl: bool,
     default_input_type: Option<&'static str>,
     /// Endpoint each request is POSTed to. Resolved from XDG/config at
     /// construction (default: [`DEFAULT_OPENROUTER_EMBEDDINGS_URL`]).
@@ -155,6 +157,25 @@ fn model_supports_mrl(model: &str) -> bool {
         || model.contains("bge-m3")
 }
 
+/// Dimensions to put on the OpenRouter wire for MRL models.
+///
+/// Returns `None` when the provider should return the native full vector and
+/// the client applies MRL prefix truncation to `dim` via [`OpenRouterClient::truncate_embedding`].
+///
+/// Qwen3 on OpenRouter rejects intermediate dims such as 384 with provider
+/// code 20015 ("The parameter is invalid") while still serving the full 4096-d
+/// vector without a `dimensions` field. Requesting native size + client
+/// truncate preserves the configured project default (1024) without failing the request when intermediate dims are rejected.
+fn mrl_wire_dimensions(model: &str, dim: usize) -> Option<usize> {
+    if !model_supports_mrl(model) {
+        return None;
+    }
+    if model.contains("qwen3-embedding") {
+        return None;
+    }
+    Some(dim)
+}
+
 fn model_default_input_type(model: &str) -> Option<&'static str> {
     if model.contains("llama-nemotron-embed") {
         Some("passage")
@@ -166,6 +187,7 @@ fn model_default_input_type(model: &str) -> Option<&'static str> {
 }
 
 impl OpenRouterClient {
+    /// Create a new instance.
     pub fn new(api_key: SecretBox<String>, model: String, dim: usize) -> Result<Self, AppError> {
         let base_url = crate::runtime_config::openrouter_embeddings_url(
             DEFAULT_OPENROUTER_EMBEDDINGS_URL,
@@ -185,9 +207,10 @@ impl OpenRouterClient {
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
             .user_agent(concat!("sqlite-graphrag/", env!("CARGO_PKG_VERSION")))
             .build()
-            .map_err(|e| AppError::Embedding(format!("failed to build HTTP client: {e}")))?;
+            .map_err(|e| {
+                AppError::Embedding(crate::i18n::validation::embedding_http_client_build_failed(e))
+            })?;
 
-        let supports_mrl = model_supports_mrl(&model);
         let default_input_type = model_default_input_type(&model);
 
         Ok(Self {
@@ -195,7 +218,6 @@ impl OpenRouterClient {
             api_key,
             model,
             dim,
-            supports_mrl,
             default_input_type,
             base_url,
         })
@@ -214,10 +236,12 @@ impl OpenRouterClient {
         Self::new_with_base_url(api_key, model, dim, base_url)
     }
 
+    /// Default input type.
     pub fn default_input_type(&self) -> Option<&'static str> {
         self.default_input_type
     }
 
+    /// Embed single.
     pub async fn embed_single(
         &self,
         text: &str,
@@ -231,11 +255,7 @@ impl OpenRouterClient {
         let request = EmbeddingRequest {
             model: &self.model,
             input: EmbeddingInput::Single(text),
-            dimensions: if self.supports_mrl {
-                Some(self.dim)
-            } else {
-                None
-            },
+            dimensions: mrl_wire_dimensions(&self.model, self.dim),
             encoding_format: "float",
             input_type,
         };
@@ -246,12 +266,17 @@ impl OpenRouterClient {
             .data
             .into_iter()
             .next()
-            .ok_or_else(|| AppError::Embedding("empty response from OpenRouter".into()))?
+            .ok_or_else(|| {
+                AppError::Embedding(
+                    crate::i18n::validation::embedding_empty_response_from_openrouter(),
+                )
+            })?
             .embedding;
 
         Ok(self.truncate_embedding(embedding)?)
     }
 
+    /// Embed batch.
     pub async fn embed_batch(
         &self,
         texts: &[&str],
@@ -270,15 +295,13 @@ impl OpenRouterClient {
 
         let mut all = Vec::with_capacity(texts.len());
 
-        for chunk in texts.chunks(MAX_BATCH_SIZE) {
+        let batch_size =
+            crate::runtime_config::embedding_batch_size(DEFAULT_EMBED_HTTP_BATCH_SIZE);
+        for chunk in texts.chunks(batch_size) {
             let request = EmbeddingRequest {
                 model: &self.model,
                 input: EmbeddingInput::Batch(chunk.to_vec()),
-                dimensions: if self.supports_mrl {
-                    Some(self.dim)
-                } else {
-                    None
-                },
+                dimensions: mrl_wire_dimensions(&self.model, self.dim),
                 encoding_format: "float",
                 input_type,
             };
@@ -286,10 +309,9 @@ impl OpenRouterClient {
             let response = self.execute_with_retry(&request).await?;
 
             if response.data.len() != chunk.len() {
-                return Err(AppError::Embedding(format!(
-                    "expected {} embeddings, got {}",
+                return Err(AppError::Embedding(crate::i18n::validation::embedding_expected_count(
                     chunk.len(),
-                    response.data.len()
+                    response.data.len(),
                 ))
                 .into());
             }
@@ -307,11 +329,12 @@ impl OpenRouterClient {
 
     fn truncate_embedding(&self, embedding: Vec<f32>) -> Result<Vec<f32>, AppError> {
         if embedding.len() < self.dim {
-            return Err(AppError::Embedding(format!(
-                "embedding dimension {} < requested {}",
-                embedding.len(),
-                self.dim
-            )));
+            return Err(AppError::Embedding(
+                crate::i18n::validation::embedding_dimension_less_than_requested(
+                    embedding.len(),
+                    self.dim,
+                ),
+            ));
         }
         if embedding.len() == self.dim {
             Ok(embedding)
@@ -348,13 +371,17 @@ impl OpenRouterClient {
                 Ok(r) => r,
                 Err(e) if e.is_timeout() => {
                     return Err(EmbedError::new(
-                        AppError::Embedding("OpenRouter request timed out".into()),
+                        AppError::Embedding(
+                            crate::i18n::validation::embedding_openrouter_request_timed_out(),
+                        ),
                         AttemptOutcome::Transient,
                     ));
                 }
                 Err(e) => {
                     last_err = Some(EmbedError::new(
-                        AppError::Embedding(format!("HTTP request failed: {e}")),
+                        AppError::Embedding(
+                            crate::i18n::validation::embedding_http_request_failed(e),
+                        ),
                         AttemptOutcome::Transient,
                     ));
                     crate::openrouter_http::backoff(attempt).await;
@@ -367,7 +394,9 @@ impl OpenRouterClient {
             if status.is_success() {
                 let body = resp.text().await.map_err(|e| {
                     EmbedError::new(
-                        AppError::Embedding(format!("failed to read response body: {e}")),
+                        AppError::Embedding(
+                            crate::i18n::validation::embedding_failed_to_read_response_body(e),
+                        ),
                         AttemptOutcome::Transient,
                     )
                 })?;
@@ -398,7 +427,7 @@ impl OpenRouterClient {
                                 );
                                 last_err = Some(EmbedError::new(
                                     AppError::Embedding(
-                                        "OpenRouter 200 response had neither data nor error".into(),
+                                        crate::i18n::validation::embedding_openrouter_200_neither_data_nor_error(),
                                     ),
                                     AttemptOutcome::Transient,
                                 ));
@@ -414,7 +443,9 @@ impl OpenRouterClient {
                             "HTTP 200 but JSON unparseable (retrying): {e}"
                         );
                         last_err = Some(EmbedError::new(
-                            AppError::Embedding(format!("failed to parse embedding response: {e}")),
+                            AppError::Embedding(
+                                crate::i18n::validation::embedding_failed_to_parse_response(e),
+                            ),
                             AttemptOutcome::Transient,
                         ));
                         crate::openrouter_http::backoff(attempt).await;
@@ -425,7 +456,9 @@ impl OpenRouterClient {
 
             if status.as_u16() == 401 {
                 return Err(EmbedError::new(
-                    AppError::Embedding("invalid OpenRouter API key (HTTP 401)".into()),
+                    AppError::Embedding(
+                        crate::i18n::validation::embedding_openrouter_invalid_api_key_401(),
+                    ),
                     AttemptOutcome::HardFailure,
                 ));
             }
@@ -433,7 +466,9 @@ impl OpenRouterClient {
             if status.as_u16() == 400 || status.as_u16() == 404 {
                 let body = resp.text().await.unwrap_or_default();
                 return Err(EmbedError::new(
-                    AppError::Embedding(format!("OpenRouter returned {status}: {body}")),
+                    AppError::Embedding(
+                        crate::i18n::validation::embedding_openrouter_returned(status, &body),
+                    ),
                     AttemptOutcome::HardFailure,
                 ));
             }
@@ -467,7 +502,9 @@ impl OpenRouterClient {
             if status.is_server_error() {
                 tracing::warn!(attempt, status = %status, "OpenRouter server error, retrying");
                 last_err = Some(EmbedError::new(
-                    AppError::Embedding(format!("OpenRouter server error: {status}")),
+                    AppError::Embedding(
+                        crate::i18n::validation::embedding_openrouter_server_error(status),
+                    ),
                     AttemptOutcome::Transient,
                 ));
                 crate::openrouter_http::backoff(attempt).await;
@@ -476,7 +513,9 @@ impl OpenRouterClient {
 
             let body = resp.text().await.unwrap_or_default();
             return Err(EmbedError::new(
-                AppError::Embedding(format!("unexpected HTTP {status}: {body}")),
+                AppError::Embedding(
+                    crate::i18n::validation::embedding_unexpected_http(status, &body),
+                ),
                 crate::openrouter_http::status_retry_class(status),
             ));
         }
@@ -487,7 +526,9 @@ impl OpenRouterClient {
         // covers, and must never be reclassified as a permanent failure.
         Err(last_err.unwrap_or_else(|| {
             EmbedError::new(
-                AppError::Embedding("max retries exceeded for OpenRouter request".into()),
+                AppError::Embedding(
+                    crate::i18n::validation::embedding_openrouter_max_retries(),
+                ),
                 AttemptOutcome::Transient,
             )
         }))
@@ -514,6 +555,24 @@ mod tests {
         assert!(!model_supports_mrl("perplexity/pplx-embed-v1-0.6b"));
         assert!(!model_supports_mrl("mistralai/mistral-embed-2312"));
         assert!(!model_supports_mrl("some-random-model"));
+    }
+
+    #[test]
+    fn test_mrl_wire_dimensions_qwen_omits_wire_dim() {
+        // OpenRouter qwen3 rejects dimensions=384; wire must omit and truncate.
+        assert_eq!(mrl_wire_dimensions("qwen/qwen3-embedding-8b", 384), None);
+        assert_eq!(mrl_wire_dimensions("qwen/qwen3-embedding-4b", 512), None);
+        // Other MRL models still request the configured dim on the wire.
+        assert_eq!(
+            mrl_wire_dimensions("openai/text-embedding-3-small", 384),
+            Some(384)
+        );
+        assert_eq!(mrl_wire_dimensions("baai/bge-m3", 256), Some(256));
+        // Non-MRL never sends dimensions.
+        assert_eq!(
+            mrl_wire_dimensions("mistralai/mistral-embed-2312", 1024),
+            None
+        );
     }
 
     #[test]

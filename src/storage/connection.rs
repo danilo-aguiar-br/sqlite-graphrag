@@ -17,6 +17,7 @@ use std::path::Path;
 /// the LLM-only build does not need any vector extension.
 pub fn register_vec_extension() {}
 
+/// Open rw.
 pub fn open_rw(path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open(path)?;
     apply_connection_pragmas(&conn)?;
@@ -37,10 +38,10 @@ pub fn open_rw(path: &Path) -> Result<Connection, AppError> {
 ///
 /// Read-only and best-effort by design: a virgin database without
 /// `schema_meta` is a no-op (the table is created and persisted later
-/// by `ensure_schema` / `ensure_db_ready`). The env/flag override
+/// by `ensure_schema` / `ensure_db_ready`). A CLI flag or XDG override
 /// always wins and is handled inside `constants::embedding_dim`.
 fn adopt_embedding_dim(conn: &Connection) {
-    if crate::constants::embedding_dim_from_env().is_some() {
+    if crate::constants::embedding_dim_from_runtime().is_some() {
         return;
     }
     if let Ok(value) = conn.query_row(
@@ -54,6 +55,7 @@ fn adopt_embedding_dim(conn: &Connection) {
     }
 }
 
+/// Ensure schema.
 pub fn ensure_schema(conn: &mut Connection) -> Result<(), AppError> {
     crate::migrations::runner()
         .run(conn)
@@ -146,10 +148,11 @@ pub fn ensure_db_ready(paths: &AppPaths) -> Result<(), AppError> {
 /// G42/S1: two-way sync between `schema_meta.dim` and the process-wide
 /// active embedding dimensionality.
 ///
-/// - env/flag override set → persist it into `schema_meta.dim`;
+/// - CLI flag / XDG override set → persist it into `schema_meta.dim`;
 /// - no override → adopt the database value via
-///   [`crate::constants::set_active_embedding_dim`] so old 384-dim
-///   databases keep producing and querying 384-dim vectors;
+///   [`crate::constants::set_active_embedding_dim`] so a 384-dim database
+///   keeps producing and querying 384-dim vectors even after the compiled
+///   default moved to 1024;
 /// - key missing (legacy/corrupt meta) → write the resolved default.
 fn sync_embedding_dim_meta(conn: &Connection) -> Result<(), AppError> {
     let db_dim: Option<usize> = conn
@@ -161,11 +164,11 @@ fn sync_embedding_dim_meta(conn: &Connection) -> Result<(), AppError> {
         .ok()
         .and_then(|v| v.parse::<usize>().ok());
 
-    if let Some(env_dim) = crate::constants::embedding_dim_from_env() {
-        if db_dim != Some(env_dim) {
+    if let Some(override_dim) = crate::constants::embedding_dim_from_runtime() {
+        if db_dim != Some(override_dim) {
             conn.execute(
                 "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('dim', ?1)",
-                rusqlite::params![env_dim.to_string()],
+                rusqlite::params![override_dim.to_string()],
             )?;
         }
         return Ok(());
@@ -252,6 +255,7 @@ fn apply_secure_permissions(path: &Path) {
     }
 }
 
+/// Open ro.
 pub fn open_ro(path: &Path) -> Result<Connection, AppError> {
     let conn = Connection::open_with_flags(
         path,

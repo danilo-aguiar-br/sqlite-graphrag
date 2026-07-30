@@ -17,16 +17,17 @@ const MIN_OPENCODE_VERSION: (u64, u64, u64) = (1, 17, 0);
 
 /// Resolve the opencode binary path.
 ///
-/// Precedence: `SQLITE_GRAPHRAG_OPENCODE_BINARY` env var > `which::which("opencode")`.
+/// Precedence: explicit `--opencode-binary` > XDG `llm.opencode_binary`
+/// (`config set`) > `which::which("opencode")`.
 pub fn find_opencode_binary_with_override(explicit: Option<&Path>) -> Result<PathBuf, AppError> {
     if let Some(p) = explicit {
         if p.exists() {
             return Ok(p.to_path_buf());
         }
-        return Err(AppError::Validation(format!(
-            "opencode binary not found at explicit path: {}",
-            p.display()
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::binary_not_found_at_path(
+                "opencode",
+                &p.display().to_string(),
+            )));
     }
     if let Some(path) = crate::runtime_config::opencode_binary() {
         let p = PathBuf::from(path);
@@ -48,17 +49,18 @@ pub fn find_opencode_binary_with_override(explicit: Option<&Path>) -> Result<Pat
     })
 }
 
+/// Find opencode binary.
 pub fn find_opencode_binary() -> Result<PathBuf, AppError> {
     find_opencode_binary_with_override(None)
 }
 
 /// Resolve the opencode model name.
 ///
-/// Precedence: explicit `model` arg > `SQLITE_GRAPHRAG_OPENCODE_MODEL` env var
+/// Precedence: explicit `model` arg > XDG `llm.opencode_model` (`config set`)
 /// > default `opencode/big-pickle`.
 ///
-/// NOTE: intentionally does NOT fall back to `SQLITE_GRAPHRAG_LLM_MODEL` because
-/// that var typically holds a codex/claude model (e.g. "gpt-5.4-mini") that
+/// NOTE: intentionally does NOT fall back to `llm.model` because that key
+/// typically holds a codex/claude model (e.g. "gpt-5.4-mini") that
 /// opencode does not recognise — cross-contamination caused
 /// ProviderModelNotFoundError (v1.0.90 audit).
 pub fn resolve_opencode_model(model_override: Option<&str>) -> String {
@@ -70,7 +72,7 @@ pub fn resolve_opencode_model(model_override: Option<&str>) -> String {
 
 /// Resolve the opencode timeout in seconds.
 ///
-/// Precedence: explicit arg > `SQLITE_GRAPHRAG_OPENCODE_TIMEOUT` env var > default 300s.
+/// Precedence: explicit arg > XDG `llm.opencode_timeout` (`config set`) > default 300s.
 pub fn resolve_opencode_timeout(timeout_override: Option<u64>) -> u64 {
     if let Some(t) = timeout_override {
         return t;
@@ -83,7 +85,7 @@ pub fn validate_opencode_version(binary: &Path) -> Result<(u64, u64, u64), AppEr
     let output = std::process::Command::new(binary)
         .arg("--version")
         .output()
-        .map_err(|e| AppError::Validation(format!("failed to run opencode --version: {e}")))?;
+        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_run_opencode_version(&e)))?;
 
     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let raw = if raw.is_empty() {
@@ -96,15 +98,16 @@ pub fn validate_opencode_version(binary: &Path) -> Result<(u64, u64, u64), AppEr
         if v >= MIN_OPENCODE_VERSION {
             Ok(v)
         } else {
-            Err(AppError::Validation(format!(
-                "opencode version {}.{}.{} is below minimum {}.{}.{}",
-                v.0,
-                v.1,
-                v.2,
-                MIN_OPENCODE_VERSION.0,
-                MIN_OPENCODE_VERSION.1,
-                MIN_OPENCODE_VERSION.2,
-            )))
+            Err(AppError::Validation(crate::i18n::validation::version_below_minimum(
+                    "opencode",
+                    &format!("{}.{}.{}", v.0, v.1, v.2),
+                    &format!(
+                        "{}.{}.{}",
+                        MIN_OPENCODE_VERSION.0,
+                        MIN_OPENCODE_VERSION.1,
+                        MIN_OPENCODE_VERSION.2
+                    ),
+                )))
         }
     })
 }
@@ -125,9 +128,7 @@ fn parse_version(raw: &str) -> Result<(u64, u64, u64), AppError> {
             return Ok((major, minor, patch));
         }
     }
-    Err(AppError::Validation(format!(
-        "could not parse opencode version from: {raw}"
-    )))
+    Err(AppError::Validation(crate::i18n::validation::could_not_parse_opencode_version(raw)))
 }
 
 /// Propagate opencode-relevant env vars into a subprocess.
@@ -228,7 +229,7 @@ pub fn parse_opencode_output(stdout: &str) -> Result<(String, f64, u64), AppErro
 
     if texts.is_empty() {
         return Err(AppError::Embedding(
-            "opencode returned no text events in NDJSON output".to_string(),
+            crate::i18n::validation::embedding_opencode_no_text_events(),
         ));
     }
 
@@ -301,14 +302,14 @@ pub async fn call_opencode<T: serde::de::DeserializeOwned>(
 
     let output = match tokio::time::timeout(timeout, cmd.output()).await {
         Err(_elapsed) => {
-            return Err(AppError::Embedding(format!(
-                "opencode timed out after {timeout_secs}s"
-            )));
+            return Err(AppError::Embedding(
+                crate::i18n::validation::embedding_opencode_timed_out(timeout_secs),
+            ));
         }
         Ok(Err(e)) => {
-            return Err(AppError::Embedding(format!(
-                "failed to spawn opencode: {e}"
-            )));
+            return Err(AppError::Embedding(
+                crate::i18n::validation::embedding_failed_to_spawn_opencode(e),
+            ));
         }
         Ok(Ok(o)) => o,
     };
@@ -316,18 +317,21 @@ pub async fn call_opencode<T: serde::de::DeserializeOwned>(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(AppError::Embedding(format!(
-            "opencode exited with {}: stderr={}, stdout={}",
-            output.status,
-            &stderr[..stderr.len().min(500)],
-            &stdout[..stdout.len().min(500)],
-        )));
+        return Err(AppError::Embedding(
+            crate::i18n::validation::embedding_opencode_exited(
+                output.status,
+                &stderr[..stderr.len().min(500)],
+                &stdout[..stdout.len().min(500)],
+            ),
+        ));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let (text, _cost, _tokens) = parse_opencode_output(&stdout_str)?;
     let parsed: T = parse_json_from_opencode_text(&text)
-        .map_err(|e| AppError::Embedding(format!("opencode JSON parse failed: {e}")))?;
+        .map_err(|e| {
+            AppError::Embedding(crate::i18n::validation::embedding_opencode_json_parse_failed(e))
+        })?;
 
     Ok((parsed, _cost, _tokens))
 }

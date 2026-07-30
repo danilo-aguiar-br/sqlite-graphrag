@@ -31,25 +31,35 @@ pub struct ExtractionHints {
 /// Entity extracted from content.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedEntity {
+    /// Name of this item.
     pub name: String,
+    /// Entity type label.
     pub entity_type: String,
+    /// Human-readable description.
     pub description: Option<String>,
+    /// Confidence score in `[0, 1]`.
     pub confidence: Option<f32>,
 }
 
 /// Relationship extracted from content.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedRelationship {
+    /// Source side of the relationship.
     pub source: String,
+    /// Target side of the relationship.
     pub target: String,
+    /// Relationship type.
     pub relation: String,
+    /// Strength.
     pub strength: f32,
 }
 
 /// Output of extraction backend.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ExtractionOutput {
+    /// Extracted entities.
     pub entities: Vec<ExtractedEntity>,
+    /// Relationships.
     pub relationships: Vec<ExtractedRelationship>,
     /// Optional embedding vector (only populated by EmbeddingBackend)
     pub embedding: Option<Vec<f32>>,
@@ -63,13 +73,18 @@ pub struct ExtractionOutput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum BackendKind {
+    /// LLM variant.
     Llm,
+    /// Embedding variant.
     Embedding,
+    /// None variant.
     None,
+    /// Composite variant.
     Composite,
 }
 
 impl BackendKind {
+    /// Return the canonical string representation.
     pub fn as_str(self) -> &'static str {
         match self {
             BackendKind::Llm => "llm",
@@ -79,6 +94,7 @@ impl BackendKind {
         }
     }
 
+    /// Parse from a string.
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "llm" => Some(BackendKind::Llm),
@@ -120,9 +136,13 @@ pub trait ExtractionBackend: Send + Sync {
 /// Health status of a backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendHealth {
+    /// Kind discriminator.
     pub kind: BackendKind,
+    /// Healthy.
     pub healthy: bool,
+    /// Model name.
     pub model_name: String,
+    /// Message text.
     pub message: String,
 }
 

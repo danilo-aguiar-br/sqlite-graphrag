@@ -34,10 +34,10 @@ pub(super) fn persist_memory_bindings(
     }
 
     let extracted_entities: Vec<EntityItem> = serde_json::from_value(entities_json.clone())
-        .map_err(|e| AppError::Validation(format!("failed to parse entities array: {e}")))?;
+        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_parse_entities_array(&e)))?;
 
     let extracted_rels: Vec<RelItem> = serde_json::from_value(rels_json.clone())
-        .map_err(|e| AppError::Validation(format!("failed to parse relationships array: {e}")))?;
+        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_parse_relationships_array(&e)))?;
 
     let mut ent_count = 0usize;
     let mut rel_count = 0usize;
@@ -131,7 +131,7 @@ pub(super) fn reembed_memory_vector(
     let snippet: String = body.chars().take(200).collect();
     // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
     // v1.0.84 (ADR-0042): tuple (Vec<f32>, LlmBackendKind) — extrai o
-    // backend que efetivamente rodou e popula o accumulator para o
+    // backend that actually ran; populate the accumulator for the
     // EnrichSummary agregado.
     // v1.0.93 (GAP-OR-PROPAGATION): honour --embedding-backend openrouter.
     let (embedding, backend_kind) = crate::embedder::embed_passage_with_embedding_choice(
@@ -291,7 +291,9 @@ mod tests {
 
     fn open_test_db() -> Connection {
         let conn = Connection::open_in_memory().expect("in-memory db");
-        conn.execute_batch(
+        // GAP-SG-119: use DEFAULT_EMBEDDING_DIM (not legacy 384) for new fixtures.
+        let dim = crate::constants::DEFAULT_EMBEDDING_DIM;
+        conn.execute_batch(&format!(
             "CREATE TABLE memories (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 namespace   TEXT NOT NULL DEFAULT 'global',
@@ -302,7 +304,7 @@ mod tests {
                 body_hash   TEXT NOT NULL DEFAULT '',
                 session_id  TEXT,
                 source      TEXT NOT NULL DEFAULT 'agent',
-                metadata    TEXT NOT NULL DEFAULT '{}',
+                metadata    TEXT NOT NULL DEFAULT '{{}}',
                 created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
                 updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
                 deleted_at  INTEGER,
@@ -340,10 +342,10 @@ mod tests {
                 embedding   BLOB NOT NULL,
                 source      TEXT NOT NULL,
                 model       TEXT NOT NULL DEFAULT '',
-                dim         INTEGER NOT NULL DEFAULT 384,
+                dim         INTEGER NOT NULL DEFAULT {dim},
                 created_at  INTEGER NOT NULL DEFAULT (unixepoch())
             );",
-        )
+        ))
         .expect("schema creation must succeed");
         conn
     }

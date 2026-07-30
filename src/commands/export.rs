@@ -17,6 +17,7 @@ use serde::Serialize;
     sqlite-graphrag export --include-deleted\n\n  \
     # Pipe to file for backup\n  \
     sqlite-graphrag export > backup.ndjson")]
+/// Export args.
 pub struct ExportArgs {
     /// Namespace (flag / XDG namespace.default / global).
     #[arg(
@@ -36,9 +37,10 @@ pub struct ExportArgs {
     /// Offset for pagination.
     #[arg(long, default_value_t = 0)]
     pub offset: usize,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
-    /// Path to graphrag.sqlite (overrides XDG db.default_path and default CWD).
+    /// Path to graphrag.sqlite. Overrides the XDG `db.path` setting.
     #[arg(long)]
     pub db: Option<String>,
 }

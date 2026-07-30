@@ -28,11 +28,14 @@ use crate::storage::pending_memories::{self, PendingMemory, PendingStatus};
     sqlite-graphrag pending show 42 --json\n\n  \
     # Clean up entries abandoned for >24h (86400 seconds)\n  \
     sqlite-graphrag pending cleanup --staged-cleanup-after 86400 --yes")]
+/// Pending args.
 pub struct PendingArgs {
+    /// Cmd.
     #[command(subcommand)]
     pub cmd: PendingCmd,
 }
 
+/// Pending cmd.
 #[derive(Debug, Subcommand)]
 pub enum PendingCmd {
     /// List entries by status (defaults to all non-committed).
@@ -43,6 +46,7 @@ pub enum PendingCmd {
     Cleanup(PendingCleanupArgs),
 }
 
+/// Pending list args.
 #[derive(Debug, Args)]
 pub struct PendingListArgs {
     /// Filter by status: validated | embedding_in_progress | embedding_done |
@@ -54,7 +58,7 @@ pub struct PendingListArgs {
     pub limit: usize,
     /// GAP-E2E-010b (v1.0.89): explicit database path override. Defaults to
     /// the path resolved by `AppPaths::resolve(None)` when omitted. Honors
-    /// flag `--db` / XDG `db.default_path`.
+    /// flag `--db` / XDG `db.path`.
     #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
@@ -62,14 +66,21 @@ pub struct PendingListArgs {
     pub json: bool,
 }
 
+/// Pending status arg.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 #[value(rename_all = "snake_case")]
 pub enum PendingStatusArg {
+    /// Validated variant.
     Validated,
+    /// Embedding in progress variant.
     EmbeddingInProgress,
+    /// Embedding done variant.
     EmbeddingDone,
+    /// Committed variant.
     Committed,
+    /// Abandoned variant.
     Abandoned,
+    /// Failed variant.
     Failed,
 }
 
@@ -86,13 +97,14 @@ impl From<PendingStatusArg> for PendingStatus {
     }
 }
 
+/// Pending show args.
 #[derive(Debug, Args)]
 pub struct PendingShowArgs {
     /// Pending id returned by `remember --stage-only`.
     pub pending_id: i64,
     /// GAP-E2E-010b (v1.0.89): explicit database path override. Defaults to
     /// the path resolved by `AppPaths::resolve(None)` when omitted. Honors
-    /// flag `--db` / XDG `db.default_path`.
+    /// flag `--db` / XDG `db.path`.
     #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
@@ -100,6 +112,7 @@ pub struct PendingShowArgs {
     pub json: bool,
 }
 
+/// Pending cleanup args.
 #[derive(Debug, Args)]
 pub struct PendingCleanupArgs {
     /// Age in seconds after which an entry is eligible for cleanup.
@@ -112,8 +125,7 @@ pub struct PendingCleanupArgs {
     #[arg(long)]
     pub dry_run: bool,
     /// Explicit database path override. Defaults to the path resolved by
-    /// `AppPaths::resolve(None)` when omitted. Honors env var
-    /// `--db` / XDG `db.default_path`.
+    /// `AppPaths::resolve(None)` when omitted (`--db` / XDG `db.path`).
     #[arg(long)]
     pub db: Option<String>,
     /// JSON output (always on; accepted for CLI consistency).
@@ -179,6 +191,7 @@ struct PendingCleanupOutput {
     yes: bool,
 }
 
+/// Run.
 pub fn run(args: PendingArgs) -> Result<(), AppError> {
     match args.cmd {
         PendingCmd::List(a) => run_list(a),

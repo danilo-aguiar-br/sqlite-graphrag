@@ -1,15 +1,15 @@
-# MIGRANDO PARA v1.1.8 — Qualidade/latência/contrato do enrich + XDG (Sem Migração de Schema)
+# MIGRANDO PARA v1.2.0 — DEFAULT_EMBEDDING_DIM=1024 + XDG (Sem Migração de Schema)
 
 - Versão em inglês: [MIGRATION.md](MIGRATION.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
-> Este guia cobre a atualização de v1.1.07 (ou qualquer instalação já em schema v16) para a **v1.1.8**. **Nenhuma migração de schema numerada** — `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate `version = "1.1.8"`. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.1.8`. Caminhos de upgrade anteriores (v1.1.0 → … → v1.1.07) estão preservados como seções históricas abaixo.
+> Este guia cobre a atualização de v1.1.8 / v1.1.07 (ou qualquer instalação já em schema v16) para a **v1.2.0**. **Nenhuma migração de schema numerada** — `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate `version = "1.2.0"`. **DEFAULT_EMBEDDING_DIM=1024** (bancos existentes mantêm `schema_meta.dim` até re-embed). Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.2.0`. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico `e2e_offline_v118.sh` supersedido). Caminhos de upgrade anteriores estão preservados como seções históricas abaixo.
 
-## v1.1.8 — Enrich quality/latency/contract + XDG + QISO (Sem Migração)
+## v1.2.0 — DEFAULT_EMBEDDING_DIM=1024 + selo XDG (Sem Migração)
 
 > Upgrade a partir da v1.1.07 (ou qualquer build já em schema v16). O schema do banco principal **PERMANECE em v16** — `migrate` NÃO é necessário. O sidecar do enrich pode ganhar coluna opcional `priority` via ALTER idempotente. Reinstale com `cargo install sqlite-graphrag --locked --force`.
 
-Evidência de gate: `cargo build --release` OK; `cargo clippy --all-targets -- -D warnings` OK; `scripts/e2e_offline_v118.sh` **16/16 PASS**; `tests/help_no_product_env` pass. Residuais honestos: monólitos >800 LOC; qualidade live LQ = operador.
+Evidência de gate: `cargo build --release` OK; `cargo clippy --all-targets -- -D warnings` OK; `scripts/e2e_offline_v120.sh` **20/20 PASS**; `tests/help_no_product_env` pass. Residuais honestos: monólitos >800 LOC; qualidade live LQ = operador.
 
 ### O que mudou (comportamento — sem schema main-DB)
 
@@ -22,6 +22,9 @@ Evidência de gate: `cargo build --release` OK; `cargo clippy --all-targets -- -
 - **UX:** `pending-embeddings status`, `cache stats`, `purge --now`; alias de telemetry removido.
 - **Help scrub:** sem env de produto e sem Box about.
 - **Enrich quality:** grounding de entity-descriptions, `--force-redescribe`, help de entity-connect totalmente implementado (persiste relações), deep-research `-o`, `memory-entities` com `description`, `remember --enqueue-enrich` + envelope `entities_created` / `enrich_recommended`.
+- **Recuperação do sink skipped (GAP-SG-96 / G-PR-3/4):** `enrich --list-skipped` / `enrich --requeue-skipped` recuperam `status=skipped` / `preservation_failed` sem SQL bruto (contraparte do sink skipped de `--list-dead` / `--requeue-dead`).
+- **GAP-SG-139:** folhas host/XDG aceitam `--db` como **no-op** documentado: `config` (×9), `slots` (×3), `cache` (×3), `codex-models`, `completions`. Helper `src/cli_db_noop.rs`; regressão `tests/cli_db_noop_host_surfaces_regression.rs`. Exemplo: `config doctor --db /tmp/x.sqlite` **não** abre esse path.
+- **DEFAULT_EMBEDDING_DIM=1024** — bancos novos e default efetivo quando não há `--embedding-dim` / XDG `embedding.dim` / `schema_meta.dim`; bancos existentes mantêm a dim registrada até re-embed.
 - **Nomes:** `--entity-names` / `--memory-names` (alias `--names` com semântica por operação).
 - **Escala EC:** `--anchor-memory`, limites adaptativos, yield, campos `budget_exhausted` / `pairs_remaining_estimate` / `preempted_for_gate`.
 - **Status:** `quality_pct`, `scan_backlog_low_quality`, `state=blocked_dead` (QISO).
@@ -29,8 +32,8 @@ Evidência de gate: `cargo build --release` OK; `cargo clippy --all-targets -- -
 ### Ações do operador
 
 - Reinstale: `cargo install sqlite-graphrag --locked --force`.
-- Confirme a versão: `sqlite-graphrag --version` (espere `1.1.8`).
-- Pin da API de biblioteca: `=1.1.8`.
+- Confirme a versão: `sqlite-graphrag --version` (espere `1.2.0`).
+- Pin da API de biblioteca: `=1.2.0`.
 - **Não** rode `migrate` só por este upgrade se já estiver em schema v16.
 - Migre knobs de env de produto para XDG/flags:
   ```bash
@@ -40,16 +43,20 @@ Evidência de gate: `cargo build --release` OK; `cargo clippy --all-targets -- -
   ```
 - Smoke offline:
   ```bash
-  bash scripts/e2e_offline_v118.sh
+  bash scripts/e2e_offline_v120.sh   # espera 20/20 PASS
   sqlite-graphrag purge --now --dry-run --json
   sqlite-graphrag pending-embeddings status --json
   sqlite-graphrag cache stats --json
+  # Recuperação do sink skipped (sem SQL bruto)
+  sqlite-graphrag enrich --operation entity-descriptions --list-skipped --json
+  # GAP-SG-139: folhas host aceitam --db como no-op (não abre esse path)
+  sqlite-graphrag config doctor --db /tmp/x.sqlite
   ```
 - Qualidade live (opcional, custo LLM): `enrich --operation entity-descriptions --force-redescribe …` no grafo de produção.
 
 ### Se ainda estiver em schema v15 ou anterior
 
-- Aplique primeiro o caminho da **v1.1.04** abaixo (`migrate --json` para V016 `entity_connect_seen`), depois instale a v1.1.8.
+- Aplique primeiro o caminho da **v1.1.04** abaixo (`migrate --json` para V016 `entity_connect_seen`), depois instale a v1.2.0.
 
 ---
 

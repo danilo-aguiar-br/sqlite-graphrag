@@ -1,18 +1,24 @@
-# COMO USAR sqlite-graphrag (v1.1.8 — XDG config, enrich quality/latency, schema v16)
+# COMO USAR sqlite-graphrag (v1.2.0 — XDG config, dim 1024, schema v16)
 
 > Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
 
 - English version: [HOW_TO_USE.md](HOW_TO_USE.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md) para referência de comandos
 
-## O Que Mudou na v1.1.8 — XDG + Qualidade/Latência do Enrich (Sem Migração)
+## O Que Mudou na v1.2.0 — dim 1024 + XDG (Sem Migração)
 
-- Crate **`1.1.8`**. Schema do banco principal **inalterado em v16** (sem migração main-DB).
+- Crate **1.2.0**. Schema do banco principal **inalterado em v16** (sem migração main-DB).
+- **DEFAULT_EMBEDDING_DIM=1024** (flag `--embedding-dim` / XDG `embedding.dim` ainda sobrescrevem; bancos existentes mantêm `schema_meta.dim` até re-embed).
+- Fila enrich **multi-namespace** — coluna `namespace` + `UNIQUE(namespace, operation, item_key)`; `DELETE` escopado.
+- `--list-skipped` / `--requeue-skipped` recuperam `preservation_failed` / sink `skipped` sem SQL cru.
+- **GAP-SG-139** — folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado (não abrem o DB do grafo).
+- Testes herméticos **IsolatedEnv** / `wire_assert_cmd` (ZERO env de produto operacional; `xdg_isolation_guard`).
+- Gate offline E2E: `scripts/e2e_offline_v120.sh` (**20/20**); wrapper histórico `e2e_offline_v118.sh` supersedido.
 - Config operacional: **flag CLI > XDG `config set` > default**. Help sem env de produto e sem Box about.
 - OpenRouter: URLs via XDG `network.openrouter.*`. Fail-fast de query Auto: `llm.query_embed_timeout_secs` (~3s).
 - EntityType `module`→Concept; `related_to`→`related`; alias de telemetry removido.
 - `remember-batch` exige `description` na criação; `pending-embeddings status`; `cache stats`; `purge --now`; `config list --effective`.
-- Claim da fila enrich escopado por `operation` (QISO). Harness offline `scripts/e2e_offline_v118.sh` **16/16**.
+- Claim da fila enrich escopado por `operation` (QISO).
 - entity-descriptions: prompt multi-domínio neutro, grounding no corpus, `--force-redescribe` para reescrever descriptions de baixa qualidade.
 - Status honesto: `enrich --status --force-redescribe` reporta `scan_backlog_low_quality`, `quality_pct`, `state=blocked_dead` quando aplicável.
 - Nomes: `--entity-names` / `--memory-names` (alias `--names` com semântica por operação).
@@ -22,7 +28,7 @@
 - entity-connect permanece totalmente implementado (persiste relações); DB grande: `--anchor-memory`, limites adaptativos, yield, `budget_exhausted` / `preempted_for_gate`.
 - Ordem recomendada após escrita: entity-descriptions (quente) depois entity-connect (frio).
 - Residuais: monólitos >800 LOC; qualidade live LQ = operador (`--force-redescribe` + LLM).
-- Pin da biblioteca: `=1.1.8`.
+- Pin da biblioteca: `=1.2.0`. Veja [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md) e [CHANGELOG.md](../CHANGELOG.md) `[1.2.0]`.
 
 ### Receita — Config XDG efetiva
 
@@ -34,7 +40,7 @@ sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter
 sqlite-graphrag config set llm.query_embed_timeout_secs 3
 ```
 
-### Receita — Status e purge da v1.1.8
+### Receita — Status e purge da v1.2.0
 
 ```bash
 sqlite-graphrag pending-embeddings status --json
@@ -50,7 +56,7 @@ printf '{"name":"nota-a","type":"note","description":"primeira","body":"conteúd
 # Sem description na criação → erro de validação (exit 1)
 ```
 
-### Receita — qualidade do enrich e hot-set (v1.1.8)
+### Receita — qualidade do enrich e hot-set (v1.2.0)
 
 ```bash
 # Após remember curado: leia enrich_recommended, depois ED prioritário
@@ -548,6 +554,8 @@ A LLM devolve JSON estruturado com entidades e relacionamentos no mesmo prompt q
 - `--resume` continua um batch interrompido anteriormente a partir do queue DB. `--retry-failed` retenta apenas os itens que falharam.
 - `--until-empty` (v1.0.96) roda um loop interno scan→drain até a fila não ter itens elegíveis ou `--max-runtime <SEGUNDOS>` (padrão 3600) expirar — substitui o loop externo `while` de retry. `--max-attempts <N>` (padrão 8, range 1..=20) é o orçamento de retries Transient; um item vira terminal `dead` após esse orçamento ou na primeira HardFailure (GAP-ENRICH-BACKLOG-CONVERGE, ADR-0055).
 - `--status` (v1.0.96) imprime um relatório read-only JSON da fila (`unbound_backlog`, `scan_backlog` por operação, `queue_pending/done/failed/dead/skipped`, `eligible_now`, `waiting`). Nunca chama o LLM e nunca adquire o singleton, então é seguro fazer poll enquanto um drain roda; o `scan_backlog` (GAP-SG-77, v1.1.0) é o backlog real do banco por operação que um scan enfileiraria — elimina o falso `pending=0` para `entity-descriptions`/`body-enrich`/`re-embed`, e o `state` deriva o `pending-scan` dele.
+- `--list-dead` / `--requeue-dead` listam linhas terminais `dead` da fila ou as movem `dead` → `pending` (sem LLM, sem singleton quando usados sozinhos). Use após falhas duras que esgotaram `--max-attempts`.
+- `--list-skipped` / `--requeue-skipped` listam linhas `skipped` / preservation-failed ou as movem `skipped` → `pending` (sem LLM, sem singleton quando usados sozinhos). Recuperam dívida de preservation/skipped sem SQL cru no `.enrich-queue.sqlite`.
 - `--rest-concurrency <N>` (v1.0.96, padrão 8, clamp 1..=16) limita o fan-out REST via `JoinSet` bounded para `--mode openrouter`; é distinto de `--llm-parallelism`. O embedding processa lotes de 32 passagens com a ordem por chunk preservada enquanto a escrita SQLite permanece single-writer via WAL + claim atômico (GAP-OPENROUTER-REST-CONCURRENCY).
 - `--prune-dead-orphans` (v1.0.97, GAP-SG-66, ADR-0058) é um inspetor read-only (sem LLM, sem singleton, sem `--operation`/`--mode`) que deleta SOMENTE linhas da fila de enrich com `status='dead'` e `item_type='memory'` cujo `item_key` (o nome da memória) sumiu do banco principal; linhas dead de entidade ficam intocadas e só o sidecar `.enrich-queue.sqlite` é mutado. A saída JSON `DeadSummary` reporta o campo `pruned`. Use para limpar dead-letter órfão deixado quando uma memória é renomeada ou purgada após o enfileiramento — `--requeue-dead` só as re-falha.
 - `--prune-dead-entity-orphans` (v1.1.02, ADR-0062) é a contraparte para chaves de entidade: deleta linhas dead-letter com `item_type='entity'` do `.enrich-queue.sqlite`, e é mutuamente exclusiva com `--prune-dead-orphans`. Rode ambas em sequência para uma varredura completa de órfãos após um upgrade que renomeou/fundiu/purgou entidades.
@@ -608,6 +616,117 @@ Soluções alternativas:
 1. Instale `claude` na imagem de CI e autentique via OAuth (requere guardar tokens OAuth em segredos de CI).
 2. Use uma CLI de LLM mock que devolve uma resposta JSON fixa para o prompt de embedding (usada internamente pelos testes unitários em `src/extract/llm_embedding.rs`).
 
+
+## Inventário completo de comandos CLI (v1.2.0)
+
+Comandos de topo (de `sqlite-graphrag --help`) com propósito em uma linha:
+
+- `init` — cria/abre o DB SQLite, aplica migrações e faz smoke-test do caminho LLM
+- `remember` — grava uma memória com grafo de entidades opcional
+- `remember-batch` — cria várias memórias a partir de NDJSON no stdin (`description` obrigatória na criação)
+- `ingest` — ingere em massa arquivos de um diretório como memórias
+- `recall` — busca semântica (KNN) com hops de grafo opcionais
+- `read` — lê uma memória por nome ou id
+- `list` — pagina memórias com filtros
+- `forget` — soft-delete de uma memória (histórico preservado)
+- `purge` — hard-delete de soft-deletes após retenção (`--now` para imediato)
+- `rename` — renomeia memória mantendo versões
+- `split-body` — divide corpo sobredimensionado em memórias filhas
+- `edit` — edita corpo/descrição/tipo e opcionalmente re-embute
+- `history` — lista versões de uma memória
+- `restore` — restaura uma memória para versão anterior
+- `hybrid-search` — FTS5 + vetor fundidos via Reciprocal Rank Fusion
+- `health` — integridade, FTS5, versão SQLite, cobertura de vetores, super-hubs
+- `migrate` — aplica migrações pendentes (ou `--dry-run` / `--rehash`)
+- `namespace-detect` — resolve a precedência de namespace desta invocação
+- `optimize` — `PRAGMA optimize` e rebuild opcional do FTS5
+- `stats` — contagens de memórias, entidades e relacionamentos
+- `sync-safe-copy` — checkpoint e cópia segura para sync em nuvem
+- `backup` — cópia via Online Backup API para um destino
+- `vacuum` — checkpoint do WAL + reclamation de espaço
+- `link` — cria relacionamento entidade–entidade
+- `unlink` — remove relacionamentos ou um vínculo memória–entidade
+- `deep-research` — pesquisa GraphRAG multi-hop via decomposição de query
+- `related` — lista memórias conectadas pelo grafo a partir de uma semente
+- `graph` — exporta snapshot do grafo (`json`/`dot`/`mermaid`) ou subcomandos
+- `export` — exporta memórias como NDJSON
+- `fts` — família de manutenção do índice FTS5
+- `vec` — família de manutenção das tabelas vetoriais
+- `codex-models` — lista modelos aceitos pelo OAuth ChatGPT Pro
+- `prune-relations` — remove em massa relacionamentos de um tipo
+- `prune-ner` — remove bindings NER de `memory_entities`
+- `slots` — inspeção/limpeza do semáforo de slots LLM host-wide
+- `pending` — fila de checkpoint em 3 estágios do `remember`
+- `embedding` — saúde e listagem da fila de embeddings pendentes
+- `pending-embeddings` — operações em lote na fila de retry de embedding
+- `cleanup-orphans` — remove entidades sem memórias e sem relacionamentos
+- `memory-entities` — lista entidades de uma memória (ou reverso via `--entity`)
+- `cache` — list/stats/clear do cache de modelos XDG
+- `delete-entity` — apaga entidade e cascateia arestas
+- `reclassify` — reclassifica tipos de entidade (individual ou lote)
+- `rename-entity` — renomeia entidade preservando arestas e vínculos
+- `merge-entities` — funde entidades-fonte em um destino
+- `enrich` — pipeline de qualidade do grafo via LLM e inspetores de fila
+- `reclassify-relation` — renomeia tipos de relação em massa (literal ou normalizado)
+- `normalize-entities` — normaliza nomes de entidade para kebab-case com auto-merge
+- `completions` — gera completions de shell
+- `config` — config operacional XDG e chaves de API
+
+### Famílias aninhadas
+
+- `config`
+  - `add-key` — grava chave de API (stdin) de um provider
+  - `list-keys` — lista fingerprints mascarados
+  - `remove-key` — remove uma chave armazenada
+  - `doctor` — diagnostica camadas de resolução de chave/config
+  - `path` — imprime o caminho resolvido do config XDG
+  - `set` — persiste um setting operacional
+  - `get` — lê um setting
+  - `list` — lista settings armazenados (`--effective` inclui defaults)
+  - `unset` — remove um setting
+- `graph`
+  - `traverse` — caminhada BFS a partir de uma entidade (`--fuzzy` para apelidos curtos)
+  - `stats` — contagens de nós/arestas e distribuição de grau
+  - `entities` — lista entidades com ordenação/filtro
+  - `recompute-degree` — reconstrói `entities.degree` em cache numa transação
+- `fts`
+  - `rebuild` — reconstrói o FTS5 do zero
+  - `check` — integrity-check sem modificar o índice
+  - `stats` — estatísticas de linhas/páginas shadow do FTS5
+- `vec`
+  - `orphan-list` — lista linhas de embedding órfãs
+  - `purge-orphan` — apaga órfãos das tabelas vec
+  - `stats` — contagens e órfãos das tabelas vec
+- `slots`
+  - `status` — slots retidos, PIDs e métricas de espera
+  - `release` — força liberação de um slot por id (`--yes`)
+  - `cleanup` — ceifa arquivos de slot stale/órfãos
+- `pending`
+  - `list` — lista linhas da fila de checkpoint
+  - `show` — mostra uma entrada de checkpoint por id
+  - `cleanup` — remove linhas em estado terminal
+- `embedding`
+  - `status` — saúde da fila + cobertura de vetores
+  - `list` — inspeção por entrada
+  - `abandon` — abandona embeddings pendentes que casam o filtro
+- `pending-embeddings`
+  - `list` — lista linhas da fila de retry de embedding
+  - `status` — alias de `embedding status`
+  - `abandon` — abandona linhas de retry que casam o filtro
+- `cache`
+  - `clear-models` — remove arquivos de modelo em cache
+  - `list` — lista arquivos e tamanhos do cache
+  - `stats` — alias de `list`
+- `enrich` inspetores-chave (sem LLM / sem singleton quando usados sozinhos)
+  - `--status` — relatório read-only da fila + scan backlog
+  - `--list-dead` — lista linhas terminais `dead`
+  - `--requeue-dead` — move `dead` → `pending`
+  - `--list-skipped` — lista linhas `skipped` / preservation-failed
+  - `--requeue-skipped` — move `skipped` → `pending`
+  - `--prune-dead-orphans` — remove dead com chave de memória ausente do DB principal
+  - `--prune-dead-entity-orphans` — remove dead com chave de entidade do sidecar
+
+> **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2.
 
 ## Veja Também
 

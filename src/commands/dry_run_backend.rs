@@ -49,12 +49,19 @@ use serde::Serialize;
 /// spawning `embedder::embed_with_fallback`.
 #[derive(Serialize)]
 pub struct DryRunBackendOutput {
+    /// Action.
     pub action: &'static str,
+    /// Backend.
     pub backend: &'static str,
+    /// Binary.
     pub binary: String,
+    /// Model name or identifier.
     pub model: String,
+    /// Flavour.
     pub flavour: &'static str,
+    /// Chain.
     pub chain: String,
+    /// Strict ENV clear.
     pub strict_env_clear: bool,
 }
 
@@ -89,10 +96,7 @@ pub fn emit_dry_run_backend(cli: &Cli) -> Result<(), AppError> {
             // when the user opts in via `--llm-backend codex`.
             if flavour.starts_with("claude:") {
                 return Err(AppError::Embedding(
-                    "`--llm-backend codex` requested but `codex` was not found on PATH \
-                     (a `claude` binary was detected; refusing silent fallback per ADR-0042). \
-                     Install `codex` (>= 0.130) or pass `--llm-backend claude` explicitly."
-                        .to_string(),
+                    crate::i18n::validation::embedding_dry_run_codex_not_on_path(),
                 ));
             }
             backend_payload(&resolved, "codex-explicit", cli, false)
@@ -103,10 +107,7 @@ pub fn emit_dry_run_backend(cli: &Cli) -> Result<(), AppError> {
             // Symmetric guard for `--llm-backend claude`.
             if flavour.starts_with("codex:") {
                 return Err(AppError::Embedding(
-                    "`--llm-backend claude` requested but `claude` was not found on PATH \
-                     (a `codex` binary was detected; refusing silent fallback per ADR-0042). \
-                     Install `claude` (Claude Code >= 2.1) or pass `--llm-backend codex` explicitly."
-                        .to_string(),
+                    crate::i18n::validation::embedding_dry_run_claude_not_on_path(),
                 ));
             }
             backend_payload(&resolved, "claude-explicit", cli, false)
@@ -116,15 +117,9 @@ pub fn emit_dry_run_backend(cli: &Cli) -> Result<(), AppError> {
             let flavour = resolved.model_label();
             if !flavour.starts_with("opencode:") {
                 let hint = if flavour.starts_with("codex:") || flavour.starts_with("claude:") {
-                    format!(
-                        "`--llm-backend opencode` requested but auto-detect resolved `{flavour}` \
-                         (opencode has lower priority than codex/claude in detect_available). \
-                         Pass `--llm-backend auto` or set SQLITE_GRAPHRAG_OPENCODE_BINARY explicitly."
-                    )
+                    crate::i18n::validation::embedding_dry_run_opencode_resolved_other(&flavour)
                 } else {
-                    "`--llm-backend opencode` requested but `opencode` was not found on PATH. \
-                     Install `opencode` (>= 1.17) or pass `--llm-backend auto` to auto-detect."
-                        .to_string()
+                    crate::i18n::validation::embedding_dry_run_opencode_not_on_path()
                 };
                 return Err(AppError::Embedding(hint));
             }

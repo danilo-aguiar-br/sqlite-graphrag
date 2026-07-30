@@ -7,16 +7,22 @@ use rusqlite::{params, Connection};
 
 use crate::errors::AppError;
 
+/// Pending embedding status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PendingEmbeddingStatus {
+    /// Pending variant.
     Pending,
+    /// In progress variant.
     InProgress,
+    /// Done variant.
     Done,
+    /// Abandoned variant.
     Abandoned,
 }
 
 impl PendingEmbeddingStatus {
+    /// Return the canonical string representation.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -27,19 +33,32 @@ impl PendingEmbeddingStatus {
     }
 }
 
+/// Pending embedding.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PendingEmbedding {
+    /// Pending ID.
     pub pending_id: i64,
+    /// Memory identifier.
     pub memory_id: i64,
+    /// Namespace scope.
     pub namespace: String,
+    /// Name of this item.
     pub name: String,
+    /// Backend chain.
     pub backend_chain: String,
+    /// Last error.
     pub last_error: Option<String>,
+    /// Last exit code.
     pub last_exit_code: Option<i32>,
+    /// Last stderr tail.
     pub last_stderr_tail: Option<String>,
+    /// Attempt count.
     pub attempt_count: i32,
+    /// Status value.
     pub status: PendingEmbeddingStatus,
+    /// Creation timestamp.
     pub created_at: i64,
+    /// Last-update timestamp.
     pub updated_at: i64,
 }
 
@@ -73,6 +92,7 @@ pub fn insert(
     Ok(conn.last_insert_rowid())
 }
 
+/// Update status.
 pub fn update_status(
     conn: &Connection,
     pending_id: i64,
@@ -101,6 +121,7 @@ pub fn update_status(
     Ok(())
 }
 
+/// List by status.
 pub fn list_by_status(
     conn: &Connection,
     status: PendingEmbeddingStatus,
@@ -144,6 +165,7 @@ pub fn list_by_status(
     Ok(out)
 }
 
+/// Abandon.
 pub fn abandon(conn: &Connection, pending_id: i64) -> Result<(), AppError> {
     update_status(
         conn,
@@ -155,6 +177,7 @@ pub fn abandon(conn: &Connection, pending_id: i64) -> Result<(), AppError> {
     )
 }
 
+/// Delete.
 pub fn delete(conn: &Connection, pending_id: i64) -> Result<(), AppError> {
     conn.execute(
         "DELETE FROM pending_embeddings WHERE pending_id = ?1",
@@ -169,9 +192,7 @@ fn parse_status(s: &str) -> Result<PendingEmbeddingStatus, AppError> {
         "in_progress" => Ok(PendingEmbeddingStatus::InProgress),
         "done" => Ok(PendingEmbeddingStatus::Done),
         "abandoned" => Ok(PendingEmbeddingStatus::Abandoned),
-        other => Err(AppError::Validation(format!(
-            "unknown pending_embeddings status: {other}"
-        ))),
+        other => Err(AppError::Validation(crate::i18n::validation::unknown_pending_embeddings_status(other))),
     }
 }
 

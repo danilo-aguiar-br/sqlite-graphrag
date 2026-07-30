@@ -15,12 +15,14 @@ pub struct EmbeddingBackend {
 }
 
 impl EmbeddingBackend {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self {
             model_name: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
         }
     }
 
+    /// With model.
     pub fn with_model(model_name: impl Into<String>) -> Self {
         Self {
             model_name: model_name.into(),
@@ -49,12 +51,7 @@ impl ExtractionBackend for EmbeddingBackend {
         _content: &str,
         _hints: &ExtractionHints,
     ) -> Result<ExtractionOutput, AppError> {
-        Err(AppError::Validation(format!(
-            "the legacy embedding extraction backend was removed in v1.0.79 \
-             (the CLI is LLM-only); use --extraction-backend llm instead. \
-             Model requested: {}",
-            self.model_name
-        )))
+        Err(AppError::Validation(crate::i18n::validation::legacy_embedding_backend_removed(&self.model_name)))
     }
 
     async fn health(&self) -> Result<BackendHealth, AppError> {

@@ -32,16 +32,24 @@ pub enum AppError {
 
     /// External binary required for operation was not found in PATH. Maps to exit code `1`.
     #[error("binary not found: {name} — ensure it is installed and in PATH")]
-    BinaryNotFound { name: String },
+    BinaryNotFound {
+        /// Name associated with this error.
+        name: String,
+    },
 
     /// Remote service signaled rate limiting; caller should retry with backoff. Maps to exit code `1`.
     #[error("rate limited: {detail}")]
-    RateLimited { detail: String },
+    RateLimited {
+        /// Human-readable detail message.
+        detail: String,
+    },
 
     /// Operation exceeded its time budget. Maps to exit code `1`.
     #[error("timeout after {duration_secs}s: {operation}")]
     Timeout {
+        /// Operation.
         operation: String,
+        /// Duration secs.
         duration_secs: u64,
     },
 
@@ -66,11 +74,19 @@ pub enum AppError {
     /// scripts that pattern-match on `memory not found: name='N' in namespace 'NS'`
     /// keep working.
     #[error("memory not found: name='{name}' in namespace '{namespace}'")]
-    MemoryNotFound { name: String, namespace: String },
+    MemoryNotFound {
+        /// Name associated with this error.
+        name: String,
+        /// Namespace scope.
+        namespace: String,
+    },
 
     /// Memory lookup by integer `id` returned no row. Maps to exit code `4`.
     #[error("memory not found: id={id}")]
-    MemoryNotFoundById { id: i64 },
+    MemoryNotFoundById {
+        /// Numeric identifier.
+        id: i64,
+    },
 
     /// GAP-SG-78: an entity referenced by a queued enrich item does not yet
     /// exist in `entities`. Maps to exit code `4`.
@@ -92,7 +108,12 @@ pub enum AppError {
     /// returns no row. Classified as [`Self::is_retryable`] so the item is
     /// rescheduled until `--max-attempts` is exhausted.
     #[error("entity '{name}' not yet materialized in namespace '{namespace}'")]
-    EntityNotYetMaterialized { name: String, namespace: String },
+    EntityNotYetMaterialized {
+        /// Name associated with this error.
+        name: String,
+        /// Namespace scope.
+        namespace: String,
+    },
 
     /// Namespace could not be resolved from flag, environment or markers. Maps to exit code `5`.
     #[error("namespace not resolved: {0}")]
@@ -120,7 +141,13 @@ pub enum AppError {
         "limit exceeded: body is {bytes} bytes, above the {limit}-byte cap \
          (MAX_MEMORY_BODY_LEN); split the content into multiple memories"
     )]
-    BodyTooLarge { bytes: u64, limit: u64 },
+    /// Body too large.
+    BodyTooLarge {
+        /// Observed size in bytes.
+        bytes: u64,
+        /// Configured limit.
+        limit: u64,
+    },
 
     /// Chunking produced more chunks than
     /// [`crate::constants::REMEMBER_MAX_SAFE_MULTI_CHUNKS`]. Maps to exit
@@ -134,7 +161,13 @@ pub enum AppError {
          {limit}-chunk cap (REMEMBER_MAX_SAFE_MULTI_CHUNKS); split the \
          document before writing"
     )]
-    TooManyChunks { chunks: usize, limit: usize },
+    /// Too many chunks.
+    TooManyChunks {
+        /// Observed chunk count.
+        chunks: usize,
+        /// Configured limit.
+        limit: usize,
+    },
 
     /// Body exceeded [`crate::constants::EMBEDDING_REQUEST_MAX_TOKENS`] tokens
     /// (conservative cl100k proxy for the `qwen/qwen3-embedding-8b` window).
@@ -151,7 +184,13 @@ pub enum AppError {
          {limit}-token cap (EMBEDDING_REQUEST_MAX_TOKENS); split the content \
          into multiple memories"
     )]
-    TooManyTokens { tokens: u64, limit: u64 },
+    /// Too many tokens.
+    TooManyTokens {
+        /// Observed token count.
+        tokens: u64,
+        /// Configured limit.
+        limit: u64,
+    },
 
     /// Low-level SQLite error propagated from `rusqlite`. Maps to exit code `10`.
     #[error("database error: {0}")]
@@ -174,7 +213,12 @@ pub enum AppError {
     /// Reserved for use in `import`, `reindex` and batch stdin (BLOCK 3/4). Variant present
     /// since v2.0.0 even if call-sites do not yet exist — stable exit code mapping.
     #[error("batch partial failure: {failed} of {total} items failed")]
-    BatchPartialFailure { total: usize, failed: usize },
+    BatchPartialFailure {
+        /// Total items processed.
+        total: usize,
+        /// Number of failed items.
+        failed: usize,
+    },
 
     /// Filesystem I/O error while reading or writing the database or cache. Maps to exit code `14`.
     #[error("IO error: {0}")]
@@ -202,7 +246,13 @@ pub enum AppError {
         "all {max} concurrency slots occupied after waiting {waited_secs}s (exit 75); \
          use --max-concurrency or wait for other invocations to finish"
     )]
-    AllSlotsFull { max: usize, waited_secs: u64 },
+    /// All slots full.
+    AllSlotsFull {
+        /// Maximum allowed value.
+        max: usize,
+        /// Seconds spent waiting.
+        waited_secs: u64,
+    },
 
     /// A heavy long-running job is already running for this job_type/namespace
     /// pair. Maps to exit code `75` (the same `EX_TEMPFAIL` code used by the
@@ -216,7 +266,13 @@ pub enum AppError {
         "job {job_type} for namespace '{namespace}' is already running (exit 75); \
          wait for it to finish or pass --wait-job-singleton <SECONDS>"
     )]
-    JobSingletonLocked { job_type: String, namespace: String },
+    /// Job singleton locked.
+    JobSingletonLocked {
+        /// Job type identifier.
+        job_type: String,
+        /// Namespace scope.
+        namespace: String,
+    },
 
     /// G45: an LLM embedding operation is already running against the
     /// same `(namespace, db)` pair in another process. Exit code 75
@@ -226,7 +282,11 @@ pub enum AppError {
         "embedding singleton for namespace '{namespace}' is already held (exit 75); \
          another CLI is calling the LLM on this database; pass --wait-embed-singleton <SECONDS> to wait"
     )]
-    EmbeddingSingletonLocked { namespace: String },
+    /// Embedding singleton locked.
+    EmbeddingSingletonLocked {
+        /// Namespace scope.
+        namespace: String,
+    },
 
     /// Available memory is below the minimum required to load the model. Maps to exit code `77`.
     ///
@@ -236,7 +296,13 @@ pub enum AppError {
         "available memory ({available_mb}MB) below required minimum ({required_mb}MB) \
          to load the model; abort other loads or use --skip-memory-guard (exit 77)"
     )]
-    LowMemory { available_mb: u64, required_mb: u64 },
+    /// Low memory.
+    LowMemory {
+        /// Available memory in megabytes.
+        available_mb: u64,
+        /// Required memory in megabytes.
+        required_mb: u64,
+    },
 
     /// v1.0.82 (GAP-002 final): shutdown was requested via SIGINT, SIGTERM or
     /// SIGHUP before the current command completed. Maps to exit code
@@ -248,7 +314,10 @@ pub enum AppError {
     /// Unix convention (130/143/129) so LLM agents can match on a
     /// single code for "cancelled by user".
     #[error("shutdown signal received: {signal}")]
-    Shutdown { signal: String },
+    Shutdown {
+        /// Signal that triggered shutdown.
+        signal: String,
+    },
 
     /// v1.0.87 (GAP-META-005, ADR-0045): pre-flight validation gate
     /// rejected the spawn before fork. Maps to exit code `16`.
@@ -267,7 +336,10 @@ pub enum AppError {
     /// substitute the inline `--mcp-config '{}'` for a tempfile path,
     /// etc.) before retrying.
     #[error("preflight validation failed: {source}")]
-    PreFlightFailed { source: Box<PreFlightError> },
+    PreFlightFailed {
+        /// Underlying preflight error.
+        source: Box<PreFlightError>,
+    },
 
     /// v1.0.97 (GAP-SG-01/03): the OpenRouter provider returned a structured
     /// error object (an `error` field carrying `code` and `message`), often
@@ -285,7 +357,12 @@ pub enum AppError {
     /// retried inside the HTTP client (then exposed via `RateLimited` when
     /// attempts are exhausted), so it never reaches callers as `ProviderError`.
     #[error("provider error (code {code}): {message}")]
-    ProviderError { code: String, message: String },
+    ProviderError {
+        /// Provider error code.
+        code: String,
+        /// Provider error message.
+        message: String,
+    },
 }
 
 /// Bridges the structured [`PreFlightError`] produced by the
@@ -475,7 +552,9 @@ impl AppError {
                 Some("verify the name/id and namespace with `list --json` or `read --name <n> --json`")
             }
             Self::NamespaceError(_) => {
-                Some("set --namespace or SQLITE_GRAPHRAG_NAMESPACE; inspect with `namespace-detect --json`")
+                // GAP-SG-103: product env is not read (G-T-XDG-04). Point operators
+                // at the real channels: CLI flag and XDG `namespace.default`.
+                Some("set --namespace or `config set namespace.default <name>`; inspect with `namespace-detect --json`")
             }
             Self::LimitExceeded(_) => {
                 Some("split the input into smaller memories or raise the documented cap before retrying")
@@ -506,7 +585,7 @@ impl AppError {
         }
     }
 
-    /// Returns the localized error message in the active language (`--lang` / `SQLITE_GRAPHRAG_LANG`).
+    /// Returns the localized error message in the active language (`--lang` / XDG `i18n.lang`).
     ///
     /// In English the text is identical to the `Display` generated by thiserror.
     /// In Portuguese the prefixes and messages are translated to PT-BR.
@@ -590,518 +669,6 @@ impl AppError {
         }
     }
 }
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io;
-
-    #[test]
-    fn exit_code_validation_returns_1() {
-        assert_eq!(AppError::Validation("invalid field".into()).exit_code(), 1);
-    }
-
-    // GAP-SG-39: actionable errors carry a remediation suggestion.
-    #[test]
-    fn suggestion_present_for_actionable_variants() {
-        assert!(AppError::Validation("bad name".into())
-            .suggestion()
-            .is_some());
-        let dup = AppError::Duplicate("global/x".into());
-        assert!(dup.suggestion().unwrap().contains("--force-merge"));
-        let nf = AppError::MemoryNotFound {
-            name: "x".into(),
-            namespace: "global".into(),
-        };
-        assert!(nf.suggestion().is_some());
-    }
-
-    #[test]
-    fn exit_code_duplicate_returns_9() {
-        assert_eq!(AppError::Duplicate("namespace/name".into()).exit_code(), 9);
-    }
-
-    #[test]
-    fn exit_code_conflict_returns_3() {
-        assert_eq!(
-            AppError::Conflict("updated_at changed".into()).exit_code(),
-            3
-        );
-    }
-
-    #[test]
-    fn exit_code_not_found_returns_4() {
-        assert_eq!(AppError::NotFound("memory missing".into()).exit_code(), 4);
-    }
-
-    #[test]
-    fn exit_code_namespace_error_returns_5() {
-        assert_eq!(
-            AppError::NamespaceError("not resolved".into()).exit_code(),
-            5
-        );
-    }
-
-    #[test]
-    fn exit_code_limit_exceeded_returns_6() {
-        assert_eq!(
-            AppError::LimitExceeded("body too large".into()).exit_code(),
-            6
-        );
-    }
-
-    // v1.1.1 (P11): both typed ceiling variants keep the exit 6 contract.
-    #[test]
-    fn exit_code_body_too_large_and_too_many_chunks_return_6() {
-        assert_eq!(
-            AppError::BodyTooLarge {
-                bytes: 600_000,
-                limit: 512_000
-            }
-            .exit_code(),
-            6
-        );
-        assert_eq!(
-            AppError::TooManyChunks {
-                chunks: 700,
-                limit: 512
-            }
-            .exit_code(),
-            6
-        );
-        assert_eq!(
-            AppError::TooManyTokens {
-                tokens: 35_000,
-                limit: 30_000
-            }
-            .exit_code(),
-            6
-        );
-    }
-
-    // v1.1.2 (Gap 2): the token-cap message carries the estimated count and
-    // the limit, naming the constant — the third ceiling is distinguishable
-    // from bytes and chunks on exit 6 without substring classification.
-    #[test]
-    fn too_many_tokens_message_identifies_token_cap() {
-        let err = AppError::TooManyTokens {
-            tokens: 35_000,
-            limit: 30_000,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("limit exceeded"), "obtido: {msg}");
-        assert!(msg.contains("35000 tokens"), "obtido: {msg}");
-        assert!(msg.contains("30000-token cap"), "obtido: {msg}");
-        assert!(
-            msg.contains("EMBEDDING_REQUEST_MAX_TOKENS"),
-            "obtido: {msg}"
-        );
-        assert!(!msg.contains("byte cap"), "obtido: {msg}");
-        assert!(!msg.contains("chunk"), "obtido: {msg}");
-    }
-
-    // v1.1.1 (P11): the message identifies WHICH cap fired, with the measured
-    // value and the limit — bytes vs chunks are distinguishable without
-    // substring classification of a generic string.
-    #[test]
-    fn body_too_large_message_identifies_bytes_cap() {
-        let err = AppError::BodyTooLarge {
-            bytes: 600_000,
-            limit: 512_000,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("limit exceeded"), "obtido: {msg}");
-        assert!(msg.contains("600000 bytes"), "obtido: {msg}");
-        assert!(msg.contains("512000-byte cap"), "obtido: {msg}");
-        assert!(msg.contains("MAX_MEMORY_BODY_LEN"), "obtido: {msg}");
-        assert!(!msg.contains("chunk"), "obtido: {msg}");
-    }
-
-    #[test]
-    fn too_many_chunks_message_identifies_chunk_cap() {
-        let err = AppError::TooManyChunks {
-            chunks: 700,
-            limit: 512,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("limit exceeded"), "obtido: {msg}");
-        assert!(msg.contains("700 chunks"), "obtido: {msg}");
-        assert!(msg.contains("512-chunk cap"), "obtido: {msg}");
-        assert!(
-            msg.contains("REMEMBER_MAX_SAFE_MULTI_CHUNKS"),
-            "obtido: {msg}"
-        );
-        assert!(!msg.contains("byte cap"), "obtido: {msg}");
-    }
-
-    #[test]
-    fn typed_limit_variants_are_permanent_with_suggestion() {
-        let body = AppError::BodyTooLarge { bytes: 1, limit: 1 };
-        let chunks = AppError::TooManyChunks {
-            chunks: 1,
-            limit: 1,
-        };
-        assert!(body.is_permanent());
-        assert!(chunks.is_permanent());
-        assert!(!body.is_retryable());
-        assert!(!chunks.is_retryable());
-        assert!(body.suggestion().unwrap().contains("MAX_MEMORY_BODY_LEN"));
-        assert!(chunks
-            .suggestion()
-            .unwrap()
-            .contains("REMEMBER_MAX_SAFE_MULTI_CHUNKS"));
-        let tokens = AppError::TooManyTokens {
-            tokens: 1,
-            limit: 1,
-        };
-        assert!(tokens.is_permanent());
-        assert!(!tokens.is_retryable());
-        assert!(tokens
-            .suggestion()
-            .unwrap()
-            .contains("EMBEDDING_REQUEST_MAX_TOKENS"));
-    }
-
-    #[test]
-    fn typed_limit_variants_localize_to_pt() {
-        let body = AppError::BodyTooLarge {
-            bytes: 600_000,
-            limit: 512_000,
-        };
-        let pt = body.localized_message_for(crate::i18n::Language::Portuguese);
-        assert!(pt.contains("limite excedido"), "obtido: {pt}");
-        assert!(pt.contains("600000"), "obtido: {pt}");
-        let chunks = AppError::TooManyChunks {
-            chunks: 700,
-            limit: 512,
-        };
-        let pt = chunks.localized_message_for(crate::i18n::Language::Portuguese);
-        assert!(pt.contains("limite excedido"), "obtido: {pt}");
-        assert!(pt.contains("700"), "obtido: {pt}");
-        let tokens = AppError::TooManyTokens {
-            tokens: 35_000,
-            limit: 30_000,
-        };
-        let pt = tokens.localized_message_for(crate::i18n::Language::Portuguese);
-        assert!(pt.contains("limite excedido"), "obtido: {pt}");
-        assert!(pt.contains("35000"), "obtido: {pt}");
-        assert!(pt.contains("EMBEDDING_REQUEST_MAX_TOKENS"), "obtido: {pt}");
-    }
-
-    #[test]
-    fn exit_code_embedding_returns_11() {
-        assert_eq!(AppError::Embedding("model failure".into()).exit_code(), 11);
-    }
-
-    #[test]
-    fn exit_code_vec_extension_returns_12() {
-        assert_eq!(
-            AppError::VecExtension("extension did not load".into()).exit_code(),
-            12
-        );
-    }
-
-    #[test]
-    fn exit_code_db_busy_returns_15() {
-        assert_eq!(AppError::DbBusy("retries exhausted".into()).exit_code(), 15);
-    }
-
-    #[test]
-    fn exit_code_batch_partial_failure_returns_13() {
-        assert_eq!(
-            AppError::BatchPartialFailure {
-                total: 10,
-                failed: 3
-            }
-            .exit_code(),
-            13
-        );
-    }
-
-    #[test]
-    fn display_batch_partial_failure_includes_counts() {
-        let err = AppError::BatchPartialFailure {
-            total: 50,
-            failed: 7,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("7"));
-        assert!(msg.contains("50"));
-        // to_string() uses the English #[error] attr; PT is in localized_message_for
-        assert!(msg.contains("batch partial failure"));
-    }
-
-    #[test]
-    fn exit_code_io_returns_14() {
-        let io_err = io::Error::new(io::ErrorKind::NotFound, "file missing");
-        assert_eq!(AppError::Io(io_err).exit_code(), 14);
-    }
-
-    #[test]
-    fn exit_code_internal_returns_20() {
-        let anyhow_err = anyhow::anyhow!("unexpected internal error");
-        assert_eq!(AppError::Internal(anyhow_err).exit_code(), 20);
-    }
-
-    #[test]
-    fn exit_code_json_returns_20() {
-        let json_err = serde_json::from_str::<serde_json::Value>("invalid json {{").unwrap_err();
-        assert_eq!(AppError::Json(json_err).exit_code(), 20);
-    }
-
-    #[test]
-    fn exit_code_lock_busy_returns_75() {
-        assert_eq!(
-            AppError::LockBusy("another active instance".into()).exit_code(),
-            75
-        );
-    }
-
-    #[test]
-    fn display_validation_includes_message() {
-        let err = AppError::Validation("invalid id".into());
-        assert!(err.to_string().contains("invalid id"));
-        assert!(err.to_string().contains("validation error"));
-    }
-
-    #[test]
-    fn display_duplicate_includes_message() {
-        let err = AppError::Duplicate("proj/mem".into());
-        assert!(err.to_string().contains("proj/mem"));
-        assert!(err.to_string().contains("duplicate detected"));
-    }
-
-    #[test]
-    fn display_not_found_includes_message() {
-        let err = AppError::NotFound("id 42".into());
-        assert!(err.to_string().contains("id 42"));
-        assert!(err.to_string().contains("not found"));
-    }
-
-    #[test]
-    fn display_embedding_includes_message() {
-        let err = AppError::Embedding("wrong dimension".into());
-        assert!(err.to_string().contains("wrong dimension"));
-        assert!(err.to_string().contains("embedding error"));
-    }
-
-    #[test]
-    fn display_lock_busy_includes_message() {
-        let err = AppError::LockBusy("pid 1234".into());
-        assert!(err.to_string().contains("pid 1234"));
-        assert!(err.to_string().contains("lock busy"));
-    }
-
-    #[test]
-    fn from_io_error_converts_correctly() {
-        let io_err = io::Error::new(io::ErrorKind::PermissionDenied, "permission denied");
-        let app_err: AppError = io_err.into();
-        assert_eq!(app_err.exit_code(), 14);
-        assert!(app_err.to_string().contains("IO error"));
-    }
-
-    #[test]
-    fn from_anyhow_error_converts_correctly() {
-        let anyhow_err = anyhow::anyhow!("internal detail");
-        let app_err: AppError = anyhow_err.into();
-        assert_eq!(app_err.exit_code(), 20);
-        assert!(app_err.to_string().contains("internal detail"));
-    }
-
-    #[test]
-    fn from_serde_json_error_converts_correctly() {
-        let json_err = serde_json::from_str::<serde_json::Value>("{bad_field}").unwrap_err();
-        let app_err: AppError = json_err.into();
-        assert_eq!(app_err.exit_code(), 20);
-        assert!(app_err.to_string().contains("json error"));
-    }
-
-    #[test]
-    fn exit_code_lock_busy_matches_constant() {
-        assert_eq!(
-            AppError::LockBusy("test".into()).exit_code(),
-            crate::constants::CLI_LOCK_EXIT_CODE
-        );
-    }
-
-    #[test]
-    fn localized_message_en_equals_to_string() {
-        let err = AppError::NotFound("mem-x".into());
-        assert_eq!(
-            err.localized_message_for(crate::i18n::Language::English),
-            err.to_string()
-        );
-    }
-
-    // Detailed Portuguese-specific assertions live in `src/i18n.rs`
-    // (the bilingual module). Here we only verify that delegation is wired
-    // correctly, without embedding PT strings in this English-only file.
-
-    #[test]
-    fn localized_message_pt_differs_from_en() {
-        let err = AppError::NotFound("mem-x".into());
-        let en = err.localized_message_for(crate::i18n::Language::English);
-        let pt = err.localized_message_for(crate::i18n::Language::Portuguese);
-        assert_ne!(en, pt, "PT and EN must produce distinct messages");
-        assert!(pt.contains("mem-x"), "PT must include the variant payload");
-    }
-
-    #[test]
-    fn localized_message_pt_delegates_to_app_error_pt_helper() {
-        use crate::i18n::validation::app_error_pt as pt;
-
-        let cases: Vec<(AppError, String)> = vec![
-            (AppError::Validation("x".into()), pt::validation("x")),
-            (AppError::Duplicate("x".into()), pt::duplicate("x")),
-            (AppError::Conflict("x".into()), pt::conflict("x")),
-            (AppError::NotFound("x".into()), pt::not_found("x")),
-            (
-                AppError::NamespaceError("x".into()),
-                pt::namespace_error("x"),
-            ),
-            (AppError::LimitExceeded("x".into()), pt::limit_exceeded("x")),
-            (AppError::Embedding("x".into()), pt::embedding("x")),
-            (AppError::VecExtension("x".into()), pt::vec_extension("x")),
-            (AppError::DbBusy("x".into()), pt::db_busy("x")),
-            (
-                AppError::BatchPartialFailure {
-                    total: 10,
-                    failed: 3,
-                },
-                pt::batch_partial_failure(10, 3),
-            ),
-            (AppError::LockBusy("x".into()), pt::lock_busy("x")),
-            (
-                AppError::AllSlotsFull {
-                    max: 4,
-                    waited_secs: 60,
-                },
-                pt::all_slots_full(4, 60),
-            ),
-            (
-                AppError::LowMemory {
-                    available_mb: 100,
-                    required_mb: 500,
-                },
-                pt::low_memory(100, 500),
-            ),
-            (
-                AppError::BinaryNotFound {
-                    name: "claude".into(),
-                },
-                pt::binary_not_found("claude"),
-            ),
-            (
-                AppError::RateLimited {
-                    detail: "429".into(),
-                },
-                pt::rate_limited("429"),
-            ),
-            (
-                AppError::Timeout {
-                    operation: "op".into(),
-                    duration_secs: 30,
-                },
-                pt::timeout("op", 30),
-            ),
-        ];
-
-        for (err, expected) in cases {
-            let actual = err.localized_message_for(crate::i18n::Language::Portuguese);
-            assert_eq!(actual, expected, "delegation mismatch");
-        }
-    }
-
-    #[test]
-    fn is_retryable_transient_errors() {
-        assert!(AppError::DbBusy("x".into()).is_retryable());
-        assert!(AppError::LockBusy("x".into()).is_retryable());
-        assert!(AppError::AllSlotsFull {
-            max: 4,
-            waited_secs: 60
-        }
-        .is_retryable());
-        assert!(AppError::LowMemory {
-            available_mb: 100,
-            required_mb: 500
-        }
-        .is_retryable());
-        assert!(AppError::RateLimited {
-            detail: "429".into()
-        }
-        .is_retryable());
-        assert!(AppError::Timeout {
-            operation: "op".into(),
-            duration_secs: 30
-        }
-        .is_retryable());
-    }
-
-    #[test]
-    fn is_retryable_permanent_errors() {
-        assert!(!AppError::Validation("x".into()).is_retryable());
-        assert!(!AppError::NotFound("x".into()).is_retryable());
-        assert!(!AppError::Duplicate("x".into()).is_retryable());
-        assert!(!AppError::Conflict("x".into()).is_retryable());
-        assert!(!AppError::BinaryNotFound { name: "x".into() }.is_retryable());
-    }
-
-    #[test]
-    fn exit_code_new_variants() {
-        assert_eq!(AppError::BinaryNotFound { name: "x".into() }.exit_code(), 1);
-        assert_eq!(AppError::RateLimited { detail: "x".into() }.exit_code(), 1);
-        assert_eq!(
-            AppError::Timeout {
-                operation: "x".into(),
-                duration_secs: 5
-            }
-            .exit_code(),
-            1
-        );
-    }
-
-    // GAP-SG-78: EntityNotYetMaterialized is a transitory absence (the entity is
-    // materialized on a later enrich pass), NOT a terminal not-found.
-    #[test]
-    fn entity_not_yet_materialized_exit_code_is_4() {
-        let e = AppError::EntityNotYetMaterialized {
-            name: "acme".into(),
-            namespace: "global".into(),
-        };
-        assert_eq!(e.exit_code(), 4);
-    }
-
-    #[test]
-    fn entity_not_yet_materialized_is_retryable_not_permanent() {
-        let e = AppError::EntityNotYetMaterialized {
-            name: "acme".into(),
-            namespace: "global".into(),
-        };
-        assert!(e.is_retryable());
-        assert!(!e.is_permanent());
-    }
-
-    #[test]
-    fn entity_not_yet_materialized_user_message_non_empty() {
-        let e = AppError::EntityNotYetMaterialized {
-            name: "acme".into(),
-            namespace: "global".into(),
-        };
-        assert!(!e
-            .localized_message_for(crate::i18n::Language::English)
-            .is_empty());
-        assert!(!e
-            .localized_message_for(crate::i18n::Language::Portuguese)
-            .is_empty());
-    }
-
-    #[test]
-    fn app_error_size_does_not_exceed_budget() {
-        let size = std::mem::size_of::<AppError>();
-        assert!(
-            size <= 128,
-            "AppError is {size} bytes — exceeds 128-byte budget; \
-             consider boxing large variants to reduce memcpy cost in Result propagation"
-        );
-    }
-}
+#[path = "errors_tests.rs"]
+mod tests;

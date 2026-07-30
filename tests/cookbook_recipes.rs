@@ -24,13 +24,13 @@ fn bin() -> std::path::PathBuf {
 }
 
 fn cmd(dir: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
     let mock_dir = common::mock_llm_path();
     let mut c = Command::new(bin());
     c.env_clear()
-        .env("SQLITE_GRAPHRAG_DB_PATH", dir.path().join("ng.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", dir.path().join("cache"))
         .env("PATH", common::prepend_path(&mock_dir))
         .arg("--skip-memory-guard");
+    common::wire_assert_cmd(dir, &mut c, "ng.sqlite");
     c
 }
 
@@ -338,41 +338,43 @@ fn recipe_05_pre_post_task_hooks() {
     );
 }
 
-// Recipe 7 — SQLITE_GRAPHRAG_NAMESPACE env: namespace-detect reporta fonte "environment"
+// Recipe 7 — namespace via --namespace flag (product env is not a channel).
 #[test]
 #[serial]
-fn recipe_07_namespace_env_precedencia() {
+fn recipe_07_namespace_flag_precedencia() {
+    // GAP-SG-101: SQLITE_GRAPHRAG_NAMESPACE is not read. Prefer --namespace
+    // or `config set namespace.default`.
     let dir = TempDir::new().unwrap();
 
-    let output = std::process::Command::new(bin())
-        .env_clear()
-        .env("SQLITE_GRAPHRAG_DB_PATH", dir.path().join("ng.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", dir.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_NAMESPACE", "meu-projeto")
-        .arg("--skip-memory-guard")
-        .args(["namespace-detect", "--json"])
+    let output = cmd(&dir)
+        .args([
+            "namespace-detect",
+            "--namespace",
+            "meu-projeto",
+            "--json",
+        ])
         .output()
         .unwrap();
 
     assert!(
         output.status.success(),
-        "recipe 7: namespace-detect deve ter exit 0"
+        "recipe 7: namespace-detect must exit 0"
     );
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .expect("recipe 7: namespace-detect deve retornar JSON válido");
+        .expect("recipe 7: namespace-detect must return valid JSON");
 
     assert_eq!(
         json["namespace"], "meu-projeto",
-        "recipe 7: namespace deve ser o valor da env var"
+        "recipe 7: namespace must be the --namespace flag value"
     );
     assert_eq!(
-        json["source"], "environment",
-        "recipe 7: source deve ser environment conforme documentado"
+        json["source"], "explicit_flag",
+        "recipe 7: source must be explicit_flag (flag channel), never environment"
     );
     assert!(
         json["elapsed_ms"].is_number(),
-        "recipe 7: elapsed_ms deve estar presente"
+        "recipe 7: elapsed_ms must be present"
     );
 }
 
@@ -485,13 +487,21 @@ fn recipe_09_sync_safe_copy() {
     );
     assert!(dest.exists(), "recipe 9: arquivo snapshot deve existir");
 
-    // Valida que o snapshot abre corretamente via health
+    // Validate the snapshot opens via health --db <snapshot>
+    let mock_dir = common::mock_llm_path();
     let health = std::process::Command::new(bin())
         .env_clear()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &dest)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", dir.path().join("cache2"))
+        .env("PATH", common::prepend_path(&mock_dir))
+        .env("HOME", dir.path().join("home2"))
+        .env("XDG_CACHE_HOME", dir.path().join("cache2"))
         .arg("--skip-memory-guard")
-        .args(["health", "--json"])
+        .arg("--config-dir")
+        .arg(dir.path().join("config2"))
+        .arg("--cache-dir")
+        .arg(dir.path().join("cache2"))
+        .args(["health", "--db"])
+        .arg(&dest)
+        .arg("--json")
         .output()
         .unwrap();
 
@@ -695,7 +705,7 @@ fn recipe_13_parallel_namespaces() {
     }
 
     let db_path = dir.path().join("ng.sqlite").to_owned();
-    let cache_path = dir.path().join("cache").to_owned();
+    let root = dir.path().to_owned();
     let bin_path = bin();
     let mock_path = common::prepend_path(&common::mock_llm_path());
 
@@ -705,26 +715,21 @@ fn recipe_13_parallel_namespaces() {
         .map(|ns| {
             let ns = ns.to_string();
             let db = db_path.clone();
-            let cache = cache_path.clone();
+            let root = root.clone();
             let bin = bin_path.clone();
             let path = mock_path.clone();
             std::thread::spawn(move || {
-                std::process::Command::new(&bin)
-                    .env_clear()
-                    .env("SQLITE_GRAPHRAG_DB_PATH", &db)
-                    .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache)
-                    .env("PATH", &path)
-                    .args([
-                        "--skip-memory-guard",
-                        "recall",
-                        "error rate",
-                        "--k",
-                        "5",
-                        "--namespace",
-                        &ns,
-                    ])
-                    .output()
-                    .expect("recall em thread deve executar sem panic")
+                let mut c = std::process::Command::new(&bin);
+                c.env_clear().env("PATH", &path).arg("--skip-memory-guard");
+                common::wire_std_cmd(&root, &mut c, &db);
+                c.args([
+                    "recall",
+                    "--db",
+                ])
+                .arg(&db)
+                .args(["error rate", "--k", "5", "--namespace", &ns])
+                .output()
+                .expect("recall em thread deve executar sem panic")
             })
         })
         .collect();

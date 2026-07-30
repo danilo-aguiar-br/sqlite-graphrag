@@ -10,6 +10,7 @@
 use crate::config;
 use crate::errors::AppError;
 use crate::i18n::validation;
+use crate::runtime_config;
 use directories::ProjectDirs;
 use std::path::{Component, Path, PathBuf};
 
@@ -23,22 +24,15 @@ pub struct AppPaths {
 }
 
 impl AppPaths {
+    /// Resolve.
     pub fn resolve(db_override: Option<&str>) -> Result<Self, AppError> {
         let proj = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
             AppError::Io(std::io::Error::other("could not determine home directory"))
         })?;
 
-        // Cache always under XDG cache (or ProjectDirs); optional XDG setting cache.dir
-        let cache_root = if let Ok(Some(override_dir)) = config::get_setting("cache.dir") {
-            if !override_dir.is_empty() {
-                validate_path(&override_dir)?;
-                PathBuf::from(override_dir)
-            } else {
-                proj.cache_dir().to_path_buf()
-            }
-        } else {
-            proj.cache_dir().to_path_buf()
-        };
+        // GAP-SG-94: one resolver for the cache root, shared with `lock` and
+        // `llm_slots`, so a host can never end up with two cache directories.
+        let cache_root = cache_dir()?;
 
         let db = if let Some(p) = db_override {
             validate_path(p)?;
@@ -60,6 +54,7 @@ impl AppPaths {
         })
     }
 
+    /// Ensure dirs.
     pub fn ensure_dirs(&self) -> Result<(), AppError> {
         for dir in [parent_or_err(&self.db)?, self.models.as_path()] {
             std::fs::create_dir_all(dir)?;
@@ -86,8 +81,16 @@ fn validate_path(p: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Returns the XDG config directory for the application.
+/// Returns the config directory for the application.
+///
+/// Precedence (G-T-XDG-04): CLI `--config-dir` → OS config directory. No XDG
+/// `config set` key participates: the config file lives inside this directory,
+/// so consulting it here would be circular.
 pub fn config_dir() -> Result<PathBuf, AppError> {
+    if let Some(dir) = runtime_config::config_dir_override() {
+        validate_path(&dir)?;
+        return Ok(PathBuf::from(dir));
+    }
     let proj = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
         AppError::Io(std::io::Error::other(
             "could not determine home directory for config",
@@ -96,11 +99,32 @@ pub fn config_dir() -> Result<PathBuf, AppError> {
     Ok(proj.config_dir().to_path_buf())
 }
 
+/// Returns the cache root for lock files, model files and other artifacts.
+///
+/// Precedence (G-T-XDG-04): CLI `--cache-dir` → XDG `cache.dir` → OS cache
+/// directory.
+///
+/// GAP-SG-94: this is the SINGLE resolver for the cache root. [`crate::lock`]
+/// and [`crate::llm_slots`] delegate here. Before v1.2.0 `lock` read a separate
+/// key `paths.cache` while this module read `cache.dir`, so setting one moved
+/// the lock files and setting the other moved the model files.
+pub fn cache_dir() -> Result<PathBuf, AppError> {
+    if let Some(dir) = runtime_config::cache_dir_override() {
+        validate_path(&dir)?;
+        return Ok(PathBuf::from(dir));
+    }
+    let proj = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
+        AppError::Io(std::io::Error::other(
+            "could not determine cache directory for sqlite-graphrag",
+        ))
+    })?;
+    Ok(proj.cache_dir().to_path_buf())
+}
+
 pub(crate) fn parent_or_err(path: &Path) -> Result<&Path, AppError> {
     path.parent().ok_or_else(|| {
-        AppError::Validation(format!(
-            "path '{}' has no valid parent component",
-            path.display()
+        AppError::Validation(validation::path_no_valid_parent(
+            &path.display().to_string(),
         ))
     })
 }

@@ -21,6 +21,8 @@ use crate::storage::connection::{ensure_db_ready, open_rw};
 pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError> {
 if args.list_dead
     || args.requeue_dead
+    || args.list_skipped
+    || args.requeue_skipped
     || args.prune_dead_orphans
     || args.prune_dead_entity_orphans
 {
@@ -116,6 +118,74 @@ if args.list_dead
         });
         return Ok(true);
     }
+    // GAP-SG-96: --list-skipped mirrors --list-dead for the skipped sink.
+    if args.list_skipped {
+        let mut stmt = queue_conn.prepare(
+            "SELECT item_key, item_type, attempt, error_class, error, \
+                     finish_reason, input_tokens, output_tokens FROM queue \
+             WHERE status='skipped' AND (operation = ?1 OR operation IS NULL) ORDER BY id",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![op_label], |r| {
+                Ok(DeadItem {
+                    dead_item: false,
+                    item_key: r.get(0)?,
+                    item_type: r.get(1)?,
+                    attempt: r.get(2)?,
+                    error_class: r.get(3)?,
+                    error: r.get(4)?,
+                    finish_reason: r.get(5)?,
+                    input_tokens: r.get(6)?,
+                    output_tokens: r.get(7)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let dead_total = rows.len() as i64;
+        for item in &rows {
+            emit_json(item);
+        }
+        emit_json(&DeadSummary {
+            summary: true,
+            operation: op_label,
+            namespace,
+            action: "list-skipped",
+            dead_total,
+            requeued: 0,
+            pruned: 0,
+        });
+        return Ok(true);
+    }
+    // GAP-SG-96 / G-PR-4: --requeue-skipped moves skipped -> pending.
+    if args.requeue_skipped {
+        let skipped_total: i64 = queue_conn
+            .query_row(
+                "SELECT COUNT(*) FROM queue WHERE status='skipped' \
+                 AND (operation = ?1 OR operation IS NULL)",
+                rusqlite::params![op_label],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let requeued = queue_conn
+            .execute(
+                "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
+                 error=NULL, error_class=NULL \
+                 WHERE status='skipped' AND (operation = ?1 OR operation IS NULL)",
+                rusqlite::params![op_label],
+            )
+            .map_err(|e| AppError::Validation(crate::i18n::validation::requeue_skipped_failed(&e)))?
+            as i64;
+        let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        emit_json(&DeadSummary {
+            summary: true,
+            operation: op_label,
+            namespace,
+            action: "requeue-skipped",
+            dead_total: skipped_total,
+            requeued,
+            pruned: 0,
+        });
+        return Ok(true);
+    }
     // --requeue-dead: move dead -> pending, clearing the failure bookkeeping.
     let dead_total: i64 = queue_conn
         .query_row(
@@ -132,7 +202,7 @@ if args.list_dead
              WHERE status='dead' AND (operation = ?1 OR operation IS NULL)",
             rusqlite::params![op_label],
         )
-        .map_err(|e| AppError::Validation(format!("requeue-dead failed: {e}")))?
+        .map_err(|e| AppError::Validation(crate::i18n::validation::requeue_dead_failed(&e)))?
         as i64;
     let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     emit_json(&DeadSummary {
@@ -289,11 +359,19 @@ if args.status {
     // GAP-CLI-QISO-06: when the DB still shows scan deficit but the only
     // queue residue is permanent dead (no pending/waiting), report
     // blocked_dead so CAPA3/gate does not loop forever on pending-scan.
+    // G-PR-7: blocked_dead only when the sole non-empty residue is permanent
+    // dead AND there is no skipped debt that --requeue-skipped could clear.
+    // A minority of dead rows must not hide pending-scan / skipped residual.
     let state = if eligible_now > 0 {
         "draining"
     } else if waiting > 0 {
         "cooldown"
-    } else if queue_pending == 0 && scan_backlog > 0 && queue_dead > 0 {
+    } else if queue_pending == 0
+        && queue_skipped == 0
+        && queue_processing == 0
+        && scan_backlog > 0
+        && queue_dead > 0
+    {
         "blocked_dead"
     } else if queue_pending == 0 && scan_backlog > 0 {
         "pending-scan"

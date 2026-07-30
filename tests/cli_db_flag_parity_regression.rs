@@ -107,7 +107,7 @@ fn assert_db_flag_accepted(label: &str, subcommand_args: &[&str], db_path: &Path
          stderr: {stderr}\nstdout: {stdout}\nstatus: {status}\n\
          Expected: clap accepts `--db <PATH>` as a valid argument.\n\
          The Args struct for this subcommand is missing the standard \
-         `#[arg(long, env = \"SQLITE_GRAPHRAG_DB_PATH\")] pub db: Option<String>` field.",
+         `#[arg(long)] pub db: Option<String>` field (flag > XDG; no product env).",
     );
 }
 

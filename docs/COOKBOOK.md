@@ -1,6 +1,6 @@
-# v1.1.8 recipes (XDG config + enrich quality + E2E seal)
+# v1.2.0 recipes (XDG config + dim 1024 + E2E seal)
 
-> Current crate **1.1.8**, schema **v16** (no main-DB migration). Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v118.sh` (16/16).
+> Current crate **1.2.0**, schema **v16** (no main-DB migration). **DEFAULT_EMBEDDING_DIM=1024**. Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` / 16/16 superseded). Enrich recovery: `--list-skipped` / `--requeue-skipped`. **GAP-SG-139:** `--db` no-op on host/XDG leaves.
 > Portuguese recipes: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 
 ## How To Rewrite Low-Quality Entity Descriptions (`--force-redescribe`)
@@ -208,6 +208,148 @@ sqlite-graphrag config unset llm.query_embed_timeout_secs --json
 ### Explanation
 - `--effective` fills well-known defaults (OpenRouter URLs, probe/timeout, embedding.dim, log.level, display.tz, …) when not stored in XDG
 
+## How To List and Requeue Skipped Enrich Items
+
+### Problem
+- Preservation gate or other hard skips leave rows in the enrich-queue sidecar as `skipped` / `preservation_failed`
+- Agents need recovery without raw SQL against `.enrich-queue.sqlite`
+
+### Solution
+```bash
+# Read-only: list skipped / preservation-failed rows (no LLM, no singleton)
+sqlite-graphrag enrich --list-skipped --json
+
+# Move skipped → pending so the next drain retries them
+sqlite-graphrag enrich --requeue-skipped --json
+
+# Then drain the operation that produced the skips (example: entity-descriptions)
+sqlite-graphrag enrich --operation entity-descriptions \
+  --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
+  --limit 50 --json
+```
+
+### Explanation
+- `--list-skipped` / `--requeue-skipped` are queue inspectors (G-PR-3/4), sibling to `--list-dead` / `--requeue-dead`
+- They recover the skipped sink without opening the queue DB by hand
+- Pair with `--status` to confirm `queue_skipped` drops after requeue
+
+## How To Pass `--db` Everywhere (GAP-SG-139)
+
+### Problem
+- Agent harnesses append `--db <PATH>` to every invocation for isolation
+- Host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) historically rejected unknown `--db` with clap exit 2
+
+### Solution
+```bash
+DB=/data/team.sqlite
+
+# Graph surfaces open the DB as usual
+sqlite-graphrag health --db "$DB" --json
+sqlite-graphrag namespace-detect --db "$DB" --json
+sqlite-graphrag codex-models --db "$DB" --json   # --db is a documented no-op
+
+# Host/XDG leaves accept --db as no-op (GAP-SG-139) — agents may always pass it
+sqlite-graphrag config list --effective --db "$DB" --json
+sqlite-graphrag slots status --db "$DB" --json
+sqlite-graphrag cache stats --db "$DB" --json
+sqlite-graphrag completions bash --db "$DB" >/dev/null
+```
+
+### Explanation
+- **GAP-SG-139:** host/XDG leaves accept `--db` as a documented **no-op** (`src/cli_db_noop.rs`); they do not open the graph DB
+- Graph surfaces still require a real path via `--db` or XDG `db.path`
+- Prefer `--db` / `config set db.path` — product env `SQLITE_GRAPHRAG_DB_PATH` is **not** read on the hot path
+
+## How To Run Offline Gate 20/20
+
+### Problem
+- Operators need the canonical product offline seal for v1.2.0 without product env or live LLM keys
+
+### Solution
+```bash
+# Requires release binary 1.2.0+ (builds if missing)
+bash scripts/e2e_offline_v120.sh
+# Expect SUMMARY pass=20 fail=0
+# Historical wrapper scripts/e2e_offline_v118.sh is superseded — do not treat 16/16 as current
+```
+
+### Explanation
+- Harness isolates XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) and uses `--db` flags only
+- No product `SQLITE_GRAPHRAG_*` exports; no `OPENROUTER_API_KEY` required
+- Asserts include help contract, dim 1024, list-skipped flags, Auto recall fail-fast, and related v1.2.0 contracts
+
+---
+
+## Complete CLI command inventory (v1.2.0)
+
+Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`) with a one-line purpose:
+
+- `init` — create/open the SQLite DB, apply migrations, smoke-test the LLM path
+- `remember` — write one memory with optional curated entity graph
+- `remember-batch` — create many memories from NDJSON stdin (description required on create)
+- `ingest` — bulk-ingest files under a directory as memories
+- `recall` — semantic (KNN) memory search with optional graph hops
+- `read` — fetch one memory by name or id
+- `list` — paginate memories with filters
+- `forget` — soft-delete a memory (history kept)
+- `purge` — hard-delete soft-deleted memories past retention (`--now` for immediate)
+- `rename` — rename a memory while keeping versions
+- `split-body` — split an oversized memory body into daughter memories
+- `edit` — edit body/description/type and optionally re-embed
+- `history` — list versions of a memory
+- `restore` — restore a memory to a previous version
+- `hybrid-search` — FTS5 + vector fused via Reciprocal Rank Fusion
+- `health` — integrity, FTS5, sqlite version, vector coverage, super-hubs
+- `migrate` — apply pending schema migrations (or `--dry-run` / `--rehash`)
+- `namespace-detect` — resolve namespace precedence for this invocation
+- `optimize` — `PRAGMA optimize` and optional FTS5 rebuild
+- `stats` — counts of memories, entities, relationships
+- `sync-safe-copy` — checkpoint then copy a cloud-sync-safe snapshot
+- `backup` — Online Backup API copy to a destination path
+- `vacuum` — WAL checkpoint + reclaim disk space
+- `link` — create an entity-to-entity relationship
+- `unlink` — remove relationships or a memory–entity binding
+- `deep-research` — multi-hop GraphRAG research via query decomposition
+- `related` — list memories graph-connected from a seed memory
+- `graph` — export graph snapshot (`json`/`dot`/`mermaid`) or run graph subcommands
+- `export` — export memories as NDJSON
+- `fts` — FTS5 index management family
+- `vec` — vector table maintenance family
+- `codex-models` — list ChatGPT Pro OAuth accepted models
+- `prune-relations` — bulk-delete all relationships of a given type
+- `prune-ner` — remove NER bindings from `memory_entities`
+- `slots` — host-wide LLM slot semaphore inspection/cleanup
+- `pending` — three-stage `remember` checkpoint queue
+- `embedding` — pending-embeddings queue health and list
+- `pending-embeddings` — batch ops on the embedding retry queue
+- `cleanup-orphans` — remove entities with no memories and no relationships
+- `memory-entities` — list entities for a memory (or reverse via `--entity`)
+- `cache` — XDG model-cache list/stats/clear
+- `delete-entity` — delete an entity and cascade its edges
+- `reclassify` — reclassify entity types (single or batch)
+- `rename-entity` — rename an entity preserving edges and bindings
+- `merge-entities` — merge source entities into a target
+- `enrich` — LLM-augmented graph quality pipeline and queue inspectors
+- `reclassify-relation` — bulk rename relationship types (literal or normalized)
+- `normalize-entities` — normalize entity names to kebab-case with auto-merge
+- `completions` — generate shell completions
+- `config` — XDG operational config and API keys
+
+### Nested families
+
+- `config` — `add-key`, `list-keys`, `remove-key`, `doctor`, `path`, `set`, `get`, `list`, `unset`
+- `graph` — `traverse`, `stats`, `entities`, `recompute-degree`
+- `fts` — `rebuild`, `check`, `stats`
+- `vec` — `orphan-list`, `purge-orphan`, `stats`
+- `slots` — `status`, `release`, `cleanup`
+- `pending` — `list`, `show`, `cleanup`
+- `embedding` — `status`, `list`, `abandon`
+- `pending-embeddings` — `list`, `status`, `abandon`
+- `cache` — `clear-models`, `list`, `stats`
+- `enrich` inspectors — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, `--prune-dead-orphans`, `--prune-dead-entity-orphans`
+
+> Full nested detail: [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v120). **GAP-SG-139:** host/XDG leaves accept `--db` as no-op. **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` **20/20**.
+
 ---
 
 ## How To Use Custom Anthropic-Compatible Providers (v1.0.83+)
@@ -364,7 +506,7 @@ sqlite-graphrag health --json
 
 
 ### Variants
-- Set `SQLITE_GRAPHRAG_DB_PATH=/data/team.sqlite` to share a networked file between dev pods
+- Share a DB path with `--db /data/team.sqlite` on every call, or persist via `sqlite-graphrag config set db.path /data/team.sqlite` (XDG). (**HISTORICAL:** product env `SQLITE_GRAPHRAG_DB_PATH` is not read on the v1.2.0 hot path.)
 - Call `sqlite-graphrag migrate --json` after bumping versions to apply schema upgrades
 
 
@@ -495,7 +637,7 @@ sqlite-graphrag --embedding-backend openrouter \
 ## How To Upgrade To v1.0.94 (Four-Gap Remediation)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force`.
 - BREAKING: every `enrich` invocation now requires `--mode` (`claude-code`|`codex`|`opencode`|`openrouter`). Update scripts to `enrich --operation memory-bindings --mode codex`.
-- The default embedding dimension is now 384. Fresh databases use 384; legacy 64-dim databases keep their recorded dim. Re-embed at the active dim with `sqlite-graphrag --llm-backend codex --llm-model gpt-5.4-mini enrich --operation re-embed --limit 100 --resume --mode codex --json`.
+- The default embedding dimension is **1024** (v1.2.0). Fresh databases use 1024; legacy 64/384-dim databases keep their recorded dim. Re-embed at the active dim with `sqlite-graphrag --llm-backend codex --llm-model gpt-5.4-mini enrich --operation re-embed --limit 100 --resume --mode codex --json`.
 
 ## How To Upgrade From v1.0.74 Or v1.0.75 To v1.0.76 (LLM-Only)
 ### Problem
@@ -3081,7 +3223,7 @@ sqlite-graphrag split-body --batch --threshold 25000 --json
 
 # Daughters are NOT embedded inline — re-embed them so they become searchable
 mkdir -p /tmp/graphrag-empty-config && SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config timeout 600 sqlite-graphrag \
-  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 384 \
+  --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
   enrich --operation re-embed --target memories \
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
   --until-empty --max-runtime 600 --json

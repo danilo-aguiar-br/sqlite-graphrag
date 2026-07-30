@@ -1,6 +1,6 @@
 //! Queue claim/failure helpers (Wave C1).
 
-use super::*;
+use crate::errors::AppError;
 
 
 /// Classifies an enrich item failure into a retry/dead-letter outcome.

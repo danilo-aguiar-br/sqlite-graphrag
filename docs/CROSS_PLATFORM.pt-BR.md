@@ -1,4 +1,4 @@
-# Checklist multiplataforma (sqlite-graphrag v1.1.8)
+# Checklist multiplataforma (sqlite-graphrag v1.2.0)
 
 Validação apenas local (sem GitHub Actions). A CLI deve rodar em **Linux**, **macOS** e **Windows**.
 
@@ -9,7 +9,7 @@ Validação apenas local (sem GitHub Actions). A CLI deve rodar em **Linux**, **
 cargo build --release
 cargo test
 cargo clippy --all-targets -- -D warnings
-bash scripts/e2e_offline_v118.sh
+scripts/e2e_offline_v120.sh
 
 # Linux (musl, opcional)
 rustup target add x86_64-unknown-linux-musl
@@ -31,7 +31,7 @@ cargo clippy --all-targets -- -D warnings
 | Área | Requisito |
 |------|-------------|
 | Paths | XDG no Unix (crate `directories`); equivalentes de known-folder no Windows |
-| DB | Arquivo SQLite via `--db` ou XDG `db.default_path` — nunca env de produto |
+| DB | Arquivo SQLite via `--db` ou XDG `db.path` — nunca env de produto |
 | Locks / slots | Locks de filesystem sob XDG runtime/cache |
 | Fins de linha | Aceitar `\n` e `\r\n` no NDJSON do stdin |
 | Completions de shell | Subcomando `completions`: bash/zsh/fish/powershell/elvish |
@@ -48,15 +48,15 @@ cargo clippy --all-targets -- -D warnings
 
 | Plataforma | Build | Testes unitários | Harness E2E offline |
 |----------|-------|------------|---------------------|
-| Linux x86_64 | CI de registro no host | host | `scripts/e2e_offline_v118.sh` |
+| Linux x86_64 | CI de registro no host | host | `scripts/e2e_offline_v120.sh` |
 | macOS | checklist do operador | checklist do operador | mesmo script (bash) |
 | Windows | checklist do operador | checklist do operador | adapte paths; use Git Bash ou rode checks manualmente |
 
 ---
 
-> **Nota:** a narrativa multiplataforma legada (notas por release v1.1.06 e anteriores, whitelist Windows, etc.) permanece **abaixo** para profundidade histórica. O checklist canônico da v1.1.8 é a seção acima (espelha [CROSS_PLATFORM.md](CROSS_PLATFORM.md)).
+> **Nota:** a narrativa multiplataforma legada (notas por release v1.1.06 e anteriores, whitelist Windows, etc.) permanece **abaixo** para profundidade histórica. O checklist canônico da v1.2.0 é a seção acima (espelha [CROSS_PLATFORM.md](CROSS_PLATFORM.md)); gate offline `scripts/e2e_offline_v120.sh` **20/20** (wrapper histórico `e2e_offline_v118.sh` / 16/16 supersedido).
 >
-> **AVISO v1.1.8:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **NÃO** são lidos no hot path. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs.
+> **AVISO v1.2.0:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **NÃO** são lidos no hot path. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs. **DEFAULT_EMBEDDING_DIM=1024**. Recuperação de fila: `enrich --list-skipped` / `--requeue-skipped`. **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como no-op. Inventário completo de comandos CLI: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
 
 ## Whitelist de Env de Custom Provider no Windows (v1.0.83+)
 - O helper compartilhado de whitelist de env `src/spawn/env_whitelist.rs` expõe um conjunto específico do Windows via `PRESERVED_ENV_VARS_WINDOWS` atrás de `#[cfg(windows)]`: `LOCALAPPDATA`, `APPDATA`, `USERPROFILE`, `SystemRoot`, `COMSPEC`, `PATHEXT`, `HOMEPATH`, `HOMEDRIVE`

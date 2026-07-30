@@ -35,6 +35,7 @@ const MEMORY_VEC_TABLES: &[&str] = &["memory_embeddings", "vec_memories"];
         sqlite-graphrag vec stats --json"
 )]
 pub struct VecArgs {
+    /// Subcommand to execute.
     #[command(subcommand)]
     pub command: VecSubcommand,
 }
@@ -64,7 +65,9 @@ pub struct VecOrphanListArgs {
 /// Arguments for `vec purge-orphan`.
 #[derive(clap::Args)]
 pub struct VecOrphanListInner {
+    /// Emit machine-readable JSON on stdout.
     pub json: bool,
+    /// Path to the SQLite database file.
     pub db: Option<String>,
 }
 
@@ -354,9 +357,11 @@ fn run_purge_orphan(args: VecPurgeOrphanArgs) -> Result<(), AppError> {
     }
 
     if !args.yes {
-        return Err(AppError::Validation(format!(
-            "refusing to delete {orphan_count} memory embedding + {orphan_entities_count} vec_entities + {orphan_chunks_count} vec_chunks orphan rows without --yes (use --dry-run to preview)"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::refuse_delete_vec_orphans_without_yes(
+                orphan_count,
+                orphan_entities_count,
+                orphan_chunks_count,
+            )));
     }
 
     let deleted: i64 = conn.execute(
@@ -462,7 +467,9 @@ mod tests {
 
     fn open_vec_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
+        // GAP-SG-119: use DEFAULT_EMBEDDING_DIM (not legacy 384) for new fixtures.
+        let dim = crate::constants::DEFAULT_EMBEDDING_DIM;
+        conn.execute_batch(&format!(
             "CREATE TABLE memories (
                 id INTEGER PRIMARY KEY,
                 deleted_at INTEGER
@@ -473,7 +480,7 @@ mod tests {
                 embedding BLOB NOT NULL,
                 source TEXT NOT NULL,
                 model TEXT NOT NULL,
-                dim INTEGER NOT NULL DEFAULT 384
+                dim INTEGER NOT NULL DEFAULT {dim}
             );
             CREATE TABLE vec_memories (
                 memory_id INTEGER PRIMARY KEY,
@@ -486,7 +493,7 @@ mod tests {
                 embedding BLOB NOT NULL,
                 source TEXT NOT NULL,
                 model TEXT NOT NULL,
-                dim INTEGER NOT NULL DEFAULT 384
+                dim INTEGER NOT NULL DEFAULT {dim}
             );
             CREATE TABLE vec_entities (
                 memory_id INTEGER PRIMARY KEY
@@ -497,12 +504,12 @@ mod tests {
                 embedding BLOB NOT NULL,
                 source TEXT NOT NULL,
                 model TEXT NOT NULL,
-                dim INTEGER NOT NULL DEFAULT 384
+                dim INTEGER NOT NULL DEFAULT {dim}
             );
             CREATE TABLE vec_chunks (
                 memory_id INTEGER PRIMARY KEY
             );",
-        )
+        ))
         .unwrap();
         conn
     }

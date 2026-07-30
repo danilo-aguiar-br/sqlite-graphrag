@@ -39,7 +39,7 @@ fn init_help_no_home_env_example() {
     let text = help_stdout(&["init"]);
     assert_clean_help("init", &text);
     assert!(
-        !text.contains("SQLITE_GRAPHRAG_HOME"),
-        "init help still shows SQLITE_GRAPHRAG_HOME"
+        !text.contains("HOME"),
+        "init help still shows HOME"
     );
 }

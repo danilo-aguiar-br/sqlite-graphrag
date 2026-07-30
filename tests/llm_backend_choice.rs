@@ -35,9 +35,8 @@ fn sgr_cmd() -> Command {
 
 fn cmd_base(tmp: &TempDir) -> Command {
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
+    c.env("XDG_CACHE_HOME", tmp.path().join("cache"));
     c.arg("--skip-memory-guard");
     c
 }
@@ -116,7 +115,7 @@ fn llm_backend_codex_is_accepted_on_command_line() {
 fn llm_backend_none_via_env_var_aborts() {
     let tmp = TempDir::new().expect("tempdir");
     let assert = cmd_base(&tmp)
-        .env("SQLITE_GRAPHRAG_LLM_BACKEND", "none")
+        .arg("--llm-backend").arg("none")
         .arg("remember")
         .arg("--name")
         .arg("smoke-env-none")

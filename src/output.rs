@@ -9,15 +9,19 @@ use serde::Serialize;
 /// Output format variants accepted by `--format` CLI flags.
 #[derive(Debug, Clone, Copy, clap::ValueEnum, Default)]
 pub enum OutputFormat {
+    /// JSON variant.
     #[default]
     Json,
+    /// Text variant.
     Text,
+    /// Markdown variant.
     Markdown,
 }
 
 /// Restricted JSON-only format for commands that always emit JSON.
 #[derive(Debug, Clone, Copy, clap::ValueEnum, Default)]
 pub enum JsonOutputFormat {
+    /// JSON variant.
     #[default]
     Json,
 }
@@ -111,7 +115,7 @@ pub fn emit_progress(msg: &str) {
     }
 }
 
-/// Emits a bilingual progress message honouring `--lang` or `SQLITE_GRAPHRAG_LANG`.
+/// Emits a bilingual progress message honouring `--lang` or XDG `i18n.lang`.
 /// v1.0.89: suppressed when stderr is not a terminal (pipe).
 pub fn emit_progress_i18n(en: &str, pt: &str) {
     if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
@@ -219,7 +223,7 @@ pub fn emit_error(localized_msg: &str) {
     tracing::error!(target: "output", message = localized_msg);
 }
 
-/// Emits a bilingual error to stderr honouring `--lang` or `SQLITE_GRAPHRAG_LANG`.
+/// Emits a bilingual error to stderr honouring `--lang` or XDG `i18n.lang`.
 /// Usage: `output::emit_error_i18n("invariant violated", "invariante violado")`.
 #[cold]
 #[inline(never)]
@@ -277,14 +281,21 @@ pub fn emit_error_i18n(en: &str, pt: &str) {
 /// ```
 #[derive(Serialize)]
 pub struct RememberResponse {
+    /// Memory identifier.
     pub memory_id: i64,
+    /// Name of this item.
     pub name: String,
+    /// Namespace scope.
     pub namespace: String,
+    /// Action.
     pub action: String,
     /// Semantic alias of `action` for compatibility with the contract documented in SKILL.md.
     pub operation: String,
+    /// Version number.
     pub version: i64,
+    /// Entities persisted.
     pub entities_persisted: usize,
+    /// Relationships persisted.
     pub relationships_persisted: usize,
     /// True when the relationship builder hit the cap before covering all entity pairs.
     /// Callers can use this to decide whether to increase GRAPHRAG_MAX_RELATIONSHIPS_PER_MEMORY.
@@ -309,7 +320,9 @@ pub struct RememberResponse {
     /// Extraction method used: "url-regex" when --enable-ner ran the URL-regex pass, or "none:extraction-failed" when extraction errored. None when NER is not enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extraction_method: Option<String>,
+    /// Merged into memory ID.
     pub merged_into_memory_id: Option<i64>,
+    /// Warnings.
     pub warnings: Vec<String>,
     /// Timestamp Unix epoch seconds.
     pub created_at: i64,
@@ -374,13 +387,20 @@ pub struct RememberResponse {
 /// ```
 #[derive(Serialize, Clone)]
 pub struct RecallItem {
+    /// Memory identifier.
     pub memory_id: i64,
+    /// Name of this item.
     pub name: String,
+    /// Namespace scope.
     pub namespace: String,
+    /// Memory type classification.
     #[serde(rename = "type")]
     pub memory_type: String,
+    /// Human-readable description.
     pub description: String,
+    /// Snippet.
     pub snippet: String,
+    /// Distance metric value.
     pub distance: f32,
     /// Cosine similarity in `[0.0, 1.0]` derived as `1.0 - distance` and clamped
     /// to that interval. Always populated to satisfy the documented contract
@@ -388,6 +408,7 @@ pub struct RecallItem {
     /// reflects the hop-derived distance proxy and should be interpreted
     /// alongside `graph_depth` rather than as a true cosine score.
     pub score: f32,
+    /// Source side of the relationship.
     pub source: String,
     /// Number of graph hops between this match and the seed memories.
     ///
@@ -423,9 +444,13 @@ impl RecallItem {
 /// to distinguish the source.
 #[derive(Serialize)]
 pub struct RecallResponse {
+    /// Search query text.
     pub query: String,
+    /// Maximum number of results to return.
     pub k: usize,
+    /// Direct matches.
     pub direct_matches: Vec<RecallItem>,
+    /// Graph matches.
     pub graph_matches: Vec<RecallItem>,
     /// Aggregated alias of `direct_matches` + `graph_matches` for the contract documented in SKILL.md.
     pub results: Vec<RecallItem>,

@@ -36,6 +36,7 @@ fn plant_pending_queue(dir: &Path) {
             item_key TEXT NOT NULL UNIQUE,
             item_type TEXT NOT NULL DEFAULT 'memory',
             status TEXT NOT NULL DEFAULT 'pending',
+            operation TEXT,
             memory_id INTEGER, entity_id INTEGER, entities INTEGER DEFAULT 0,
             rels INTEGER DEFAULT 0, error TEXT, cost_usd REAL DEFAULT 0.0,
             attempt INTEGER DEFAULT 0, elapsed_ms INTEGER,
@@ -43,8 +44,18 @@ fn plant_pending_queue(dir: &Path) {
         );",
     )
     .expect("create queue schema");
+    // The row MUST carry the operation label this test later queries.
+    //
+    // GAP-SG-102: the planted row used to leave `operation` NULL, and
+    // `open_queue` immediately rewrites NULL to `LegacyUnscoped` so a named
+    // drain can never claim a pre-QISO-01 row. `--status --operation
+    // memory-bindings` counts `operation = 'MemoryBindings' OR IS NULL`, so the
+    // quarantined row was invisible and the assertion could never reach 1 — the
+    // test contradicted a deliberate product invariant instead of exercising the
+    // one it documents, which is that the sidecar follows `--db` and not the CWD.
     conn.execute(
-        "INSERT INTO queue (item_key, status) VALUES ('regress-mem', 'pending')",
+        "INSERT INTO queue (item_key, status, operation) \
+         VALUES ('regress-mem', 'pending', 'MemoryBindings')",
         [],
     )
     .expect("insert pending row");

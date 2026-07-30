@@ -20,6 +20,7 @@ use serde::Serialize;
     sqlite-graphrag restore --name onboarding --version 3\n\n  \
     # Restore within a specific namespace\n  \
     sqlite-graphrag restore --name onboarding --namespace my-project")]
+/// Restore args.
 pub struct RestoreArgs {
     /// Memory name as a positional argument. Alternative to `--name`.
     #[arg(
@@ -40,6 +41,7 @@ pub struct RestoreArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Optimistic locking: reject if the current updated_at does not match (exit 3).
     #[arg(
@@ -53,8 +55,10 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -71,6 +75,7 @@ struct RestoreResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(
     args: RestoreArgs,
     llm_backend: crate::cli::LlmBackendChoice,

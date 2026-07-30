@@ -17,16 +17,26 @@
 //! converted to MiB. The result is capped at `MAX_CONCURRENT_CLI_INSTANCES`
 //! and floored at 1.
 
-/// Default embedding vector dimensionality.
+/// Default embedding vector dimensionality for a NEWLY created database.
 ///
-/// Restored to 384 to match the production corpus: existing vectors were
-/// generated against `multilingual-e5-small` (384 dims), so a lower default
-/// would silently mismatch live data. With the OpenRouter REST backend the
-/// Matryoshka (MRL, arXiv 2205.13147) truncation happens server-side, so
-/// 384 dims carry no per-float autoregressive output cost. Legacy databases
-/// keep their recorded dimensionality via `schema_meta.dim`; the active dim
-/// follows the precedence env > database > default (see [`embedding_dim`]).
-pub const DEFAULT_EMBEDDING_DIM: usize = 384;
+/// Sized for `qwen/qwen3-embedding-8b`, the model the OpenRouter REST backend
+/// uses today. Matryoshka Representation Learning (MRL, arXiv 2205.13147) lets
+/// a prefix of the native vector stand on its own, so 1024 is a real truncation
+/// point rather than a lossy resize.
+///
+/// This value governs `init` only. An existing database keeps the width
+/// recorded in `schema_meta.dim`, which [`crate::storage::connection`] adopts on
+/// every open — so raising this default can never silently reinterpret vectors
+/// already on disk. Widening a populated database is a deliberate migration
+/// that must re-embed every row; the previous default was 384, generated
+/// against `multilingual-e5-small`.
+///
+/// Precedence for the active dim is documented on [`embedding_dim`].
+pub const DEFAULT_EMBEDDING_DIM: usize = 1024;
+
+/// Default tracing filter level when neither CLI `-v`/`-q` nor XDG `log.level`
+/// is set (GAP-SG-93).
+pub const DEFAULT_LOG_LEVEL: &str = "info";
 
 /// Default OpenRouter chat completions endpoint (override via XDG
 /// `network.openrouter.chat_url` or alias `network.chat_url`).
@@ -46,6 +56,13 @@ pub const DEFAULT_LLM_PROBE_TIMEOUT_MS: u64 = 800;
 /// Short budget so dead OAuth falls back to FTS quickly (GAP-E2E-06).
 /// Override via XDG `llm.query_embed_timeout_secs`.
 pub const DEFAULT_QUERY_EMBED_TIMEOUT_SECS: u64 = 3;
+
+/// Accepted range for any embedding dimensionality, override or recorded.
+///
+/// Declared once because the bound is checked on the CLI/XDG override, on the
+/// value adopted from `schema_meta`, and in the warning text. Three separate
+/// literals would be three chances to drift.
+pub const EMBEDDING_DIM_RANGE: std::ops::RangeInclusive<usize> = 8..=4096;
 
 /// Active embedding dimensionality for this process. `0` means unresolved.
 static ACTIVE_EMBEDDING_DIM: std::sync::atomic::AtomicUsize =
@@ -68,36 +85,46 @@ pub fn embedding_dim() -> usize {
     DEFAULT_EMBEDDING_DIM
 }
 
-/// Reads CLI/XDG override. Values outside [8, 4096] are rejected.
+/// Reads the CLI `--embedding-dim` flag or the XDG key `embedding.dim`.
+///
+/// Values outside [`EMBEDDING_DIM_RANGE`] are rejected with a warning rather
+/// than clamped: a clamped width would still mismatch the stored vectors, and
+/// `cosine_similarity` reports a dimension mismatch as `0.0` with no error, so
+/// the search would go quiet instead of failing.
 pub fn embedding_dim_from_runtime() -> Option<usize> {
     let n = crate::runtime_config::embedding_dim_override()? as usize;
-    if (8..=4096).contains(&n) {
+    if EMBEDDING_DIM_RANGE.contains(&n) {
         Some(n)
     } else {
         tracing::warn!(
             value = n,
-            "embedding.dim override invalid (expected [8, 4096]); ignoring"
+            min = *EMBEDDING_DIM_RANGE.start(),
+            max = *EMBEDDING_DIM_RANGE.end(),
+            "embedding.dim override out of range; ignoring"
         );
         None
     }
 }
 
-/// Backward-compatible alias (no product env).
-pub fn embedding_dim_from_env() -> Option<usize> {
-    embedding_dim_from_runtime()
-}
-
-/// Records the dimensionality found in the opened database
-/// (`schema_meta.dim`). Out-of-range values are ignored. The env var,
-/// when set, always wins over this value (see [`embedding_dim`]).
+/// Records the dimensionality found in the opened database (`schema_meta.dim`).
+///
+/// Out-of-range values are ignored. A CLI flag or XDG override still wins over
+/// this value — see the precedence documented on [`embedding_dim`].
 pub fn set_active_embedding_dim(dim: usize) {
-    if (8..=4096).contains(&dim) {
+    if EMBEDDING_DIM_RANGE.contains(&dim) {
         ACTIVE_EMBEDDING_DIM.store(dim, std::sync::atomic::Ordering::Release);
     }
 }
 
 // G46: FASTEMBED_MODEL_DEFAULT removed — the fastembed model was deleted in
 // v1.0.76 (LLM-only build); `schema_meta.model` now records the CLI version.
+
+/// Default worker count for the global Rayon pool.
+///
+/// Each worker holds one batch-embedding call in flight, so a wider pool buys
+/// no throughput on the LLM-only path and risks RSS oversubscription on a
+/// 4-8 GiB host. Override via XDG `parallelism.rayon_threads`.
+pub const DEFAULT_RAYON_THREADS: usize = 2;
 
 /// Batch size for `fastembed` encoding calls.
 pub const FASTEMBED_BATCH_SIZE: usize = 32;
@@ -166,12 +193,12 @@ pub const K_ENTITIES_SEARCH: usize = 5;
 /// Default upper bound on distinct entities persisted per memory.
 ///
 /// Bumped from 30 → 50 in v1.0.43 to reduce semantic loss on rich documents.
-/// Configurable at runtime via `SQLITE_GRAPHRAG_MAX_ENTITIES_PER_MEMORY`.
+/// Configurable at runtime via XDG / runtime_config (not product env).
 pub const MAX_ENTITIES_PER_MEMORY: usize = 50;
 
-/// Resolves the per-memory entity cap, honouring the env-var override.
+/// Resolves the per-memory entity cap (flag/XDG/`runtime_config`).
 ///
-/// v1.0.43: makes the cap (default 50) configurable via `SQLITE_GRAPHRAG_MAX_ENTITIES_PER_MEMORY`.
+/// v1.0.43: makes the cap (default 50) configurable without product env.
 /// Stress tests showed inputs with 33-46 candidates being truncated at the old cap of 30.
 /// Values outside [1, 1000] fall back to the default.
 pub fn max_entities_per_memory() -> usize {
@@ -186,11 +213,11 @@ pub fn max_entities_per_memory() -> usize {
 /// Upper bound on distinct relationships persisted per memory.
 pub const MAX_RELATIONSHIPS_PER_MEMORY: usize = 50;
 
-/// Resolves the per-memory relationship cap, honouring the env-var override.
+/// Resolves the per-memory relationship cap (flag/XDG/`runtime_config`).
 ///
-/// v1.0.22: makes the cap (default 50) configurable via `SQLITE_GRAPHRAG_MAX_RELATIONS_PER_MEMORY`.
+/// v1.0.22: makes the cap (default 50) configurable without product env.
 /// Audit found that rich documents silently hit the cap; users with dense technical corpora
-/// can raise it via env. Values outside [1, 10000] fall back to the default.
+/// can raise it via XDG. Values outside [1, 10000] fall back to the default.
 pub fn max_relationships_per_memory() -> usize {
     let n = crate::runtime_config::max_relations_per_memory(MAX_RELATIONSHIPS_PER_MEMORY);
     if (1..=10_000).contains(&n) {

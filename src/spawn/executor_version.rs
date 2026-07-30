@@ -6,14 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::str::FromStr;
 
+/// Executor version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutorVersion {
+    /// Raw.
     pub raw: String,
+    /// Semver.
     pub semver: Option<Version>,
+    /// Channel.
     pub channel: Option<String>,
 }
 
 impl ExecutorVersion {
+    /// Unknown.
     pub fn unknown() -> Self {
         Self {
             raw: "unknown".to_string(),
@@ -22,10 +27,11 @@ impl ExecutorVersion {
         }
     }
 
+    /// Parse from a string.
     pub fn parse(s: &str) -> Result<Self, AppError> {
         let trimmed = s.trim();
         if trimmed.is_empty() {
-            return Err(AppError::Validation("empty version string".to_string()));
+            return Err(AppError::Validation(crate::i18n::validation::empty_version_string()));
         }
         let channel_start = trimmed.find('-');
         let (numeric_part, channel_part) = match channel_start {
@@ -52,18 +58,22 @@ impl ExecutorVersion {
         })
     }
 
+    /// Major.
     pub fn major(&self) -> u64 {
         self.semver.as_ref().map(|v| v.major).unwrap_or(0)
     }
 
+    /// Minor.
     pub fn minor(&self) -> u64 {
         self.semver.as_ref().map(|v| v.minor).unwrap_or(0)
     }
 
+    /// Patch.
     pub fn patch(&self) -> u64 {
         self.semver.as_ref().map(|v| v.patch).unwrap_or(0)
     }
 
+    /// Is at least.
     pub fn is_at_least(&self, major: u64, minor: u64, patch: u64) -> bool {
         match &self.semver {
             Some(v) => (v.major, v.minor, v.patch) >= (major, minor, patch),
@@ -71,6 +81,7 @@ impl ExecutorVersion {
         }
     }
 
+    /// In range.
     pub fn in_range(&self, min: (u64, u64, u64), max: (u64, u64, u64)) -> bool {
         self.is_at_least(min.0, min.1, min.2) && {
             let current = (self.major(), self.minor(), self.patch());
@@ -78,6 +89,7 @@ impl ExecutorVersion {
         }
     }
 
+    /// Compare.
     pub fn compare(&self, other: &ExecutorVersion) -> Ordering {
         match (&self.semver, &other.semver) {
             (Some(a), Some(b)) => a.cmp(b),

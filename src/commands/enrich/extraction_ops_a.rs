@@ -152,11 +152,11 @@ pub(crate) fn call_entity_description(
     grounding_threshold: f64,
     domain_label: &str,
 ) -> Result<EnrichItemResult, AppError> {
-    let (entity_id, entity_type): (i64, String) = conn
+    let (entity_id, entity_type, old_description): (i64, String, Option<String>) = conn
         .query_row(
-            "SELECT id, type FROM entities WHERE namespace=?1 AND name=?2",
+            "SELECT id, type, description FROM entities WHERE namespace=?1 AND name=?2",
             rusqlite::params![namespace, entity_name],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => AppError::EntityNotYetMaterialized {
@@ -165,6 +165,16 @@ pub(crate) fn call_entity_description(
             },
             other => AppError::Database(other),
         })?;
+    // G-PR-5 / GAP-SG-96: chars_before is the pre-existing description length,
+    // never a hard-coded zero on grounding failure.
+    let chars_before_existing = old_description
+        .as_deref()
+        .map(|s| s.chars().count())
+        .unwrap_or(0);
+    let old_was_lq = old_description
+        .as_deref()
+        .map(super::super::predicates::is_low_quality_description)
+        .unwrap_or(true);
 
     let corpus = load_entity_corpus_snippets(
         conn,
@@ -184,49 +194,50 @@ pub(crate) fn call_entity_description(
         "{ENTITY_DESCRIPTION_PROMPT_PREFIX}{entity_name}\nEntity type: {entity_type}\n\n{domain_section}{corpus_section}\nGenerate a description:"
     );
 
-    let (value, cost, is_oauth) = match mode {
-        EnrichMode::ClaudeCode => call_claude(
-            binary,
-            &prompt,
-            ENTITY_DESCRIPTION_SCHEMA,
-            "",
-            model,
-            timeout,
-        )?,
-        EnrichMode::Codex => call_codex(
-            binary,
-            &prompt,
-            ENTITY_DESCRIPTION_SCHEMA,
-            "",
-            model,
-            timeout,
-        )?,
-        EnrichMode::Opencode => call_opencode(
-            binary,
-            &prompt,
-            ENTITY_DESCRIPTION_SCHEMA,
-            "",
-            model,
-            timeout,
-        )?,
-        EnrichMode::OpenRouter => {
-            call_openrouter(&prompt, ENTITY_DESCRIPTION_SCHEMA, "", model, timeout)?
-        }
-    };
+    let (value, mut cost, mut is_oauth) =
+        invoke_entity_description_llm(mode, binary, &prompt, model, timeout)?;
 
-    let description = value
+    let mut description = value
         .get("description")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation("LLM result missing 'description' field".into()))?;
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_description_field()))?
+        .to_string();
 
-    // GAP-CLI-ED-03 / G-T-DRY-01: reject ungrounded descriptions when corpus exists.
+    // GAP-CLI-ED-03 / G-T-DRY-01 / G-PR-6: adaptive grounding.
     let threshold = if grounding_threshold > 0.0 {
         grounding_threshold
     } else {
         ENTITY_DESCRIPTION_GROUNDING_DEFAULT
     };
-    let verdict =
-        crate::preservation::PreservationVerdict::evaluate_grounding(description, &corpus, threshold);
+    let min_corpus_chars = crate::runtime_config::resolve_usize(
+        None,
+        "enrich.entity_description.min_corpus_chars",
+        crate::preservation::DEFAULT_GROUNDING_MIN_CORPUS_CHARS,
+    );
+
+    let mut verdict = crate::preservation::PreservationVerdict::evaluate_grounding_adaptive(
+        &description,
+        &corpus,
+        threshold,
+        min_corpus_chars,
+    );
+    // Anti-jargon replace: old LQ + new !LQ may pass with marginal grounding.
+    if !verdict.is_accepted()
+        && old_was_lq
+        && !super::super::predicates::is_low_quality_description(&description)
+    {
+        let score = match &verdict {
+            crate::preservation::PreservationVerdict::Rejected { score, .. } => *score,
+            crate::preservation::PreservationVerdict::Preserved { score, .. } => *score,
+            crate::preservation::PreservationVerdict::Unchanged { .. } => 1.0,
+        };
+        if score >= (threshold * 0.25).clamp(0.0, 1.0) {
+            verdict = crate::preservation::PreservationVerdict::Preserved {
+                score,
+                threshold,
+            };
+        }
+    }
     if !verdict.is_accepted() {
         let score = match verdict {
             crate::preservation::PreservationVerdict::Preserved { score, .. } => score,
@@ -236,23 +247,106 @@ pub(crate) fn call_entity_description(
         return Ok(EnrichItemResult::PreservationFailed {
             score,
             threshold,
-            chars_before: 0,
+            chars_before: chars_before_existing,
             chars_after: description.chars().count(),
         });
     }
 
-    persist_entity_description(conn, entity_id, description)?;
+    // G-PR-2: post-filter quality — `done` requires !is_low_quality_description.
+    if super::super::predicates::is_low_quality_description(&description) {
+        let anti_jargon_prompt = format!(
+            "{prompt}\n\nCRITICAL: Your previous draft was rejected as generic software boilerplate. \
+             Write a concrete domain description using only the linked evidence. \
+             Forbidden: configuration file, software component, module that, system design, chatbot."
+        );
+        match invoke_entity_description_llm(mode, binary, &anti_jargon_prompt, model, timeout) {
+            Ok((value2, cost2, oauth2)) => {
+                cost += cost2;
+                is_oauth = is_oauth || oauth2;
+                if let Some(d2) = value2.get("description").and_then(|v| v.as_str()) {
+                    let d2 = d2.to_string();
+                    let v2 = crate::preservation::PreservationVerdict::evaluate_grounding_adaptive(
+                        &d2,
+                        &corpus,
+                        threshold,
+                        min_corpus_chars,
+                    );
+                    if v2.is_accepted() && !super::super::predicates::is_low_quality_description(&d2) {
+                        description = d2;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "enrich",
+                    error = %e,
+                    "G-PR-2 anti-jargon retry failed; keeping first draft for quality gate"
+                );
+            }
+        }
+    }
+
+    if super::super::predicates::is_low_quality_description(&description) {
+        return Ok(EnrichItemResult::Skipped {
+            reason: format!(
+                "quality_post_filter: description still matches low-quality predicate \
+                 (orig={chars_before_existing} chars, candidate={} chars)",
+                description.chars().count()
+            ),
+        });
+    }
+
+    persist_entity_description(conn, entity_id, &description)?;
 
     Ok(EnrichItemResult::Done {
         memory_id: None,
         entity_id: Some(entity_id),
         entities: 0,
         rels: 0,
-        chars_before: None,
+        chars_before: Some(chars_before_existing),
         chars_after: Some(description.chars().count()),
         cost,
         is_oauth,
     })
+}
+
+/// Single LLM invocation for entity-description (DRY for G-PR-2 retry).
+fn invoke_entity_description_llm(
+    mode: &EnrichMode,
+    binary: &Path,
+    prompt: &str,
+    model: Option<&str>,
+    timeout: u64,
+) -> Result<(serde_json::Value, f64, bool), AppError> {
+    match mode {
+        EnrichMode::ClaudeCode => call_claude(
+            binary,
+            prompt,
+            ENTITY_DESCRIPTION_SCHEMA,
+            "",
+            model,
+            timeout,
+        ),
+        EnrichMode::Codex => call_codex(
+            binary,
+            prompt,
+            ENTITY_DESCRIPTION_SCHEMA,
+            "",
+            model,
+            timeout,
+        ),
+        EnrichMode::Opencode => call_opencode(
+            binary,
+            prompt,
+            ENTITY_DESCRIPTION_SCHEMA,
+            "",
+            model,
+            timeout,
+        ),
+        EnrichMode::OpenRouter => {
+            call_openrouter(prompt, ENTITY_DESCRIPTION_SCHEMA, "", model, timeout)
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -373,7 +467,7 @@ pub(crate) fn call_body_enrich(
     let enriched_body = value
         .get("enriched_body")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation("LLM result missing 'enriched_body' field".into()))?;
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_enriched_body_field()))?;
 
     let chars_after = enriched_body.chars().count();
 
@@ -606,7 +700,9 @@ fn call_reembed_chunk(
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<EnrichItemResult, AppError> {
     let chunk_id: i64 = chunk_key.parse().map_err(|_| {
-        AppError::Validation(format!("invalid chunk id in re-embed key: {chunk_key}"))
+        AppError::Validation(crate::i18n::validation::invalid_chunk_id_in_reembed_key(
+            chunk_key,
+        ))
     })?;
     let (memory_id, chunk_idx, chunk_text): (i64, i32, String) = conn
         .query_row(
@@ -667,10 +763,10 @@ pub(crate) fn find_codex_binary(explicit: Option<&Path>) -> Result<PathBuf, AppE
         if p.exists() {
             return Ok(p.to_path_buf());
         }
-        return Err(AppError::Validation(format!(
-            "Codex binary not found at explicit path: {}",
-            p.display()
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::binary_not_found_at_path(
+                "Codex",
+                &p.display().to_string(),
+            )));
     }
 
     if let Some(env_path) = crate::runtime_config::codex_binary() {

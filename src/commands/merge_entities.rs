@@ -33,6 +33,7 @@ NOTE:\n  \
     Source entities are deleted after the merge; the target is preserved.\n  \
     Duplicate relationships (same endpoints + relation) are removed automatically.\n  \
     Run `sqlite-graphrag cleanup-orphans` afterwards if sources had no other links.")]
+/// Merge entities args.
 pub struct MergeEntitiesArgs {
     /// Comma-separated list of source entity names to merge into the target.
     #[arg(
@@ -59,12 +60,16 @@ pub struct MergeEntitiesArgs {
     /// v1.1.1 (P5): target entity ID. Unambiguous alternative to --into.
     #[arg(long, value_name = "TARGET_ID")]
     pub into_id: Option<i64>,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// v1.1.03: allow merging source entities from OTHER namespaces into the
@@ -126,6 +131,7 @@ fn find_entity_name_by_id(
     }
 }
 
+/// Run.
 pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
 
@@ -139,18 +145,12 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     // point (before any DB work), so shell word-splitting mistakes fail loud.
     if let Some(target_id) = args.into_id {
         if args.ids.contains(&target_id) {
-            return Err(AppError::Validation(format!(
-                "source entity id={target_id} equals target id={target_id} — \
-                 self-referential merge is not allowed (remove target from --ids)"
-            )));
+            return Err(AppError::Validation(crate::i18n::validation::self_merge_id_in_ids(target_id)));
         }
     }
     if let Some(ref target_name) = args.into {
         if args.names.iter().any(|n| n == target_name) {
-            return Err(AppError::Validation(format!(
-                "source entity '{target_name}' equals target '{target_name}' — \
-                 self-referential merge is not allowed (remove target from --names)"
-            )));
+            return Err(AppError::Validation(crate::i18n::validation::self_merge_name_in_names(target_name)));
         }
     }
 
@@ -191,10 +191,7 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     if !args.ids.is_empty() {
         for &id in &args.ids {
             if id == target_id {
-                return Err(AppError::Validation(format!(
-                    "source entity id={id} equals target id={target_id} — \
-                     self-referential merge is not allowed"
-                )));
+                return Err(AppError::Validation(crate::i18n::validation::self_merge_id(id, target_id)));
             }
             // v1.1.03: when --cross-namespace is set, resolve each source by its
             // own row (no namespace filter) and warn on the cross-namespace move.
@@ -218,19 +215,13 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     } else {
         for name in &args.names {
             if name == &target_name {
-                return Err(AppError::Validation(format!(
-                    "source entity '{name}' equals target '{target_name}' — \
-                     self-referential merge is not allowed"
-                )));
+                return Err(AppError::Validation(crate::i18n::validation::self_merge_name(name, &target_name)));
             }
             let id = entities::find_entity_id(&conn, &namespace, name)?.ok_or_else(|| {
                 AppError::NotFound(errors_msg::entity_not_found(name, &namespace))
             })?;
             if id == target_id {
-                return Err(AppError::Validation(format!(
-                    "source entity '{name}' resolves to the target (id={target_id}) — \
-                     self-referential merge is not allowed"
-                )));
+                return Err(AppError::Validation(crate::i18n::validation::self_merge_name_resolves_to_target(name, target_id)));
             }
             if !source_ids.contains(&id) {
                 source_ids.push(id);

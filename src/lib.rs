@@ -40,6 +40,7 @@
 // unwrap()/expect(). Test code keeps them for brevity (cfg(test) opt-out).
 // Proven-invariant call sites carry a local #[allow] with justification.
 #![cfg_attr(not(test), warn(clippy::unwrap_used, clippy::expect_used))]
+#![deny(missing_docs)]
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::OnceLock;
@@ -148,8 +149,8 @@ pub fn try_reset_shutdown() -> bool {
 /// loop in [`crate::embedder`] and by every call site that consults
 /// [`shutdown_requested`]. Production invocations always return `true` here.
 ///
-/// The flag is read from the `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN` environment
-/// variable. Accepted values: `1`, `true`, `yes`, `on` (case-insensitive).
+/// The flag is read from XDG `shutdown.ignore` (`config set shutdown.ignore=1`).
+/// Accepted values: `1`, `true`, `yes`, `on` (case-insensitive).
 /// Anything else (including unset) means obey the cancellation token.
 pub fn should_obey_shutdown() -> bool {
     !is_ignore_shutdown_set()
@@ -181,6 +182,8 @@ pub mod extract;
 /// `clap` definitions for the top-level `sqlite-graphrag` binary.
 pub mod backend_choice;
 pub mod cli;
+/// Shared no-op `--db` for host/XDG surfaces (GAP-SG-139).
+pub mod cli_db_noop;
 
 /// XDG-based API key management for OpenRouter and other providers.
 pub mod config;
@@ -215,7 +218,7 @@ pub mod graph;
 /// Type aliases for AHash-backed collections in hot paths.
 pub mod hash;
 
-/// Bilingual message layer for human-facing stderr progress (`--lang en|pt`, `SQLITE_GRAPHRAG_LANG`).
+/// Bilingual message layer for human-facing stderr progress (`--lang en|pt`, XDG `i18n.lang`).
 pub mod i18n;
 
 /// Counting semaphore via lock files to limit parallel invocations.
@@ -251,6 +254,9 @@ pub mod namespace;
 
 /// Centralized stdout/stderr emitters for CLI output formatting.
 pub mod output;
+
+/// Agent-native R-AN-01: `--print-schema` emits embedded JSON Schema and exits.
+pub mod print_schema;
 
 /// Dual-format argument parser: accepts Unix epoch and RFC 3339.
 pub mod parsers;
@@ -312,6 +318,7 @@ pub mod tokenizer;
 pub mod json_repair;
 
 mod embedded_migrations {
+    #![allow(missing_docs)] // refinery embed_migrations! expands undocumented items
     use refinery::embed_migrations;
     embed_migrations!("migrations");
 }

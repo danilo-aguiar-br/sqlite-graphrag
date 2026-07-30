@@ -240,10 +240,7 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                             "wait for the OAuth window to reset or use --fallback-mode codex",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(format!(
-                    "preflight probe failed: {stderr}",
-                    stderr = stderr.trim()
-                )));
+                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
             }
             PreflightOutcome::Healthy
         }
@@ -293,10 +290,7 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                         suggestion: "wait for the rate-limit window to reset",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(format!(
-                    "preflight probe failed: {stderr}",
-                    stderr = stderr.trim()
-                )));
+                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
             }
             PreflightOutcome::Healthy
         }
@@ -334,10 +328,7 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                         suggestion: "wait for the rate-limit window to reset",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(format!(
-                    "preflight probe failed: {stderr}",
-                    stderr = stderr.trim()
-                )));
+                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
             }
             PreflightOutcome::Healthy
         }
@@ -365,10 +356,7 @@ pub(crate) fn wait_with_timeout(
     let Some(exit) = child.wait_timeout(timeout).map_err(AppError::Io)? else {
         let _ = child.kill();
         let _ = child.wait();
-        return Err(AppError::Validation(format!(
-            "preflight probe timed out after {}s",
-            start.elapsed().as_secs()
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::preflight_probe_timed_out(start.elapsed().as_secs())));
     };
     let mut stdout = Vec::new();
     if let Some(mut out) = child.stdout.take() {
@@ -519,11 +507,10 @@ pub(crate) fn validate_mode_conditional_flags_enrich(args: &EnrichArgs) -> Resul
     }
 
     if !conflicts.is_empty() {
-        return Err(AppError::Validation(format!(
-            "G20: mode-conditional flag conflicts detected for --mode={}:\n  - {}",
-            args.mode(),
-            conflicts.join("\n  - ")
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::mode_flag_conflicts(
+                &args.mode().to_string(),
+                &conflicts.join("\n  - "),
+            )));
     }
 
     Ok(())
@@ -634,7 +621,9 @@ pub(crate) fn resolve_drain_parallelism(args: &EnrichArgs) -> usize {
                     llm_parallelism = parallelism,
                     recommended_max = 4,
                     mode = "claude-code",
-                    "llm_parallelism above 4 multiplies Claude Code subprocess fan-out;                      consider combining with SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR                      to cut MCP children (G28-A)"
+                    "llm_parallelism above 4 multiplies Claude Code subprocess fan-out; \
+                     consider combining with `config set llm.claude_empty_config_dir <path>` \
+                     to cut MCP children (G28-A)"
                 );
             }
             EnrichMode::Codex if parallelism > 16 => {

@@ -32,6 +32,33 @@ pub fn ensure_wal_mode(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Lightweight WAL + busy_timeout for sidecar queue DBs (enrich / ingest).
+///
+/// # Schema note (GAP-SG-121)
+///
+/// Enrich (`.enrich-queue.sqlite`) and ingest (`.ingest-queue.sqlite`) queues
+/// are **different products**: enrich tracks `(namespace, operation, item_key)`
+/// with dead-letter / claim columns; ingest tracks `file_path` progress
+/// (claude uses `cost_usd`, codex uses token counters). Do **not** unify their
+/// `CREATE TABLE` shapes — only share these connection pragmas.
+///
+/// # Errors
+/// Returns `Err` when any PRAGMA execution fails.
+pub fn apply_sidecar_queue_pragmas(conn: &Connection) -> Result<(), AppError> {
+    conn.pragma_update(None, "journal_mode", "wal")?;
+    // Without busy_timeout, concurrent claim/write contention surfaces as
+    // SQLITE_BUSY immediately (see GAP-SG-76 / rules_rust_sqlite.md).
+    // GAP-SG-87: XDG `db.query_timeout_ms` > factory `BUSY_TIMEOUT_MILLIS`.
+    conn.pragma_update(None, "busy_timeout", resolved_busy_timeout_ms())?;
+    Ok(())
+}
+
+/// Resolved `PRAGMA busy_timeout` (ms): XDG `db.query_timeout_ms` > factory default.
+fn resolved_busy_timeout_ms() -> i32 {
+    let ms = crate::runtime_config::db_query_timeout_ms(crate::constants::QUERY_TIMEOUT_MILLIS);
+    i32::try_from(ms).unwrap_or(crate::constants::BUSY_TIMEOUT_MILLIS).max(0)
+}
+
 /// Applies per-connection PRAGMAs: synchronous, foreign keys, busy timeout, cache, mmap, WAL.
 ///
 /// Safe to call on every new connection; all settings are idempotent.
@@ -46,7 +73,7 @@ pub fn apply_connection_pragmas(conn: &Connection) -> Result<(), AppError> {
          PRAGMA cache_size    = {cache};
          PRAGMA temp_store    = MEMORY;
          PRAGMA mmap_size     = {mmap};",
-        busy = crate::constants::BUSY_TIMEOUT_MILLIS,
+        busy = resolved_busy_timeout_ms(),
         cache = crate::constants::CACHE_SIZE_KB,
         mmap = crate::constants::MMAP_SIZE_BYTES,
     ))?;

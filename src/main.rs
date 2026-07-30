@@ -61,27 +61,33 @@ fn main() -> std::process::ExitCode {
     // BEFORE doing any work. The scan is a no-op on non-Unix platforms.
     let _reaper_report = sqlite_graphrag::reaper::scan_and_kill_orphans();
 
-    // v1.0.79: ONNX Runtime removed from default LLM-only build. The
+    // v1.0.79: ONNX Runtime removed from the default LLM-only build. The
     // fastembed/ort/onnxruntime crates are no longer in the dependency tree;
     // embeddings and NER delegate to headless claude/codex subprocesses
-    // (OAuth-only, no MCP, no hooks). Only RAYON_NUM_THREADS below remains
-    // relevant for parallel similarity and batch ops in the LLM-only path.
-
-    // Limit the Rayon pool to 2 threads — more is waste for sequential embeddings.
-    if std::env::var_os("RAYON_NUM_THREADS").is_none() {
-        // SAFETY: this  runs during single-threaded program startup,
-        // before any rayon pool is built and before any worker thread exists.
-        // Rayon reads  exactly once during
-        //  and never re-reads it, so mutating the env
-        // here is the only correct point to cap the pool. The cap of 2 is
-        // calibrated against : each worker holds a
-        // single batch-embedding call, so > 2 is waste and risks RSS
-        // oversubscription on 4-8 GiB hosts. The 2024 edition makes
-        // ; this comment is the explicit documentation of the
-        // single-threaded invariant.
-        unsafe {
-            std::env::set_var("RAYON_NUM_THREADS", "2");
-        }
+    // (OAuth-only, no MCP, no hooks). The global Rayon pool below stays
+    // relevant for parallel similarity and batch ops on that path.
+    //
+    // GAP-SG-92: this used to write `RAYON_NUM_THREADS` into the process
+    // environment inside an `unsafe` block, which made an env var the
+    // configuration channel — the exact thing `G-T-XDG-04` retired — and
+    // buried the cap as a bare literal. Building the pool explicitly keeps
+    // the number inside the documented precedence and needs no mutation.
+    //
+    // `build_global` fails only if a pool already exists. At this point in
+    // startup none does, and if one somehow did, its configuration is the one
+    // that matters — so the error is logged, not propagated.
+    let rayon_threads =
+        sqlite_graphrag::runtime_config::rayon_threads(sqlite_graphrag::constants::DEFAULT_RAYON_THREADS);
+    if let Err(e) = rayon::ThreadPoolBuilder::new()
+        .num_threads(rayon_threads)
+        .build_global()
+    {
+        tracing::debug!(
+            target: "startup",
+            error = %e,
+            threads = rayon_threads,
+            "global rayon pool already initialized; keeping the existing one"
+        );
     }
 
     // Pre-parse --verbose / -v / --quiet before tracing init so the flag
@@ -167,23 +173,42 @@ fn main() -> std::process::ExitCode {
     // Pre-parse --lang before Cli::parse() so the language is set even
     // when clap exits early via process::exit (--help, parse errors, etc.).
     // The subsequent call to init(cli.lang) will be silently ignored by the OnceLock.
+    //
+    // GAP-SG-98: --config-dir and --cache-dir MUST be captured in the same pass.
+    // Without --lang, language resolution falls back to the XDG key `i18n.lang`,
+    // which reads config.toml — so the config directory has to be known already.
+    // Installing them later, in runtime_config::init, is too late: the language
+    // OnceLock is already set from the wrong directory.
     {
         let args: Vec<String> = std::env::args().collect();
         let mut lang_override: Option<sqlite_graphrag::i18n::Language> = None;
+        let mut paths = sqlite_graphrag::runtime_config::PathOverrides::default();
         let mut i = 1usize;
         while i < args.len() {
-            if args[i] == "--lang" {
-                if let Some(val) = args.get(i + 1) {
-                    lang_override = sqlite_graphrag::i18n::Language::from_str_opt(val);
+            let take_value = |flag: &str, i: &mut usize| -> Option<String> {
+                if args[*i] == flag {
+                    let v = args.get(*i + 1).cloned();
+                    *i += 2;
+                    return v;
                 }
-                i += 2;
-            } else if let Some(val) = args[i].strip_prefix("--lang=") {
-                lang_override = sqlite_graphrag::i18n::Language::from_str_opt(val);
-                i += 1;
+                if let Some(v) = args[*i].strip_prefix(&format!("{flag}=")) {
+                    let v = v.to_string();
+                    *i += 1;
+                    return Some(v);
+                }
+                None
+            };
+            if let Some(v) = take_value("--lang", &mut i) {
+                lang_override = sqlite_graphrag::i18n::Language::from_str_opt(&v);
+            } else if let Some(v) = take_value("--config-dir", &mut i) {
+                paths.config_dir = Some(v);
+            } else if let Some(v) = take_value("--cache-dir", &mut i) {
+                paths.cache_dir = Some(v);
             } else {
                 i += 1;
             }
         }
+        sqlite_graphrag::runtime_config::init_paths(paths);
         sqlite_graphrag::i18n::init(lang_override);
     }
 
@@ -543,12 +568,16 @@ fn main() -> std::process::ExitCode {
         sqlite_graphrag::output::emit_error(&e.localized_message());
         let _ = std::io::Write::flush(&mut std::io::stdout());
         let _ = std::io::Write::flush(&mut std::io::stderr());
+        sqlite_graphrag::tracing_init::flush_tracing();
         cleanup_spawn_dir();
         return std::process::ExitCode::from(e.exit_code() as u8);
     }
 
     let _ = std::io::Write::flush(&mut std::io::stdout());
     let _ = std::io::Write::flush(&mut std::io::stderr());
+    // GAP-SG-99/130: drop non-blocking file appender worker so buffers flush
+    // before process exit (docsrs WorkerGuard contract).
+    sqlite_graphrag::tracing_init::flush_tracing();
 
     if sqlite_graphrag::shutdown_requested() {
         cleanup_spawn_dir();

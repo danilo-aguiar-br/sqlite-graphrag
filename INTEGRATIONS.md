@@ -1,6 +1,6 @@
 # Integrations
 
-> **v1.1.8 config:** runtime knobs resolve as **CLI flag > XDG `config set` > named default**. Product environment variables `SQLITE_GRAPHRAG_*` are **ignored** at runtime. Migrate integration recipes from `export SQLITE_GRAPHRAG_*=…` to `sqlite-graphrag config set <KEY> <VALUE>`, `config add-key`, and per-invocation flags (`--db`, `--openrouter-api-key`, `--llm-backend`, …). Schema stays at v16 (no migrate if already on v16). Offline seal: `scripts/e2e_offline_v118.sh` 16/16.
+> **v1.2.0 config:** runtime knobs resolve as **CLI flag > XDG `config set` > named default**. Product environment variables `SQLITE_GRAPHRAG_*` are **ignored** at runtime. Migrate integration recipes from `export SQLITE_GRAPHRAG_*=…` to `sqlite-graphrag config set <KEY> <VALUE>`, `config add-key`, and per-invocation flags (`--db`, `--openrouter-api-key`, `--llm-backend`, …). Schema stays at v16 (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**. Offline seal: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
 
 
 > Read this document in [Portuguese (pt-BR)](INTEGRATIONS.pt-BR.md)
@@ -10,7 +10,7 @@
 
 - Read the Portuguese version at [INTEGRATIONS.pt-BR.md](INTEGRATIONS.pt-BR.md)
 - Every recipe below is ready to copy and costs nothing to run
-- **v1.0.79: every build is LLM-only and one-shot.** Embedding generation delegates to a headless `claude code` or `codex` subprocess (OAuth). The daemon, the ONNX runtime and the `embedding-legacy` feature were fully removed; embeddings are batched, parallel (`--llm-parallelism`) and default to 384 dimensions (`--embedding-dim`, range [8, 4096]).
+- **v1.0.79: every build is LLM-only and one-shot.** Embedding generation delegates to a headless `claude code` or `codex` subprocess (OAuth). The daemon, the ONNX runtime and the `embedding-legacy` feature were fully removed; embeddings are batched, parallel (`--llm-parallelism`). **Current default dimensionality is 1024** since v1.2.0 (`--embedding-dim` / XDG `embedding.dim`, range [8, 4096]; historical G42/G44 defaults 64/384 retired for new DBs).
 
 
 ## CLI Flag Aliases (since v1.0.35)
@@ -29,6 +29,17 @@
 - `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` and `SQLITE_GRAPHRAG_GLINER_THRESHOLD` are accepted for compatibility but have NO effect since v1.0.79.
 - For LLM-curated entity/relationship extraction use `ingest --mode claude-code` or `ingest --mode codex`.
 - Entity types now include `organization`, `location`, `date` alongside `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
+
+## New Commands and Flags (since v1.2.0)
+
+- Crate **`1.2.0`**; pin library consumers `=1.2.0`. Main-DB schema stays at **v16** (no migrate if already on v16; sidecar queue migrate only).
+- **DEFAULT_EMBEDDING_DIM=1024** — flag `--embedding-dim` / XDG `embedding.dim` still override; existing DBs keep `schema_meta.dim` until re-embed.
+- Config precedence: **CLI flag > XDG `config set` > named default**. Product env `SQLITE_GRAPHRAG_*` is **not** the config path (ignored at runtime).
+- `enrich --list-skipped` / `enrich --requeue-skipped` — recover `preservation_failed` / skipped sink without raw SQL (G-PR-3/4).
+- Enrich queue multi-namespace — column `namespace` + `UNIQUE(namespace, operation, item_key)`; scoped `DELETE`; SQL `status='pending'` fix.
+- **GAP-SG-139** — host/XDG leaves (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) accept `--db` as a documented **no-op** (`src/cli_db_noop.rs`); graph surfaces unchanged.
+- UX aliases: `pending-embeddings status` (= `embedding status`), `cache stats` (= `cache list`); `purge --now` (alias of `--retention-days 0`); `config list --effective` (dim/log defaults from `constants`, no hard-coded `"384"`).
+- Offline seal: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded; **20/20** on release binary 1.2.0).
 
 ## New Commands and Flags (since v1.1.06)
 
@@ -176,7 +187,7 @@
 - The `daemon` subcommand was DEPRECATED in v1.0.76 and FULLY REMOVED in v1.0.79 (ahead of the v1.1.0 schedule).  The LLM subprocess is the "model loader"; the CLI is 100% one-shot with zero IPC.
 
 ## New Commands and Flags (v1.0.79 — G42 embedding pipeline)
-- `--embedding-dim <N>` global flag sets the embedding dimensionality (default 384, range [8, 4096]); precedence: flag > `SQLITE_GRAPHRAG_EMBEDDING_DIM` env > the `dim` recorded in `schema_meta` > 384; existing 384-dim databases keep working unchanged
+- `--embedding-dim <N>` global flag sets the embedding dimensionality (default **1024**, range [8, 4096]); precedence: flag > XDG `embedding.dim` > the `dim` recorded in `schema_meta` > 1024; existing 384-dim databases keep working via recorded dim
 - `--llm-parallelism <N>` is now available on `remember` (default 4), `ingest` (default 2) and `edit` — bounded fan-out via `Semaphore` + `JoinSet`, permits clamp [1, 32]
 - `enrich --operation re-embed --limit N --resume` is the canonical one-shot re-embed path (e.g. after changing `--embedding-dim`)
 - `edit --force-reembed` regenerates the embedding of one memory without changing its body

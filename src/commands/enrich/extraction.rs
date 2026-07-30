@@ -1,12 +1,25 @@
 //! LLM invocation — per-operation call helpers and result types.
 
-use super::*;
+use super::postprocess;
 use super::prompts;
-use super::scan;
 use super::queue;
-/* wave-c1-imports */
+use super::scan;
 use crate::errors::AppError;
 use std::path::Path;
+
+// Re-export for child ops modules that use `use super::*`.
+pub(crate) use super::args::EnrichMode;
+pub(crate) use super::prompts::ENTITY_DESCRIPTION_PROMPT_PREFIX;
+pub(crate) use super::schemas::{
+    BINDINGS_PROMPT, BINDINGS_SCHEMA, BODY_ENRICH_PROMPT_PREFIX, BODY_ENRICH_SCHEMA,
+    BODY_EXTRACT_PROMPT, BODY_EXTRACT_SCHEMA, DEEP_RESEARCH_SYNTH_PROMPT,
+    DEEP_RESEARCH_SYNTH_SCHEMA, DESCRIPTION_ENRICH_PROMPT, DESCRIPTION_ENRICH_SCHEMA,
+    DOMAIN_CLASSIFY_PROMPT, DOMAIN_CLASSIFY_SCHEMA, ENTITY_CONNECT_PROMPT,
+    ENTITY_CONNECT_SCHEMA, ENTITY_DESCRIPTION_SCHEMA, ENTITY_TYPE_VALIDATE_PROMPT,
+    ENTITY_TYPE_VALIDATE_SCHEMA, GRAPH_AUDIT_PROMPT, GRAPH_AUDIT_SCHEMA,
+    RELATION_RECLASSIFY_PROMPT, RELATION_RECLASSIFY_SCHEMA, WEIGHT_CALIBRATE_PROMPT,
+    WEIGHT_CALIBRATE_SCHEMA,
+};
 
 
 // ---------------------------------------------------------------------------

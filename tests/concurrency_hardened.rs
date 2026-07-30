@@ -2,7 +2,7 @@
 
 // Suite 4 — Hardened lock and concurrency tests
 //
-// ISOLATION: each test uses `SQLITE_GRAPHRAG_CACHE_DIR` pointing to a
+// ISOLATION: each test uses `XDG_CACHE_HOME` pointing to a
 // `TempDir` exclusive per test. `#[serial]` is required in all tests to avoid
 // filesystem races between tests that share the same binary.
 //
@@ -37,6 +37,28 @@ mod common;
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+/// GAP-SG-101: isolated assert_cmd bound to db_path via planted db.path.
+fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
+    let mut c = sgr_cmd();
+    common::plant_db_path(&tmp.path().join("config"), db_path);
+    c.env("HOME", tmp.path().join("home"))
+        .env("XDG_CACHE_HOME", tmp.path())
+        .env("XDG_CONFIG_HOME", tmp.path().join("xdg_config"))
+        .env("XDG_DATA_HOME", tmp.path().join("xdg_data"))
+        .env("XDG_RUNTIME_DIR", tmp.path().join("xdg_runtime"))
+        .arg("--config-dir")
+        .arg(tmp.path().join("config"))
+        .arg("--cache-dir")
+        .arg(tmp.path())
+        .arg("--skip-memory-guard");
+    c
+}
+
+/// Isolation env for std::process::Command thread children.
+fn wire_child(c: &mut std::process::Command, root: &std::path::Path, db: &std::path::Path) {
+    common::wire_std_cmd(root, c, db);
+}
 
 /// Returns the lock file path for the given slot (1-based) inside the `TempDir`.
 fn slot_path(tmp: &TempDir, slot: usize) -> std::path::PathBuf {
@@ -81,7 +103,7 @@ fn cinco_instancias_quinta_exit_75() {
 
     // 5th invocation with --wait-lock 0 must fail with exit 75
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -128,7 +150,7 @@ fn wait_lock_3s_respeitado() {
 
     // --wait-lock 3 must wait for release (within 3s) and complete
     sgr_cmd()
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        .env("XDG_CACHE_HOME", tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -155,19 +177,14 @@ fn optimistic_locking_conflito_exit_3() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
     // Insert memory
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+    sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "remember",
             "--name",
             "mem-conflito",
@@ -184,11 +201,8 @@ fn optimistic_locking_conflito_exit_3() {
         .success();
 
     // Obter updated_at via read para capturar o timestamp antes de modificar
-    let output_leitura = sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+    let output_leitura = sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "read",
             "--name",
             "mem-conflito",
@@ -211,11 +225,8 @@ fn optimistic_locking_conflito_exit_3() {
     let updated_at_stale: i64 = 1;
 
     // Edit with stale --expected-updated-at must fail with exit 3 (Conflict)
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+    sgr_on(&tmp, &db_path)
         .args([
-            "--skip-memory-guard",
             "edit",
             "--name",
             "mem-conflito",
@@ -245,20 +256,15 @@ fn purge_during_recall_does_not_corrupt() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
     // Insert some old memories so that purge has something to do
     for i in 0..3 {
-        sgr_cmd()
-            .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-            .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
+        sgr_on(&tmp, &db_path)
             .args([
-                "--skip-memory-guard",
                 "remember",
                 "--name",
                 &format!("mem-purge-{i}"),
@@ -277,8 +283,8 @@ fn purge_during_recall_does_not_corrupt() {
 
     let db_path_recall = db_path.clone();
     let db_path_purge = db_path.clone();
-    let cache_path_recall = tmp.path().to_path_buf();
-    let cache_path_purge = tmp.path().to_path_buf();
+    let root_recall = tmp.path().to_path_buf();
+    let root_purge = tmp.path().to_path_buf();
 
     let barrier = Arc::new(Barrier::new(2));
     let barrier_recall = Arc::clone(&barrier);
@@ -289,40 +295,36 @@ fn purge_during_recall_does_not_corrupt() {
     let bin_recall = bin_path.clone();
     let bin_purge = bin_path.clone();
 
-    // Thread recall — busca concorrente
+    // Thread recall — concurrent search
     let handle_recall = std::thread::spawn(move || {
         barrier_recall.wait();
-        std::process::Command::new(&bin_recall)
-            .env("SQLITE_GRAPHRAG_DB_PATH", &db_path_recall)
-            .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path_recall)
-            .args([
-                "--skip-memory-guard",
-                "recall",
-                "memória antiga",
-                "--namespace",
-                "global",
-                "--k",
-                "5",
-            ])
-            .output()
-            .expect("recall deve executar sem panic")
+        let mut c = std::process::Command::new(&bin_recall);
+        common::wire_std_cmd(&root_recall, &mut c, &db_path_recall);
+        c.args([
+            "--skip-memory-guard",
+            "recall",
+            "--db",
+        ])
+        .arg(&db_path_recall)
+        .args(["memória antiga", "--namespace", "global", "--k", "5"])
+        .output()
+        .expect("recall deve executar sem panic")
     });
 
     // Purge thread — concurrent purge with --dry-run so nothing is deleted
     let handle_purge = std::thread::spawn(move || {
         barrier_purge.wait();
-        std::process::Command::new(&bin_purge)
-            .env("SQLITE_GRAPHRAG_DB_PATH", &db_path_purge)
-            .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path_purge)
-            .args([
-                "--skip-memory-guard",
-                "purge",
-                "--namespace",
-                "global",
-                "--dry-run",
-            ])
-            .output()
-            .expect("purge deve executar sem panic")
+        let mut c = std::process::Command::new(&bin_purge);
+        common::wire_std_cmd(&root_purge, &mut c, &db_path_purge);
+        c.args([
+            "--skip-memory-guard",
+            "purge",
+            "--db",
+        ])
+        .arg(&db_path_purge)
+        .args(["--namespace", "global", "--dry-run"])
+        .output()
+        .expect("purge deve executar sem panic")
     });
 
     let resultado_recall = handle_recall
@@ -370,10 +372,8 @@ fn dez_remembers_namespaces_diferentes() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
@@ -382,39 +382,41 @@ fn dez_remembers_namespaces_diferentes() {
     let bin_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_sqlite-graphrag"));
     let mock_path = common::prepend_path(&common::mock_llm_path());
 
+    let root = tmp.path().to_path_buf();
     let handles: Vec<_> = (0..n_threads)
         .map(|i| {
             let db_path_clone = db_path.clone();
-            let cache_path_clone = tmp.path().to_path_buf();
+            let root_clone = root.clone();
             let barrier_clone = Arc::clone(&barrier);
             let namespace = format!("ns-thread-{i}");
             let bin_clone = bin_path.clone();
             let path_clone = mock_path.clone();
 
             std::thread::spawn(move || {
-                // Sincroniza todos os threads antes de disparar
                 barrier_clone.wait();
-
-                std::process::Command::new(&bin_clone)
-                    .env("SQLITE_GRAPHRAG_DB_PATH", &db_path_clone)
-                    .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_path_clone)
-                    .env("PATH", &path_clone)
-                    .args([
-                        "--skip-memory-guard",
-                        "remember",
-                        "--name",
-                        &format!("mem-thread-{i}"),
-                        "--type",
-                        "user",
-                        "--namespace",
-                        &namespace,
-                        "--description",
-                        &format!("memória do thread {i}"),
-                        "--body",
-                        &format!("corpo da memória isolada para o namespace {namespace}"),
-                    ])
-                    .output()
-                    .expect("remember deve executar sem panic")
+                let mut c = std::process::Command::new(&bin_clone);
+                c.env("PATH", &path_clone);
+                common::wire_std_cmd(&root_clone, &mut c, &db_path_clone);
+                c.args([
+                    "--skip-memory-guard",
+                    "remember",
+                    "--db",
+                ])
+                .arg(&db_path_clone)
+                .args([
+                    "--name",
+                    &format!("mem-thread-{i}"),
+                    "--type",
+                    "user",
+                    "--namespace",
+                    &namespace,
+                    "--description",
+                    &format!("memória do thread {i}"),
+                    "--body",
+                    &format!("corpo da memória isolada para o namespace {namespace}"),
+                ])
+                .output()
+                .expect("remember deve executar sem panic")
             })
         })
         .collect();
@@ -468,10 +470,8 @@ fn saturacao_10x_slots_bounded() {
     let tmp = TempDir::new().expect("TempDir");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_cmd()
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path())
-        .args(["--skip-memory-guard", "init"])
+    sgr_on(&tmp, &db_path)
+        .args(["init"])
         .assert()
         .success();
 
@@ -480,38 +480,42 @@ fn saturacao_10x_slots_bounded() {
     let bin_path = std::path::PathBuf::from(env!("CARGO_BIN_EXE_sqlite-graphrag"));
     let mock_path = common::prepend_path(&common::mock_llm_path());
 
+    let root = tmp.path().to_path_buf();
     let handles: Vec<_> = (0..total_processes)
         .map(|i| {
             let db_clone = db_path.clone();
-            let cache_clone = tmp.path().to_path_buf();
+            let root_clone = root.clone();
             let barrier_clone = Arc::clone(&barrier);
             let bin_clone = bin_path.clone();
             let path_clone = mock_path.clone();
 
             std::thread::spawn(move || {
                 barrier_clone.wait();
-                std::process::Command::new(&bin_clone)
-                    .env("SQLITE_GRAPHRAG_DB_PATH", &db_clone)
-                    .env("SQLITE_GRAPHRAG_CACHE_DIR", &cache_clone)
-                    .env("PATH", &path_clone)
-                    .args([
-                        "--skip-memory-guard",
-                        "--max-concurrency",
-                        "4",
-                        "--wait-lock",
-                        "0",
-                        "remember",
-                        "--name",
-                        &format!("sat-mem-{i}"),
-                        "--type",
-                        "note",
-                        "--description",
-                        "saturation test",
-                        "--body",
-                        &format!("saturation test item {i}"),
-                    ])
-                    .output()
-                    .expect("must not panic")
+                let mut c = std::process::Command::new(&bin_clone);
+                c.env("PATH", &path_clone);
+                common::wire_std_cmd(&root_clone, &mut c, &db_clone);
+                c.args([
+                    "--skip-memory-guard",
+                    "--max-concurrency",
+                    "4",
+                    "--wait-lock",
+                    "0",
+                    "remember",
+                    "--db",
+                ])
+                .arg(&db_clone)
+                .args([
+                    "--name",
+                    &format!("sat-mem-{i}"),
+                    "--type",
+                    "note",
+                    "--description",
+                    "saturation test",
+                    "--body",
+                    &format!("saturation test item {i}"),
+                ])
+                .output()
+                .expect("must not panic")
             })
         })
         .collect();

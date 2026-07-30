@@ -5,7 +5,9 @@ use rusqlite::Connection;
 
 fn open_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("in-memory db");
-    conn.execute_batch(
+    // GAP-SG-119: use DEFAULT_EMBEDDING_DIM (not legacy 384) for new fixtures.
+    let dim = crate::constants::DEFAULT_EMBEDDING_DIM;
+    conn.execute_batch(&format!(
         "CREATE TABLE memories (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             namespace   TEXT NOT NULL DEFAULT 'global',
@@ -16,7 +18,7 @@ fn open_test_db() -> Connection {
             body_hash   TEXT NOT NULL DEFAULT '',
             session_id  TEXT,
             source      TEXT NOT NULL DEFAULT 'agent',
-            metadata    TEXT NOT NULL DEFAULT '{}',
+            metadata    TEXT NOT NULL DEFAULT '{{}}',
             created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
             updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
             deleted_at  INTEGER,
@@ -54,7 +56,7 @@ fn open_test_db() -> Connection {
             embedding   BLOB NOT NULL,
             source      TEXT NOT NULL,
             model       TEXT NOT NULL DEFAULT '',
-            dim         INTEGER NOT NULL DEFAULT 384,
+            dim         INTEGER NOT NULL DEFAULT {dim},
             created_at  INTEGER NOT NULL DEFAULT (unixepoch())
         );
         CREATE TABLE entity_embeddings (
@@ -63,7 +65,7 @@ fn open_test_db() -> Connection {
             embedding   BLOB NOT NULL,
             source      TEXT NOT NULL,
             model       TEXT NOT NULL DEFAULT '',
-            dim         INTEGER NOT NULL DEFAULT 384,
+            dim         INTEGER NOT NULL DEFAULT {dim},
             created_at  INTEGER NOT NULL DEFAULT (unixepoch())
         );
         CREATE TABLE memory_chunks (
@@ -81,7 +83,7 @@ fn open_test_db() -> Connection {
             embedding   BLOB NOT NULL,
             source      TEXT NOT NULL,
             model       TEXT NOT NULL DEFAULT '',
-            dim         INTEGER NOT NULL DEFAULT 384,
+            dim         INTEGER NOT NULL DEFAULT {dim},
             created_at  INTEGER NOT NULL DEFAULT (unixepoch())
         );
         CREATE TABLE entity_connect_seen (
@@ -93,7 +95,7 @@ fn open_test_db() -> Connection {
             evaluated_at INTEGER NOT NULL DEFAULT (unixepoch()),
             PRIMARY KEY (source_id, target_id)
         );",
-    )
+    ))
     .expect("schema creation must succeed");
     conn
 }
@@ -106,7 +108,7 @@ fn count_operation_backlog_body_enrich_uses_default_threshold() {
         [],
     )
     .unwrap();
-    let long_body = "a".repeat(super::DEFAULT_BODY_ENRICH_MIN_CHARS + 100);
+    let long_body = "a".repeat(crate::commands::enrich::DEFAULT_BODY_ENRICH_MIN_CHARS + 100);
     conn.execute(
         "INSERT INTO memories (namespace, name, body) VALUES ('global', 'long', ?1)",
         rusqlite::params![long_body],
@@ -125,7 +127,7 @@ fn count_operation_backlog_body_enrich_uses_default_threshold() {
     let scanned = scan_short_body_memories(
         &conn,
         "global",
-        super::DEFAULT_BODY_ENRICH_MIN_CHARS,
+        crate::commands::enrich::DEFAULT_BODY_ENRICH_MIN_CHARS,
         None,
         &[],
     )

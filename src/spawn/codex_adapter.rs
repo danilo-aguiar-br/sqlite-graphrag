@@ -7,6 +7,7 @@ use crate::errors::AppError;
 use async_trait::async_trait;
 use std::process::Command;
 
+/// Codex adapter.
 pub struct CodexAdapter;
 
 #[async_trait]

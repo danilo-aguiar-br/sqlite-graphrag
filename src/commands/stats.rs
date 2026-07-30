@@ -14,7 +14,9 @@ use serde::Serialize;
     sqlite-graphrag stats --db /path/to/graphrag.sqlite\n\n  \
     # Explicit database path\n  \
     sqlite-graphrag stats --db /data/graphrag.sqlite")]
+/// Stats args.
 pub struct StatsArgs {
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
     /// Explicit JSON flag. Accepted as a no-op because output is already JSON by default.
@@ -58,6 +60,7 @@ struct StatsResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: StatsArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let _ = args.json; // --json is a no-op because output is already JSON by default

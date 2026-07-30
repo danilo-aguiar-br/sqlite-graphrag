@@ -5,17 +5,17 @@
 /// Tests the happy path of each of the 25 subcommands against the installed binary.
 /// Skips gracefully if:
 /// - Binary absent at `~/.cargo/bin/sqlite-graphrag`
-/// - Variable `SQLITE_GRAPHRAG_SKIP_INSTALLED_BINARY_SMOKE=1` is set
+/// - Harness-only `SGR_TEST_SKIP_INSTALLED_SMOKE=1` is set (NOT product config)
 ///
-/// Each test uses an isolated TempDir.
-/// Most use an explicit `SQLITE_GRAPHRAG_DB_PATH`; the final smoke also validates
-/// the default fallback to `./graphrag.sqlite` in the invocation directory.
+/// Each test uses an isolated TempDir with `--db` / planted `db.path`.
+/// The final smoke also validates the default fallback to `./graphrag.sqlite`
+/// in the invocation directory.
 /// All tests must return exit code 0 and valid JSON on stdout.
 ///
 /// By default, the suite requires the installed binary to match the
 /// `CARGO_PKG_VERSION` of the current workspace. This avoids false positives when
 /// local code evolves but `~/.cargo/bin/sqlite-graphrag` remains stale.
-/// Use `SQLITE_GRAPHRAG_ALLOW_INSTALLED_VERSION_MISMATCH=1` to audit a
+/// Use harness-only `SGR_TEST_ALLOW_INSTALLED_VERSION_MISMATCH=1` to audit a
 /// legacy binary intentionally.
 ///
 /// API contracts validated in this suite:
@@ -50,8 +50,9 @@ fn installed_bin() -> Option<PathBuf> {
 }
 
 fn skip_if_not_installed() -> PathBuf {
-    if std::env::var("SQLITE_GRAPHRAG_SKIP_INSTALLED_BINARY_SMOKE").as_deref() == Ok("1") {
-        eprintln!("Suite 10: skipped via SQLITE_GRAPHRAG_SKIP_INSTALLED_BINARY_SMOKE=1");
+    // Harness-only opt-out — NOT product config (G-T-XDG-04).
+    if std::env::var("SGR_TEST_SKIP_INSTALLED_SMOKE").as_deref() == Ok("1") {
+        eprintln!("Suite 10: skipped via SGR_TEST_SKIP_INSTALLED_SMOKE=1");
         std::process::exit(0);
     }
     match installed_bin() {
@@ -75,12 +76,13 @@ fn installed_version(bin: &PathBuf) -> String {
 }
 
 fn expected_installed_version() -> String {
-    std::env::var("SQLITE_GRAPHRAG_EXPECT_INSTALLED_VERSION")
+    // Harness-only — NOT product config.
+    std::env::var("SGR_TEST_EXPECT_INSTALLED_VERSION")
         .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
 fn allow_installed_version_mismatch() -> bool {
-    std::env::var("SQLITE_GRAPHRAG_ALLOW_INSTALLED_VERSION_MISMATCH").as_deref() == Ok("1")
+    std::env::var("SGR_TEST_ALLOW_INSTALLED_VERSION_MISMATCH").as_deref() == Ok("1")
 }
 
 fn assert_expected_installed_version(bin: &PathBuf) {
@@ -98,7 +100,7 @@ fn assert_expected_installed_version(bin: &PathBuf) {
     }
 
     panic!(
-        "Suite 10: installed binary version mismatch: ~/.cargo/bin/sqlite-graphrag is v{actual}, but this workspace expects v{expected}. Reinstall with `cargo install sqlite-graphrag --version {expected} --locked --force` or set SQLITE_GRAPHRAG_ALLOW_INSTALLED_VERSION_MISMATCH=1 for deliberate legacy audits."
+        "Suite 10: installed binary version mismatch: ~/.cargo/bin/sqlite-graphrag is v{actual}, but this workspace expects v{expected}. Reinstall with `cargo install sqlite-graphrag --version {expected} --locked --force` or set SGR_TEST_ALLOW_INSTALLED_VERSION_MISMATCH=1 for deliberate legacy audits."
     );
 }
 
@@ -116,16 +118,12 @@ impl Env {
     }
 
     fn cmd(&self) -> Command {
+        // GAP-SG-101: product env is not read (G-T-XDG-04).
         let mock_dir = common::mock_llm_path();
         let mut c = Command::new(&self.bin);
-        c.env(
-            "SQLITE_GRAPHRAG_DB_PATH",
-            self.tmp.path().join("smoke.sqlite"),
-        );
-        c.env("SQLITE_GRAPHRAG_CACHE_DIR", self.tmp.path().join("cache"));
-        c.env("SQLITE_GRAPHRAG_DAEMON_DISABLE_AUTOSTART", "1");
-        c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+        let db = self.tmp.path().join("smoke.sqlite");
         c.env("PATH", common::prepend_path(&mock_dir));
+        common::wire_std_cmd(self.tmp.path(), &mut c, &db);
         c.arg("--skip-memory-guard");
         c
     }
@@ -134,17 +132,25 @@ impl Env {
         let mock_dir = common::mock_llm_path();
         let mut c = Command::new(&self.bin);
         c.current_dir(self.tmp.path());
-        c.env_remove("SQLITE_GRAPHRAG_DB_PATH");
-        c.env("SQLITE_GRAPHRAG_CACHE_DIR", self.tmp.path().join("cache"));
-        c.env("SQLITE_GRAPHRAG_DAEMON_DISABLE_AUTOSTART", "1");
-        c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+        c.env("HOME", self.tmp.path().join("home"));
+        c.env("XDG_CACHE_HOME", self.tmp.path().join("cache"));
+        c.env("XDG_CONFIG_HOME", self.tmp.path().join("config_home"));
+        c.env("XDG_DATA_HOME", self.tmp.path().join("data"));
         c.env("PATH", common::prepend_path(&mock_dir));
+        c.arg("--config-dir").arg(self.tmp.path().join("config_default"));
+        c.arg("--cache-dir").arg(self.tmp.path().join("cache"));
         c.arg("--skip-memory-guard");
         c
     }
 
     fn init(&self) {
-        let out = self.cmd().arg("init").output().expect("init failed");
+        let db = self.tmp.path().join("smoke.sqlite");
+        let out = self
+            .cmd()
+            .args(["init", "--db"])
+            .arg(&db)
+            .output()
+            .expect("init failed");
         assert!(out.status.success(), "init failed: {}", stderr(&out));
     }
 

@@ -22,6 +22,7 @@ use serde::Serialize;
     sqlite-graphrag rename-entity --name auth --new-name authentication --namespace my-project\n\n  \
     # Rename by ID (unambiguous when homonyms exist across namespaces)\n  \
     sqlite-graphrag rename-entity --id 42 --new-name authentication")]
+/// Rename entity args.
 pub struct RenameEntityArgs {
     /// Current entity name to rename.
     #[arg(
@@ -39,12 +40,16 @@ pub struct RenameEntityArgs {
     /// New name for the entity.
     #[arg(long, value_name = "NEW_NAME")]
     pub new_name: String,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -84,6 +89,7 @@ fn lookup_entity_by_id(
     }
 }
 
+/// Run.
 pub fn run(
     args: RenameEntityArgs,
     llm_backend: crate::cli::LlmBackendChoice,
@@ -140,9 +146,7 @@ pub fn run(
 
     // Ensure new name is not already taken in this namespace.
     if entities::find_entity_id(&conn, &namespace, &new_name)?.is_some() {
-        return Err(AppError::Validation(format!(
-            "entity with name '{new_name}' already exists in namespace '{namespace}'"
-        )));
+        return Err(AppError::Validation(crate::i18n::validation::entity_name_already_exists(&new_name, &namespace)));
     }
 
     // GAP-CLI-PERF-RENAME-01 / EMBED-NONE (v1.1.8): re-embed the new name only
@@ -326,7 +330,7 @@ mod tests {
     #[test]
     fn rejects_rename_entity_to_same_name() {
         use crate::errors::AppError;
-        let err = AppError::Validation("source and target entity names are identical".to_string());
+        let err = AppError::Validation(crate::i18n::validation::source_target_entity_names_identical());
         assert_eq!(err.exit_code(), 1);
         assert!(err.to_string().contains("identical"));
     }

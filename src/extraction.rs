@@ -19,8 +19,11 @@ use serde::{Deserialize, Serialize};
 /// One URL extracted from a body. Always produced by the regex path.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedUrl {
+    /// URL value.
     pub url: String,
+    /// Start offset (inclusive).
     pub start: usize,
+    /// End offset (exclusive).
     pub end: usize,
 }
 
@@ -28,9 +31,13 @@ pub struct ExtractedUrl {
 /// (the legacy GLiNER NER build was removed in v1.0.79).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedEntity {
+    /// Name of this item.
     pub name: String,
+    /// Entity type label.
     pub entity_type: String,
+    /// Start offset (inclusive).
     pub start: usize,
+    /// End offset (exclusive).
     pub end: usize,
 }
 
@@ -40,7 +47,9 @@ pub struct ExtractedEntity {
 /// regex-only baseline that `remember` and `ingest` consume.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionResult {
+    /// Extracted entities.
     pub entities: Vec<ExtractedEntity>,
+    /// Extracted URLs.
     pub urls: Vec<ExtractedUrl>,
     /// Wall-clock latency in milliseconds.
     pub elapsed_ms: u64,
@@ -49,7 +58,9 @@ pub struct ExtractionResult {
 /// Trait abstraction for any extractor. Implemented by the LLM backend
 /// (the legacy GLiNER backend was removed in v1.0.79).
 pub trait Extractor: Send + Sync {
+    /// Return the name of this item.
     fn name(&self) -> &'static str;
+    /// Extract structured data from the given body text.
     fn extract(&self, body: &str) -> Result<ExtractionResult, crate::errors::AppError>;
 }
 

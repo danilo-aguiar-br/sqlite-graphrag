@@ -4,6 +4,7 @@
 //! downloaded into the XDG cache directory on first `init`. Used to reclaim
 //! disk space or recover from corrupted cache state.
 
+use crate::cli_db_noop::DbNoopArgs;
 use crate::errors::AppError;
 use crate::output;
 use crate::paths::AppPaths;
@@ -19,11 +20,14 @@ use serde::Serialize;
     sqlite-graphrag cache list\n\n  \
     # List cached model files as JSON\n  \
     sqlite-graphrag cache list --json")]
+/// Cache args.
 pub struct CacheArgs {
+    /// Subcommand to execute.
     #[command(subcommand)]
     pub command: CacheCommands,
 }
 
+/// Cache commands.
 #[derive(clap::Subcommand)]
 pub enum CacheCommands {
     /// Remove cached embedding/NER model files (forces re-download on next `init`).
@@ -34,13 +38,18 @@ pub enum CacheCommands {
     Stats(CacheListArgs),
 }
 
+/// Cache list args.
 #[derive(clap::Args)]
 pub struct CacheListArgs {
     /// Output as JSON.
     #[arg(long)]
     pub json: bool,
+    /// GAP-SG-139: accepted as a no-op for agent uniformity (XDG cache; no graph I/O).
+    #[command(flatten)]
+    pub db_noop: DbNoopArgs,
 }
 
+/// Clear models args.
 #[derive(clap::Args)]
 pub struct ClearModelsArgs {
     /// Skip confirmation prompt and proceed with deletion immediately.
@@ -49,6 +58,9 @@ pub struct ClearModelsArgs {
     /// Output format: json (default), text, or markdown.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// GAP-SG-139: accepted as a no-op for agent uniformity (XDG cache; no graph I/O).
+    #[command(flatten)]
+    pub db_noop: DbNoopArgs,
 }
 
 #[derive(Serialize)]
@@ -61,6 +73,7 @@ struct ClearModelsResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: CacheArgs) -> Result<(), AppError> {
     match args.command {
         CacheCommands::ClearModels(a) => clear_models(a),
@@ -69,8 +82,10 @@ pub fn run(args: CacheArgs) -> Result<(), AppError> {
 }
 
 fn clear_models(args: ClearModelsArgs) -> Result<(), AppError> {
+    args.db_noop.ignore();
     let inicio = std::time::Instant::now();
     // Resolve the canonical models directory through AppPaths (XDG cache).
+    // GAP-SG-139: --db is a no-op; never resolve the graph path here.
     let paths = AppPaths::resolve(None)?;
     let models_dir = paths.models.clone();
 
@@ -224,6 +239,8 @@ fn is_leap(y: i32) -> bool {
 }
 
 fn run_list(args: CacheListArgs) -> Result<(), AppError> {
+    args.db_noop.ignore();
+    // GAP-SG-139: --db is a no-op; XDG cache only.
     let paths = AppPaths::resolve(None)?;
     let models_dir = &paths.models;
 
@@ -315,8 +332,35 @@ mod tests {
         let args = ClearModelsArgs {
             yes: false,
             json: false,
+            db_noop: DbNoopArgs::default(),
         };
         let result = clear_models(args);
         assert!(matches!(result, Err(AppError::Validation(_))));
+    }
+
+    #[test]
+    fn cache_stats_accepts_db_as_noop() {
+        use clap::Parser;
+        let cli = crate::cli::Cli::try_parse_from([
+            "sqlite-graphrag",
+            "cache",
+            "stats",
+            "--db",
+            "/tmp/gap-sg-139-sentinel.sqlite",
+        ])
+        .expect("cache stats must accept --db as a no-op (GAP-SG-139)");
+
+        match cli.command {
+            Some(crate::cli::Commands::Cache(args)) => match args.command {
+                CacheCommands::Stats(a) | CacheCommands::List(a) => {
+                    assert_eq!(
+                        a.db_noop.db.as_deref(),
+                        Some("/tmp/gap-sg-139-sentinel.sqlite")
+                    );
+                }
+                _ => panic!("expected Stats/List"),
+            },
+            other => panic!("expected Cache, got {other:?}"),
+        }
     }
 }

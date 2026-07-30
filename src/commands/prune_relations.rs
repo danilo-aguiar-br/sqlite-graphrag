@@ -17,11 +17,13 @@ use serde::Serialize;
 NOTE:\n  \
     This command permanently deletes relationships. Use --dry-run first.\n  \
     Entity degree counts are automatically recalculated after pruning.")]
+/// Prune relations args.
 pub struct PruneRelationsArgs {
     /// Relation type to delete (e.g. mentions, related, uses).
     /// Accepts canonical and custom kebab-case/snake_case values.
     #[arg(long, value_parser = crate::parsers::parse_relation, value_name = "RELATION")]
     pub relation: String,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
     /// Preview count without deleting.
@@ -33,10 +35,13 @@ pub struct PruneRelationsArgs {
     /// Show affected entity names during --dry-run preview.
     #[arg(long, default_value_t = false)]
     pub show_entities: bool,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -54,6 +59,7 @@ struct PruneRelationsResponse {
     affected_entity_names: Option<Vec<String>>,
 }
 
+/// Run.
 pub fn run(args: PruneRelationsArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;

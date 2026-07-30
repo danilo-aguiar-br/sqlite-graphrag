@@ -30,11 +30,18 @@ fn assert_wal_after(cmd_args: &[&str], description: &str) {
     let tmp = TempDir::new().expect("create tempdir");
     let db_path = tmp.path().join("graphrag.sqlite");
 
+    // GAP-SG-101: product env is not read. Plant db.path + --config-dir.
     let mut cmd = sgr_cmd();
+    common::plant_db_path(&tmp.path().join("config"), &db_path);
     let output = cmd
-        .env("SQLITE_GRAPHRAG_DB_PATH", &db_path)
-        .env("SQLITE_GRAPHRAG_HOME", tmp.path())
-        .env_remove("SQLITE_GRAPHRAG_LANG")
+        .env("HOME", tmp.path().join("home"))
+        .env("XDG_CACHE_HOME", tmp.path().join("xdg_cache"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("xdg_config"))
+        .env("XDG_DATA_HOME", tmp.path().join("xdg_data"))
+        .arg("--config-dir")
+        .arg(tmp.path().join("config"))
+        .arg("--cache-dir")
+        .arg(tmp.path().join("cache"))
         .args(cmd_args)
         .timeout(std::time::Duration::from_secs(120))
         .output()

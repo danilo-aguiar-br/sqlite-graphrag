@@ -1,4 +1,4 @@
-# HOW TO USE sqlite-graphrag (v1.1.8 — XDG config, E2E seal, schema v16)
+# HOW TO USE sqlite-graphrag (v1.2.0 — XDG config, dim 1024, E2E seal, schema v16)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
@@ -6,7 +6,7 @@
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
 
-## Configuration (XDG — v1.1.8)
+## Configuration (XDG — v1.2.0)
 
 - Runtime knobs resolve as **CLI flag > XDG `config set` > named default**
 - Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime (forbidden for product configuration)
@@ -16,7 +16,7 @@
 - Fail-fast offline recall: `config set llm.query_embed_timeout_secs 3` and/or `--llm-backend none`
 - Soft-delete cleanup: `purge --now --yes` for immediate hard-delete; default retention is 90 days and `--yes` alone does **not** wipe recent soft-deletes
 - Allowed OS env only: locale (`LANG`/`LC_*`), `PATH`, `HOME`/`USERPROFILE`, XDG base dirs, `NO_COLOR`, plus subprocess OAuth whitelist (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, …)
-- Offline gate: `bash scripts/e2e_offline_v118.sh` (16/16). Pin library consumers to `=1.1.8`. Schema stays at **v16** (no migrate if already on v16)
+- Offline gate: `bash scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Pin library consumers to `=1.2.0`. Schema stays at **v16** (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**
 
 ```bash
 sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
@@ -24,14 +24,17 @@ sqlite-graphrag config list --effective --json
 sqlite-graphrag purge --now --yes --json   # after forget, when you want immediate hard-delete
 ```
 
-## What Changed in v1.1.8 — XDG Config + Enrich Quality/Latency (No Migration)
+## What Changed in v1.2.0 — dim 1024 + XDG Config + residual seal (No Migration)
 
-- Crate **1.1.8**; schema **unchanged** at **v16**. No main-DB migration.
-- Help scrub: no product env tables, no Box about on ingest/enrich.
+- Crate **1.2.0**; schema **unchanged** at **v16**. No main-DB migration. Pin library consumers to `=1.2.0`.
+- **DEFAULT_EMBEDDING_DIM=1024** (flag `--embedding-dim` / XDG `embedding.dim` override; existing DBs keep `schema_meta.dim` until re-embed).
+- Help scrub: no product env tables, no Box about on ingest/enrich. Precedence **CLI flag > XDG `config set` > default**.
 - OpenRouter URLs wired from XDG; Auto query embed fail-fast (`llm.query_embed_timeout_secs` default 3s + probe).
 - EntityType fold: `"module"` → Concept; `related_to` → `related`.
 - `remember-batch` requires non-empty `description` on create.
 - Aliases: `pending-embeddings status`, `cache stats`; `purge --now`; `config list --effective`.
+- Enrich queue multi-namespace (`namespace` column + unique key); **`--list-skipped` / `--requeue-skipped`** recover preservation/skipped debt without raw SQL.
+- **GAP-SG-139**: host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as documented **no-op**.
 - QISO: enrich queue claim is scoped by `operation` (memory-bindings cannot claim entity/pair rows).
 - entity-descriptions: multi-domain neutral prompt, corpus grounding, `--force-redescribe` for low-quality rewrite.
 - Status honesty: `enrich --status --force-redescribe` reports `scan_backlog_low_quality`, `quality_pct`, `state=blocked_dead` when applicable.
@@ -40,11 +43,12 @@ sqlite-graphrag purge --now --yes --json   # after forget, when you want immedia
 - deep-research short `-o` alias of `--output`; atomic write + ack `{written,bytes,blake3}`.
 - memory-entities forward JSON includes `entities[].description`.
 - entity-connect remains fully implemented (persists relationships); large-DB: `--anchor-memory`, adaptive limits, yield, `budget_exhausted` / `preempted_for_gate`.
+- Offline gate: `scripts/e2e_offline_v120.sh` (**20/20**); historical wrapper `e2e_offline_v118.sh` superseded. Hermetic `IsolatedEnv` / `xdg_isolation_guard` tests (no product env in tests/benches).
 - Recommended order after write: entity-descriptions (hot) then entity-connect (cold).
-- Telemetry lib alias removed. Residual: monólitos >800 LOC partial; live LQ backfill is operator campaign (`--force-redescribe` + LLM).
-- See [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](../CHANGELOG.md) `[1.1.8]`.
+- Residual honest: further monólito SRP optional; live LQ backfill is operator campaign (`--force-redescribe` + LLM).
+- See [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](../CHANGELOG.md) `[1.2.0]`.
 
-### Recipes — enrich quality and hot-set (v1.1.8)
+### Recipes — enrich quality and hot-set (v1.2.0)
 
 ```bash
 # After curated remember: parse enrich_recommended, then priority ED
@@ -632,6 +636,8 @@ includes the schema and the response is larger).
 - `--resume` continues a previously interrupted batch from the queue DB. `--retry-failed` retries only the failed items.
 - `--until-empty` (v1.0.96) runs an internal scan→drain loop until the queue holds no eligible items or `--max-runtime <SECONDS>` (default 3600) expires — it replaces the external `while` retry loop. `--max-attempts <N>` (default 8, range 1..=20) is the Transient retry budget; an item turns terminal `dead` after that budget or on the first HardFailure (GAP-ENRICH-BACKLOG-CONVERGE, ADR-0055).
 - `--status` (v1.0.96) prints a read-only JSON queue report (`unbound_backlog`, per-operation `scan_backlog`, `queue_pending/done/failed/dead/skipped`, `eligible_now`, `waiting`). It never calls the LLM and never acquires the singleton, so it is safe to poll while a drain is running. `scan_backlog` (GAP-SG-77, v1.1.0) is the real per-operation database backlog a scan would enqueue — it kills the false `pending=0` for `entity-descriptions`/`body-enrich`/`re-embed`, and `state` derives `pending-scan` from it.
+- `--list-dead` / `--requeue-dead` list terminal `dead` queue rows or move them `dead` → `pending` (no LLM, no singleton when used alone). Use after hard failures that exhausted `--max-attempts`.
+- `--list-skipped` / `--requeue-skipped` list `skipped` / preservation-failed rows or move them `skipped` → `pending` (no LLM, no singleton when used alone). Recovers preservation/skipped debt without raw SQL on `.enrich-queue.sqlite`.
 - `--rest-concurrency <N>` (v1.0.96, default 8, clamp 1..=16) caps the bounded `JoinSet` REST fan-out for `--mode openrouter`; it is distinct from `--llm-parallelism`. Embedding batches 32 passages with per-chunk order preserved while the SQLite write stays single-writer via WAL + atomic claim (GAP-OPENROUTER-REST-CONCURRENCY).
 - `--prune-dead-orphans` (v1.0.97, GAP-SG-66, ADR-0058) is a read-only inspector (no LLM, no singleton, no `--operation`/`--mode`) that deletes ONLY enrich-queue rows with `status='dead'` and `item_type='memory'` whose `item_key` (the memory name) is absent from the main database; entity-keyed dead rows are untouched and only the `.enrich-queue.sqlite` sidecar is mutated. The JSON `DeadSummary` reports a `pruned` count. Use it to clear orphan dead-letter left when a memory is renamed or purged after it was enqueued — `--requeue-dead` would only re-fail those.
 - `--prune-dead-entity-orphans` (v1.1.02, ADR-0062) is the entity-keyed counterpart: it deletes dead-letter rows with `item_type='entity'` from `.enrich-queue.sqlite`, and is mutually exclusive with `--prune-dead-orphans`. Run both in sequence for a full orphan sweep after an upgrade that renamed/merged/purged entities.
@@ -704,6 +710,117 @@ Workarounds:
    the embedding prompt (used internally for the unit tests in
    `src/extract/llm_embedding.rs`).
 
+
+## Complete CLI command inventory (v1.2.0)
+
+Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
+
+- `init` — create/open the SQLite DB, apply migrations, smoke-test the LLM path
+- `remember` — write one memory with optional curated entity graph
+- `remember-batch` — create many memories from NDJSON stdin (description required on create)
+- `ingest` — bulk-ingest files under a directory as memories
+- `recall` — semantic (KNN) memory search with optional graph hops
+- `read` — fetch one memory by name or id
+- `list` — paginate memories with filters
+- `forget` — soft-delete a memory (history kept)
+- `purge` — hard-delete soft-deleted memories past retention (`--now` for immediate)
+- `rename` — rename a memory while keeping versions
+- `split-body` — split an oversized memory body into daughter memories
+- `edit` — edit body/description/type and optionally re-embed
+- `history` — list versions of a memory
+- `restore` — restore a memory to a previous version
+- `hybrid-search` — FTS5 + vector fused via Reciprocal Rank Fusion
+- `health` — integrity, FTS5, sqlite version, vector coverage, super-hubs
+- `migrate` — apply pending schema migrations (or `--dry-run` / `--rehash`)
+- `namespace-detect` — resolve namespace precedence for this invocation
+- `optimize` — `PRAGMA optimize` and optional FTS5 rebuild
+- `stats` — counts of memories, entities, relationships
+- `sync-safe-copy` — checkpoint then copy a cloud-sync-safe snapshot
+- `backup` — Online Backup API copy to a destination path
+- `vacuum` — WAL checkpoint + reclaim disk space
+- `link` — create an entity-to-entity relationship
+- `unlink` — remove relationships or a memory–entity binding
+- `deep-research` — multi-hop GraphRAG research via query decomposition
+- `related` — list memories graph-connected from a seed memory
+- `graph` — export graph snapshot (`json`/`dot`/`mermaid`) or run graph subcommands
+- `export` — export memories as NDJSON
+- `fts` — FTS5 index management family
+- `vec` — vector table maintenance family
+- `codex-models` — list ChatGPT Pro OAuth accepted models
+- `prune-relations` — bulk-delete all relationships of a given type
+- `prune-ner` — remove NER bindings from `memory_entities`
+- `slots` — host-wide LLM slot semaphore inspection/cleanup
+- `pending` — three-stage `remember` checkpoint queue
+- `embedding` — pending-embeddings queue health and list
+- `pending-embeddings` — batch ops on the embedding retry queue
+- `cleanup-orphans` — remove entities with no memories and no relationships
+- `memory-entities` — list entities for a memory (or reverse via `--entity`)
+- `cache` — XDG model-cache list/stats/clear
+- `delete-entity` — delete an entity and cascade its edges
+- `reclassify` — reclassify entity types (single or batch)
+- `rename-entity` — rename an entity preserving edges and bindings
+- `merge-entities` — merge source entities into a target
+- `enrich` — LLM-augmented graph quality pipeline and queue inspectors
+- `reclassify-relation` — bulk rename relationship types (literal or normalized)
+- `normalize-entities` — normalize entity names to kebab-case with auto-merge
+- `completions` — generate shell completions
+- `config` — XDG operational config and API keys
+
+### Nested families
+
+- `config`
+  - `add-key` — store an API key (stdin) for a provider
+  - `list-keys` — list masked key fingerprints
+  - `remove-key` — delete a stored key
+  - `doctor` — diagnose key/config resolution layers
+  - `path` — print resolved XDG config file path
+  - `set` — persist an operational setting
+  - `get` — read one setting
+  - `list` — list stored settings (`--effective` includes defaults)
+  - `unset` — remove a stored setting
+- `graph`
+  - `traverse` — BFS walk from an entity (`--fuzzy` for short nicknames)
+  - `stats` — node/edge counts and degree distribution
+  - `entities` — list entities with sort/filter
+  - `recompute-degree` — rebuild cached `entities.degree` in one transaction
+- `fts`
+  - `rebuild` — rebuild FTS5 from scratch
+  - `check` — integrity-check without modifying the index
+  - `stats` — FTS5 row/shadow-page statistics
+- `vec`
+  - `orphan-list` — list orphan embedding rows
+  - `purge-orphan` — delete orphan rows from vec tables
+  - `stats` — vec table row counts and orphan stats
+- `slots`
+  - `status` — held slots, PIDs, wait metrics
+  - `release` — force-release a slot by id (`--yes`)
+  - `cleanup` — reap stale/orphan slot files
+- `pending`
+  - `list` — list checkpoint-queue rows
+  - `show` — show one checkpoint entry by id
+  - `cleanup` — remove terminal-state rows
+- `embedding`
+  - `status` — queue health + vector coverage
+  - `list` — per-entry inspection
+  - `abandon` — abandon matching pending embeddings
+- `pending-embeddings`
+  - `list` — list embedding-retry rows
+  - `status` — alias of `embedding status`
+  - `abandon` — abandon matching retry rows
+- `cache`
+  - `clear-models` — remove cached model files
+  - `list` — list cache files and sizes
+  - `stats` — alias of `list`
+- `enrich` key inspectors (no LLM / no singleton when used alone)
+  - `--status` — read-only queue + scan backlog report
+  - `--list-dead` — list terminal `dead` rows
+  - `--requeue-dead` — move `dead` → `pending`
+  - `--list-skipped` — list `skipped` / preservation-failed rows
+  - `--requeue-skipped` — move `skipped` → `pending`
+  - `--prune-dead-orphans` — drop memory-keyed dead rows missing from main DB
+  - `--prune-dead-entity-orphans` — drop entity-keyed dead rows from the sidecar
+
+> **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2.
 
 ## See Also
 

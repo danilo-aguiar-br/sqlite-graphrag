@@ -28,11 +28,17 @@ use crate::output::emit_json_line as emit_json;
 use crate::paths::AppPaths;
 use crate::storage::connection::{ensure_db_ready, open_rw};
 
+/// Run.
 pub fn run(
     args: &EnrichArgs,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<(), AppError> {
+    // R-AN-01: schema introspection must not open the DB or call the LLM.
+    if args.print_schema {
+        return crate::print_schema::emit(crate::print_schema::SchemaId::EnrichStatus);
+    }
+
     // GAP-CLI-PRIO-04 / OBS-02: --ops-gate runs quality gate ops first, in order.
     if args.ops_gate {
         for op in scheduler::gate_ops_order() {
@@ -59,9 +65,9 @@ pub fn run(
             ReEmbedTarget::Chunks => "chunks",
             ReEmbedTarget::All => "all",
         };
-        return Err(AppError::Validation(format!(
-            "--target {target_label} only applies to --operation re-embed"
-        )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::reembed_target_only(target_label),
+        ));
     }
 
     if super::status::try_handle_maintenance(args)? {
@@ -78,20 +84,12 @@ pub fn run(
     // credentials. `--status` already returns earlier above.
     if args.mode() == EnrichMode::OpenRouter && !args.dry_run {
         let model = args.openrouter_model.as_deref().ok_or_else(|| {
-            AppError::Validation(
-                "--mode openrouter requires --openrouter-model (no default model is allowed)"
-                    .into(),
-            )
+            AppError::Validation(crate::i18n::validation::openrouter_model_required())
         })?;
         let resolved =
             crate::config::resolve_api_key("openrouter", args.openrouter_api_key.as_deref())
                 .ok_or_else(|| {
-                    AppError::Validation(
-                        "OpenRouter API key not found; store it via \
-                         `config add-key --provider openrouter`, or pass --openrouter-api-key \
-                         (product env is deprecated)"
-                            .into(),
-                    )
+                    AppError::Validation(crate::i18n::validation::openrouter_api_key_not_found())
                 })?;
         crate::embedder::get_openrouter_chat_client(
             resolved.value,
@@ -192,10 +190,9 @@ pub fn run(
     if args.max_load_check && !args.dry_run && crate::system_load::is_system_saturated() {
         let load = crate::system_load::load_average_one();
         let n = crate::system_load::ncpus();
-        return Err(AppError::Validation(format!(
-            "system load average {load:.2} exceeds 2x ncpus ({n}); \
-             pass --no-max-load-check to override (not recommended)"
-        )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::system_load_exceeded(load, n),
+        ));
     }
 
     // G35: preflight probe — issue a single ping turn to verify the
@@ -225,23 +222,28 @@ pub fn run(
                         // with `--mode {fallback:?}`. This guarantees no
                         // OAuth window is wasted and no partial state
                         // is left in the queue.
-                        return Err(AppError::Validation(format!(
-                            "preflight detected rate limit on {mode:?}: {reason}; \
-                             re-invoke with `--mode {fallback:?}` to use the fallback provider",
-                            mode = args.mode()
-                        )));
+                        return Err(AppError::Validation(
+                            crate::i18n::validation::preflight_rate_limit_fallback(
+                                &format!("{:?}", args.mode()),
+                                &reason,
+                                &format!("{fallback:?}"),
+                            ),
+                        ));
                     }
-                    return Err(AppError::Validation(format!(
-                        "preflight detected rate limit on {mode:?}: {reason}; \
-                         --fallback-mode matches --mode, no recovery possible",
-                        mode = args.mode()
-                    )));
+                    return Err(AppError::Validation(
+                        crate::i18n::validation::preflight_rate_limit_same_mode(
+                            &format!("{:?}", args.mode()),
+                            &reason,
+                        ),
+                    ));
                 }
-                return Err(AppError::Validation(format!(
-                    "preflight detected rate limit on {mode:?}: {reason}; \
-                     {suggestion}; pass --fallback-mode codex to recover",
-                    mode = args.mode()
-                )));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::preflight_rate_limit_suggestion(
+                        &format!("{:?}", args.mode()),
+                        &reason,
+                        suggestion,
+                    ),
+                ));
             }
             PreflightOutcome::Error(e) => {
                 return Err(e);
@@ -422,7 +424,9 @@ pub fn run(
                 "UPDATE queue SET status='pending' WHERE status='processing'",
                 [],
             )
-            .map_err(|e| AppError::Validation(format!("queue resume failed: {e}")))?;
+            .map_err(|e| {
+                AppError::Validation(crate::i18n::validation::queue_resume_failed(&e))
+            })?;
         if reset > 0 {
             tracing::info!(target: "enrich", count = reset, "reset stuck processing items to pending");
         }
@@ -434,14 +438,25 @@ pub fn run(
                 "UPDATE queue SET status='pending', attempt=0 WHERE status='failed'",
                 [],
             )
-            .map_err(|e| AppError::Validation(format!("queue retry-failed reset failed: {e}")))?;
+            .map_err(|e| {
+                AppError::Validation(crate::i18n::validation::queue_retry_failed_reset_failed(&e))
+            })?;
         tracing::info!(target: "enrich", count, "retrying failed items");
     }
 
+    // GAP-SG-97: never wipe the whole sidecar — scope clear to this operation
+    // (and prefer namespace when the column is present).
+    let op_label = format!("{:?}", args.operation());
     if !args.resume && !args.retry_failed && !args.until_empty {
         queue_conn
-            .execute("DELETE FROM queue", [])
-            .map_err(|e| AppError::Validation(format!("queue clear failed: {e}")))?;
+            .execute(
+                "DELETE FROM queue WHERE operation = ?1 \
+                 AND (namespace = ?2 OR namespace = '' OR namespace IS NULL)",
+                rusqlite::params![op_label, namespace],
+            )
+            .map_err(|e| {
+                AppError::Validation(crate::i18n::validation::queue_clear_failed(&e))
+            })?;
     }
 
     // Populate queue (GAP-SG-12: tag rows with the operation + link memory_id).
@@ -449,7 +464,6 @@ pub fn run(
     // of candidates commit with one fsync instead of one-per-statement. The
     // memory_id resolution SELECT runs against the main DB (read-only here) and
     // stays outside the queue transaction.
-    let op_label = format!("{:?}", args.operation());
     let item_type = item_type_for(&args.operation());
     {
         let tx = queue_conn.transaction()?;

@@ -29,12 +29,14 @@ fn bin_path() -> PathBuf {
 fn setup_db() -> TempDir {
     let tmp = TempDir::new().expect("TempDir failed");
     let mock_dir = common::mock_llm_path();
-    let status = Command::new(bin_path())
-        .arg("init")
-        .env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .env("PATH", common::prepend_path(&mock_dir))
+    let db = tmp.path().join("test.sqlite");
+    let mut c = Command::new(bin_path());
+    c.env("PATH", common::prepend_path(&mock_dir));
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
+    common::wire_std_cmd(tmp.path(), &mut c, &db);
+    let status = c
+        .args(["init", "--db"])
+        .arg(&db)
         .status()
         .expect("init failed");
     assert!(status.success(), "init deve ter sucesso: {status:?}");
@@ -45,10 +47,9 @@ fn setup_db() -> TempDir {
 fn sqlite_graphrag_cmd(tmp: &TempDir) -> Command {
     let mock_dir = common::mock_llm_path();
     let mut cmd = Command::new(bin_path());
-    cmd.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"))
-        .env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"))
-        .env("SQLITE_GRAPHRAG_LOG_LEVEL", "error")
-        .env("PATH", common::prepend_path(&mock_dir));
+    let db = tmp.path().join("test.sqlite");
+    cmd.env("PATH", common::prepend_path(&mock_dir));
+    common::wire_std_cmd(tmp.path(), &mut cmd, &db);
     cmd
 }
 

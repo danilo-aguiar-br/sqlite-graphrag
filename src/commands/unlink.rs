@@ -19,6 +19,7 @@ use serde::Serialize;
 NOTE:\n  \
     --from and --to expect ENTITY names (graph nodes), not memory names.\n  \
     To inspect current entities and relationships, run: sqlite-graphrag graph --format json")]
+/// Unlink args.
 pub struct UnlinkArgs {
     /// Source ENTITY name (graph node, not memory). Also accepts the aliases `--source` and `--name`.
     /// To list current entities run `graph --format json | jaq '.nodes[].name'`.
@@ -45,12 +46,16 @@ pub struct UnlinkArgs {
     /// would not target selectively.
     #[arg(long, requires = "entity", conflicts_with_all = ["from", "to", "all"], value_name = "NAME")]
     pub memory: Option<String>,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -67,6 +72,7 @@ struct UnlinkResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
@@ -84,7 +90,7 @@ pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
     // memory↔entity binding for that pair (the `memory_entities` junction row).
     if let Some(memory_name) = args.memory.as_deref() {
         let entity_name = args.entity.as_deref().ok_or_else(|| {
-            AppError::Validation("--entity is required when --memory is used".to_string())
+            AppError::Validation(crate::i18n::validation::entity_required_when_memory())
         })?;
         let memory_id = crate::storage::memories::find_by_name(&conn, &namespace, memory_name)?
             .map(|(id, _, _)| id)
@@ -181,10 +187,10 @@ pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
 
     // Mode: --from/--to (with optional --relation).
     let from_name = args.from.as_deref().ok_or_else(|| {
-        AppError::Validation("--from is required when --entity/--all is not used".to_string())
+        AppError::Validation(crate::i18n::validation::from_required_without_entity_all())
     })?;
     let to_name = args.to.as_deref().ok_or_else(|| {
-        AppError::Validation("--to is required when --entity/--all is not used".to_string())
+        AppError::Validation(crate::i18n::validation::to_required_without_entity_all())
     })?;
 
     let source_id = entities::find_entity_id(&conn, &namespace, from_name)?

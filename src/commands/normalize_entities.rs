@@ -27,6 +27,7 @@ NOTE:\n  \
     When a normalized name already exists, the source entity is merged into\n  \
     the existing target via relationship retargeting (UPDATE OR IGNORE + DELETE).\n  \
     Run `cleanup-orphans` afterwards to remove any newly orphaned entities.")]
+/// Normalize entities args.
 pub struct NormalizeEntitiesArgs {
     /// Preview changes without persisting them.
     #[arg(long, conflicts_with = "yes")]
@@ -34,12 +35,16 @@ pub struct NormalizeEntitiesArgs {
     /// Apply normalization without interactive confirmation.
     #[arg(long, conflicts_with = "dry_run")]
     pub yes: bool,
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -58,6 +63,7 @@ struct NormalizeEntitiesResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: NormalizeEntitiesArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
 

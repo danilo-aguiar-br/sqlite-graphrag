@@ -1,6 +1,6 @@
 [package]
 name = "sqlite-graphrag"
-version = "1.1.8"
+version = "1.2.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Persistent GraphRAG memory for Claude Code, Codex, Cursor, and 27 AI agents — one self-contained ~19 MiB Rust binary, zero daemon. Never re-explain your codebase again. Hybrid retrieval (FTS5 BM25 + cosine similarity + multi-hop graph traversal) surfaces the right memory in milliseconds. Embedding and entity enrichment run as parallel REST calls against your cloud LLM — no fragile headless subprocesses, no ONNX runtime, no model downloads. Soft-delete with full version history, transactional atomic writes, BLAKE3-tracked mutations. OAuth-only: raw API keys ABORT the spawn."
@@ -86,6 +86,8 @@ exclude = [
     "*.log",
     "*.bak",
     "*.bak.*",
+    # Local archives (never ship in crate package)
+    "*.7z",
     # Local SQLite databases (any directory — product DB + enrich queue + sidecars)
     "**/graphrag.sqlite",
     "**/graphrag.sqlite-shm",
@@ -153,6 +155,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt", "ansi", "registry", "tracing-log"] }
+# GAP-SG-99: non-blocking rolling file appender; WorkerGuard held for flush on shutdown.
+tracing-appender = "0.2.5"
 refinery = { version = "0.9", features = ["rusqlite"] }
 # v1.0.76: siphasher pinned to 1.x to compute migration checksums in
 # TODO v1.0.89: referência histórica a v1.0.76 — confirmar exatidão quando contexto permitir.

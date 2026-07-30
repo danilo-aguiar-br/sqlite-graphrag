@@ -47,12 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let schema = schema_for!(sqlite_graphrag::commands::health::HealthResponse);
             let mut value = serde_json::to_value(&schema)?;
 
-            // Bump Draft para 2020-12.
+            // Bump Draft to 2020-12.
             if let Value::Object(map) = &mut value {
                 map.insert("$schema".into(), Value::String(DRAFT_2020_12.to_string()));
             }
 
-            // Must-Ignore: percorre recursivamente todos os objects com `properties`.
+            // Must-Ignore: walk objects with `properties` recursively.
             apply_must_ignore(&mut value);
 
             let json = serde_json::to_string_pretty(&value)?;
@@ -64,12 +64,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let schema = schema_for!(sqlite_graphrag::commands::enrich::EnrichStatus);
             let mut value = serde_json::to_value(&schema)?;
 
-            // Bump Draft para 2020-12.
+            // Bump Draft to 2020-12.
             if let Value::Object(map) = &mut value {
                 map.insert("$schema".into(), Value::String(DRAFT_2020_12.to_string()));
             }
 
-            // Must-Ignore: percorre recursivamente todos os objects com `properties`.
+            // Must-Ignore: walk objects with `properties` recursively.
             apply_must_ignore(&mut value);
 
             let json = serde_json::to_string_pretty(&value)?;

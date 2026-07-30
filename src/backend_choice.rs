@@ -6,11 +6,17 @@
 /// (forces claude -p), or `none` (skips embedding; useful for tests).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum LlmBackendChoice {
+    /// Auto variant.
     Auto,
+    /// Claude variant.
     Claude,
+    /// Codex variant.
     Codex,
+    /// Opencode variant.
     Opencode,
+    /// Open router variant.
     OpenRouter,
+    /// None variant.
     None,
 }
 
@@ -21,8 +27,11 @@ pub enum LlmBackendChoice {
 /// `llm` forces subprocess (codex/claude/opencode) — legacy behaviour.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum EmbeddingBackendChoice {
+    /// Auto variant.
     Auto,
+    /// Openrouter variant.
     Openrouter,
+    /// LLM variant.
     Llm,
 }
 

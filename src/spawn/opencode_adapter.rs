@@ -7,6 +7,7 @@ use crate::errors::AppError;
 use async_trait::async_trait;
 use std::process::Command;
 
+/// Opencode adapter.
 pub struct OpencodeAdapter;
 
 #[async_trait]

@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use directories::ProjectDirs;
 use fs4::fs_std::FileExt;
 
 use crate::constants::{
@@ -62,7 +61,7 @@ impl JobType {
 
 /// Returns the lock file path for the given slot.
 ///
-/// Precedence: XDG setting `paths.cache` (via `config set`) > OS default
+/// Precedence: CLI `--cache-dir` > XDG `cache.dir` (`config set`) > OS default
 /// cache directory via `directories::ProjectDirs`. No product env vars.
 /// The slot must be 1-based.
 fn slot_path(slot: usize) -> Result<PathBuf, AppError> {
@@ -72,19 +71,14 @@ fn slot_path(slot: usize) -> Result<PathBuf, AppError> {
 }
 
 /// Resolves the lock-file directory from XDG config or OS ProjectDirs.
+/// Cache root for CLI slot lock files.
+///
+/// GAP-SG-94: delegates to [`crate::paths::cache_dir`] so lock files, model
+/// files and LLM slots always share one directory. This function used to read
+/// its own key `paths.cache`, which meant `config set cache.dir X` moved the
+/// models but left the locks behind.
 fn cache_dir() -> Result<PathBuf, AppError> {
-    if let Ok(Some(override_dir)) = crate::config::get_setting("paths.cache") {
-        if !override_dir.trim().is_empty() {
-            return Ok(PathBuf::from(override_dir.trim()));
-        }
-    }
-    let dirs = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
-        AppError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "could not determine cache directory for sqlite-graphrag lock files",
-        ))
-    })?;
-    Ok(dirs.cache_dir().to_path_buf())
+    crate::paths::cache_dir()
 }
 
 /// Computes a short, filesystem-safe hash of the database path so two distinct

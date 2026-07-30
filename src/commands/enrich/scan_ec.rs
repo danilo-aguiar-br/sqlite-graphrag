@@ -1,6 +1,7 @@
 //! Entity-connect pair scan (Wave C1).
 
-use super::*;
+use crate::errors::AppError;
+use rusqlite::Connection;
 
 pub(super) fn format_pair_key(id1: i64, id2: i64) -> String {
     let (a, b) = if id1 < id2 { (id1, id2) } else { (id2, id1) };

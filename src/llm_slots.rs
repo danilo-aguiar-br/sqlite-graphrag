@@ -49,7 +49,7 @@ impl LlmSlotGuard {
 impl Drop for LlmSlotGuard {
     fn drop(&mut self) {
         // Libera o lock do filesystem E remove o slot file.
-        // O flock é liberado automaticamente quando `slot_file` é dropado (RAII).
+        // The flock is released automatically when `slot_file` is dropped (RAII).
         let path = slot_path(self.slot_id);
         if let Err(e) = fs::remove_file(&path) {
             tracing::debug!(slot_id = self.slot_id, error = %e, "slot file removal failed (already gone?)");
@@ -100,7 +100,7 @@ pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGu
                 Ok(mut file) => {
                     if file.try_lock_exclusive().is_ok() {
                         let pid = std::process::id();
-                        // Escreve pid no arquivo para que  possa reportar
+                        // Write pid into the file so diagnostics can report the holder
                         use std::io::Write;
                         let _ = writeln!(file, "pid={pid}");
                         tracing::debug!(slot_id, pid, "llm slot acquired");
@@ -117,7 +117,7 @@ pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGu
                 }
             }
         }
-        // Todos os slots ocupados — polling
+        // All slots busy — polling
         if start.elapsed() >= timeout {
             return Err(AppError::LockBusy(format!(
                 "failed to acquire LLM slot within {wait_secs}s (max={max_concurrent} concurrent)"
@@ -130,11 +130,15 @@ pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGu
 /// Returns the current status of the LLM slots (for the `slots status --json` subcommand).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SlotStatus {
+    /// Max.
     pub max: u32,
+    /// Active.
     pub active: u32,
+    /// Pids.
     pub pids: Vec<u32>,
 }
 
+/// Read status.
 pub fn read_status(max_concurrent: u32) -> SlotStatus {
     let mut active = 0u32;
     let mut pids = Vec::new();
@@ -195,7 +199,7 @@ pub fn find_stale_slots(max_concurrent: u32) -> Vec<u32> {
 /// Checks whether a PID is alive on the system (best-effort cross-platform).
 #[cfg(unix)]
 fn pid_alive(pid: u32) -> bool {
-    // Tenta enviar signal 0 (no-op) para verificar existência
+    // Try signal 0 (no-op) to check process existence
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
@@ -207,22 +211,28 @@ fn pid_alive(pid: u32) -> bool {
     true
 }
 
+/// Slots dir.
 pub fn slots_dir() -> PathBuf {
-    let base = std::env::var("XDG_RUNTIME_DIR")
-        .ok()
-        .or_else(|| {
-            crate::config::get_setting("cache.dir")
-                .ok()
-                .flatten()
-        })
-        .unwrap_or_else(|| {
-            std::env::var("HOME")
-                .map(|h| format!("{h}/.local/share"))
-                .unwrap_or_else(|_| "/tmp".to_string())
-        });
-    PathBuf::from(base).join("sqlite-graphrag/llm-slots")
+    // GAP-SG-94: never hardcode "/tmp". Prefer XDG runtime, then the shared
+    // cache resolver (same root as lock files), then the OS temp directory.
+    if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
+        if !runtime.is_empty() {
+            return PathBuf::from(runtime).join("sqlite-graphrag/llm-slots");
+        }
+    }
+    if let Ok(Some(cache)) = crate::config::get_setting("cache.dir") {
+        if !cache.is_empty() {
+            return PathBuf::from(cache).join("llm-slots");
+        }
+    }
+    // `paths::cache_dir` returns Result; fall back to OS temp on failure.
+    match crate::paths::cache_dir() {
+        Ok(cache) => cache.join("llm-slots"),
+        Err(_) => std::env::temp_dir().join("sqlite-graphrag/llm-slots"),
+    }
 }
 
+/// Slot path.
 pub fn slot_path(id: u32) -> PathBuf {
     slots_dir().join(format!("slot-{id}.lock"))
 }
@@ -260,7 +270,7 @@ mod tests {
     use std::thread;
 
     // Serialises every test that mutates the process-global slot env
-    // (XDG_RUNTIME_DIR / SQLITE_GRAPHRAG_CACHE_DIR). Without this, parallel
+    // (XDG_RUNTIME_DIR / --cache-dir / cache.dir). Without this, parallel
     // tests clobber each other's env and collide in the same slots dir.
     static SLOT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

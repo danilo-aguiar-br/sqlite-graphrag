@@ -25,10 +25,10 @@ fn sgr_cmd() -> Command {
 mod common;
 
 fn cmd(tmp: &TempDir) -> Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04). Isolate via
+    // --config-dir/--cache-dir + planted db.path.
     let mut c = sgr_cmd();
-    c.env("SQLITE_GRAPHRAG_DB_PATH", tmp.path().join("test.sqlite"));
-    c.env("SQLITE_GRAPHRAG_CACHE_DIR", tmp.path().join("cache"));
-    c.env("SQLITE_GRAPHRAG_LOG_LEVEL", "error");
+    common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.arg("--skip-memory-guard");
     c
 }
@@ -55,7 +55,6 @@ fn remember_never_autostarts_daemon_for_passage_embedding() {
             "--body",
             "codex headless local embedding regression guard",
         ])
-        .env("SQLITE_GRAPHRAG_DAEMON_FORCE_AUTOSTART", "1")
         .assert()
         .success();
 

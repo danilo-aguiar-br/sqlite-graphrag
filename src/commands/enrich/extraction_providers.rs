@@ -46,7 +46,7 @@ pub(crate) fn call_codex(
     let mut child_stdin = child
         .stdin
         .take()
-        .ok_or_else(|| AppError::Validation("failed to open codex stdin".into()))?;
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::failed_to_open_codex_stdin()))?;
     let stdin_thread = std::thread::spawn(move || -> Result<(), std::io::Error> {
         child_stdin.write_all(&stdin_bytes)?;
         drop(child_stdin);
@@ -62,7 +62,7 @@ pub(crate) fn call_codex(
         Some(exit_status) => {
             stdin_thread
                 .join()
-                .map_err(|_| AppError::Validation("stdin thread panicked".into()))?
+                .map_err(|_| AppError::Validation(crate::i18n::validation::stdin_thread_panicked()))?
                 .map_err(AppError::Io)?;
 
             tracing::debug!(
@@ -88,14 +88,14 @@ pub(crate) fn call_codex(
                     stderr = %stderr_str.trim(),
                     "codex process failed"
                 );
-                return Err(AppError::Validation(format!(
-                    "codex exited with code {:?}: {}",
+                return Err(AppError::Validation(crate::i18n::validation::process_exited(
+                    "codex",
                     exit_status.code(),
-                    stderr_str.trim()
+                    stderr_str.trim(),
                 )));
             }
             let stdout_str = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation("codex stdout is not valid UTF-8".into()))?;
+                .map_err(|_| AppError::Validation(crate::i18n::validation::codex_stdout_not_utf8()))?;
             // G32: use the JSONL parser, NOT serde_json::from_str on the
             // entire stdout (codex emits one event per line).
             let result = crate::commands::codex_spawn::parse_codex_jsonl(&stdout_str)?;
@@ -106,10 +106,10 @@ pub(crate) fn call_codex(
             // `{entities, urls}` which broke body-enrich.
             let value: serde_json::Value =
                 serde_json::from_str(&result.last_agent_text).map_err(|e| {
-                    AppError::Validation(format!(
-                        "codex agent_message is not valid JSON: {e}; raw={}",
-                        result.last_agent_text
-                    ))
+                    AppError::Validation(crate::i18n::validation::codex_agent_message_not_valid_json(
+                            &e,
+                            &result.last_agent_text,
+                        ))
                 })?;
             Ok((value, 0.0, false))
         }
@@ -117,8 +117,9 @@ pub(crate) fn call_codex(
             let _ = child.kill();
             let _ = child.wait();
             let _ = stdin_thread.join();
-            Err(AppError::Validation(format!(
-                "codex timed out after {timeout_secs} seconds"
+            Err(AppError::Validation(crate::i18n::validation::process_timed_out(
+                "codex",
+                timeout_secs,
             )))
         }
     }
@@ -189,27 +190,28 @@ pub(crate) fn call_opencode(
                     stderr = %stderr_str.trim(),
                     "opencode process failed"
                 );
-                return Err(AppError::Validation(format!(
-                    "opencode exited with code {:?}: {}",
+                return Err(AppError::Validation(crate::i18n::validation::process_exited(
+                    "opencode",
                     exit_status.code(),
-                    stderr_str.trim()
+                    stderr_str.trim(),
                 )));
             }
             let stdout_str = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation("opencode stdout is not valid UTF-8".into()))?;
+                .map_err(|_| AppError::Validation(crate::i18n::validation::opencode_stdout_not_utf8()))?;
             let (text, cost, _tokens) =
                 crate::commands::opencode_runner::parse_opencode_output(&stdout_str)?;
             let value: serde_json::Value =
                 crate::commands::opencode_runner::parse_json_from_opencode_text(&text).map_err(
-                    |e| AppError::Validation(format!("opencode response is not valid JSON: {e}")),
+                    |e| AppError::Validation(crate::i18n::validation::opencode_response_not_valid_json(&e)),
                 )?;
             Ok((value, cost, false))
         }
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            Err(AppError::Validation(format!(
-                "opencode timed out after {timeout_secs} seconds"
+            Err(AppError::Validation(crate::i18n::validation::process_timed_out(
+                "opencode",
+                timeout_secs,
             )))
         }
     }

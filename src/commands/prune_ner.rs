@@ -23,6 +23,7 @@ NOTE:\n  \
     memories and extracted entities). The entities and memories themselves\n  \
     are not deleted. Use cleanup-orphans afterwards to remove entity nodes\n  \
     that have no remaining links.")]
+/// Prune NER args.
 pub struct PruneNerArgs {
     /// Entity name whose bindings should be removed.
     /// Mutually exclusive with --all.
@@ -33,6 +34,7 @@ pub struct PruneNerArgs {
     #[arg(long, conflicts_with = "entity", default_value_t = false)]
     pub all: bool,
 
+    /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
 
@@ -44,12 +46,15 @@ pub struct PruneNerArgs {
     #[arg(long, default_value_t = false)]
     pub yes: bool,
 
+    /// Output format.
     #[arg(long, value_enum, default_value = "json")]
     pub format: OutputFormat,
 
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
 
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -66,6 +71,7 @@ struct PruneNerResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: PruneNerArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
 

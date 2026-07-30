@@ -19,6 +19,7 @@ use serde::Serialize;
     sqlite-graphrag rename --name onboarding --new-name welcome-guide\n\n  \
     # Rename within a specific namespace\n  \
     sqlite-graphrag rename onboarding welcome-guide --namespace my-project")]
+/// Rename args.
 pub struct RenameArgs {
     /// Current memory name as a positional argument. Alternative to `--name` / `--old`.
     #[arg(
@@ -44,6 +45,7 @@ pub struct RenameArgs {
         long,
         help = "Namespace (flag / XDG namespace.default / global)"
     )]
+    /// Namespace scope.
     pub namespace: Option<String>,
     /// Optimistic locking: reject if the current updated_at does not match (exit 3).
     #[arg(
@@ -60,8 +62,10 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
+    /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
+    /// Path to the SQLite database file.
     #[arg(long)]
     pub db: Option<String>,
 }
@@ -79,6 +83,7 @@ struct RenameResponse {
     elapsed_ms: u64,
 }
 
+/// Run.
 pub fn run(args: RenameArgs) -> Result<(), AppError> {
     let inicio = std::time::Instant::now();
     let _ = args.format;
@@ -87,7 +92,7 @@ pub fn run(args: RenameArgs) -> Result<(), AppError> {
 
     // Resolve current name from positional or --name/--old flag.
     let name = args.name_positional.or(args.name).ok_or_else(|| {
-        AppError::Validation("name required: pass as positional argument or via --name".to_string())
+        AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
     })?;
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
 
@@ -308,7 +313,7 @@ mod tests {
     #[test]
     fn rejects_rename_to_same_name() {
         use crate::errors::AppError;
-        let err = AppError::Validation("source and target names are identical".to_string());
+        let err = AppError::Validation(crate::i18n::validation::source_target_names_identical());
         assert_eq!(err.exit_code(), 1);
         assert!(err.to_string().contains("identical"));
     }

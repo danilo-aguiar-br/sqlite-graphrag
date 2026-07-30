@@ -16,20 +16,23 @@
 - Plano de testes formal com camadas, gatilhos e gates de release: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)
 
 
-## Gate E2E Offline — v1.1.8 (`scripts/e2e_offline_v118.sh`)
-- **Gate offline obrigatório do produto na v1.1.8**: `scripts/e2e_offline_v118.sh` (espera **16/16 PASS**).
+## Gate E2E Offline — v1.2.0 (`scripts/e2e_offline_v120.sh`)
+- **Gate offline obrigatório do produto na v1.2.0**: `scripts/e2e_offline_v120.sh` (espera **20/20 PASS** — 15 `check()` + 5 PASS manuais; wrapper histórico `e2e_offline_v118.sh` supersedido).
 - Escopo: sem product env, sem chave OpenRouter, dirs XDG isolados sob `$TMPDIR`, só flags (`--db`), apenas local.
-- Asserções incluem: `config set`, `purge --now --dry-run`, contrato de help (sem propaganda de product env / sem `Box` about do clippy), fold de EntityType, description em remember-batch, pending-embeddings status, cache stats e contratos relacionados da v1.1.8.
+- Asserções incluem: `config set` / `config doctor`, `purge --now --dry-run`, contrato de help (`help_contract` — sem propaganda de product env / sem `Box` about do clippy), fold de EntityType, description em remember-batch, pending-embeddings status, cache stats, **help + flags offline de `list-skipped` / `requeue-skipped`** (`list_skipped`, `requeue_skipped`, `help_skipped_flags`), **`embedding.dim` efetivo 1024** (`effective_dim_1024`; **DEFAULT_EMBEDDING_DIM=1024**), e contratos relacionados da v1.2.0.
 - Smoke de contrato complementar (veja [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)): materialização `deep-research -o`, `description` em `memory-entities`, `entities_created`/`enrich_recommended` no remember, campos de qualidade em `enrich --status --force-redescribe`, honestidade do help de entity-connect (totalmente implementado).
-- Contrato unitário/integração companheiro: `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como mecanismo de config.
+- Contratos unitários/integração companheiros:
+  - `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como mecanismo de config.
+  - `tests/cli_db_noop_host_surfaces_regression.rs` — **GAP-SG-139**: folhas host/XDG (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) aceitam `--db` como no-op documentado (`src/cli_db_noop.rs`).
 - **NÃO** é pipeline obrigatório de GitHub Actions do produto — rode localmente (ou cron/systemd/launchd no host). GitHub Actions é infraestrutura opcional do operador, não o gate de release desta CLI.
 - Pré-requisito de build: binário release em `target/release/sqlite-graphrag` (o script compila se faltar).
 
 ```bash
 cargo build --release
-./scripts/e2e_offline_v118.sh
-# contrato de help opcional:
+scripts/e2e_offline_v120.sh
+# contratos de help + GAP-SG-139 opcionais:
 cargo test --test help_no_product_env
+cargo test --test cli_db_noop_host_surfaces_regression
 ```
 
 ## Infraestrutura de Testes — Matriz CI de Features (2 features desde a v1.0.79)
@@ -451,8 +454,8 @@ A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-
 - `CARGO_TERM_COLOR=always` — preserva cores nos logs do CI
 - `NEXTEST_PROFILE=ci` — sobrescreve o profile ativo do nextest via ambiente
 ### Variáveis Específicas do sqlite-graphrag
-### Notas específicas do sqlite-graphrag (v1.1.8)
-- Product env `SQLITE_GRAPHRAG_*` **não** é o mecanismo de config em runtime — prefira flags `--db` e XDG isolado (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) nos harnesses, como em `scripts/e2e_offline_v118.sh`.
+### Notas específicas do sqlite-graphrag (v1.2.0)
+- Product env `SQLITE_GRAPHRAG_*` **não** é o mecanismo de config em runtime — prefira flags `--db` e XDG isolado (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) nos harnesses, como em `scripts/e2e_offline_v120.sh`.
 - Isolamento de teste: passe `--db /tmp/test/graphrag.sqlite` (ou paths únicos em temp) por teste; não confie em product env para o path do banco.
 - Defaults de host para logs/timezone em shells de operador: XDG `config set log.format json`, `config set display.tz America/Sao_Paulo` (flags ainda vencem).
 - `tests/help_no_product_env` protege o texto de help contra propaganda de product env.

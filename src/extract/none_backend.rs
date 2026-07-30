@@ -6,9 +6,11 @@ use super::{BackendHealth, BackendKind, ExtractionBackend, ExtractionHints, Extr
 use crate::errors::AppError;
 use async_trait::async_trait;
 
+/// None backend.
 pub struct NoneBackend;
 
 impl NoneBackend {
+    /// Create a new instance.
     pub fn new() -> Self {
         Self
     }
