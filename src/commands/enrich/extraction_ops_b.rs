@@ -1,8 +1,8 @@
 //! Extracted from extraction.rs (Wave C1).
 
 use super::*;
-use rusqlite::Connection;
 use crate::errors::AppError;
+use rusqlite::Connection;
 use std::path::Path;
 
 pub(crate) fn call_weight_calibrate(
@@ -14,9 +14,9 @@ pub(crate) fn call_weight_calibrate(
     timeout: u64,
     mode: &EnrichMode,
 ) -> Result<EnrichItemResult, AppError> {
-    let rel_id: i64 = item_key
-        .parse()
-        .map_err(|_| AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key)))?;
+    let rel_id: i64 = item_key.parse().map_err(|_| {
+        AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key))
+    })?;
     let (source_name, target_name, relation, current_weight): (String, String, String, f64) = conn
         .query_row(
             "SELECT e1.name, e2.name, r.relation, r.weight \
@@ -69,7 +69,9 @@ pub(crate) fn call_weight_calibrate(
     let calibrated = value
         .get("calibrated_weight")
         .and_then(|v| v.as_f64())
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_calibrated_weight()))?;
+        .ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::llm_missing_calibrated_weight())
+        })?;
 
     conn.execute(
         "UPDATE relationships SET weight = ?1 WHERE id = ?2",
@@ -98,9 +100,9 @@ pub(crate) fn call_relation_reclassify(
     timeout: u64,
     mode: &EnrichMode,
 ) -> Result<EnrichItemResult, AppError> {
-    let rel_id: i64 = item_key
-        .parse()
-        .map_err(|_| AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key)))?;
+    let rel_id: i64 = item_key.parse().map_err(|_| {
+        AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key))
+    })?;
     let (source_name, target_name, current_relation): (String, String, String) = conn
         .query_row(
             "SELECT e1.name, e2.name, r.relation \

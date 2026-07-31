@@ -14,19 +14,18 @@ use tempfile::TempDir;
 /// Invoke `sqlite-graphrag health --db <path> --json` via `cargo run`
 /// and return `(status, stdout)`. We pin `--quiet` so the cargo log
 /// does not pollute stdout.
+fn sgr_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlite-graphrag"))
+}
+
 fn run_health(db_path: &std::path::Path) -> (i32, String) {
-    let output = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let output = sgr_bin()
         .arg("health")
         .arg("--db")
         .arg(db_path)
         .arg("--json")
         .output()
-        .expect("spawn cargo run");
+        .expect("spawn sqlite-graphrag health");
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     (status, stdout)

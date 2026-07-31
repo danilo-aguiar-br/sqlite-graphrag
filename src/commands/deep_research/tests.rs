@@ -399,9 +399,15 @@ fn output_path_materializes_file_with_ack_fields() {
         }
     });
     write_json_atomic(&path, &envelope).expect("atomic write must succeed");
-    assert!(path.exists(), "GAP-CLI-DR-02: -o/--output must materialize a file");
+    assert!(
+        path.exists(),
+        "GAP-CLI-DR-02: -o/--output must materialize a file"
+    );
     let meta = std::fs::metadata(&path).expect("metadata");
-    assert!(meta.len() > 0, "GAP-CLI-DR-02: written file must be non-empty");
+    assert!(
+        meta.len() > 0,
+        "GAP-CLI-DR-02: written file must be non-empty"
+    );
     let file_bytes = std::fs::read(&path).expect("read");
     let digest = blake3::hash(&file_bytes).to_hex().to_string();
     assert_eq!(digest.len(), 64, "blake3 hex digest length");

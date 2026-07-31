@@ -1,7 +1,82 @@
-## Receitas adicionadas na v1.2.0
+## Receitas adicionadas na v1.2.1 (selo CAPA enrich)
 
 - Versão em inglês: [COOKBOOK.md](COOKBOOK.md)
-- Crate **1.2.0**, schema **v16**. **DEFAULT_EMBEDDING_DIM=1024**. Precedência: **flag CLI > XDG `config set` > default**. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` **não** são lidas no hot path. Gate offline: `scripts/e2e_offline_v120.sh` **20/20** (wrapper histórico `e2e_offline_v118.sh` supersedido).
+- Crate **1.2.1**, schema **v16** (sem migração main-DB; só sidecar). **DEFAULT_EMBEDDING_DIM=1024**. Precedência: **flag CLI > XDG `config set` > default**. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` **não** são lidas no hot path. Gate offline: `scripts/e2e_offline_v120.sh` **20/20** (wrapper histórico `e2e_offline_v118.sh` supersedido). CAPA: claim por namespace, until-empty op+ns, reopen force-redescribe, re-embed LENGTH / entity: enqueue.
+
+### Receita — Re-embed de entidades após migrate de dim (BLOB CORRUPT / META_AHEAD)
+
+#### Problema
+- Após subir a dim ativa (ex.: 384 → 1024), algumas linhas mantêm `dim=1024` na coluna com BLOB ainda em 384 floats — CORRUPT / META_AHEAD
+- Antes da 1.2.1 a elegibilidade confiava só na coluna `dim` e deixava zumbis pending para sempre quando o vetor live já batia o comprimento alvo
+
+#### Solução
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace global -q
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace global -q --wait-lock 60
+```
+
+#### Explicação
+- Elegibilidade 1.2.1 usa `LENGTH(embedding) = target_dim * 4`, então linhas CORRUPT re-embedam de novo
+- `reconcile_satisfied_reembed_pending` marca pending `done` quando o vetor live já bate o comprimento da dim (sem API)
+- Enqueue aceita chaves `entity:{name}` (prefixo removido no lookup; bare ok; missing rejeita)
+
+### Receita — Force-redescribe com reopen de skipped/done
+
+#### Problema
+- `--force-redescribe` deixava linhas já `skipped`/`done` no sidecar intocadas, e `INSERT OR IGNORE` era no-op silencioso
+- Operadores precisam de campanha segura que nunca reabra `dead` permanente
+
+#### Solução
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions --status --force-redescribe --namespace global -q
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace global -q
+# Nunca reabre dead — recupere explicitamente:
+# sqlite-graphrag enrich --db "$DB" --requeue-dead --operation entity-descriptions --namespace global -q
+```
+
+#### Explicação
+- `reopen_force_redescribe_candidates` roda **uma vez por processo** antes do primeiro enqueue
+- CAPA-D: apenas marcadores compostos de "configuration file" (sem FP bare `%configuration file%`)
+- Backfill live LQ permanece campanha do operador (custo LLM)
+
+### Receita — Drain until-empty isolado por op+namespace
+
+#### Problema
+- Antes da 1.2.1, `--until-empty` contava *todo* pending entre operações, e zumbis ReEmbed mantinham EntityDescriptions girando até max-runtime com `completed=0`
+- Claim sem filtro de namespace processava itens `global` ao drenar `ai-sdd`
+
+#### Solução
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+NS="${NS:-global}"
+
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace "$NS" -q --wait-lock 60
+
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target all \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace "$NS" -q --wait-lock 60
+```
+
+#### Explicação
+- `count_eligible_pending` e `dequeue_next_pending` exigem `operation` **e** `namespace`
+- Enqueue de chunk valida que `chunk_id` existe em memória não-deletada do namespace alvo
+
+## Receitas da v1.2.0 (XDG + dim 1024)
+
+- Crate **1.2.0** (histórico; selo CAPA 1.2.1 acima). **DEFAULT_EMBEDDING_DIM=1024**. Precedência: **flag CLI > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` **não** lida no hot path. Gate offline: `scripts/e2e_offline_v120.sh` **20/20**.
 
 ### Receita — Config XDG sem env de produto
 
@@ -166,7 +241,7 @@ bash scripts/e2e_offline_v120.sh
 - Harness isola XDG e usa apenas flags `--db` — sem product env, sem chave live obrigatória.
 - Asserts incluem contrato de help, dim 1024, flags list-skipped e fail-fast de recall Auto.
 
-## Inventário completo de comandos CLI (v1.2.0)
+## Inventário completo de comandos CLI (v1.2.1)
 
 Comandos de topo de produto (de `sqlite-graphrag --help`, excluindo o meta `help`) com propósito em uma linha:
 
@@ -233,8 +308,9 @@ Comandos de topo de produto (de `sqlite-graphrag --help`, excluindo o meta `help
 - `pending-embeddings` — `list`, `status`, `abandon`
 - `cache` — `clear-models`, `list`, `stats`
 - `enrich` inspetores — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, `--prune-dead-orphans`, `--prune-dead-entity-orphans`
+- Flags de escrita do `enrich` (CAPA v1.2.1) — `--until-empty` (conta **somente esta op+namespace**), `--force-redescribe` (reabre `skipped`/`done` uma vez por processo; nunca `dead`), `--operation re-embed --target memories|entities|chunks|all` (elegibilidade por comprimento do BLOB + reconciliação de zumbis), `--namespace` (claim/contagem/resume escopados)
 
-> Detalhe aninhado completo: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md). **GAP-SG-139:** folhas host/XDG aceitam `--db` como no-op. **DEFAULT_EMBEDDING_DIM=1024**. Gate offline: `scripts/e2e_offline_v120.sh` **20/20**.
+> Detalhe aninhado completo: [HOW_TO_USE.pt-BR.md — Inventário completo de comandos CLI (v1.2.1)](HOW_TO_USE.pt-BR.md#inventário-completo-de-comandos-cli-v121). **GAP-SG-139:** folhas host/XDG aceitam `--db` como no-op. **DEFAULT_EMBEDDING_DIM=1024**. Gate offline: `scripts/e2e_offline_v120.sh` **20/20**. Regressões CAPA / suite da fila **38** OK — veja [gaps.md](../gaps.md).
 
 ---
 

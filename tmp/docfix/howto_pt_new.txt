@@ -1,0 +1,11 @@
+  - `--prune-dead-entity-orphans` — remove dead com chave de entidade do sidecar
+- Flags de escrita do `enrich` relevantes na **v1.2.1**
+  - `--until-empty` — loop scan→drain até a fila elegível esvaziar ou `--max-runtime`; conta **somente esta op+namespace**
+  - `--force-redescribe` — reabre `skipped`/`done` uma vez por processo para reescrever entity-descriptions de baixa qualidade; nunca reabre `dead`
+  - `--operation re-embed --target memories|entities|chunks|all` — elegibilidade por comprimento do BLOB + reconciliação de zumbis
+  - `--namespace` — claim, contagem e resume escopados por namespace
+  - `--mode openrouter` / `--rest-concurrency` — fan-out REST de judge/embed
+
+> **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2.
+
+> **Inventário top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.

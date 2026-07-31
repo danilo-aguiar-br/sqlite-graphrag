@@ -313,12 +313,15 @@ fn process_line(
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
 ) -> Result<(BatchItemEvent, Vec<String>), AppError> {
-    let input: BatchInputLine = serde_json::from_str(line)
-        .map_err(|e| AppError::Validation(crate::i18n::validation::batch_line_invalid_json(index, &e)))?;
+    let input: BatchInputLine = serde_json::from_str(line).map_err(|e| {
+        AppError::Validation(crate::i18n::validation::batch_line_invalid_json(index, &e))
+    })?;
 
     let normalized_name = crate::parsers::normalize_entity_name(&input.name);
     if normalized_name.is_empty() {
-        return Err(AppError::Validation(crate::i18n::validation::batch_line_name_empty(index)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::batch_line_name_empty(index),
+        ));
     }
 
     // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings per NDJSON
@@ -332,7 +335,9 @@ fn process_line(
 
     // GAP-E2E-05: parity with `remember` — description required when creating.
     if existing.is_none() && input.description.trim().is_empty() {
-        return Err(AppError::Validation(crate::i18n::validation::batch_line_type_description_required(index)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::batch_line_type_description_required(index),
+        ));
     }
 
     let (memory_id, batch_action) = if let Some((existing_id, _updated_at, _version)) = existing {

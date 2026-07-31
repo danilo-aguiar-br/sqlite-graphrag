@@ -154,7 +154,9 @@ fn parse_status(s: &str) -> Result<PendingEmbeddingStatus, AppError> {
         "in_progress" => Ok(PendingEmbeddingStatus::InProgress),
         "done" => Ok(PendingEmbeddingStatus::Done),
         "abandoned" => Ok(PendingEmbeddingStatus::Abandoned),
-        other => Err(AppError::Validation(crate::i18n::validation::invalid_status_filter(other))),
+        other => Err(AppError::Validation(
+            crate::i18n::validation::invalid_status_filter(other),
+        )),
     }
 }
 

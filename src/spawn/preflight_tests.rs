@@ -128,8 +128,7 @@ fn check_mcp_inline_json_writes_valid_tempfile() {
     // parseable as JSON containing `mcpServers: {}`.
     let path = write_empty_mcp_config_tempfile().expect("tempfile write");
     let contents = std::fs::read_to_string(&path).expect("tempfile read");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&contents).expect("tempfile valid JSON");
+    let parsed: serde_json::Value = serde_json::from_str(&contents).expect("tempfile valid JSON");
     assert!(parsed.get("mcpServers").is_some());
     assert!(parsed["mcpServers"].as_object().unwrap().is_empty());
     // Cleanup

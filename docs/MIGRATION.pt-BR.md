@@ -1,3 +1,70 @@
+# MIGRANDO PARA v1.2.1 (Sem Migração de Schema — CAPA só no Sidecar)
+
+- Versão em inglês: [MIGRATION.md](MIGRATION.md)
+- Voltar ao [README.pt-BR.md](../README.pt-BR.md)
+
+> Este guia cobre a atualização de **v1.2.0** (ou qualquer instalação já em schema **v16**) para **v1.2.1**. **Nenhuma migração main-DB numerada** — `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate `version = "1.2.1"`. Mudanças são **somente comportamento da fila sidecar enrich**. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.2.1`. Gate offline: [`scripts/e2e_offline_v120.sh`](../scripts/e2e_offline_v120.sh) (wrapper histórico `e2e_offline_v118.sh` supersedido). O caminho da v1.2.0 permanece logo abaixo.
+
+## O que mudou (comportamento do sidecar — sem schema main-DB)
+
+- **Isolamento de namespace no claim + contagem + resume** — `dequeue_next_pending`, `count_eligible_pending`, `--resume` / `--retry-failed` exigem `operation` **e** `namespace`. Um drain de enrich em `ai-sdd` não reivindica nem conta linhas de `global` / ns vazio.
+- **`--until-empty` conta só esta op+namespace** — antes contava *todo* pending entre operações, então zumbis ReEmbed mantinham EntityDescriptions girando até max-runtime com `completed=0`.
+- **`--force-redescribe` reabre `skipped`/`done`** — `reopen_force_redescribe_candidates` roda uma vez por processo antes do primeiro enqueue para que `INSERT OR IGNORE` não seja no-op silencioso; nunca reabre `dead` (use `--requeue-dead`).
+- **Reconciliação de zumbi re-embed** — `reconcile_satisfied_reembed_pending` marca ReEmbed pending como `done` quando um vetor live já existe na dim ativa (`LENGTH(embedding) = dim*4`).
+- **Elegibilidade re-embed usa comprimento do BLOB, não só a coluna `dim`** — scan/predicados selecionam linhas CORRUPT / META_AHEAD (`dim=1024` com BLOB 384-d ainda elegível e re-embeda de novo).
+- **Enqueue valida chaves re-embed** — `entity:{name}` remove o prefixo no lookup; bare ainda funciona; missing rejeita (corrige `completed: 0` em ~14k entidades). Chaves de chunk validam que `chunk_id` existe em memória não-deletada do namespace alvo.
+- **Marcadores CAPA-D de baixa qualidade** — bare `%configuration file%` removido; apenas compostos (ex.: `is a configuration file`).
+- **Sem migração main-DB.** Somente comportamento da fila sidecar. Schema permanece **v16**.
+- Regressões: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; suite unitária da fila **38** OK.
+- Nenhum ADR novo (notas no CHANGELOG + monografias).
+
+## Ação do operador (1.2.0 → 1.2.1)
+
+- Reinstale: `cargo install sqlite-graphrag --locked --force`.
+- Confirme a versão: `sqlite-graphrag --version` (espere `1.2.1`).
+- Pin de API de biblioteca: mude para `=1.2.1`.
+- **Não** rode `migrate` só por este upgrade se já estiver em schema v16.
+- Prefira sempre passar `--namespace` nos drains de enrich para claim/contagem baterem com a intenção.
+- Após subir a dim (ou se suspeitar de BLOBs CORRUPT), re-embede entidades/chunks/memórias:
+
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace global -q
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace global -q --wait-lock 60
+```
+
+- Campanha opcional de qualidade live (reabre skipped/done uma vez por processo):
+
+```bash
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace global -q
+```
+
+- Gate offline opcional: `bash scripts/e2e_offline_v120.sh` (espere **20/20 PASS**).
+
+## Notas de contrato / comportamento (1.2.0 → 1.2.1)
+
+| Contrato | v1.2.0 | v1.2.1 |
+| --- | --- | --- |
+| Claim / contagem / resume | Escopo por op; lacunas de ns possíveis | **Op + namespace** obrigatórios |
+| Contagem pending de `--until-empty` | Podia incluir ops alienígenas | **Somente esta op+namespace** |
+| `--force-redescribe` + skipped/done existentes | No-op silencioso possível | Reabre skipped/done uma vez por processo; nunca dead |
+| Elegibilidade re-embed | Confiança na coluna dim | **`LENGTH(embedding) = dim*4`** (CORRUPT re-elegível) |
+| Enqueue re-embed `entity:…` | Rejeitado como not found | Prefixo removido; bare ainda funciona |
+| Enqueue de chunk | Confiança só no scanner | Valida chunk em memória não-deletada do ns alvo |
+| Schema main-DB | v16 | **v16** (inalterado) |
+
+### Se você ainda está em schema v15 ou mais antigo
+
+- Aplique primeiro o caminho da **v1.1.04** (`migrate --json` para V016 `entity_connect_seen`), depois instale a v1.2.1 (ou passe pelas notas da v1.2.0 abaixo).
+
+---
+
 # MIGRANDO PARA v1.2.0 — DEFAULT_EMBEDDING_DIM=1024 + XDG (Sem Migração de Schema)
 
 - Versão em inglês: [MIGRATION.md](MIGRATION.md)

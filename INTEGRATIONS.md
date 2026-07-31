@@ -1,6 +1,6 @@
 # Integrations
 
-> **v1.2.0 config:** runtime knobs resolve as **CLI flag > XDG `config set` > named default**. Product environment variables `SQLITE_GRAPHRAG_*` are **ignored** at runtime. Migrate integration recipes from `export SQLITE_GRAPHRAG_*=…` to `sqlite-graphrag config set <KEY> <VALUE>`, `config add-key`, and per-invocation flags (`--db`, `--openrouter-api-key`, `--llm-backend`, …). Schema stays at v16 (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**. Offline seal: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
+> **v1.2.1 (current):** enrich queue CAPA seal — namespace claim isolation, `--until-empty` op+ns count, `--force-redescribe` reopen skipped/done, re-embed BLOB `LENGTH(embedding)=dim*4` + zombie reconcile, `entity:` enqueue strip, chunk ns validate, CAPA-D compound configuration-file markers. Schema stays at **v16** (no main-DB migration). Inherits **v1.2.0 config:** runtime knobs resolve as **CLI flag > XDG `config set` > named default**. Product environment variables `SQLITE_GRAPHRAG_*` are **ignored** at runtime. Migrate integration recipes from `export SQLITE_GRAPHRAG_*=…` to `sqlite-graphrag config set <KEY> <VALUE>`, `config add-key`, and per-invocation flags (`--db`, `--openrouter-api-key`, `--llm-backend`, …). **DEFAULT_EMBEDDING_DIM=1024**. Offline seal: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
 
 
 > Read this document in [Portuguese (pt-BR)](INTEGRATIONS.pt-BR.md)
@@ -29,6 +29,18 @@
 - `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` and `SQLITE_GRAPHRAG_GLINER_THRESHOLD` are accepted for compatibility but have NO effect since v1.0.79.
 - For LLM-curated entity/relationship extraction use `ingest --mode claude-code` or `ingest --mode codex`.
 - Entity types now include `organization`, `location`, `date` alongside `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
+
+## New Commands and Flags (since v1.2.1)
+
+- Crate **`1.2.1`**; pin library consumers `=1.2.1`. Main-DB schema stays at **v16** (no migrate; sidecar queue behaviour only). July 2026 enrich-queue **CAPA seal**.
+- **Namespace claim isolation** — `dequeue_next_pending`, `count_eligible_pending`, `--resume` / `--retry-failed` filter by `operation` **and** `namespace`. An enrich drain for `ai-sdd` no longer claims or counts `global` / empty-ns rows (reduces cross-namespace HardFailure / circuit-breaker risk).
+- **`--until-empty` counts only this op+namespace** — `count_eligible_pending` no longer sums *all* pending rows across operations (alien ReEmbed zombies no longer keep EntityDescriptions spinning with `completed=0`).
+- **`--force-redescribe` reopens `skipped`/`done`** — `reopen_force_redescribe_candidates` runs once per process before first enqueue so `INSERT OR IGNORE` is not a silent no-op; never reopens `dead` (use `--requeue-dead`).
+- **Re-embed zombie reconciliation** — `reconcile_satisfied_reembed_pending` marks pending ReEmbed rows `done` when a live vector already exists at the active dim (`LENGTH(embedding) = dim*4`), clearing zombies without API calls.
+- **Re-embed eligibility uses BLOB length** — scan/predicates select CORRUPT / META_AHEAD rows (`dim=1024` with a 384-d BLOB still eligible when `LENGTH(embedding) ≠ target_dim * 4`).
+- **Enqueue validates re-embed keys** — `entity:{name}` strips the prefix for entity lookup (queue key stays `entity:…`; bare names still work; missing entities rejected). Chunk keys validate `chunk_id` exists in a non-deleted memory of the target namespace.
+- **CAPA-D low-quality markers** — bare `%configuration file%` removed; compound markers only (e.g. `is a configuration file`) so legitimate domain prose is not force-redescribe fodder.
+- Regressions: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; queue unit suite 38 tests OK.
 
 ## New Commands and Flags (since v1.2.0)
 

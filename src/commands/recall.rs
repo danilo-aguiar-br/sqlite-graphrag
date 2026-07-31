@@ -111,7 +111,11 @@ pub struct RecallArgs {
     pub fallback_fts_only: bool,
     /// Emit the JSON Schema for this command's stdout envelope and exit 0
     /// without opening the database or embedding (agent-native R-AN-01).
-    #[arg(long, default_value_t = false, help = "Print JSON Schema for recall output and exit")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Print JSON Schema for recall output and exit"
+    )]
     pub print_schema: bool,
 }
 

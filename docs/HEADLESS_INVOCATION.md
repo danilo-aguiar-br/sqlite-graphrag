@@ -307,6 +307,40 @@ sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 60
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json
 ```
 
+### v1.2.1 Update — Enrich CAPA for Headless Agents (Sidecar Only)
+
+CAPA themes (enrich-queue seal; schema **v16**, no main-DB migration):
+
+1. **`dequeue_next_pending`** — claim filters by `operation` **and** `namespace` (draining `ai-sdd` MUST NOT process `global` / empty-ns rows; same for `--resume` / `--retry-failed`).
+2. **`count_eligible_pending` for `--until-empty`** — counts only this **op+ns** pending (alien ops / ReEmbed zombies elsewhere no longer keep EntityDescriptions spinning with `completed=0`).
+3. **`reopen_force_redescribe_candidates`** — `--force-redescribe` reopens `skipped`/`done` **once per process** before first enqueue (so `INSERT OR IGNORE` is not a silent no-op); **never** reopens `dead` (use `--requeue-dead`).
+4. **`reconcile_satisfied_reembed_pending`** — marks pending ReEmbed `done` when a live vector already matches `LENGTH(embedding) = dim*4`, clearing zombies without API calls.
+5. **Re-embed eligibility by BLOB LENGTH** — predicates use `LENGTH(embedding) = dim*4`, **not** the `dim` column alone (CORRUPT / META_AHEAD rows with dim=1024 and a 384-d BLOB re-embed again).
+6. **`entity:` prefix strip on enqueue lookup** — entity lookup uses the bare name; queue key stays `entity:…` (bare names still work; missing entity rejected).
+7. **Chunk enqueue validates namespace** — `chunk_id` must exist on a non-deleted memory in the target namespace (rejects invalid / cross-ns keys before dead-letter/circuit-breaker churn).
+8. **CAPA-D** — compound "configuration file" markers only (e.g. `is a configuration file`); no bare FP on legitimate domain prose.
+
+Queue regressions: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Queue unit suite: **38** OK (`cargo test --lib commands::enrich::queue` or `cargo test --lib commands::enrich`).
+
+Ready agent formulas:
+
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+NS="${NS:-global}"
+
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace "$NS" -q
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace "$NS" -q --wait-lock 60
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace "$NS" -q
+sqlite-graphrag enrich --db "$DB" --list-skipped --operation entity-descriptions --namespace "$NS" -q
+```
+
+- Schema stays **v16** (no main-DB migration). Offline gate still `scripts/e2e_offline_v120.sh` **20/20**. Pin `=1.2.1`.
+
 ### v1.2.0 Update — XDG Config, dim 1024, list-skipped, GAP-SG-139, Headless Hot-Set
 
 - Config for product knobs is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **not** read on the hot path. Harnesses MUST use isolated XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) plus flags — never export product env as the config contract.
@@ -326,7 +360,7 @@ sqlite-graphrag enrich --operation entity-connect --until-empty --max-runtime 60
 - **CURRENT note on historical text below:** sections that teach product env as config describe pre-v1.2.0 behaviour — v1.2.0 does **not** read product env on the hot path (XDG + flags only). The OAuth/custom-provider env whitelist for LLM subprocesses remains valid and is **not** product-knob config.
 - Secrets: prefer `config add-key --provider openrouter` (stdin) or `--openrouter-api-key`; `OPENROUTER_API_KEY` may still resolve as optional key input.
 
-## Complete CLI command inventory for headless agents (v1.2.0)
+## Complete CLI command inventory for headless agents (v1.2.1)
 
 Headless orchestrators must know the full product surface even when spawn recipes focus on `remember` / `enrich` / `deep-research`. Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`):
 
@@ -360,9 +394,11 @@ Headless orchestrators must know the full product surface even when spawn recipe
 - `config` — `add-key`, `list-keys`, `remove-key`, `doctor`, `path`, `set`, `get`, `list`, `unset`
 - `fts` — `rebuild`, `check`, `stats`
 - `vec` — `orphan-list`, `purge-orphan`, `stats`
-- `enrich` flags — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, prune-orphan inspectors
+- `enrich` inspectors: `--status`, `--list-dead`, `--requeue-dead`, `--list-skipped`, `--requeue-skipped`, `--prune-dead-orphans`, `--prune-dead-entity-orphans`; **v1.2.1 write flags:** `--until-empty` (op+ns count), `--force-redescribe` (reopen skipped/done), `--operation re-embed --target …`, `--namespace`, `--mode openrouter`, `--rest-concurrency`
 
-> Full one-line inventory: [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v120) and [COOKBOOK.md](COOKBOOK.md).
+> **Top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
+
+> Full inventory with one-line purposes: [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v121) and [COOKBOOK.md](COOKBOOK.md).
 
 ### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output` / `-o`)
 

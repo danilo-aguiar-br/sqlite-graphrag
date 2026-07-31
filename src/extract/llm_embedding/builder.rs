@@ -88,18 +88,11 @@ impl LlmEmbeddingBuilder {
             None => {
                 // Wave 4: flag/XDG via runtime_config — no product env reads.
                 let (xdg_bin, which_name) = match self.flavour {
-                    EmbeddingFlavour::Codex => (
-                        crate::runtime_config::codex_binary(),
-                        "codex",
-                    ),
-                    EmbeddingFlavour::Claude => (
-                        crate::runtime_config::claude_binary(),
-                        "claude",
-                    ),
-                    EmbeddingFlavour::Opencode => (
-                        crate::runtime_config::opencode_binary(),
-                        "opencode",
-                    ),
+                    EmbeddingFlavour::Codex => (crate::runtime_config::codex_binary(), "codex"),
+                    EmbeddingFlavour::Claude => (crate::runtime_config::claude_binary(), "claude"),
+                    EmbeddingFlavour::Opencode => {
+                        (crate::runtime_config::opencode_binary(), "opencode")
+                    }
                 };
                 let path = xdg_bin
                     .map(std::path::PathBuf::from)

@@ -280,8 +280,7 @@ fn empty_name_after_normalization_returns_specific_message() {
     assert!(resultado.is_err());
     if let Err(AppError::Validation(msg)) = resultado {
         assert!(
-            msg.contains("empty after normalization")
-                || msg.contains("vazio após normalização"),
+            msg.contains("empty after normalization") || msg.contains("vazio após normalização"),
             "mensagem deve mencionar normalização vazia, obteve: {msg}"
         );
     }
@@ -307,8 +306,7 @@ fn name_only_underscores_after_normalization_returns_specific_message() {
     assert!(resultado.is_err());
     if let Err(AppError::Validation(msg)) = resultado {
         assert!(
-            msg.contains("empty after normalization")
-                || msg.contains("vazio após normalização"),
+            msg.contains("empty after normalization") || msg.contains("vazio após normalização"),
             "mensagem deve mencionar normalização vazia, obteve: {msg}"
         );
     }

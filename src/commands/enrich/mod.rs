@@ -34,12 +34,12 @@ mod extraction;
 mod postprocess;
 mod predicates;
 mod prompts;
+mod quality_sample;
 mod queue;
 mod queue_ops;
 mod run;
 mod scan;
 mod scan_ec;
-mod quality_sample;
 mod scheduler;
 mod schemas;
 mod status;
@@ -67,26 +67,19 @@ pub fn enqueue_priority_entity_descriptions(
     let queue = open_queue_db(&queue_path)?;
     let mut n = 0usize;
     for name in entity_names {
-        enqueue_candidate_with_priority(
-            &queue,
-            name,
-            "entity",
-            "EntityDescriptions",
-            PRIORITY_HOT,
-        );
+        enqueue_candidate_with_priority(&queue, name, "entity", "EntityDescriptions", PRIORITY_HOT);
         n += 1;
     }
     Ok(n)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::events::{enrich_operation_cli_name, is_sqlite_interrupt, scan_operation_with_deadline};
-    use super::schemas::{
-        BINDINGS_SCHEMA, BODY_ENRICH_SCHEMA, ENTITY_DESCRIPTION_SCHEMA,
+    use super::events::{
+        enrich_operation_cli_name, is_sqlite_interrupt, scan_operation_with_deadline,
     };
+    use super::schemas::{BINDINGS_SCHEMA, BODY_ENRICH_SCHEMA, ENTITY_DESCRIPTION_SCHEMA};
+    use super::*;
     use crate::errors::AppError;
     use rusqlite::{Connection, ErrorCode};
     use std::time::{Duration, Instant};

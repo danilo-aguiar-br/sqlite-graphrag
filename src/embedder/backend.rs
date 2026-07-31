@@ -4,7 +4,6 @@ use super::*;
 use crate::errors::AppError;
 use std::path::Path;
 
-
 /// LLM backend kind for the fallback chain. Mirrors the CLI
 /// `--llm-backend` enum so users can pass the same value to
 /// `--llm-fallback` without translation.
@@ -54,8 +53,7 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
             }
         }
         LlmBackendKind::Codex => {
-            let bin = crate::runtime_config::codex_binary()
-                .unwrap_or_else(|| "codex".into());
+            let bin = crate::runtime_config::codex_binary().unwrap_or_else(|| "codex".into());
             if which::which(&bin).is_err() && which::which("codex").is_err() {
                 return Err(AppError::Embedding(
                     crate::i18n::validation::embedding_codex_probe_binary_not_on_path(),
@@ -65,9 +63,7 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
             let auth = std::env::var_os("CODEX_HOME")
                 .map(std::path::PathBuf::from)
                 .or_else(|| {
-                    std::env::var_os("HOME").map(|h| {
-                        std::path::PathBuf::from(h).join(".codex")
-                    })
+                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".codex"))
                 })
                 .map(|p| p.join("auth.json"));
             match auth {
@@ -78,8 +74,7 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
             }
         }
         LlmBackendKind::Claude => {
-            let bin = crate::runtime_config::claude_binary()
-                .unwrap_or_else(|| "claude".into());
+            let bin = crate::runtime_config::claude_binary().unwrap_or_else(|| "claude".into());
             if which::which(&bin).is_err() && which::which("claude").is_err() {
                 return Err(AppError::Embedding(
                     crate::i18n::validation::embedding_claude_probe_binary_not_on_path(),
@@ -88,8 +83,7 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
             Ok(())
         }
         LlmBackendKind::Opencode => {
-            let bin = crate::runtime_config::opencode_binary()
-                .unwrap_or_else(|| "opencode".into());
+            let bin = crate::runtime_config::opencode_binary().unwrap_or_else(|| "opencode".into());
             if which::which(&bin).is_err() && which::which("opencode").is_err() {
                 return Err(AppError::Embedding(
                     crate::i18n::validation::embedding_opencode_probe_binary_not_on_path(),
@@ -204,9 +198,7 @@ pub fn embed_via_backend_strict(
                 Ok((Vec::new(), LlmBackendKind::None))
             } else {
                 Err(match last_err {
-                    Some(e) => AppError::Embedding(
-                        crate::i18n::validation::embedding_detail(e),
-                    ),
+                    Some(e) => AppError::Embedding(crate::i18n::validation::embedding_detail(e)),
                     None => AppError::Embedding(crate::i18n::validation::embedding_detail(
                         LlmBackendError::NoBackendsAvailable,
                     )),
@@ -282,4 +274,3 @@ pub(crate) fn validate_dim(v: Vec<f32>) -> Result<Vec<f32>, AppError> {
     }
     Ok(v)
 }
-

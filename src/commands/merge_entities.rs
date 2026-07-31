@@ -145,12 +145,16 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     // point (before any DB work), so shell word-splitting mistakes fail loud.
     if let Some(target_id) = args.into_id {
         if args.ids.contains(&target_id) {
-            return Err(AppError::Validation(crate::i18n::validation::self_merge_id_in_ids(target_id)));
+            return Err(AppError::Validation(
+                crate::i18n::validation::self_merge_id_in_ids(target_id),
+            ));
         }
     }
     if let Some(ref target_name) = args.into {
         if args.names.iter().any(|n| n == target_name) {
-            return Err(AppError::Validation(crate::i18n::validation::self_merge_name_in_names(target_name)));
+            return Err(AppError::Validation(
+                crate::i18n::validation::self_merge_name_in_names(target_name),
+            ));
         }
     }
 
@@ -191,7 +195,9 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     if !args.ids.is_empty() {
         for &id in &args.ids {
             if id == target_id {
-                return Err(AppError::Validation(crate::i18n::validation::self_merge_id(id, target_id)));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::self_merge_id(id, target_id),
+                ));
             }
             // v1.1.03: when --cross-namespace is set, resolve each source by its
             // own row (no namespace filter) and warn on the cross-namespace move.
@@ -215,13 +221,17 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
     } else {
         for name in &args.names {
             if name == &target_name {
-                return Err(AppError::Validation(crate::i18n::validation::self_merge_name(name, &target_name)));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::self_merge_name(name, &target_name),
+                ));
             }
             let id = entities::find_entity_id(&conn, &namespace, name)?.ok_or_else(|| {
                 AppError::NotFound(errors_msg::entity_not_found(name, &namespace))
             })?;
             if id == target_id {
-                return Err(AppError::Validation(crate::i18n::validation::self_merge_name_resolves_to_target(name, target_id)));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::self_merge_name_resolves_to_target(name, target_id),
+                ));
             }
             if !source_ids.contains(&id) {
                 source_ids.push(id);

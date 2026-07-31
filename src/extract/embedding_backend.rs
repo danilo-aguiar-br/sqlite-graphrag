@@ -51,7 +51,9 @@ impl ExtractionBackend for EmbeddingBackend {
         _content: &str,
         _hints: &ExtractionHints,
     ) -> Result<ExtractionOutput, AppError> {
-        Err(AppError::Validation(crate::i18n::validation::legacy_embedding_backend_removed(&self.model_name)))
+        Err(AppError::Validation(
+            crate::i18n::validation::legacy_embedding_backend_removed(&self.model_name),
+        ))
     }
 
     async fn health(&self) -> Result<BackendHealth, AppError> {

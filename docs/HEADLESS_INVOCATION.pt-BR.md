@@ -16,6 +16,40 @@
 
 ## Resumo
 
+## Atualização v1.2.1 — CAPA enrich para agentes headless (só sidecar)
+
+Temas CAPA (selo da fila enrich; schema **v16**, sem migração main-DB):
+
+1. **`dequeue_next_pending`** — claim filtra por `operation` **e** `namespace` (drenar `ai-sdd` NÃO DEVE processar linhas de `global` / ns vazio; o mesmo vale para `--resume` / `--retry-failed`).
+2. **`count_eligible_pending` para `--until-empty`** — conta só pendentes desta **op+ns** (ops alienígenas / zumbis ReEmbed em outro lugar não mantêm EntityDescriptions em loop com `completed=0`).
+3. **`reopen_force_redescribe_candidates`** — `--force-redescribe` reabre `skipped`/`done` **uma vez por processo** antes do primeiro enqueue (para `INSERT OR IGNORE` não ser no-op silencioso); **nunca** reabre `dead` (use `--requeue-dead`).
+4. **`reconcile_satisfied_reembed_pending`** — marca ReEmbed pending como `done` quando já existe vetor vivo com `LENGTH(embedding) = dim*4`, limpando zumbis sem chamadas de API.
+5. **Elegibilidade de re-embed por LENGTH do BLOB** — predicados usam `LENGTH(embedding) = dim*4`, **não** só a coluna `dim` (linhas CORRUPT / META_AHEAD com dim=1024 e BLOB 384-d re-embedam de novo).
+6. **Strip do prefixo `entity:` no enqueue** — lookup de entidade usa o nome bare; a chave da fila permanece `entity:…` (nomes bare ainda funcionam; entidade ausente é rejeitada).
+7. **Enqueue de chunk valida namespace** — `chunk_id` deve existir em memória não-deletada do namespace alvo (rejeita chaves inválidas / cross-ns antes de churn de dead-letter/circuit-breaker).
+8. **CAPA-D** — apenas marcadores compostos de "configuration file" (ex.: `is a configuration file`); sem FP bare em prosa de domínio legítima.
+
+Regressões da fila: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Suite unitária da fila: **38** OK (`cargo test --lib commands::enrich::queue` ou `cargo test --lib commands::enrich`).
+
+Fórmulas prontas para agentes:
+
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+NS="${NS:-global}"
+
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace "$NS" -q
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace "$NS" -q --wait-lock 60
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace "$NS" -q
+sqlite-graphrag enrich --db "$DB" --list-skipped --operation entity-descriptions --namespace "$NS" -q
+```
+
+- Schema permanece **v16** (sem migração main-DB). Gate offline ainda `scripts/e2e_offline_v120.sh` **20/20**. Pin `=1.2.1`.
+
 ## Atualização v1.2.0 — XDG, dim 1024, list-skipped, GAP-SG-139, hot-set headless
 
 - Config de knobs de produto: **flag CLI > XDG `config set` > default**. Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` **não** são lidas no hot path. Harnesses DEVEM usar XDG isolado + flags — nunca exportar product env como contrato de config.
@@ -35,7 +69,7 @@
 - **Nota CURRENT sobre texto histórico abaixo:** seções que ensinam product env como config descrevem comportamento pré-v1.2.0 — a v1.2.0 **não** lê product env no hot path (somente XDG + flags). A whitelist OAuth/custom-provider de env para subprocessos LLM permanece válida e **não** é config de knobs de produto.
 - Segredos: prefira `config add-key --provider openrouter` (stdin) ou `--openrouter-api-key`; `OPENROUTER_API_KEY` ainda pode resolver como entrada opcional de chave.
 
-## Inventário completo de comandos CLI para agentes headless (v1.2.0)
+## Inventário completo de comandos CLI para agentes headless (v1.2.1)
 
 Orquestradores headless precisam conhecer a superfície completa de produto mesmo quando as receitas de spawn focam em `remember` / `enrich` / `deep-research`. Comandos de topo de produto (de `sqlite-graphrag --help`, excluindo o meta `help`):
 
@@ -69,9 +103,11 @@ Orquestradores headless precisam conhecer a superfície completa de produto mesm
 - `config` — `add-key`, `list-keys`, `remove-key`, `doctor`, `path`, `set`, `get`, `list`, `unset`
 - `fts` — `rebuild`, `check`, `stats`
 - `vec` — `orphan-list`, `purge-orphan`, `stats`
-- `enrich` flags — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, inspetores prune-orphan
+- `enrich` inspetores: `--status`, `--list-dead`, `--requeue-dead`, `--list-skipped`, `--requeue-skipped`, `--prune-dead-orphans`, `--prune-dead-entity-orphans`; **flags de escrita v1.2.1:** `--until-empty` (contagem op+ns), `--force-redescribe` (reabre skipped/done), `--operation re-embed --target …`, `--namespace`, `--mode openrouter`, `--rest-concurrency`
 
-> Inventário completo em uma linha: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
+> **Top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
+
+> Inventário completo com propósitos em uma linha: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) e [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 
 ## Contrato stdout/stderr e --quiet (v1.1.05) + alias `-o` (v1.1.8)
 

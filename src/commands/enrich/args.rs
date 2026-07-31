@@ -234,11 +234,7 @@ pub struct EnrichArgs {
     pub opencode_model: Option<String>,
 
     /// Timeout per item in seconds when using OpenCode. Default: 300.
-    #[arg(
-        long,
-        value_name = "SECONDS",
-                default_value_t = 300
-    )]
+    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
     pub opencode_timeout: u64,
 
     // -- Provider flags (OpenRouter, v1.0.95) --
@@ -247,11 +243,7 @@ pub struct EnrichArgs {
     pub openrouter_model: Option<String>,
 
     /// OpenRouter API key. Falls back to OPENROUTER_API_KEY env or stored config.
-    #[arg(
-        long,
-        value_name = "KEY",
-                hide_env_values = true
-    )]
+    #[arg(long, value_name = "KEY", hide_env_values = true)]
     pub openrouter_api_key: Option<String>,
 
     /// Timeout per item in seconds when using OpenRouter. Default: 600.
@@ -512,14 +504,19 @@ pub struct EnrichArgs {
     #[arg(long, value_name = "FLOAT", default_value_t = 0.12)]
     pub entity_description_grounding_threshold: f64,
 
-    /// GAP-CLI-ED-06: re-scan entities whose description is empty OR matches
-    /// low-quality patterns (e.g. generic "configuration file" / software
-    /// jargon). Default false (write-once for non-empty descriptions).
+    /// GAP-CLI-ED-06 / CAPA-B: re-scan entities whose description is empty OR
+    /// matches high-precision low-quality compound markers (e.g. "is a software
+    /// component", "is a configuration file" — not bare domain phrases).
+    /// Once per invocation, reopens matching `skipped`/`done` queue rows for
+    /// those scan keys to `pending` (does not reopen `dead`; use
+    /// `--requeue-dead`). Default false (write-once for non-empty descriptions).
     #[arg(long, default_value_t = false)]
     pub force_redescribe: bool,
 
     /// Wave 2 / GAP-CLI-OBS-04: sample N entities with descriptions and report
     /// `quality_pct` / `scan_backlog_low_grounding_est` on `--status`.
+    /// `scan_backlog_low_grounding_est` is a **sample-based estimate only** —
+    /// it is not a drain backlog and is not processed by `--force-redescribe`.
     /// Precedence: this flag > XDG `enrich.entity_description.quality_sample`
     /// > default 50. Set 0 to disable sampling.
     #[arg(long, value_name = "N")]

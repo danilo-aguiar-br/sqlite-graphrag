@@ -196,11 +196,13 @@ pub fn validate_claude_version(binary: &Path) -> Result<String, AppError> {
 
     if let (Some(actual), Some(min)) = (parse_semver(numeric), parse_semver(MIN_CLAUDE_VERSION)) {
         if actual < min {
-            return Err(AppError::Validation(crate::i18n::validation::version_below_minimum(
+            return Err(AppError::Validation(
+                crate::i18n::validation::version_below_minimum(
                     "Claude Code",
                     numeric,
                     MIN_CLAUDE_VERSION,
-                )));
+                ),
+            ));
         }
     }
 
@@ -353,7 +355,9 @@ pub fn parse_claude_output_opts(
     tolerate_max_turns: bool,
 ) -> Result<ClaudeResult, AppError> {
     let elements: Vec<ClaudeOutputElement> = serde_json::from_str(stdout).map_err(|e| {
-        AppError::Validation(crate::i18n::validation::failed_to_parse_claude_json_array(&e))
+        AppError::Validation(crate::i18n::validation::failed_to_parse_claude_json_array(
+            &e,
+        ))
     })?;
 
     let is_oauth = elements
@@ -398,16 +402,16 @@ pub fn parse_claude_output_opts(
                 "Claude Code authentication failed. Re-authenticate interactively with: claude"
             );
         }
-        return Err(AppError::Validation(crate::i18n::validation::claude_extraction_failed(err_msg)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::claude_extraction_failed(err_msg),
+        ));
     }
 
     let value = if let Some(v) = result_elem.structured_output.clone() {
         v
     } else if let Some(text) = &result_elem.result {
         serde_json::from_str(text).map_err(|e| {
-            AppError::Validation(crate::i18n::validation::failed_to_parse_claude_result_field(
-                &e,
-            ))
+            AppError::Validation(crate::i18n::validation::failed_to_parse_claude_result_field(&e))
         })?
     } else {
         return Err(AppError::Validation(
@@ -485,8 +489,9 @@ pub fn run_claude(
                 std::io::Read::read_to_end(&mut err, &mut stderr_buf).map_err(AppError::Io)?;
             }
 
-            let stdout_str = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation(crate::i18n::validation::claude_p_stdout_not_utf8()))?;
+            let stdout_str = String::from_utf8(stdout_buf).map_err(|_| {
+                AppError::Validation(crate::i18n::validation::claude_p_stdout_not_utf8())
+            })?;
 
             // G03: parse stdout even on failure to detect terminal_reason
             if !exit_status.success() {
@@ -500,11 +505,13 @@ pub fn run_claude(
                         "Claude Code authentication may have failed. Re-authenticate with: claude"
                     );
                 }
-                return Err(AppError::Validation(crate::i18n::validation::process_exited(
-                    "claude -p",
-                    exit_status.code(),
-                    stderr_str.trim(),
-                )));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::process_exited(
+                        "claude -p",
+                        exit_status.code(),
+                        stderr_str.trim(),
+                    ),
+                ));
             }
 
             parse_claude_output(&stdout_str)
@@ -512,10 +519,9 @@ pub fn run_claude(
         None => {
             tracing::warn!(target: "claude_runner", timeout_secs, "claude -p timed out, terminating");
             terminate_gracefully(&mut child, 3);
-            Err(AppError::Validation(crate::i18n::validation::process_timed_out(
-                "claude -p",
-                timeout_secs,
-            )))
+            Err(AppError::Validation(
+                crate::i18n::validation::process_timed_out("claude -p", timeout_secs),
+            ))
         }
     }
 }

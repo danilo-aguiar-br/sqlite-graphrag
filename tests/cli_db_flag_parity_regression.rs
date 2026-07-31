@@ -1,39 +1,22 @@
-//! GAP-E2E-008 (v1.0.89) regression test: every namespace-scoped subcommand
-//! must accept `--db <PATH>` for parity with the rest of the CLI surface.
+//! GAP-E2E-008 regression test: every namespace-scoped subcommand must accept
+//! `--db <PATH>` for parity with the rest of the CLI surface.
 //!
-//! Five subcommands were identified during the v1.0.88 audit as missing the
-//! standard `db` field on their `Args` struct:
-//!
-//! 1. `EmbeddingStatusArgs` (in `src/commands/embedding.rs`)
-//! 2. `EmbeddingListArgs`   (in `src/commands/embedding.rs`)
-//! 3. `EmbeddingAbandonArgs` (in `src/commands/embedding.rs`)
-//! 4. `PendingListArgs`     (in `src/commands/pending.rs`)
-//! 5. `PendingShowArgs`     (in `src/commands/pending.rs`)
-//!
-//! The test invokes each subcommand through the compiled binary with an
-//! explicit `--db <PATH>` and asserts that the flag is accepted by clap
-//! (i.e. clap does NOT reject it as "unexpected argument" or "unknown
-//! option"). A database is initialised in a per-test temp directory via
-//! `sqlite-graphrag init --db <path>` so that the subcommands under test
-//! find a real schema and execute their storage paths.
-//!
-//! This is an integration test, not a unit test, because it pins the
-//! public CLI surface that operators interact with.
+//! The test invokes each subcommand through the already-built integration
+//! binary (`CARGO_BIN_EXE_sqlite-graphrag`) with an explicit `--db <PATH>`
+//! and asserts that clap accepts the flag. Nested `cargo run` is forbidden
+//! here — it contende o build lock e produz falsos negativos sob paralelismo.
 
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
-/// Helper that runs `cargo run --quiet --bin sqlite-graphrag <args>...`
-/// with an explicit `--db <PATH>` and returns `(status, stdout, stderr)`.
-/// PATH is left untouched; this test does not depend on LLM subprocesses.
+fn sgr_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlite-graphrag"))
+}
+
+/// Runs `sqlite-graphrag <args>... --db <PATH>` and returns status/stdout/stderr.
 fn run_with_db(subcommand_args: &[&str], db_path: &Path) -> (i32, String, String) {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--");
+    let mut cmd = sgr_bin();
     for a in subcommand_args {
         cmd.arg(a);
     }
@@ -41,79 +24,66 @@ fn run_with_db(subcommand_args: &[&str], db_path: &Path) -> (i32, String, String
 
     let output = cmd
         .output()
-        .expect("spawn cargo run for cli_db_flag_parity_regression");
+        .expect("spawn sqlite-graphrag for cli_db_flag_parity_regression");
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     (status, stdout, stderr)
 }
 
-/// Initialises a fresh database at `db_path` so that the subcommands under
-/// test find a real schema. Returns the status of the init invocation.
-fn init_db(db_path: &Path) -> i32 {
-    let output = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+fn init_db(db_path: &Path) -> (i32, String, String) {
+    let output = sgr_bin()
         .arg("init")
         .arg("--db")
         .arg(db_path)
         .output()
-        .expect("spawn cargo run for init");
-    output.status.code().unwrap_or(-1)
+        .expect("spawn sqlite-graphrag init");
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
 }
 
-/// Sets up a per-test tempdir, initialises a database inside, and runs
-/// the closure with the resolved db path. Cleans up on drop.
 fn with_initialised_db<F: FnOnce(&Path)>(body: F) {
     let tmp = TempDir::new().expect("tempdir for cli_db_flag_parity_regression");
     let db_path = tmp.path().join("parity.sqlite");
-    let init_status = init_db(&db_path);
+    let (init_status, init_stdout, init_stderr) = init_db(&db_path);
     assert!(
         init_status == 0,
-        "FATAL: `init --db {}` returned status={}; cannot run parity checks. \
-         Test setup requires a bootstrapped database.",
+        "FATAL: `init --db {}` returned status={}; stdout={}; stderr={}; \
+         cannot run parity checks.",
         db_path.display(),
-        init_status
+        init_status,
+        init_stdout,
+        init_stderr
     );
     body(&db_path);
 }
 
-/// Asserts that clap accepted the `--db` flag. The two failure shapes we
-/// guard against are:
-///   1. clap rejects with "unexpected argument" / "unknown option"
-///   2. clap rejects with "error: the following required arguments were
-///      not provided" pointing at the db slot
-///
-/// We treat any clap-level error message (status != 0 AND stderr mentions
-/// "error:" or "unrecognized" or "unexpected") as a regression.
+/// Asserts clap accepted `--db`. Only clap-style rejections (exit 2 + classic
+/// clap wording) count — runtime `validation error:` / storage errors prove
+/// the flag reached the handler and MUST NOT be treated as rejection.
 fn assert_db_flag_accepted(label: &str, subcommand_args: &[&str], db_path: &Path) {
     let (status, stdout, stderr) = run_with_db(subcommand_args, db_path);
 
-    // The clap-rejection signature is "error:" / "unrecognized argument" /
-    // "unexpected argument" in stderr with status 2. Storage errors at
-    // runtime (status 4, 10, etc.) are acceptable as long as clap accepted
-    // the flag — those prove the arg reached the handler.
-    let clap_rejected = stderr.contains("error:")
-        || stderr.contains("unrecognized")
-        || stderr.contains("unexpected argument")
-        || stderr.contains("unknown option");
+    let clap_rejected = status == 2
+        && (stderr.contains("unexpected argument")
+            || stderr.contains("unrecognized")
+            || stderr.contains("unknown option")
+            || stderr.contains("the following required arguments were not provided")
+            || stderr.contains("argument that wasn't expected")
+            || stderr.contains("Found argument")
+            || stderr.contains("error: unexpected")
+            || stderr.contains("error: unrecognized"));
 
     assert!(
         !clap_rejected,
         "REGRESSION GAP-E2E-008: subcommand `{label}` rejected `--db` flag.\n\
          stderr: {stderr}\nstdout: {stdout}\nstatus: {status}\n\
-         Expected: clap accepts `--db <PATH>` as a valid argument.\n\
-         The Args struct for this subcommand is missing the standard \
-         `#[arg(long)] pub db: Option<String>` field (flag > XDG; no product env).",
+         Expected: clap accepts `--db <PATH>` as a valid argument.",
     );
 }
-
-// ---------------------------------------------------------------------------
-// EmbeddingStatusArgs — embedding status
-// ---------------------------------------------------------------------------
 
 #[test]
 fn assert_db_flag_on_embedding_status() {
@@ -121,10 +91,6 @@ fn assert_db_flag_on_embedding_status() {
         assert_db_flag_accepted("embedding status", &["embedding", "status"], db_path);
     });
 }
-
-// ---------------------------------------------------------------------------
-// EmbeddingListArgs — embedding list
-// ---------------------------------------------------------------------------
 
 #[test]
 fn assert_db_flag_on_embedding_list() {
@@ -137,17 +103,9 @@ fn assert_db_flag_on_embedding_list() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// EmbeddingAbandonArgs — embedding abandon
-// ---------------------------------------------------------------------------
-
 #[test]
 fn assert_db_flag_on_embedding_abandon() {
     with_initialised_db(|db_path| {
-        // Use an obviously invalid pending_id so the storage layer rejects
-        // it (exit 4, NotFound) — that proves the `--db` flag reached the
-        // handler and `AppPaths::resolve` opened the database at the given
-        // path.
         assert_db_flag_accepted(
             "embedding abandon <id>",
             &["embedding", "abandon", "999999", "--yes"],
@@ -155,10 +113,6 @@ fn assert_db_flag_on_embedding_abandon() {
         );
     });
 }
-
-// ---------------------------------------------------------------------------
-// PendingListArgs — pending list
-// ---------------------------------------------------------------------------
 
 #[test]
 fn assert_db_flag_on_pending_list() {
@@ -171,27 +125,13 @@ fn assert_db_flag_on_pending_list() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// PendingShowArgs — pending show
-// ---------------------------------------------------------------------------
-
 #[test]
 fn assert_db_flag_on_pending_show() {
     with_initialised_db(|db_path| {
-        // pending_id 0 is a guaranteed-missing row; storage layer returns
-        // NotFound (exit 4). The fact that `--db` reached the handler is
-        // proven by the storage path executing against our temp database.
         assert_db_flag_accepted("pending show <id>", &["pending", "show", "0"], db_path);
     });
 }
 
-// ---------------------------------------------------------------------------
-// Aggregation — every regression assertion in one place for `cargo test`
-// grep filters like `-- assert_db_flag_on_all_namespace_subcommands`.
-// ---------------------------------------------------------------------------
-
-/// Single entrypoint that exercises all five subcommands in sequence so
-/// a CI runner can run a single test name and assert the entire surface.
 #[test]
 fn assert_db_flag_on_all_namespace_subcommands() {
     with_initialised_db(|db_path| {

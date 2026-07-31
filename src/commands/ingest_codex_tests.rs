@@ -67,7 +67,8 @@ fn test_parse_codex_output_rate_limit() {
 
 #[test]
 fn test_parse_codex_output_schema_error() {
-    let jsonl = r#"{"type":"error","message":"invalid_json_schema: additional properties not allowed"}"#;
+    let jsonl =
+        r#"{"type":"error","message":"invalid_json_schema: additional properties not allowed"}"#;
 
     let err = parse_codex_output(jsonl).unwrap_err();
     let msg = format!("{err}");

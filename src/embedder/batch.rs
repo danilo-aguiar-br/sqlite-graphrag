@@ -162,9 +162,9 @@ pub fn embed_passages_parallel_with_embedding_choice(
                 if set.len() >= k {
                     if let Some(joined) = set.join_next().await {
                         let (cidx, res) = joined.map_err(|e| {
-                            AppError::Embedding(
-                                crate::i18n::validation::embedding_task_join_error(e),
-                            )
+                            AppError::Embedding(crate::i18n::validation::embedding_task_join_error(
+                                e,
+                            ))
                         })?;
                         parts.push((cidx, res?));
                     }
@@ -548,11 +548,7 @@ where
                     for (idx, v) in items {
                         if v.len() != dim {
                             first_error = Some(AppError::Embedding(
-                                crate::i18n::validation::embedding_llm_item_dims(
-                                    v.len(),
-                                    idx,
-                                    dim,
-                                ),
+                                crate::i18n::validation::embedding_llm_item_dims(v.len(), idx, dim),
                             ));
                             break;
                         }

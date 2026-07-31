@@ -68,10 +68,7 @@ fn init_isolated_db() -> (TempDir, std::path::PathBuf) {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     (tmp, db_path)
 }
@@ -126,7 +123,7 @@ fn index_exists(conn: &Connection, name: &str) -> bool {
 #[test]
 #[serial]
 fn init_creates_16_migrations_v001_to_v016() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let versions: Vec<i64> = {
@@ -158,7 +155,7 @@ fn init_creates_16_migrations_v001_to_v016() {
 #[test]
 #[serial]
 fn trigger_trg_fts_ai_exists() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -174,7 +171,7 @@ fn trigger_trg_fts_ai_exists() {
 #[test]
 #[serial]
 fn trigger_trg_fts_ad_exists() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -196,7 +193,7 @@ fn trigger_trg_fts_ad_exists() {
 #[test]
 #[serial]
 fn trigger_trg_fts_au_absent_handled_in_rust() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     assert!(
@@ -216,7 +213,7 @@ fn trigger_trg_fts_au_absent_handled_in_rust() {
 #[test]
 #[serial]
 fn memory_embeddings_blob_dim_384() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let ddl: String = conn
@@ -264,7 +261,7 @@ fn memory_embeddings_blob_dim_384() {
 #[test]
 #[serial]
 fn memory_embeddings_partition_indexes() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let has_ns_index: i64 = conn
@@ -299,7 +296,7 @@ fn memory_embeddings_partition_indexes() {
 #[test]
 #[serial]
 fn fts_memories_tokenizer_unicode61_remove_diacritics() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let ddl: String = conn
@@ -333,10 +330,7 @@ fn fts5_matching_with_accents_cafe_cafe() {
     let db_path = tmp.path().join("test.sqlite");
 
     // DB init
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     // Insert memory with accented text
     sgr_on(&tmp, &db_path)
@@ -378,7 +372,7 @@ fn fts5_matching_with_accents_cafe_cafe() {
 #[test]
 #[serial]
 fn all_main_tables_exist_after_init() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let tables = [
@@ -408,7 +402,7 @@ fn all_main_tables_exist_after_init() {
 #[test]
 #[serial]
 fn main_indexes_exist_after_init() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let indexes = [
@@ -441,7 +435,7 @@ fn main_indexes_exist_after_init() {
 #[test]
 #[serial]
 fn schema_meta_required_keys_exist() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let expected_keys = [
@@ -472,7 +466,7 @@ fn schema_meta_required_keys_exist() {
 #[test]
 #[serial]
 fn schema_version_meta_equals_16() {
-    let (tmp, db_path) = init_isolated_db();
+    let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
     let version: String = conn
@@ -503,10 +497,7 @@ fn v009_document_type_lifecycle_e2e() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init applies V001..V009 in a fresh DB.
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     // Insert a memory with the new type=document accepted by V009.
     let output = sgr_on(&tmp, &db_path)
@@ -533,12 +524,7 @@ fn v009_document_type_lifecycle_e2e() {
 
     // List filtered by type=document must return the inserted record.
     let output = sgr_on(&tmp, &db_path)
-        .args([
-            "list",
-            "--type",
-            "document",
-            "--json",
-        ])
+        .args(["list", "--type", "document", "--json"])
         .output()
         .expect("list must run");
     assert!(
@@ -585,10 +571,7 @@ fn v009_note_type_lifecycle_e2e() {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     let output = sgr_on(&tmp, &db_path)
         .args([
@@ -662,10 +645,7 @@ fn v009_invalid_type_rejected() {
     let tmp = TempDir::new().expect("TempDir must be created");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     let output = sgr_on(&tmp, &db_path)
         .args([
@@ -793,11 +773,7 @@ fn migrate_to_llm_only_reports_no_vec_tables_on_fresh_db() {
     let (tmp, db_path) = init_isolated_db();
 
     let output = sgr_on(&tmp, &db_path)
-        .args([
-            "migrate",
-            "--to-llm-only",
-            "--drop-vec-tables",
-        ])
+        .args(["migrate", "--to-llm-only", "--drop-vec-tables"])
         .output()
         .expect("migrate --to-llm-only must run");
 
@@ -905,11 +881,7 @@ fn migrate_to_llm_only_fixes_null_applied_on() {
     drop(conn);
 
     let output = sgr_on(&tmp, &db_path)
-        .args([
-            "migrate",
-            "--to-llm-only",
-            "--drop-vec-tables",
-        ])
+        .args(["migrate", "--to-llm-only", "--drop-vec-tables"])
         .output()
         .expect("migrate --to-llm-only must run");
 

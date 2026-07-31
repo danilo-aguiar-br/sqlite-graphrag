@@ -189,9 +189,8 @@ fn model_default_input_type(model: &str) -> Option<&'static str> {
 impl OpenRouterClient {
     /// Create a new instance.
     pub fn new(api_key: SecretBox<String>, model: String, dim: usize) -> Result<Self, AppError> {
-        let base_url = crate::runtime_config::openrouter_embeddings_url(
-            DEFAULT_OPENROUTER_EMBEDDINGS_URL,
-        );
+        let base_url =
+            crate::runtime_config::openrouter_embeddings_url(DEFAULT_OPENROUTER_EMBEDDINGS_URL);
         Self::new_with_base_url(api_key, model, dim, base_url)
     }
 
@@ -208,7 +207,9 @@ impl OpenRouterClient {
             .user_agent(concat!("sqlite-graphrag/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| {
-                AppError::Embedding(crate::i18n::validation::embedding_http_client_build_failed(e))
+                AppError::Embedding(crate::i18n::validation::embedding_http_client_build_failed(
+                    e,
+                ))
             })?;
 
         let default_input_type = model_default_input_type(&model);
@@ -295,8 +296,7 @@ impl OpenRouterClient {
 
         let mut all = Vec::with_capacity(texts.len());
 
-        let batch_size =
-            crate::runtime_config::embedding_batch_size(DEFAULT_EMBED_HTTP_BATCH_SIZE);
+        let batch_size = crate::runtime_config::embedding_batch_size(DEFAULT_EMBED_HTTP_BATCH_SIZE);
         for chunk in texts.chunks(batch_size) {
             let request = EmbeddingRequest {
                 model: &self.model,
@@ -309,10 +309,12 @@ impl OpenRouterClient {
             let response = self.execute_with_retry(&request).await?;
 
             if response.data.len() != chunk.len() {
-                return Err(AppError::Embedding(crate::i18n::validation::embedding_expected_count(
-                    chunk.len(),
-                    response.data.len(),
-                ))
+                return Err(AppError::Embedding(
+                    crate::i18n::validation::embedding_expected_count(
+                        chunk.len(),
+                        response.data.len(),
+                    ),
+                )
                 .into());
             }
 
@@ -466,9 +468,9 @@ impl OpenRouterClient {
             if status.as_u16() == 400 || status.as_u16() == 404 {
                 let body = resp.text().await.unwrap_or_default();
                 return Err(EmbedError::new(
-                    AppError::Embedding(
-                        crate::i18n::validation::embedding_openrouter_returned(status, &body),
-                    ),
+                    AppError::Embedding(crate::i18n::validation::embedding_openrouter_returned(
+                        status, &body,
+                    )),
                     AttemptOutcome::HardFailure,
                 ));
             }
@@ -513,9 +515,9 @@ impl OpenRouterClient {
 
             let body = resp.text().await.unwrap_or_default();
             return Err(EmbedError::new(
-                AppError::Embedding(
-                    crate::i18n::validation::embedding_unexpected_http(status, &body),
-                ),
+                AppError::Embedding(crate::i18n::validation::embedding_unexpected_http(
+                    status, &body,
+                )),
                 crate::openrouter_http::status_retry_class(status),
             ));
         }
@@ -526,9 +528,7 @@ impl OpenRouterClient {
         // covers, and must never be reclassified as a permanent failure.
         Err(last_err.unwrap_or_else(|| {
             EmbedError::new(
-                AppError::Embedding(
-                    crate::i18n::validation::embedding_openrouter_max_retries(),
-                ),
+                AppError::Embedding(crate::i18n::validation::embedding_openrouter_max_retries()),
                 AttemptOutcome::Transient,
             )
         }))

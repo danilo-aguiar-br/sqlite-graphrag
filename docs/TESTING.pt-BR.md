@@ -16,6 +16,31 @@
 - Plano de testes formal com camadas, gatilhos e gates de release: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)
 
 
+## v1.2.1 — Regressões CAPA da Fila Enrich
+
+- **Escopo**: sem migração main-DB — schema permanece **v16**; CAPA é **somente comportamento da fila sidecar** (crate **1.2.1**).
+- **Suite unitária da fila**: **38** testes OK (fila enrich / claim / enqueue).
+- **Regressões adicionadas / obrigatoriamente verdes:**
+  - `enqueue_candidate_accepts_entity_prefixed_reembed_key` (em `queue_tests_b.rs`) — aceita `entity:ownership` e bare `ownership`; rejeita entidade ausente.
+  - `dequeue_next_pending_isolates_by_namespace` (em `queue_tests_a.rs`) — claim filtra `operation` **e** `namespace`.
+- **Temas CAPA cobertos pela suite (comportamento, nem sempre um teste nomeado cada):**
+  - `--until-empty` / `count_eligible_pending` conta **somente esta op+namespace**
+  - `--force-redescribe` reabre `skipped`/`done` uma vez por processo; nunca `dead`
+  - Reconciliação de zumbi re-embed quando `LENGTH(embedding) = dim*4` já satisfeito
+  - Elegibilidade re-embed por comprimento do BLOB (CORRUPT / META_AHEAD re-elegível)
+  - Enqueue de chunk valida chunk em memória não-deletada do namespace alvo
+  - Marcadores CAPA-D compostos de "configuration file" apenas
+- Gate offline do produto permanece `scripts/e2e_offline_v120.sh` **20/20** (sem harness offline novo para 1.2.1).
+- Docs complementares: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md), [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.2.1]`, [gaps.md](../gaps.md).
+
+```bash
+# Regressões focadas da fila (nomes registrados na suite lib)
+cargo test --lib enqueue_candidate_accepts_entity_prefixed_reembed_key
+cargo test --lib dequeue_next_pending_isolates_by_namespace
+# Gate offline completo (inalterado)
+cargo build --release && bash scripts/e2e_offline_v120.sh
+```
+
 ## Gate E2E Offline — v1.2.0 (`scripts/e2e_offline_v120.sh`)
 - **Gate offline obrigatório do produto na v1.2.0**: `scripts/e2e_offline_v120.sh` (espera **20/20 PASS** — 15 `check()` + 5 PASS manuais; wrapper histórico `e2e_offline_v118.sh` supersedido).
 - Escopo: sem product env, sem chave OpenRouter, dirs XDG isolados sob `$TMPDIR`, só flags (`--db`), apenas local.

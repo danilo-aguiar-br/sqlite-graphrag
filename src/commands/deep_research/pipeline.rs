@@ -74,7 +74,9 @@ pub(super) fn resolve_sub_queries(args: &DeepResearchArgs) -> Result<Vec<SubQuer
                 .map(str::to_string)
                 .collect();
             if texts.is_empty() {
-                return Err(AppError::Validation(crate::i18n::validation::sub_queries_file_empty(&path.display().to_string())));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::sub_queries_file_empty(&path.display().to_string()),
+                ));
             }
             texts.truncate(args.max_sub_queries);
             Ok(texts
@@ -592,4 +594,3 @@ pub(super) fn execute_sub_query(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-

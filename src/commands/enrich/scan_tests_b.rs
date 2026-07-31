@@ -426,8 +426,8 @@ fn scan_entities_missing_embeddings_respects_name_filter() {
     insert_entity_named(&conn, "ent-a");
     insert_entity_named(&conn, "ent-b");
 
-    let rows = scan_entities_missing_embeddings(&conn, "global", None, &["ent-b".to_string()])
-        .unwrap();
+    let rows =
+        scan_entities_missing_embeddings(&conn, "global", None, &["ent-b".to_string()]).unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "ent-b");
 }
@@ -481,12 +481,10 @@ fn scan_chunks_missing_embeddings_selects_missing_and_stale_dim() {
 
     // Name filter restricts by PARENT memory name.
     let filtered =
-        scan_chunks_missing_embeddings(&conn, "global", None, &["other-mem".to_string()])
-            .unwrap();
+        scan_chunks_missing_embeddings(&conn, "global", None, &["other-mem".to_string()]).unwrap();
     assert!(filtered.is_empty());
     let filtered =
-        scan_chunks_missing_embeddings(&conn, "global", None, &["chunked".to_string()])
-            .unwrap();
+        scan_chunks_missing_embeddings(&conn, "global", None, &["chunked".to_string()]).unwrap();
     assert_eq!(filtered, vec![c_stale, c_missing]);
 }
 

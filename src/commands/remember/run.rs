@@ -53,10 +53,7 @@ pub fn run(
     // The operator gets the canonical form so they can re-submit it explicitly.
     if args.strict_name && name_was_normalized {
         return Err(AppError::Validation(
-            crate::i18n::validation::strict_name_not_canonical(
-                &original_name,
-                &normalized_name,
-            ),
+            crate::i18n::validation::strict_name_not_canonical(&original_name, &normalized_name),
         ));
     }
 

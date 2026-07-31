@@ -1,8 +1,6 @@
 use super::models::opencode_embed_model;
 use super::ops::build_codex_embedding_command;
-use super::timeout::{
-    embed_timeout, embed_timeout_for_batch, DEFAULT_EMBED_TIMEOUT_SECS,
-};
+use super::timeout::{embed_timeout, embed_timeout_for_batch, DEFAULT_EMBED_TIMEOUT_SECS};
 use super::types::{CodexSchemaFiles, EmbeddingFlavour};
 use super::{LlmEmbedding, LlmEmbeddingBuilder};
 use std::sync::Arc;
@@ -75,12 +73,9 @@ fn codex_schema_file_is_created_once_and_reused() {
 #[test]
 fn codex_embedding_command_reads_prompt_from_stdin() {
     let schema_path = std::env::temp_dir().join("sqlite-graphrag-embed-schema-test.json");
-    let cmd = build_codex_embedding_command(
-        std::path::Path::new("/bin/true"),
-        "gpt-5.4",
-        &schema_path,
-    )
-    .expect("build_codex_embedding_command must succeed in test");
+    let cmd =
+        build_codex_embedding_command(std::path::Path::new("/bin/true"), "gpt-5.4", &schema_path)
+            .expect("build_codex_embedding_command must succeed in test");
     let argv: Vec<String> = cmd
         .as_std()
         .get_args()
@@ -198,8 +193,7 @@ fn override_binary_uses_provided() {
 /// subprocess spawn honours it.
 #[test]
 fn override_model_uses_provided() {
-    let builder =
-        LlmEmbeddingBuilder::codex_default().override_model("gpt-5.4-custom".to_string());
+    let builder = LlmEmbeddingBuilder::codex_default().override_model("gpt-5.4-custom".to_string());
     assert_eq!(builder.model_override.as_deref(), Some("gpt-5.4-custom"));
 }
 

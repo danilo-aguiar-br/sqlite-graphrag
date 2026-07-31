@@ -119,10 +119,7 @@ pub fn run_opencode_ingest(args: &IngestArgs) -> Result<(), AppError> {
 
     if files.len() > args.max_files {
         return Err(AppError::Validation(
-            crate::i18n::validation::max_files_exceeded_all_or_nothing(
-                files.len(),
-                args.max_files,
-            ),
+            crate::i18n::validation::max_files_exceeded_all_or_nothing(files.len(), args.max_files),
         ));
     }
 

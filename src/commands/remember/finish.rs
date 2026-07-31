@@ -93,11 +93,7 @@ pub(crate) fn emit_remember_result(
     let created_at_iso = crate::tz::format_iso(chrono::Utc::now());
 
     // GAP-CLI-PRIO-01: hot-set entity names for priority entity-descriptions.
-    let entities_created: Vec<String> = graph
-        .entities
-        .iter()
-        .map(|e| e.name.clone())
-        .collect();
+    let entities_created: Vec<String> = graph.entities.iter().map(|e| e.name.clone()).collect();
 
     // GAP-CLI-PRIO-01 / G-T-ONESHOT-02: recommend entity-descriptions when
     // entities were linked without descriptions (typical after graph-stdin).

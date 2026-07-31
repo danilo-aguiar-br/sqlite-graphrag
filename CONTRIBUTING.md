@@ -89,6 +89,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Test assertions involving timestamps MUST be timezone-agnostic — parse ISO via `chrono::DateTime::parse_from_rfc3339` and compare `timestamp()` against `DateTime::UNIX_EPOCH` instead of hardcoded `1970-01-01T00:00:00` strings; this rule was added after a `SQLITE_GRAPHRAG_DISPLAY_TZ` leak in v1.0.66/v1.0.67 made three pre-existing tests flaky
 - OpenRouter embedding tests live in `tests/openrouter_embedding.rs` using `wiremock` for HTTP mocking; run with `cargo test --test openrouter_embedding`
 - E2E OpenRouter tests with real API are opt-in: set `OPENROUTER_API_KEY` and `--embedding-model` to run against a live endpoint; these are NOT part of the default `cargo test` suite
+- v1.2.1 enrich-queue CAPA regressions: when editing enqueue/dequeue/re-embed predicates, run `cargo test --lib commands::enrich` and confirm `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` stay green (namespace claim isolation / `entity:` strip)
 
 ### v1.0.76 Test Matrix (3 features)
 - The CI matrix runs `clippy` and `test` jobs across `default` and `llm-only` features (the `embedding-legacy` leg was removed in v1.0.79 together with the feature)
@@ -131,6 +132,11 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Final publication to crates.io is done manually with `cargo publish --locked`
 
 ## Recent Releases
+
+### v1.2.1 - 2026-07-31 — Enrich queue CAPA seal (namespace claim, force-redescribe reopen, re-embed BLOB truth)
+- Queue regressions (run when touching `src/commands/enrich/queue*.rs`, `predicates.rs`, `scan.rs`): `enqueue_candidate_accepts_entity_prefixed_reembed_key` (accepts `entity:ownership` and bare `ownership`; rejects missing entity); `dequeue_next_pending_isolates_by_namespace` (claim filtered by operation **and** namespace). Queue unit suite: **38** tests OK (`cargo test --lib commands::enrich::queue` or full `cargo test --lib commands::enrich`).
+- CAPA themes: namespace claim isolation; `--until-empty` op+ns count; `--force-redescribe` reopens `skipped`/`done` once/process; re-embed eligibility `LENGTH(embedding)=dim*4` + zombie reconcile; chunk ns validate; CAPA-D compound configuration-file markers only.
+- No schema migration (main DB stays **v16**). See `CHANGELOG.md` `[1.2.1]`; pin `=1.2.1`.
 
 ### v1.2.0 - 2026-07-29 — DEFAULT_EMBEDDING_DIM=1024, hermetic tests, residual seal
 - Hermetic test harness: `IsolatedEnv` / `xdg_isolation_guard` (and `wire_assert_cmd`); **no** product env `SQLITE_GRAPHRAG_*` as the operational config path in tests (negative asserts only; GAP-SG-101/118).

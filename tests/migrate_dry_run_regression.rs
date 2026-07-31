@@ -22,15 +22,14 @@ use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
 
+fn sgr_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlite-graphrag"))
+}
+
 /// Run `sqlite-graphrag migrate --db <p> --dry-run --json` and return
 /// `(status, stdout)`.
 fn run_dry_run(db_path: &Path) -> (i32, String) {
-    let output = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let output = sgr_bin()
         .arg("migrate")
         .arg("--db")
         .arg(db_path)
@@ -145,12 +144,7 @@ fn dry_run_on_fresh_db_reports_no_pending_after_init() {
     let db_path = tmp.path().join("init_then_dryrun.sqlite");
 
     // Initialize the database (this applies all embedded migrations).
-    let init_status = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let init_status = sgr_bin()
         .arg("init")
         .arg("--db")
         .arg(&db_path)

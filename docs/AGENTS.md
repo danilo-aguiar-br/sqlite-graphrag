@@ -9,7 +9,7 @@
 - Semantic distinction the fix resolves: `ANTHROPIC_API_KEY` (paid API key, PROHIBITED by ADR-0011), `ANTHROPIC_AUTH_TOKEN` (OAuth token for custom provider, PRESERVED), `OPENAI_API_KEY` (PROHIBITED), `OPENAI_BASE_URL` (PRESERVED), `ANTHROPIC_BASE_URL` (PRESERVED). The v1.0.69 mandate was correct; the v1.0.69 env-clear whitelist was overly broad
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full architectural rationale and `docs/MIGRATION.md#migrating-to-v1083` for operator upgrade steps
 - G58 partial resolution: custom-provider env vars route around OAuth quota contention, providing a deterministic fallback for `recall`/`hybrid-search` under official OAuth fatigue
-# sqlite-graphrag for AI Agents (v1.2.0 — XDG config, DEFAULT_EMBEDDING_DIM=1024, schema stays v16)
+# sqlite-graphrag for AI Agents (v1.2.1 — enrich-queue CAPA seal, DEFAULT_EMBEDDING_DIM=1024, schema stays v16)
 
 - Portuguese version: [AGENTS.pt-BR.md](AGENTS.pt-BR.md)
 - Back to [README.md](../README.md)
@@ -20,10 +20,33 @@
 > (OAuth, no MCP, no hooks). There is no daemon, no ONNX runtime,
 > no local embedding model.
 > New in v1.0.93: OpenRouter REST API added as a direct HTTP embedding backend via `--embedding-backend openrouter` (~200ms vs. ~15-20s headless subprocess).
-> **Current release v1.2.0:** config precedence is **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Keys via `config add-key` or `--openrouter-api-key`. Schema stays **v16**. **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
+> **Current release v1.2.1:** enrich-queue **CAPA seal** (namespace claim, until-empty op+ns count, force-redescribe reopen, re-embed LENGTH, entity: enqueue, chunk ns, CAPA-D markers). Config precedence remains **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Keys via `config add-key` or `--openrouter-api-key`. Schema stays **v16** (no main-DB migration; sidecar behaviour only). **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded).
 > Previous release v1.1.06: closes GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — O(k) entity-connect / cross-domain-bridges pair scan; schema stays v16. ADR-0066.
 > Previous release v1.1.05: five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (schema stays v16).
 > Previous releases: v1.1.04 (V016 schema v15→v16); v1.1.03; v1.1.02; v1.1.01.
+
+## New in v1.2.1 — Enrich Queue CAPA Seal (No Migration, Schema v16)
+
+- **REQUIRED namespace claim** — `dequeue_next_pending` filters by `operation` **and** `namespace`. An enrich drain for `ai-sdd` MUST NOT claim `global` / empty-ns rows (no cross-namespace HardFailure / circuit breaker).
+- **REQUIRED `--until-empty` count** — `count_eligible_pending` counts pending for **this operation + namespace only**. NEVER expect alien ReEmbed zombies to keep EntityDescriptions spinning with `completed=0`.
+- **REQUIRED `--force-redescribe` reopen** — `reopen_force_redescribe_candidates` reopens `skipped`/`done` **once per process** before first enqueue so `INSERT OR IGNORE` is not a silent no-op; NEVER reopens `dead` (use `--requeue-dead`).
+- **REQUIRED re-embed zombie reconcile** — `reconcile_satisfied_reembed_pending` marks pending ReEmbed `done` when a live vector already matches the active dim (`LENGTH(embedding) = dim*4`) — no wasted API calls.
+- **REQUIRED re-embed eligibility by BLOB length** — scan/predicates use `LENGTH(embedding) = target_dim * 4`, not the `dim` column alone. CORRUPT / META_AHEAD rows (`dim=1024` with a 384-d BLOB) remain eligible and re-embed again.
+- **REQUIRED enqueue `entity:` prefix** — re-embed keys `entity:{name}` strip the prefix for entity lookup; queue key stays `entity:…`; bare names still work; missing entities are rejected (fixes `completed: 0` on ~14k entity rows).
+- **REQUIRED chunk enqueue validates namespace** — `chunk_id` must exist on a non-deleted memory in the target namespace (blocks junk enqueue → not-found + circuit breaker).
+- **REQUIRED CAPA-D markers** — low-quality description markers use compound "configuration file" phrases only (e.g. `is a configuration file`); bare `%configuration file%` false positives removed.
+- **REQUIRED regressions** — `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; queue unit suite **38** tests OK.
+- **FORBIDDEN**: cross-namespace claim; counting all-ops pending under `--until-empty`; assuming `--force-redescribe` reopens `dead`; treating `dim` column alone as re-embed truth; inventing an ADR for 1.2.1 (notes live in CHANGELOG + monographs).
+- Live low-quality description backfill remains an **operator campaign**: `--force-redescribe` + `--until-empty` after the 1.2.1 fixes.
+- Offline gate unchanged: `scripts/e2e_offline_v120.sh` **20/20**. Pin library consumers to `=1.2.1`. See [CHANGELOG.md](../CHANGELOG.md) `[1.2.1]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+
+## Complete CLI inventory (v1.2.1)
+
+See [HOW_TO_USE.md — Complete CLI command inventory (v1.2.1)](HOW_TO_USE.md#complete-cli-command-inventory-v121) for nested families (`config` / `graph` / `fts` / `vec` / `slots` / `pending` / `embedding` / `pending-embeddings` / `cache` + enrich inspectors and 1.2.1 write flags).
+
+> **Top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
+>
+> **Nested (v1.2.1):** `config` (add-key, list-keys, remove-key, doctor, path, set, get, list, unset) · `graph` (traverse, stats, entities, recompute-degree) · `fts` (rebuild, check, stats) · `vec` (orphan-list, purge-orphan, stats) · `slots` (status, release, cleanup) · `pending` (list, show, cleanup) · `embedding` (status, list, abandon) · `pending-embeddings` (list, status, abandon) · `cache` (clear-models, list, stats) · enrich inspectors (`--status`, `--list-dead`, `--requeue-dead`, `--list-skipped`, `--requeue-skipped`, `--prune-dead-orphans`, `--prune-dead-entity-orphans`) · enrich write flags (`--until-empty`, `--force-redescribe`, `--operation re-embed --target`, `--namespace`, `--mode openrouter`, `--rest-concurrency`).
 
 ## New in v1.2.0 — dim 1024 + XDG Config Contract (No Migration, Schema v16)
 
@@ -157,7 +180,7 @@
 ## v1.0.79 Architecture (LLM-Only)
 
 > **HISTORICAL (v1.0.79):** the narrative below describes the release as shipped then (default dim 64, product env knobs).  
-> **CURRENT (v1.2.0):** `DEFAULT_EMBEDDING_DIM=1024`; active dim = CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` on open > 1024. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Models/timeouts/binaries via XDG `config set` or flags.
+> **CURRENT (v1.2.1; same since v1.2.0):** `DEFAULT_EMBEDDING_DIM=1024`; active dim = CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` on open > 1024. Product env `SQLITE_GRAPHRAG_*` is **NOT** read on the hot path. Models/timeouts/binaries via XDG `config set` or flags.
 
 The CLI is a thin orchestrator. Every embedding call spawns a
 claude code, codex, or opencode subprocess that returns an f32 vector of
@@ -266,7 +289,7 @@ Agents that try to set them will see a clear validation error.
 ## New in v1.0.79
 > **HISTORICAL release notes.** Product env names below are pre-v1.2.0. **CURRENT:** dim 1024; models via XDG `embedding.claude_model` / `embedding.codex_model` / `embedding.timeout_secs` / `llm.claude_empty_config_dir` or flags — no `SQLITE_GRAPHRAG_*` hot path.
 ### REQUIRED — G42: Fast, Parallel, Batched LLM Embedding Pipeline
-- **HISTORICAL:** default dim dropped 384→64 (MRL). **CURRENT (v1.2.0):** default **1024**; precedence CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Pre-existing DBs keep recorded dim — ZERO schema change for open.
+- **HISTORICAL:** default dim dropped 384→64 (MRL). **CURRENT (v1.2.1; same since v1.2.0):** default **1024**; precedence CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Pre-existing DBs keep recorded dim — ZERO schema change for open.
 - Embedding calls are BATCHED (G42/S2): N numbered texts per LLM call with the `{items:[{i,v}]}` schema; chunks batch at 8, entity names at 25 (calibration bases; G44 adapts with dim) — 39 subprocess spawns collapse into 4-5.
 - Real bounded parallelism (G42/S3): `Arc<Semaphore>` + `JoinSet` fan-out; `--llm-parallelism <N>` on `remember` (default 4), `ingest` (default 2) and `edit` (default 4), clamp [1, 32]; permits = min(flag, cpus, free RAM × 0.5 / 350 MB per worker, 32).
 - **CURRENT model/timeout:** XDG `embedding.claude_model` / `embedding.codex_model` / `embedding.timeout_secs` (default 300) with `kill_on_drop(true)`. (**HISTORICAL** env names `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` / `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` are not read.)
@@ -861,7 +884,7 @@ let output = Command::new("sqlite-graphrag")
 
 
 ## Global Configuration
-### REQUIRED — Precedence (v1.2.0)
+### REQUIRED — Precedence (v1.2.0+; still current in v1.2.1)
 - RESOLVE settings as **CLI flag > XDG `config set` > named default**
 - FORBIDDEN: product env `SQLITE_GRAPHRAG_*` as the config mechanism — not read on the hot path
 - USE `config set <key> <value>`, `config get <key>`, `config list --effective --json`, `config unset <key>`, `config path`, `config doctor --json`

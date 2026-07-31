@@ -76,8 +76,9 @@ fn main() -> std::process::ExitCode {
     // `build_global` fails only if a pool already exists. At this point in
     // startup none does, and if one somehow did, its configuration is the one
     // that matters — so the error is logged, not propagated.
-    let rayon_threads =
-        sqlite_graphrag::runtime_config::rayon_threads(sqlite_graphrag::constants::DEFAULT_RAYON_THREADS);
+    let rayon_threads = sqlite_graphrag::runtime_config::rayon_threads(
+        sqlite_graphrag::constants::DEFAULT_RAYON_THREADS,
+    );
     if let Err(e) = rayon::ThreadPoolBuilder::new()
         .num_threads(rayon_threads)
         .build_global()
@@ -223,7 +224,10 @@ fn main() -> std::process::ExitCode {
         embedding_dim: cli.embedding_dim.and_then(|d| u32::try_from(d).ok()),
         claude_binary: cli.claude_binary.as_ref().map(|p| p.display().to_string()),
         codex_binary: cli.codex_binary.as_ref().map(|p| p.display().to_string()),
-        opencode_binary: cli.opencode_binary.as_ref().map(|p| p.display().to_string()),
+        opencode_binary: cli
+            .opencode_binary
+            .as_ref()
+            .map(|p| p.display().to_string()),
         llm_model: cli.llm_model.clone(),
         llm_fallback: Some(cli.llm_fallback.clone()),
         skip_embedding_on_failure: cli.skip_embedding_on_failure,

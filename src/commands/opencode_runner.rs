@@ -24,10 +24,9 @@ pub fn find_opencode_binary_with_override(explicit: Option<&Path>) -> Result<Pat
         if p.exists() {
             return Ok(p.to_path_buf());
         }
-        return Err(AppError::Validation(crate::i18n::validation::binary_not_found_at_path(
-                "opencode",
-                &p.display().to_string(),
-            )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::binary_not_found_at_path("opencode", &p.display().to_string()),
+        ));
     }
     if let Some(path) = crate::runtime_config::opencode_binary() {
         let p = PathBuf::from(path);
@@ -85,7 +84,9 @@ pub fn validate_opencode_version(binary: &Path) -> Result<(u64, u64, u64), AppEr
     let output = std::process::Command::new(binary)
         .arg("--version")
         .output()
-        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_run_opencode_version(&e)))?;
+        .map_err(|e| {
+            AppError::Validation(crate::i18n::validation::failed_to_run_opencode_version(&e))
+        })?;
 
     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let raw = if raw.is_empty() {
@@ -98,16 +99,16 @@ pub fn validate_opencode_version(binary: &Path) -> Result<(u64, u64, u64), AppEr
         if v >= MIN_OPENCODE_VERSION {
             Ok(v)
         } else {
-            Err(AppError::Validation(crate::i18n::validation::version_below_minimum(
+            Err(AppError::Validation(
+                crate::i18n::validation::version_below_minimum(
                     "opencode",
                     &format!("{}.{}.{}", v.0, v.1, v.2),
                     &format!(
                         "{}.{}.{}",
-                        MIN_OPENCODE_VERSION.0,
-                        MIN_OPENCODE_VERSION.1,
-                        MIN_OPENCODE_VERSION.2
+                        MIN_OPENCODE_VERSION.0, MIN_OPENCODE_VERSION.1, MIN_OPENCODE_VERSION.2
                     ),
-                )))
+                ),
+            ))
         }
     })
 }
@@ -128,7 +129,9 @@ fn parse_version(raw: &str) -> Result<(u64, u64, u64), AppError> {
             return Ok((major, minor, patch));
         }
     }
-    Err(AppError::Validation(crate::i18n::validation::could_not_parse_opencode_version(raw)))
+    Err(AppError::Validation(
+        crate::i18n::validation::could_not_parse_opencode_version(raw),
+    ))
 }
 
 /// Propagate opencode-relevant env vars into a subprocess.
@@ -328,10 +331,9 @@ pub async fn call_opencode<T: serde::de::DeserializeOwned>(
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let (text, _cost, _tokens) = parse_opencode_output(&stdout_str)?;
-    let parsed: T = parse_json_from_opencode_text(&text)
-        .map_err(|e| {
-            AppError::Embedding(crate::i18n::validation::embedding_opencode_json_parse_failed(e))
-        })?;
+    let parsed: T = parse_json_from_opencode_text(&text).map_err(|e| {
+        AppError::Embedding(crate::i18n::validation::embedding_opencode_json_parse_failed(e))
+    })?;
 
     Ok((parsed, _cost, _tokens))
 }

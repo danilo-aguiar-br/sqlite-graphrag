@@ -2,13 +2,10 @@
 
 use crate::i18n::{current, Language};
 
-
 /// Memory/entity name required as positional or --name.
 pub fn name_required_positional_or_flag() -> String {
     match current() {
-        Language::English => {
-            "name required: pass as positional argument or via --name".to_string()
-        }
+        Language::English => "name required: pass as positional argument or via --name".to_string(),
         Language::Portuguese => {
             "nome obrigatório: passe como argumento posicional ou via --name".to_string()
         }
@@ -77,9 +74,7 @@ pub fn from_required_without_entity_all() -> String {
 pub fn to_required_without_entity_all() -> String {
     match current() {
         Language::English => "--to is required when --entity/--all is not used".to_string(),
-        Language::Portuguese => {
-            "--to é obrigatório quando --entity/--all não é usado".to_string()
-        }
+        Language::Portuguese => "--to é obrigatório quando --entity/--all não é usado".to_string(),
     }
 }
 
@@ -282,9 +277,13 @@ pub fn anthropic_api_key_oauth_required() -> String {
 /// OPENAI_API_KEY set — OAuth required.
 pub fn openai_api_key_oauth_required() -> String {
     match current() {
-        Language::English => "OPENAI_API_KEY is set; v1.0.76 requires OAuth. unset it and use `codex login` instead."
-            .to_string(),
-        Language::Portuguese => "OPENAI_API_KEY está definida; v1.0.76 exige OAuth. remova-a e use `codex login`."
-            .to_string(),
+        Language::English => {
+            "OPENAI_API_KEY is set; v1.0.76 requires OAuth. unset it and use `codex login` instead."
+                .to_string()
+        }
+        Language::Portuguese => {
+            "OPENAI_API_KEY está definida; v1.0.76 exige OAuth. remova-a e use `codex login`."
+                .to_string()
+        }
     }
 }

@@ -5,7 +5,8 @@
 //!
 //! GAP-SG-99 / GAP-SG-108: when XDG `log.to_file` is truthy, also write a
 //! rolling file under the cache dir via `tracing-appender`. The returned
-//! [`WorkerGuard`] MUST be held until process exit so buffers flush.
+//! [`WorkerGuard`](tracing_appender::non_blocking::WorkerGuard) MUST be held
+//! until process exit so buffers flush.
 
 use std::sync::Mutex;
 

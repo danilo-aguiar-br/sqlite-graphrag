@@ -150,8 +150,8 @@ mod tests {
     fn flag_overrides_default() {
         let tmp = TempDir::new().expect("tempdir");
         let db_flag = tmp.path().join("via-flag.sqlite");
-        let paths = AppPaths::resolve(Some(db_flag.to_str().expect("utf8")))
-            .expect("resolve with flag");
+        let paths =
+            AppPaths::resolve(Some(db_flag.to_str().expect("utf8"))).expect("resolve with flag");
         assert_eq!(paths.db, db_flag);
     }
 

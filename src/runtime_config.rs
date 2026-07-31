@@ -133,7 +133,10 @@ pub fn resolve_optional_string(flag: Option<&str>, xdg_key: &str) -> Option<Stri
             return Some(v.to_string());
         }
     }
-    config::get_setting(xdg_key).ok().flatten().filter(|s| !s.is_empty())
+    config::get_setting(xdg_key)
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
 }
 
 /// Parse usize from flag > XDG > default.
@@ -309,10 +312,7 @@ pub fn openrouter_chat_url(default: &str) -> String {
 pub fn openrouter_embeddings_url(default: &str) -> String {
     resolve_string_with_aliases(
         None,
-        &[
-            "network.openrouter.embeddings_url",
-            "network.embed_url",
-        ],
+        &["network.openrouter.embeddings_url", "network.embed_url"],
         default,
     )
 }
@@ -335,7 +335,11 @@ pub fn llm_probe_timeout_ms(default: u64) -> u64 {
 /// exists to enforce.
 pub fn rayon_threads(default: usize) -> usize {
     let n = resolve_usize(None, "parallelism.rayon_threads", default);
-    if n == 0 { default } else { n }
+    if n == 0 {
+        default
+    } else {
+        n
+    }
 }
 
 /// SQLITE_BUSY retry budget, from XDG `db.busy_retries`.

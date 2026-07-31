@@ -5,9 +5,7 @@
 //! typed [`MemoryRow`] or [`NewMemory`] values and never build SQL strings.
 
 mod soft_delete;
-pub use soft_delete::{
-    clear_deleted_at, find_by_name_any_state, list_deleted_before, soft_delete,
-};
+pub use soft_delete::{clear_deleted_at, find_by_name_any_state, list_deleted_before, soft_delete};
 
 use crate::embedder::f32_to_bytes;
 use crate::errors::AppError;
@@ -119,7 +117,6 @@ pub fn find_by_name(
         Err(e) => Err(AppError::Database(e)),
     }
 }
-
 
 /// Looks up a live memory by exact `body_hash` within a namespace.
 ///
@@ -356,7 +353,6 @@ pub fn read_by_name(
         Err(e) => Err(AppError::Database(e)),
     }
 }
-
 
 /// Lists live memories in a namespace ordered by `updated_at` descending.
 ///
@@ -622,7 +618,6 @@ pub fn read_full(conn: &Connection, memory_id: i64) -> Result<Option<MemoryRow>,
         Err(e) => Err(AppError::Database(e)),
     }
 }
-
 
 /// Preprocesses a raw user query for FTS5 `MATCH`.
 ///

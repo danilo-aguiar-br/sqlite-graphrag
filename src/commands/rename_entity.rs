@@ -146,7 +146,9 @@ pub fn run(
 
     // Ensure new name is not already taken in this namespace.
     if entities::find_entity_id(&conn, &namespace, &new_name)?.is_some() {
-        return Err(AppError::Validation(crate::i18n::validation::entity_name_already_exists(&new_name, &namespace)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_already_exists(&new_name, &namespace),
+        ));
     }
 
     // GAP-CLI-PERF-RENAME-01 / EMBED-NONE (v1.1.8): re-embed the new name only
@@ -330,9 +332,15 @@ mod tests {
     #[test]
     fn rejects_rename_entity_to_same_name() {
         use crate::errors::AppError;
-        let err = AppError::Validation(crate::i18n::validation::source_target_entity_names_identical());
+        let err =
+            AppError::Validation(crate::i18n::validation::source_target_entity_names_identical());
         assert_eq!(err.exit_code(), 1);
-        assert!(err.to_string().contains("identical"));
+        let msg = err.to_string();
+        // Locale-safe: EN "identical" / PT "idênticos"
+        assert!(
+            msg.contains("identical") || msg.contains("idênticos") || msg.contains("idêntico"),
+            "got: {msg}"
+        );
     }
 
     #[test]

@@ -119,10 +119,9 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
         affected
     } else {
         // Single mode: --name + --new-type
-        let entity_name = args
-            .name
-            .as_deref()
-            .ok_or_else(|| AppError::Validation(crate::i18n::validation::name_required_single_mode()))?;
+        let entity_name = args.name.as_deref().ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::name_required_single_mode())
+        })?;
         if args.new_type.is_none() && args.description.is_none() {
             return Err(AppError::Validation(
                 "at least one of --new-type or --description is required in single mode"

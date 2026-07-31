@@ -38,8 +38,5 @@ fn enrich_and_ingest_help_clean() {
 fn init_help_no_home_env_example() {
     let text = help_stdout(&["init"]);
     assert_clean_help("init", &text);
-    assert!(
-        !text.contains("HOME"),
-        "init help still shows HOME"
-    );
+    assert!(!text.contains("HOME"), "init help still shows HOME");
 }

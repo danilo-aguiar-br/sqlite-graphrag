@@ -201,10 +201,9 @@ fn run_single(
             "--source is required in single mode (omit --batch for single-edge rename)".to_string(),
         )
     })?;
-    let target_name = args
-        .target
-        .as_deref()
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::target_required_single_mode()))?;
+    let target_name = args.target.as_deref().ok_or_else(|| {
+        AppError::Validation(crate::i18n::validation::target_required_single_mode())
+    })?;
 
     // Resolve entity IDs — fail fast if either side does not exist.
     // Normalize names to match the normalized stored entity names.

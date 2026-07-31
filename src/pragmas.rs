@@ -56,7 +56,9 @@ pub fn apply_sidecar_queue_pragmas(conn: &Connection) -> Result<(), AppError> {
 /// Resolved `PRAGMA busy_timeout` (ms): XDG `db.query_timeout_ms` > factory default.
 fn resolved_busy_timeout_ms() -> i32 {
     let ms = crate::runtime_config::db_query_timeout_ms(crate::constants::QUERY_TIMEOUT_MILLIS);
-    i32::try_from(ms).unwrap_or(crate::constants::BUSY_TIMEOUT_MILLIS).max(0)
+    i32::try_from(ms)
+        .unwrap_or(crate::constants::BUSY_TIMEOUT_MILLIS)
+        .max(0)
 }
 
 /// Applies per-connection PRAGMAs: synchronous, foreign keys, busy timeout, cache, mmap, WAL.

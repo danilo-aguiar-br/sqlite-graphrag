@@ -1,0 +1,3 @@
+  - `--prune-dead-entity-orphans` — drop entity-keyed dead rows from the sidecar
+
+> **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2.

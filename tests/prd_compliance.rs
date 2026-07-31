@@ -486,13 +486,13 @@ fn prd_max_body_len_exceeded_returns_exit_6() {
 fn prd_namespace_flag_sets_memory_namespace() {
     // GAP-SG-101 / G-T-XDG-04: SQLITE_GRAPHRAG_NAMESPACE is not read.
     // The real channel is --namespace (or config set namespace.default).
-let tmp = TempDir::new().unwrap();
+    let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
     cmd_base(&tmp)
-    .args([
-    "remember",
-        "--name",
+        .args([
+            "remember",
+            "--name",
             "mem-via-flag-ns",
             "--type",
             "user",
@@ -503,20 +503,20 @@ let tmp = TempDir::new().unwrap();
             "--body",
             "corpo namespace flag",
             "--skip-extraction",
-            ])
-            .assert()
+        ])
+        .assert()
         .success();
 
-        let conn = Connection::open(db_path(&tmp)).unwrap();
-let ns: String = conn
-    .query_row(
-    "SELECT namespace FROM memories WHERE name=mem-via-flag-ns",
-    [],
-        |r| r.get(0),
-            )
-            .unwrap();
-            assert_eq!(ns, "ns-from-flag", "namespace must match --namespace flag");
-        }
+    let conn = Connection::open(db_path(&tmp)).unwrap();
+    let ns: String = conn
+        .query_row(
+            "SELECT namespace FROM memories WHERE name=mem-via-flag-ns",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(ns, "ns-from-flag", "namespace must match --namespace flag");
+}
 
 // ---------------------------------------------------------------------------
 // 13 — health emite integrity_ok e schema_ok

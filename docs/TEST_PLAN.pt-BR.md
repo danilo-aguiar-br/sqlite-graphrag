@@ -17,6 +17,23 @@
 - Exclui teste exploratório manual e projetos consumidores downstream
 
 
+## Gate de regressão v1.2.1 (CAPA enrich — só sidecar)
+
+- Escopo: sem migração main-DB (schema **v16**); CAPA A–D da fila enrich + fixes de enqueue.
+- Regressões unit / lib (devem ficar verdes):
+  - `enqueue_candidate_accepts_entity_prefixed_reembed_key` — strip do prefixo `entity:` + bare + rejeição de missing
+  - `dequeue_next_pending_isolates_by_namespace` — claim por `operation` + `namespace`
+  - Suite unitária da fila enrich: **38** testes OK
+- Contratos de comportamento (via unit/integração ou smoke de operador):
+  - `--until-empty` / `count_eligible_pending` conta **somente esta op+namespace** (não all-ops)
+  - `--force-redescribe` reabre `skipped`/`done` uma vez por processo; nunca reabre `dead`
+  - Re-embed: `reconcile_satisfied_reembed_pending` quando `LENGTH(embedding) = dim*4`; elegibilidade por comprimento do BLOB (CORRUPT/META_AHEAD re-elegível)
+  - Enqueue de chunk valida `chunk_id` em memória não-deletada do namespace alvo
+  - CAPA-D: apenas marcadores compostos de "configuration file" (sem FP bare)
+- Gate offline: `bash scripts/e2e_offline_v120.sh` ainda **20/20** (harness inalterado; CAPA coberta pela suite unitária)
+- Critério de passe: suite da fila 38 OK; regressões CAPA nomeadas verdes; offline 20/20
+- Docs complementares: [TESTING.pt-BR.md](TESTING.pt-BR.md), [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md), [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.2.1]`
+
 ## Gate de regressão v1.2.0 (XDG + dim 1024 + E2E offline)
 
 - Comando: `bash scripts/e2e_offline_v120.sh` (espera **20/20 PASS** — 15 `check()` + 5 PASS manuais; binário 1.2.0+; wrapper histórico `e2e_offline_v118.sh` supersedido)

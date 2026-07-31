@@ -13,13 +13,11 @@ use super::events::*;
 use super::extraction::find_codex_binary;
 use super::postprocess::take_enrich_backend;
 use super::queue::{
-    enqueue_candidate, item_type_for, item_type_for_key,
-    open_queue_db, reset_stale_processing_claims,
-    skipped_item_keys,
+    count_eligible_pending, enqueue_candidate, item_type_for, item_type_for_key, open_queue_db,
+    reconcile_satisfied_reembed_pending, reopen_force_redescribe_candidates, reset_failed_for_op,
+    reset_processing_for_op, reset_stale_processing_claims, skipped_item_keys,
 };
-use super::scan::{
-    self as scan, count_operation_backlog,
-};
+use super::scan::{self as scan, count_operation_backlog};
 use super::scheduler;
 use super::DEFAULT_RATE_LIMIT_WAIT;
 use crate::commands::ingest_claude::find_claude_binary;
@@ -418,35 +416,25 @@ pub fn run(
         }
     }
 
+    // GAP-SG-97: never wipe the whole sidecar — scope clear to this operation
+    // (and prefer namespace when the column is present).
+    let op_label = format!("{:?}", args.operation());
+
+    // CAPA-E: resume / retry-failed scoped to this operation + namespace only.
     if args.resume {
-        let reset = queue_conn
-            .execute(
-                "UPDATE queue SET status='pending' WHERE status='processing'",
-                [],
-            )
-            .map_err(|e| {
-                AppError::Validation(crate::i18n::validation::queue_resume_failed(&e))
-            })?;
+        let reset = reset_processing_for_op(&queue_conn, &op_label, &namespace)
+            .map_err(|e| AppError::Validation(crate::i18n::validation::queue_resume_failed(&e)))?;
         if reset > 0 {
             tracing::info!(target: "enrich", count = reset, "reset stuck processing items to pending");
         }
     }
 
     if args.retry_failed {
-        let count = queue_conn
-            .execute(
-                "UPDATE queue SET status='pending', attempt=0 WHERE status='failed'",
-                [],
-            )
-            .map_err(|e| {
-                AppError::Validation(crate::i18n::validation::queue_retry_failed_reset_failed(&e))
-            })?;
+        let count = reset_failed_for_op(&queue_conn, &op_label, &namespace).map_err(|e| {
+            AppError::Validation(crate::i18n::validation::queue_retry_failed_reset_failed(&e))
+        })?;
         tracing::info!(target: "enrich", count, "retrying failed items");
     }
-
-    // GAP-SG-97: never wipe the whole sidecar — scope clear to this operation
-    // (and prefer namespace when the column is present).
-    let op_label = format!("{:?}", args.operation());
     if !args.resume && !args.retry_failed && !args.until_empty {
         queue_conn
             .execute(
@@ -454,9 +442,39 @@ pub fn run(
                  AND (namespace = ?2 OR namespace = '' OR namespace IS NULL)",
                 rusqlite::params![op_label, namespace],
             )
-            .map_err(|e| {
-                AppError::Validation(crate::i18n::validation::queue_clear_failed(&e))
-            })?;
+            .map_err(|e| AppError::Validation(crate::i18n::validation::queue_clear_failed(&e)))?;
+    }
+
+    // CAPA-B/F: force-redescribe reopens skipped/done for scan keys once per run
+    // (before first enqueue only). until-empty re-scans must NOT reopen or
+    // preservation_failed loops until max-runtime.
+    if args.force_redescribe && matches!(args.operation(), EnrichOperation::EntityDescriptions) {
+        let reopened = reopen_force_redescribe_candidates(&queue_conn, &namespace, &scan_result);
+        if reopened > 0 {
+            tracing::info!(
+                target: "enrich",
+                reopened,
+                scan = scan_result.len(),
+                "force-redescribe reopened skipped/done candidates (once per run)"
+            );
+        }
+    }
+
+    // CAPA-C2: drop ReEmbed pending that already have a live vector at active dim.
+    if matches!(args.operation(), EnrichOperation::ReEmbed) {
+        match reconcile_satisfied_reembed_pending(&conn, &queue_conn, &namespace) {
+            Ok(n) if n > 0 => {
+                tracing::info!(
+                    target: "enrich",
+                    reconciled = n,
+                    "re-embed reconciled pending rows with live embeddings"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(target: "enrich", error = %e, "re-embed reconcile failed");
+            }
+        }
     }
 
     // Populate queue (GAP-SG-12: tag rows with the operation + link memory_id).
@@ -478,6 +496,16 @@ pub fn run(
             enqueue_candidate(tx_conn, &conn, &namespace, key, it, &op_label);
         }
         tx.commit()?;
+    }
+    // CAPA-H: scan length vs actual pending after enqueue (INSERT OR IGNORE).
+    {
+        let pending_now = count_eligible_pending(&queue_conn, &op_label, &namespace, "");
+        tracing::info!(
+            target: "enrich",
+            scan = scan_result.len(),
+            pending_after_enqueue = pending_now,
+            "enqueue complete"
+        );
     }
 
     let parallelism = super::events::resolve_drain_parallelism(args);
@@ -635,13 +663,9 @@ pub fn run(
         if !args.until_empty {
             break;
         }
-        let eligible_remaining: i64 = queue_conn
-            .query_row(
-                &format!("SELECT COUNT(*) FROM queue WHERE status='pending' {backoff_clause}"),
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
+        // CAPA-A: isolate until-empty convergence to this op+ns (dequeue parity).
+        let eligible_remaining =
+            count_eligible_pending(&queue_conn, &op_label, &namespace, backoff_clause);
         let progressed = completed > completed_before;
         if std::time::Instant::now() >= until_deadline {
             tracing::info!(target: "enrich", "until-empty: max-runtime reached, stopping");
@@ -664,13 +688,9 @@ pub fn run(
     // sweep (which waits `stale_claim_secs`), delaying recovery. Scoped to the
     // enrich run (not the global signal handler) so unrelated code paths keep
     // their existing exit semantics. Best-effort: errors are logged, not fatal.
+    // CAPA-E: only this operation + namespace (do not unstick alien ops).
     if crate::shutdown_requested() {
-        let reset = queue_conn
-            .execute(
-                "UPDATE queue SET status='pending', claimed_at=NULL WHERE status='processing'",
-                [],
-            )
-            .unwrap_or(0);
+        let reset = reset_processing_for_op(&queue_conn, &op_label, &namespace).unwrap_or(0);
         let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
         tracing::info!(
             target: "enrich",
@@ -721,12 +741,12 @@ pub fn run(
             None
         },
         pairs_remaining_estimate: backlog_degree0_proxy,
-        yields: if yield_count > 0 { Some(yield_count) } else { None },
-        preempted_for_gate: if preempted_for_gate {
-            Some(true)
+        yields: if yield_count > 0 {
+            Some(yield_count)
         } else {
             None
         },
+        preempted_for_gate: if preempted_for_gate { Some(true) } else { None },
     });
 
     if failed == 0 {

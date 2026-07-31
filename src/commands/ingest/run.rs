@@ -29,7 +29,11 @@ pub fn run(
     validate_mode_conditional_flags_ingest(&args)?;
     tracing::debug!(target: "ingest", dir = %args.dir.display(), mode = ?args.mode, "starting ingest");
     if args.mode == IngestMode::ClaudeCode {
-        return crate::commands::ingest_claude::run_claude_ingest(&args, embedding_backend, llm_backend);
+        return crate::commands::ingest_claude::run_claude_ingest(
+            &args,
+            embedding_backend,
+            llm_backend,
+        );
     }
     if args.mode == IngestMode::Codex {
         return crate::commands::ingest_codex::run_codex_ingest(&args);

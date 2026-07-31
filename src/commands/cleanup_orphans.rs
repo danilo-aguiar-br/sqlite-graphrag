@@ -63,7 +63,9 @@ pub fn run(args: CleanupOrphansArgs) -> Result<(), AppError> {
         0
     } else {
         if orphan_count > 0 && !args.yes {
-            return Err(AppError::Validation(crate::i18n::validation::refuse_delete_orphans_without_yes(orphan_count)));
+            return Err(AppError::Validation(
+                crate::i18n::validation::refuse_delete_orphans_without_yes(orphan_count),
+            ));
         }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let removed = entities::delete_entities_by_ids(&tx, &orphan_ids)?;

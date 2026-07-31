@@ -16,7 +16,6 @@ fn setup_db() -> Result<(TempDir, Connection), Box<dyn std::error::Error>> {
     Ok((tmp, conn))
 }
 
-
 fn new_entity_helper(name: &str) -> NewEntity {
     NewEntity {
         name: name.to_string(),
@@ -231,8 +230,7 @@ fn test_upsert_entity_vec_multiple_independent_entities() -> TestResult {
         upsert_entity_vec(&conn, entity_id, "global", EntityType::Project, &emb, &nome)?;
     }
 
-    let count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM entity_embeddings", [], |r| r.get(0))?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM entity_embeddings", [], |r| r.get(0))?;
     assert_eq!(
         count, 3,
         "must have three distinct rows in entity_embeddings"
@@ -352,4 +350,3 @@ fn test_delete_entities_by_ids_also_removes_vec() -> TestResult {
 // ------------------------------------------------------------------ //
 // upsert_relationship / find_relationship
 // ------------------------------------------------------------------ //
-

@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::time::Instant;
 
-
 use super::args::{EnrichArgs, EnrichOperation};
 use super::events::*;
 use super::extraction::{
@@ -12,12 +11,12 @@ use super::extraction::{
     call_graph_audit, call_memory_bindings, call_reembed, call_relation_reclassify,
     call_weight_calibrate, take_last_openrouter_failure, EnrichItemResult,
 };
+use super::prompts;
 use super::queue::{
     dequeue_next_pending, heartbeat, item_type_for, open_queue_db, record_item_failure,
     record_item_failure_typed, requeue_wrong_op, skip_wrong_type, validate_claim, ClaimCheck,
     DequeueOutcome,
 };
-use super::prompts;
 use super::DEFAULT_RATE_LIMIT_WAIT;
 use crate::errors::AppError;
 use crate::output::emit_json_line as emit_json;
@@ -33,7 +32,6 @@ pub(crate) struct DrainCounters {
     pub cost_total: f64,
     pub oauth_detected: bool,
 }
-
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drain_parallel(
@@ -52,29 +50,29 @@ pub(crate) fn drain_parallel(
     embedding_backend: crate::cli::EmbeddingBackendChoice,
     counters: &mut DrainCounters,
 ) -> Result<(), AppError> {
-let stdout_mu = parking_lot::Mutex::new(());
-let budget = args.max_cost_usd;
-let operation = args.operation().clone();
-let mode = args.mode().clone();
-let min_oc = args.min_output_chars;
-let max_oc = args.max_output_chars;
-let prompt_tpl = args.prompt_template.as_deref().map(|p| p.to_path_buf());
+    let stdout_mu = parking_lot::Mutex::new(());
+    let budget = args.max_cost_usd;
+    let operation = args.operation().clone();
+    let mode = args.mode().clone();
+    let min_oc = args.min_output_chars;
+    let max_oc = args.max_output_chars;
+    let prompt_tpl = args.prompt_template.as_deref().map(|p| p.to_path_buf());
 
-struct WorkerResult {
-    completed: usize,
-    failed: usize,
-    skipped: usize,
-    cost: f64,
-    oauth: bool,
-    // GAP-SG-76 fix: distinct signal for "worker aborted because
-    // SQLITE_BUSY exhausted all bounded retries" so the caller
-    // fails loud (exit 15) instead of silently treating it like
-    // an exhausted/empty backlog.
-    db_busy: bool,
-}
+    struct WorkerResult {
+        completed: usize,
+        failed: usize,
+        skipped: usize,
+        cost: f64,
+        oauth: bool,
+        // GAP-SG-76 fix: distinct signal for "worker aborted because
+        // SQLITE_BUSY exhausted all bounded retries" so the caller
+        // fails loud (exit 15) instead of silently treating it like
+        // an exhausted/empty backlog.
+        db_busy: bool,
+    }
 
-let results: Vec<WorkerResult> = std::thread::scope(|s| {
-    let handles: Vec<_> = (0..parallelism)
+    let results: Vec<WorkerResult> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..parallelism)
     .map(|worker_id| {
         let stdout_mu = &stdout_mu;
         let paths = &paths;
@@ -148,7 +146,7 @@ let results: Vec<WorkerResult> = std::thread::scope(|s| {
                 // convergent drain.
                 let pending = match crate::storage::utils::with_busy_retry(|| {
                     // GAP-CLI-QISO-01: claim only rows for this operation.
-                    dequeue_next_pending(&w_queue, op_label, backoff_clause)
+                    dequeue_next_pending(&w_queue, op_label, namespace, backoff_clause)
                 }) {
                     Ok(DequeueOutcome::Claimed(p)) => Some(p),
                     Ok(DequeueOutcome::Empty) => None,
@@ -329,41 +327,40 @@ let results: Vec<WorkerResult> = std::thread::scope(|s| {
         })
     })
     .collect();
-    handles
-        .into_iter()
-        .map(|h| {
-            h.join().unwrap_or(WorkerResult {
-                completed: 0,
-                failed: 0,
-                skipped: 0,
-                cost: 0.0,
-                oauth: false,
-                db_busy: false,
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or(WorkerResult {
+                    completed: 0,
+                    failed: 0,
+                    skipped: 0,
+                    cost: 0.0,
+                    oauth: false,
+                    db_busy: false,
+                })
             })
-        })
-        .collect()
-});
+            .collect()
+    });
 
-// GAP-SG-76 fix: a worker that aborted due to exhausted
-// SQLITE_BUSY retries must fail the whole `enrich` invocation
-// loudly (exit code 15 via AppError::DbBusy) rather than being
-// folded silently into the completed/failed/skipped counters,
-// which would understate a genuinely unfinished drain.
-if results.iter().any(|r| r.db_busy) {
-    return Err(AppError::DbBusy(
-        "SQLITE_BUSY exhausted bounded retries while dequeuing (parallel worker)"
-            .into(),
-    ));
-}
-
-for r in &results {
-    counters.completed += r.completed;
-    counters.failed += r.failed;
-    counters.skipped += r.skipped;
-    counters.cost_total += r.cost;
-    if r.oauth && !counters.oauth_detected {
-        counters.oauth_detected = true;
+    // GAP-SG-76 fix: a worker that aborted due to exhausted
+    // SQLITE_BUSY retries must fail the whole `enrich` invocation
+    // loudly (exit code 15 via AppError::DbBusy) rather than being
+    // folded silently into the completed/failed/skipped counters,
+    // which would understate a genuinely unfinished drain.
+    if results.iter().any(|r| r.db_busy) {
+        return Err(AppError::DbBusy(
+            "SQLITE_BUSY exhausted bounded retries while dequeuing (parallel worker)".into(),
+        ));
     }
-}
+
+    for r in &results {
+        counters.completed += r.completed;
+        counters.failed += r.failed;
+        counters.skipped += r.skipped;
+        counters.cost_total += r.cost;
+        if r.oauth && !counters.oauth_detected {
+            counters.oauth_detected = true;
+        }
+    }
     Ok(())
 }

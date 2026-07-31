@@ -1,14 +1,13 @@
 //! Extracted from extraction.rs (Wave C1).
 
-use super::*;
 use super::postprocess::persist_memory_bindings;
-use rusqlite::Connection;
-use crate::errors::AppError;
+use super::*;
 use crate::entity_type::EntityType;
+use crate::errors::AppError;
 use crate::storage::entities::{self, NewEntity};
 use crate::storage::memories;
+use rusqlite::Connection;
 use std::path::Path;
-
 
 /// G27 P2: Enrich generic memory description via LLM.
 pub(crate) fn call_description_enrich(

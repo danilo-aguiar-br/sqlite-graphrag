@@ -83,12 +83,8 @@ pub fn embedding_failed_to_read_response_body(err: impl Display) -> String {
 /// HTTP 200 body had neither `data` nor `error`.
 pub fn embedding_openrouter_200_neither_data_nor_error() -> String {
     match current() {
-        Language::English => {
-            "OpenRouter 200 response had neither data nor error".to_string()
-        }
-        Language::Portuguese => {
-            "resposta OpenRouter 200 sem data nem error".to_string()
-        }
+        Language::English => "OpenRouter 200 response had neither data nor error".to_string(),
+        Language::Portuguese => "resposta OpenRouter 200 sem data nem error".to_string(),
     }
 }
 
@@ -135,9 +131,7 @@ pub fn embedding_unexpected_http(status: impl Display, body: &str) -> String {
 /// Max retries exhausted for OpenRouter embedding request.
 pub fn embedding_openrouter_max_retries() -> String {
     match current() {
-        Language::English => {
-            "max retries exceeded for OpenRouter request".to_string()
-        }
+        Language::English => "max retries exceeded for OpenRouter request".to_string(),
         Language::Portuguese => {
             "número máximo de tentativas excedido para requisição OpenRouter".to_string()
         }
@@ -157,69 +151,47 @@ pub fn embedding_tokio_runtime_init_failed(err: impl Display) -> String {
 /// Tokio runtime missing after set.
 pub fn embedding_tokio_runtime_unavailable() -> String {
     match current() {
-        Language::English => {
-            "tokio runtime unavailable after initialisation".to_string()
-        }
-        Language::Portuguese => {
-            "runtime tokio indisponível após inicialização".to_string()
-        }
+        Language::English => "tokio runtime unavailable after initialisation".to_string(),
+        Language::Portuguese => "runtime tokio indisponível após inicialização".to_string(),
     }
 }
 
 /// Default embedder singleton missing after set.
 pub fn embedding_embedder_unavailable() -> String {
     match current() {
-        Language::English => {
-            "embedder unavailable after initialisation".to_string()
-        }
-        Language::Portuguese => {
-            "embedder indisponível após inicialização".to_string()
-        }
+        Language::English => "embedder unavailable after initialisation".to_string(),
+        Language::Portuguese => "embedder indisponível após inicialização".to_string(),
     }
 }
 
 /// Claude embedder singleton missing after set.
 pub fn embedding_claude_embedder_unavailable() -> String {
     match current() {
-        Language::English => {
-            "claude embedder unavailable after initialisation".to_string()
-        }
-        Language::Portuguese => {
-            "embedder claude indisponível após inicialização".to_string()
-        }
+        Language::English => "claude embedder unavailable after initialisation".to_string(),
+        Language::Portuguese => "embedder claude indisponível após inicialização".to_string(),
     }
 }
 
 /// OpenCode embedder singleton missing after set.
 pub fn embedding_opencode_embedder_unavailable() -> String {
     match current() {
-        Language::English => {
-            "opencode embedder unavailable after initialisation".to_string()
-        }
-        Language::Portuguese => {
-            "embedder opencode indisponível após inicialização".to_string()
-        }
+        Language::English => "opencode embedder unavailable after initialisation".to_string(),
+        Language::Portuguese => "embedder opencode indisponível após inicialização".to_string(),
     }
 }
 
 /// OpenRouter embed client singleton missing after set.
 pub fn embedding_openrouter_client_unavailable() -> String {
     match current() {
-        Language::English => {
-            "openrouter client unavailable after initialisation".to_string()
-        }
-        Language::Portuguese => {
-            "cliente openrouter indisponível após inicialização".to_string()
-        }
+        Language::English => "openrouter client unavailable after initialisation".to_string(),
+        Language::Portuguese => "cliente openrouter indisponível após inicialização".to_string(),
     }
 }
 
 /// OpenRouter chat client singleton missing after set.
 pub fn embedding_openrouter_chat_client_unavailable() -> String {
     match current() {
-        Language::English => {
-            "openrouter chat client unavailable after initialisation".to_string()
-        }
+        Language::English => "openrouter chat client unavailable after initialisation".to_string(),
         Language::Portuguese => {
             "cliente de chat openrouter indisponível após inicialização".to_string()
         }
@@ -231,12 +203,8 @@ pub fn embedding_openrouter_chat_client_unavailable() -> String {
 /// OpenRouter probe: client not initialised.
 pub fn embedding_openrouter_probe_not_initialised() -> String {
     match current() {
-        Language::English => {
-            "openrouter probe: client not initialised (skip)".to_string()
-        }
-        Language::Portuguese => {
-            "probe openrouter: cliente não inicializado (skip)".to_string()
-        }
+        Language::English => "openrouter probe: client not initialised (skip)".to_string(),
+        Language::Portuguese => "probe openrouter: cliente não inicializado (skip)".to_string(),
     }
 }
 
@@ -252,12 +220,10 @@ pub fn embedding_codex_probe_binary_not_on_path() -> String {
 pub fn embedding_codex_probe_auth_missing() -> String {
     match current() {
         Language::English => {
-            "codex probe: auth.json missing (skip; use --llm-backend none or login)"
-                .to_string()
+            "codex probe: auth.json missing (skip; use --llm-backend none or login)".to_string()
         }
         Language::Portuguese => {
-            "probe codex: auth.json ausente (skip; use --llm-backend none ou login)"
-                .to_string()
+            "probe codex: auth.json ausente (skip; use --llm-backend none ou login)".to_string()
         }
     }
 }
@@ -274,9 +240,7 @@ pub fn embedding_claude_probe_binary_not_on_path() -> String {
 pub fn embedding_opencode_probe_binary_not_on_path() -> String {
     match current() {
         Language::English => "opencode probe: binary not on PATH (skip)".to_string(),
-        Language::Portuguese => {
-            "probe opencode: binário não está no PATH (skip)".to_string()
-        }
+        Language::Portuguese => "probe opencode: binário não está no PATH (skip)".to_string(),
     }
 }
 
@@ -284,8 +248,7 @@ pub fn embedding_opencode_probe_binary_not_on_path() -> String {
 pub fn embedding_openrouter_client_not_initialised() -> String {
     match current() {
         Language::English => {
-            "OpenRouter client not initialised; call get_openrouter_embedder first"
-                .to_string()
+            "OpenRouter client not initialised; call get_openrouter_embedder first".to_string()
         }
         Language::Portuguese => {
             "cliente OpenRouter não inicializado; chame get_openrouter_embedder primeiro"
@@ -372,12 +335,8 @@ pub fn embedding_task_join_error(err: impl Display) -> String {
 /// Entity embed cache produced a null slot.
 pub fn embedding_entity_cache_null() -> String {
     match current() {
-        Language::English => {
-            "entity embed cache produced null result".to_string()
-        }
-        Language::Portuguese => {
-            "cache de embed de entidade produziu resultado nulo".to_string()
-        }
+        Language::English => "entity embed cache produced null result".to_string(),
+        Language::Portuguese => "cache de embed de entidade produziu resultado nulo".to_string(),
     }
 }
 
@@ -402,13 +361,9 @@ pub fn embedding_semaphore_closed() -> String {
 /// Embedding cancelled by shutdown signal (keep "cancelled" for batch matcher).
 pub fn embedding_cancelled_by_shutdown() -> String {
     match current() {
-        Language::English => {
-            "embedding cancelled by shutdown signal".to_string()
-        }
+        Language::English => "embedding cancelled by shutdown signal".to_string(),
         // Keep English "cancelled" so batch collector still matches.
-        Language::Portuguese => {
-            "embedding cancelled por sinal de shutdown".to_string()
-        }
+        Language::Portuguese => "embedding cancelled por sinal de shutdown".to_string(),
     }
 }
 
@@ -459,9 +414,9 @@ pub fn embedding_llm_batch_parse_failed(err: impl Display, raw: &str) -> String 
 /// LLM batch returned wrong item count.
 pub fn embedding_llm_batch_item_count(got: usize, expected: usize) -> String {
     match current() {
-        Language::English => format!(
-            "LLM batch returned {got} items, expected {expected} (G42/S2 coverage check)"
-        ),
+        Language::English => {
+            format!("LLM batch returned {got} items, expected {expected} (G42/S2 coverage check)")
+        }
         Language::Portuguese => format!(
             "lote LLM retornou {got} itens, esperados {expected} (verificação de cobertura G42/S2)"
         ),
@@ -497,9 +452,9 @@ pub fn embedding_llm_batch_item_dims(i: usize, got: usize, expected: usize) -> S
 /// LLM batch response missing an item index.
 pub fn embedding_llm_batch_missing_item(index: usize) -> String {
     match current() {
-        Language::English => format!(
-            "LLM batch response is missing item index {index} (G42/S2 coverage check)"
-        ),
+        Language::English => {
+            format!("LLM batch response is missing item index {index} (G42/S2 coverage check)")
+        }
         Language::Portuguese => format!(
             "resposta do lote LLM sem índice de item {index} (verificação de cobertura G42/S2)"
         ),
@@ -556,9 +511,9 @@ pub fn embedding_schema_tempfile_write_failed(err: impl Display) -> String {
 pub fn embedding_oauth_usage_quota_exhausted_claude(snippet: &str) -> String {
     match current() {
         // Keep English "OAuth" + "quota" markers for EmbeddingErrorKind::classify.
-        Language::English => format!(
-            "OAuth usage quota exhausted: claude rate_limit detected in stdout: {snippet}"
-        ),
+        Language::English => {
+            format!("OAuth usage quota exhausted: claude rate_limit detected in stdout: {snippet}")
+        }
         Language::Portuguese => format!(
             "OAuth usage quota exhausted: rate_limit do claude detectado no stdout: {snippet}"
         ),
@@ -578,12 +533,10 @@ pub fn embedding_codex_stdin_write_failed(err: impl Display) -> String {
 /// `--llm-backend codex` but codex missing (claude detected).
 pub fn embedding_dry_run_codex_not_on_path() -> String {
     match current() {
-        Language::English => {
-            "`--llm-backend codex` requested but `codex` was not found on PATH \
+        Language::English => "`--llm-backend codex` requested but `codex` was not found on PATH \
              (a `claude` binary was detected; refusing silent fallback per ADR-0042). \
              Install `codex` (>= 0.130) or pass `--llm-backend claude` explicitly."
-                .to_string()
-        }
+            .to_string(),
         Language::Portuguese => {
             "`--llm-backend codex` solicitado mas `codex` não encontrado no PATH \
              (binário `claude` detectado; recusando fallback silencioso por ADR-0042). \
@@ -596,12 +549,10 @@ pub fn embedding_dry_run_codex_not_on_path() -> String {
 /// `--llm-backend claude` but claude missing (codex detected).
 pub fn embedding_dry_run_claude_not_on_path() -> String {
     match current() {
-        Language::English => {
-            "`--llm-backend claude` requested but `claude` was not found on PATH \
+        Language::English => "`--llm-backend claude` requested but `claude` was not found on PATH \
              (a `codex` binary was detected; refusing silent fallback per ADR-0042). \
              Install `claude` (Claude Code >= 2.1) or pass `--llm-backend codex` explicitly."
-                .to_string()
-        }
+            .to_string(),
         Language::Portuguese => {
             "`--llm-backend claude` solicitado mas `claude` não encontrado no PATH \
              (binário `codex` detectado; recusando fallback silencioso por ADR-0042). \
@@ -650,9 +601,7 @@ pub fn embedding_dry_run_opencode_not_on_path() -> String {
 /// OpenCode NDJSON had no text events.
 pub fn embedding_opencode_no_text_events() -> String {
     match current() {
-        Language::English => {
-            "opencode returned no text events in NDJSON output".to_string()
-        }
+        Language::English => "opencode returned no text events in NDJSON output".to_string(),
         Language::Portuguese => {
             "opencode não retornou eventos de texto na saída NDJSON".to_string()
         }
@@ -678,18 +627,14 @@ pub fn embedding_failed_to_spawn_opencode(err: impl Display) -> String {
 }
 
 /// OpenCode non-zero exit with tails.
-pub fn embedding_opencode_exited(
-    status: impl Display,
-    stderr: &str,
-    stdout: &str,
-) -> String {
+pub fn embedding_opencode_exited(status: impl Display, stderr: &str, stdout: &str) -> String {
     match current() {
-        Language::English => format!(
-            "opencode exited with {status}: stderr={stderr}, stdout={stdout}"
-        ),
-        Language::Portuguese => format!(
-            "opencode saiu com {status}: stderr={stderr}, stdout={stdout}"
-        ),
+        Language::English => {
+            format!("opencode exited with {status}: stderr={stderr}, stdout={stdout}")
+        }
+        Language::Portuguese => {
+            format!("opencode saiu com {status}: stderr={stderr}, stdout={stdout}")
+        }
     }
 }
 

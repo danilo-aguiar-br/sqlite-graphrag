@@ -41,10 +41,7 @@ pub struct RenameArgs {
     /// New memory name. Also accepts the aliases `--new` and `--to` (since v1.0.35).
     #[arg(long, alias = "new", alias = "to")]
     pub new_name: Option<String>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Optimistic locking: reject if the current updated_at does not match (exit 3).
@@ -315,7 +312,12 @@ mod tests {
         use crate::errors::AppError;
         let err = AppError::Validation(crate::i18n::validation::source_target_names_identical());
         assert_eq!(err.exit_code(), 1);
-        assert!(err.to_string().contains("identical"));
+        let msg = err.to_string();
+        // Locale-safe: EN "identical" / PT "idênticos"
+        assert!(
+            msg.contains("identical") || msg.contains("idênticos") || msg.contains("idêntico"),
+            "got: {msg}"
+        );
     }
 
     #[test]

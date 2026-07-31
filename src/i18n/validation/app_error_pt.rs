@@ -212,9 +212,7 @@ pub fn low_memory(available_mb: u64, required_mb: u64) -> String {
 
 /// Shutdown.
 pub fn shutdown(signal: &str) -> String {
-    format!(
-        "sinal de desligamento recebido: {signal}; operação cancelada pelo usuário (exit 19)"
-    )
+    format!("sinal de desligamento recebido: {signal}; operação cancelada pelo usuário (exit 19)")
 }
 
 /// Preflight failed.

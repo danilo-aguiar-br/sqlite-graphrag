@@ -137,7 +137,8 @@ impl Env {
         c.env("XDG_CONFIG_HOME", self.tmp.path().join("config_home"));
         c.env("XDG_DATA_HOME", self.tmp.path().join("data"));
         c.env("PATH", common::prepend_path(&mock_dir));
-        c.arg("--config-dir").arg(self.tmp.path().join("config_default"));
+        c.arg("--config-dir")
+            .arg(self.tmp.path().join("config_default"));
         c.arg("--cache-dir").arg(self.tmp.path().join("cache"));
         c.arg("--skip-memory-guard");
         c

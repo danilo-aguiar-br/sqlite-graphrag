@@ -36,10 +36,7 @@ pub struct ReadArgs {
         help = "Memory ID (integer) for direct lookup"
     )]
     pub id: Option<i64>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Include linked entities and relationships in the response.

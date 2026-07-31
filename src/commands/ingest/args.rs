@@ -224,7 +224,7 @@ pub struct IngestArgs {
     /// Explicit path to the Codex CLI binary (only with --mode codex).
     #[arg(
         long,
-                help = "Explicit path to the Codex CLI binary (only with --mode codex)"
+        help = "Explicit path to the Codex CLI binary (only with --mode codex)"
     )]
     pub codex_binary: Option<PathBuf>,
 
@@ -251,7 +251,7 @@ pub struct IngestArgs {
     #[arg(
         long,
         value_name = "MODEL",
-                help = "Model override for OpenCode extraction"
+        help = "Model override for OpenCode extraction"
     )]
     pub opencode_model: Option<String>,
 
@@ -259,7 +259,7 @@ pub struct IngestArgs {
     #[arg(
         long,
         value_name = "SECONDS",
-                default_value_t = 300,
+        default_value_t = 300,
         help = "Timeout in seconds for each opencode run invocation (default: 300)"
     )]
     pub opencode_timeout: u64,
@@ -347,7 +347,10 @@ pub(crate) fn low_memory_setting_enabled() -> bool {
 ///
 /// When low-memory wins and the user also passed `--ingest-parallelism N>1`,
 /// emits a `tracing::warn!` advertising the override.
-pub(crate) fn resolve_parallelism(low_memory_flag: bool, ingest_parallelism: Option<usize>) -> usize {
+pub(crate) fn resolve_parallelism(
+    low_memory_flag: bool,
+    ingest_parallelism: Option<usize>,
+) -> usize {
     let setting_flag = low_memory_setting_enabled();
     let low_memory = low_memory_flag || setting_flag;
 

@@ -125,10 +125,7 @@ fn cli_product_env_db_path_is_ignored_flag_wins() {
         .assert()
         .success();
 
-    assert!(
-        db_flag.exists(),
-        "--db must create the explicit database"
-    );
+    assert!(db_flag.exists(), "--db must create the explicit database");
     assert!(
         !db_from_env.exists(),
         "SQLITE_GRAPHRAG_DB_PATH must be ignored (G-T-XDG-04)"
@@ -153,10 +150,7 @@ fn cli_flag_db_overrides_home_env() {
         .assert()
         .success();
 
-    assert!(
-        db_flag.exists(),
-        "flag --db deve vencer HOME"
-    );
+    assert!(db_flag.exists(), "flag --db deve vencer HOME");
     assert!(
         !banco_no_home.exists(),
         "HOME não deve ser usado quando --db está presente"

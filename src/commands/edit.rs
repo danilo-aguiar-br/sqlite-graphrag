@@ -54,10 +54,7 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
     )]
     /// Expected updated at.
     pub expected_updated_at: Option<i64>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Emit machine-readable JSON on stdout.

@@ -9,17 +9,40 @@
 - Distinção semântica que o fix resolve: `ANTHROPIC_API_KEY` (chave de API paga, PROIBIDA pelo ADR-0011), `ANTHROPIC_AUTH_TOKEN` (token OAuth para custom provider, PRESERVADO), `OPENAI_API_KEY` (PROIBIDA), `OPENAI_BASE_URL` (PRESERVADO), `ANTHROPIC_BASE_URL` (PRESERVADO). O mandato da v1.0.69 estava correto; o whitelist env-clear da v1.0.69 era amplo demais
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` para a justificativa arquitetural completa e `docs/MIGRATION.pt-BR.md#migrando-para-v1083` para os passos de upgrade do operador
 - Resolução parcial do G58: env vars de custom-provider roteiam em torno de contenção de quota OAuth, fornecendo fallback determinístico para `recall`/`hybrid-search` sob fadiga OAuth oficial
-# sqlite-graphrag para Agentes de IA (v1.2.0 — config XDG, DEFAULT_EMBEDDING_DIM=1024, schema permanece v16)
+# sqlite-graphrag para Agentes de IA (v1.2.1 — selo CAPA da fila enrich, DEFAULT_EMBEDDING_DIM=1024, schema permanece v16)
 
 - Versão em inglês: [AGENTS.md](AGENTS.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
 > Memória persistente para 27 agentes de IA em um único binário Rust de ~19 MiB.
 > A v1.0.93 é **apenas LLM e one-shot**: cada `remember` ou `ingest` spawna um subprocesso headless do claude code, codex ou opencode CLI (OAuth, sem MCP, sem hooks). Não há daemon, não há runtime ONNX, não há modelo local de embedding.
-> **Release corrente v1.2.0:** precedência de config é **flag CLI > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` **NÃO** é lida no hot path. Chaves via `config add-key` ou `--openrouter-api-key`. Schema permanece **v16**. **DEFAULT_EMBEDDING_DIM=1024**. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico `e2e_offline_v118.sh` supersedido).
+> **Release corrente v1.2.1:** **selo CAPA** da fila enrich (claim por namespace, contagem until-empty op+ns, reopen do force-redescribe, re-embed por LENGTH, enqueue entity:, validação de chunk ns, marcadores CAPA-D). Precedência de config permanece **flag CLI > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` **NÃO** é lida no hot path. Chaves via `config add-key` ou `--openrouter-api-key`. Schema permanece **v16** (sem migração main-DB; só comportamento do sidecar). **DEFAULT_EMBEDDING_DIM=1024**. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico `e2e_offline_v118.sh` supersedido).
 > Release anterior v1.1.06: fecha GAP-ENTITY-CONNECT-SCAN-CARTESIAN (P0) — scan O(k) de pares; schema permanece v16. ADR-0066.
 > Release anterior v1.1.05: cinco bugs do incidente deep-research "danilo" (schema permanece v16).
 > Releases anteriores: v1.1.04 (V016 schema v15→v16); v1.1.03; v1.1.02; v1.1.01.
+
+## Novidades na v1.2.1 — Selo CAPA da Fila Enrich (Sem Migração, Schema v16)
+
+- **OBRIGATÓRIO claim por namespace** — `dequeue_next_pending` filtra por `operation` **e** `namespace`. Um drain de enrich em `ai-sdd` NÃO DEVE reivindicar linhas de `global` / ns vazio (sem HardFailure cross-namespace / circuit breaker).
+- **OBRIGATÓRIO contagem `--until-empty`** — `count_eligible_pending` conta pending **somente desta operação + namespace**. NUNCA espere que zumbis ReEmbed de outra op mantenham EntityDescriptions girando com `completed=0`.
+- **OBRIGATÓRIO reopen de `--force-redescribe`** — `reopen_force_redescribe_candidates` reabre `skipped`/`done` **uma vez por processo** antes do primeiro enqueue para que `INSERT OR IGNORE` não seja no-op silencioso; NUNCA reabre `dead` (use `--requeue-dead`).
+- **OBRIGATÓRIO reconciliação de zumbi re-embed** — `reconcile_satisfied_reembed_pending` marca ReEmbed pending como `done` quando um vetor live já corresponde à dim ativa (`LENGTH(embedding) = dim*4`) — sem chamadas de API desperdiçadas.
+- **OBRIGATÓRIO elegibilidade re-embed por comprimento do BLOB** — scan/predicados usam `LENGTH(embedding) = target_dim * 4`, não só a coluna `dim`. Linhas CORRUPT / META_AHEAD (`dim=1024` com BLOB 384-d) permanecem elegíveis e re-embedam de novo.
+- **OBRIGATÓRIO prefixo de enqueue `entity:`** — chaves re-embed `entity:{name}` removem o prefixo no lookup da entidade; a chave na fila permanece `entity:…`; nomes bare ainda funcionam; entidades ausentes são rejeitadas (corrige `completed: 0` em ~14k entidades).
+- **OBRIGATÓRIO enqueue de chunk valida namespace** — `chunk_id` deve existir em memória não-deletada do namespace alvo (bloqueia enqueue lixo → not-found + circuit breaker).
+- **OBRIGATÓRIO marcadores CAPA-D** — marcadores de descrição de baixa qualidade usam apenas frases compostas de "configuration file" (ex.: `is a configuration file`); FP bare `%configuration file%` removido.
+- **OBRIGATÓRIO regressões** — `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; suite unitária da fila **38** testes OK.
+- **PROIBIDO**: claim cross-namespace; contar pending de todas as ops sob `--until-empty`; assumir que `--force-redescribe` reabre `dead`; tratar só a coluna `dim` como verdade do re-embed; inventar ADR para 1.2.1 (notas no CHANGELOG + monografias).
+- Backfill live de descrições de baixa qualidade permanece **campanha do operador**: `--force-redescribe` + `--until-empty` após os fixes 1.2.1.
+- Gate offline inalterado: `scripts/e2e_offline_v120.sh` **20/20**. Pin de consumidores de biblioteca em `=1.2.1`. Veja [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.2.1]`, [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md), [gaps.md](../gaps.md).
+
+## Inventário completo de CLI (v1.2.1)
+
+Veja [HOW_TO_USE.pt-BR.md — Inventário completo de comandos CLI (v1.2.1)](HOW_TO_USE.pt-BR.md#inventário-completo-de-comandos-cli-v121) para famílias aninhadas (`config` / `graph` / `fts` / `vec` / `slots` / `pending` / `embedding` / `pending-embeddings` / `cache` + inspetores enrich e flags de escrita 1.2.1).
+
+> **Top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
+>
+> **Aninhados (v1.2.1):** `config` (add-key, list-keys, remove-key, doctor, path, set, get, list, unset) · `graph` (traverse, stats, entities, recompute-degree) · `fts` (rebuild, check, stats) · `vec` (orphan-list, purge-orphan, stats) · `slots` (status, release, cleanup) · `pending` (list, show, cleanup) · `embedding` (status, list, abandon) · `pending-embeddings` (list, status, abandon) · `cache` (clear-models, list, stats) · inspetores enrich (`--status`, `--list-dead`, `--requeue-dead`, `--list-skipped`, `--requeue-skipped`, `--prune-dead-orphans`, `--prune-dead-entity-orphans`) · flags de escrita enrich (`--until-empty`, `--force-redescribe`, `--operation re-embed --target`, `--namespace`, `--mode openrouter`, `--rest-concurrency`).
 
 ## Novidades na v1.2.0 — dim 1024 + Contrato de Config XDG (Sem Migração, Schema v16)
 
@@ -154,7 +177,7 @@
 
 ## Arquitetura v1.0.79 (Apenas LLM)
 
-> **HISTÓRICO (v1.0.79) / ATUAL (v1.2.0):** default dim **1024**; sem product env no hot path; XDG `config set` + flags.
+> **HISTÓRICO (v1.0.79) / ATUAL (v1.2.1; igual desde v1.2.0):** default dim **1024**; sem product env no hot path; XDG `config set` + flags.
 
 A CLI é um orquestrador fino. Cada chamada de embedding spawna um subprocesso do claude code, codex ou opencode que devolve um vetor `f32` da dimensionalidade ATIVA em JSON — **atual default 1024** (histórico v1.0.79: 64 via env — **não lido** em v1.2.0); dim ativa via `--embedding-dim` / XDG `embedding.dim` / `schema_meta.dim` (faixa [8, 4096]); bancos pré-existentes mantêm a `schema_meta.dim` registrada (ex.: 384). Desde a v1.0.79 as chamadas são EM LOTE (`{items:[{i,v}]}`, chunks em 8, nomes de entidade em 25 em dim 64, adaptativos à dim — G44) e rodam sob fan-out bounded com `Semaphore` (`--llm-parallelism`). Cada chamada de extração de entidades faz o mesmo com um schema de saída diferente. A CLI nunca mantém um modelo de embedding em memória; o subprocesso LLM é o modelo.
 
@@ -246,7 +269,7 @@ As duas variáveis de chave de API também são excluídas da whitelist de env-c
 
 ## Novidades na v1.0.79
 ### OBRIGATÓRIO — G42: Pipeline de Embedding LLM Rápido, Paralelo e em Lote
-- **HISTÓRICO:** dim default 384→64. **ATUAL (v1.2.0):** default **1024**; precedência CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Product env não é lida. Bancos pré-existentes mantêm a dimensionalidade registrada sem mudança — ZERO alteração de schema.
+- **HISTÓRICO:** dim default 384→64. **ATUAL (v1.2.1; igual desde v1.2.0):** default **1024**; precedência CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Product env não é lida. Bancos pré-existentes mantêm a dimensionalidade registrada sem mudança — ZERO alteração de schema.
 - Chamadas de embedding são EM LOTE (G42/S2): N textos numerados por chamada LLM com o schema `{items:[{i,v}]}`; chunks em lotes de 8, nomes de entidade em 25 (bases de calibração em dim 64; desde o G44 o lote se adapta por clamp(base×64/dim, 1, base) — bancos 384 usam 1/4) — 39 spawns de subprocesso colapsam em 4-5.
 - Paralelismo real bounded (G42/S3): fan-out com `Arc<Semaphore>` + `JoinSet`; nova flag `--llm-parallelism <N>` em `remember` (default 4), `ingest` (default 2) e `edit` (default 4), clamp [1, 32]; permits = min(flag, cpus, RAM livre × 0.5 / 350 MB por worker, 32).
 - `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` seleciona o modelo de embedding do claude (G42/S5, simétrico à var do codex); `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` (default 300) limita cada chamada LLM, com `kill_on_drop(true)` em todo subprocesso.
@@ -843,7 +866,7 @@ let output = Command::new("sqlite-graphrag")
 
 
 ## Configuração Global
-### OBRIGATÓRIO — Precedência (v1.2.0)
+### OBRIGATÓRIO — Precedência (v1.2.0+; ainda corrente na v1.2.1)
 - RESOLVA settings como **flag CLI > XDG `config set` > default nomeado**
 - PROIBIDO: product env `SQLITE_GRAPHRAG_*` como mecanismo de config — não é lida no hot path
 - USE `config set <key> <value>`, `config get <key>`, `config list --effective --json`, `config unset <key>`, `config path`, `config doctor --json`

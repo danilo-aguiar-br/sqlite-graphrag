@@ -144,7 +144,10 @@ impl LlmEmbedding {
     }
 
     /// Instance-scoped batch timeout: base + 15s per extra item.
-    pub(crate) fn instance_embed_timeout_for_batch(&self, batch_size: usize) -> std::time::Duration {
+    pub(crate) fn instance_embed_timeout_for_batch(
+        &self,
+        batch_size: usize,
+    ) -> std::time::Duration {
         let base = self.instance_embed_timeout();
         let extra = std::time::Duration::from_secs(15) * batch_size.saturating_sub(1) as u32;
         base + extra

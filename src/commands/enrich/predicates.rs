@@ -17,6 +17,8 @@ pub(super) const NULL_DESCRIPTION_PREDICATE: &str = "(description IS NULL OR des
 /// `%is a software%` caused false positives on legitimate domain prose
 /// (e.g. "software architecture decision for auth"). Full decision logic is
 /// [`is_low_quality_description`], applied after the SQL scan.
+/// CAPA-D (2026-07-30): compound markers only — bare `%configuration file%`
+/// false-positived legitimate domain prose (e.g. clippy.toml lint config).
 pub(super) const LOW_QUALITY_DESCRIPTION_PREDICATE: &str = "(
     description LIKE '%is a software component%'
     OR description LIKE '%is a software system%'
@@ -26,7 +28,10 @@ pub(super) const LOW_QUALITY_DESCRIPTION_PREDICATE: &str = "(
     OR description LIKE '%of the software system%'
     OR description LIKE '%in the software system%'
     OR description LIKE '%software/system design%'
-    OR description LIKE '%configuration file%'
+    OR description LIKE '%is a configuration file%'
+    OR description LIKE '%a configuration file used%'
+    OR description LIKE '%generic configuration file%'
+    OR description LIKE '%configuration file in the software%'
     OR description LIKE '%enhances chatbot%'
     OR description LIKE '%chatbot response%'
     OR description LIKE '%European digital identity%'
@@ -43,7 +48,11 @@ const LOW_QUALITY_MARKERS: &[&str] = &[
     "of the software system",
     "in the software system",
     "software/system design",
-    "configuration file",
+    // CAPA-D: compound only — not bare "configuration file"
+    "is a configuration file",
+    "a configuration file used",
+    "generic configuration file",
+    "configuration file in the software",
     "enhances chatbot",
     "chatbot response",
     "european digital identity",
@@ -90,27 +99,34 @@ pub(super) const HIGH_WEIGHT_PREDICATE: &str = "r.weight >= 0.7";
 /// `relation-reclassify`: relationships still using the generic `applies_to`.
 pub(super) const GENERIC_RELATION_PREDICATE: &str = "r.relation = 'applies_to'";
 
-/// `re-embed --target memories`: memory `m` lacks a live vector.
+/// `re-embed --target memories`: memory `m` lacks a live vector at the target dim.
+///
+/// CAPA (dim-migrate 2026-07-30): eligibility uses `LENGTH(embedding) = dim*4`
+/// (BLOB truth), not the `dim` column alone. Rows with `dim=1024` but a 384-d
+/// BLOB (CORRUPT / META_AHEAD) must remain selectable.
 pub(super) fn reembed_memory_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM memory_embeddings me WHERE me.memory_id = m.id \
-         AND me.dim = {dim} AND LENGTH(me.embedding) > 0)"
+         AND LENGTH(me.embedding) = {bytes})"
     )
 }
 
-/// `re-embed --target entities`: entity `e` lacks a live vector.
+/// `re-embed --target entities`: entity `e` lacks a live vector at the target dim.
 pub(super) fn reembed_entity_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM entity_embeddings ev WHERE ev.entity_id = e.id \
-         AND ev.dim = {dim} AND LENGTH(ev.embedding) > 0)"
+         AND LENGTH(ev.embedding) = {bytes})"
     )
 }
 
-/// `re-embed --target chunks`: chunk `c` lacks a live vector.
+/// `re-embed --target chunks`: chunk `c` lacks a live vector at the target dim.
 pub(super) fn reembed_chunk_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM chunk_embeddings ce WHERE ce.chunk_id = c.id \
-         AND ce.dim = {dim} AND LENGTH(ce.embedding) > 0)"
+         AND LENGTH(ce.embedding) = {bytes})"
     )
 }
 
@@ -155,8 +171,27 @@ mod tests {
 
     #[test]
     fn configuration_file_boilerplate_is_low_quality() {
+        // Compound boilerplate still matches (CAPA-D).
         assert!(is_low_quality_description(
-            "A configuration file used by the build system"
+            "Foo is a configuration file used by the build system"
+        ));
+        assert!(is_low_quality_description(
+            "Bar is a configuration file in the software project"
+        ));
+        assert!(is_low_quality_description(
+            "A generic configuration file placeholder"
+        ));
+    }
+
+    /// CAPA-D: legitimate domain prose that merely contains the words
+    /// "configuration file" must not be force-redescribe fodder.
+    #[test]
+    fn legitimate_configuration_file_prose_is_not_low_quality() {
+        assert!(!is_low_quality_description(
+            "clippy-toml is a Rust lint configuration file that shapes code quality standards and design consistency"
+        ));
+        assert!(!is_low_quality_description(
+            "TOML configuration file for Clippy lints in this workspace"
         ));
     }
 
@@ -170,10 +205,9 @@ mod tests {
     /// G-PR-2: scan predicate is the same gate that blocks `done` persistence.
     #[test]
     fn quality_post_filter_rejects_boilerplate_done_candidates() {
-        let bad = "A software component that provides configuration file support";
+        let bad = "Foo is a software component in the software project";
         assert!(is_low_quality_description(bad));
-        let good =
-            "ICMS P05 rule for NFC-e ordered invoice sequences in Brazilian state tax";
+        let good = "ICMS P05 rule for NFC-e ordered invoice sequences in Brazilian state tax";
         assert!(!is_low_quality_description(good));
     }
 }

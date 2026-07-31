@@ -16,6 +16,31 @@
 - Formal test plan with layers, triggers and release gates: [TEST_PLAN.md](TEST_PLAN.md)
 
 
+## v1.2.1 — Enrich Queue CAPA Regressions
+
+- **Scope**: no main-DB migration — schema stays **v16**; CAPA is **sidecar queue behaviour only** (crate **1.2.1**).
+- **Queue unit suite**: **38** tests OK (enrich queue / claim / enqueue paths).
+- **Regressions added / required green:**
+  - `enqueue_candidate_accepts_entity_prefixed_reembed_key` (in `queue_tests_b.rs`) — accepts `entity:ownership` and bare `ownership`; rejects missing entity.
+  - `dequeue_next_pending_isolates_by_namespace` (in `queue_tests_a.rs`) — claim filters `operation` **and** `namespace`.
+- **CAPA themes covered by the suite (behaviour, not always one-named test each):**
+  - `--until-empty` / `count_eligible_pending` counts **this op+namespace only**
+  - `--force-redescribe` reopens `skipped`/`done` once per process; never `dead`
+  - Re-embed zombie reconcile when `LENGTH(embedding) = dim*4` already satisfied
+  - Re-embed eligibility by BLOB length (CORRUPT / META_AHEAD re-eligible)
+  - Chunk enqueue validates chunk in target namespace non-deleted memory
+  - CAPA-D compound "configuration file" markers only
+- Offline product gate remains `scripts/e2e_offline_v120.sh` **20/20** (no new offline harness for 1.2.1).
+- Companion docs: [TEST_PLAN.md](TEST_PLAN.md), [CHANGELOG.md](../CHANGELOG.md) `[1.2.1]`, [gaps.md](../gaps.md).
+
+```bash
+# Focused queue regressions (names as registered in the lib suite)
+cargo test --lib enqueue_candidate_accepts_entity_prefixed_reembed_key
+cargo test --lib dequeue_next_pending_isolates_by_namespace
+# Full offline gate (unchanged)
+cargo build --release && bash scripts/e2e_offline_v120.sh
+```
+
 ## Offline E2E Gate — v1.2.0 (`scripts/e2e_offline_v120.sh`)
 - **REQUIRED product offline gate for v1.2.0**: `scripts/e2e_offline_v120.sh` (expects **20/20 PASS** — 15 `check()` + 5 manual PASS; historical wrapper `e2e_offline_v118.sh` superseded).
 - Scope: no product env, no OpenRouter key, XDG dirs isolated under `$TMPDIR`, flags-only (`--db`), local only.

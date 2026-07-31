@@ -238,7 +238,6 @@ pub struct GraphRecomputeDegreeArgs {
     pub db: Option<String>,
 }
 
-
 #[derive(Serialize)]
 pub(crate) struct TraverseHop {
     pub(crate) entity: String,

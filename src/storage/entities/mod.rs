@@ -77,7 +77,9 @@ fn default_relationship_strength() -> f64 {
 /// Returns `Err(AppError::Validation)` when the name violates any rule.
 pub fn validate_entity_name(name: &str) -> Result<(), AppError> {
     if name.len() < 2 {
-        return Err(AppError::Validation(crate::i18n::validation::entity_name_too_short(name)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_too_short(name),
+        ));
     }
     if name.contains('\n') || name.contains('\r') {
         return Err(AppError::Validation(
@@ -88,14 +90,18 @@ pub fn validate_entity_name(name: &str) -> Result<(), AppError> {
     // passed as `--from`/`--to` instead of names (or via `--from-id`/`--to-id`).
     // Reject them so `--create-missing` cannot pollute the graph with ghost nodes.
     if name.chars().all(|c| c.is_ascii_digit()) {
-        return Err(AppError::Validation(crate::i18n::validation::entity_name_purely_numeric(name)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_purely_numeric(name),
+        ));
     }
     if name.len() <= 4
         && name
             .chars()
             .all(|c| c.is_ascii_uppercase() || c == '_' || c == '-')
     {
-        return Err(AppError::Validation(crate::i18n::validation::entity_name_all_caps_noise(name)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_all_caps_noise(name),
+        ));
     }
     Ok(())
 }
@@ -280,7 +286,9 @@ pub fn upsert_entity(conn: &Connection, namespace: &str, e: &NewEntity) -> Resul
     // Step 3: guard post-normalization length — a valid original could collapse to < 2 chars
     // (e.g. a single accented character that strips entirely).
     if normalized_name.chars().count() < 2 {
-        return Err(AppError::Validation(crate::i18n::validation::entity_name_normalizes_too_short(&e.name, &normalized_name)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_normalizes_too_short(&e.name, &normalized_name),
+        ));
     }
     conn.execute(
         "INSERT INTO entities (namespace, name, type, description)

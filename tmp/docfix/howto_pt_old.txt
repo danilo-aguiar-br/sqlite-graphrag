@@ -1,0 +1,3 @@
+  - `--prune-dead-entity-orphans` — remove dead com chave de entidade do sidecar
+
+> **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2.

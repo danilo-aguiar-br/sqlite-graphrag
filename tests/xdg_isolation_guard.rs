@@ -327,10 +327,7 @@ fn sgr_places_db_flag_after_subcommand() {
     // health --db <path> is the documented order; if --db were global-only
     // before the subcommand this would fail clap parsing.
     env.sgr("init").assert().success();
-    env.sgr("health")
-        .arg("--json")
-        .assert()
-        .success();
+    env.sgr("health").arg("--json").assert().success();
     assert!(env.db().exists());
 }
 

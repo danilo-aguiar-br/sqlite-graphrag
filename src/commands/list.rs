@@ -20,10 +20,7 @@ use serde::Serialize;
     sqlite-graphrag list --include-deleted")]
 /// List args.
 pub struct ListArgs {
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Filter by memory.type. Note: distinct from graph entity_type
@@ -50,14 +47,15 @@ pub struct ListArgs {
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
     /// Path to graphrag.sqlite. Overrides the XDG `db.path` setting.
-    #[arg(
-        long,
-                help = "Path to graphrag.sqlite"
-    )]
+    #[arg(long, help = "Path to graphrag.sqlite")]
     pub db: Option<String>,
     /// Emit the JSON Schema for this command's stdout envelope and exit 0
     /// without opening the database (agent-native R-AN-01).
-    #[arg(long, default_value_t = false, help = "Print JSON Schema for list output and exit")]
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Print JSON Schema for list output and exit"
+    )]
     pub print_schema: bool,
 }
 

@@ -110,10 +110,9 @@ pub(super) fn sample_entity_description_quality(
          ORDER BY (id * 2654435761) % 2147483647 \
          LIMIT ?2",
     )?;
-    let rows = stmt.query_map(
-        rusqlite::params![namespace, sample_n as i64],
-        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
-    )?;
+    let rows = stmt.query_map(rusqlite::params![namespace, sample_n as i64], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+    })?;
 
     let top_k = crate::runtime_config::resolve_usize(
         None,
@@ -132,9 +131,8 @@ pub(super) fn sample_entity_description_quality(
 
     for row in rows {
         let (entity_id, description) = row.map_err(AppError::Database)?;
-        let corpus = super::extraction::load_entity_corpus_snippets(
-            conn, entity_id, top_k, max_chars,
-        )?;
+        let corpus =
+            super::extraction::load_entity_corpus_snippets(conn, entity_id, top_k, max_chars)?;
         let verdict = crate::preservation::PreservationVerdict::evaluate_grounding(
             &description,
             &corpus,
@@ -216,9 +214,8 @@ pub(super) fn count_operation_backlog_with_force(
                      WHERE namespace = ?1 AND {pred}"
                 );
                 let mut stmt = conn.prepare(&sql)?;
-                let descs = stmt.query_map(rusqlite::params![namespace], |r| {
-                    r.get::<_, String>(0)
-                })?;
+                let descs =
+                    stmt.query_map(rusqlite::params![namespace], |r| r.get::<_, String>(0))?;
                 let mut n = 0i64;
                 for d in descs {
                     let desc = d?;
@@ -339,4 +336,3 @@ pub(super) fn count_operation_backlog_with_force(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-

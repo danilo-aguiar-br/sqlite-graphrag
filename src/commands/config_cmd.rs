@@ -113,7 +113,11 @@ pub enum ConfigAction {
         json: bool,
         /// Emit the JSON Schema for `config list` stdout and exit 0
         /// without reading settings (agent-native R-AN-01).
-        #[arg(long, default_value_t = false, help = "Print JSON Schema for config list output and exit")]
+        #[arg(
+            long,
+            default_value_t = false,
+            help = "Print JSON Schema for config list output and exit"
+        )]
         print_schema: bool,
         /// GAP-SG-139: accepted as a no-op for agent uniformity (XDG settings; no graph I/O).
         #[arg(long, value_name = "PATH", help = DB_NOOP_HELP)]
@@ -151,7 +155,9 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 ));
             };
             if key.is_empty() {
-                return Err(AppError::Validation(crate::i18n::validation::api_key_cannot_be_empty()));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::api_key_cannot_be_empty(),
+                ));
             }
             let fingerprint = compute_fingerprint(&key);
             let entry = ApiKeyEntry {
@@ -361,7 +367,9 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                     ("display.tz", "UTC"),
                 ];
                 for (k, v) in defaults {
-                    settings.entry(k.to_string()).or_insert_with(|| v.to_string());
+                    settings
+                        .entry(k.to_string())
+                        .or_insert_with(|| v.to_string());
                 }
             }
             let output = json!({

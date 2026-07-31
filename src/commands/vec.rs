@@ -357,11 +357,13 @@ fn run_purge_orphan(args: VecPurgeOrphanArgs) -> Result<(), AppError> {
     }
 
     if !args.yes {
-        return Err(AppError::Validation(crate::i18n::validation::refuse_delete_vec_orphans_without_yes(
+        return Err(AppError::Validation(
+            crate::i18n::validation::refuse_delete_vec_orphans_without_yes(
                 orphan_count,
                 orphan_entities_count,
                 orphan_chunks_count,
-            )));
+            ),
+        ));
     }
 
     let deleted: i64 = conn.execute(

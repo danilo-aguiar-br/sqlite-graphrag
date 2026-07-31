@@ -47,9 +47,9 @@ pub fn codex_turn_failed(message: &str) -> String {
 /// Failed to parse codex agent_message as ExtractionResult.
 pub fn failed_to_parse_codex_agent_message(err: &impl std::fmt::Display, text: &str) -> String {
     match current() {
-        Language::English => format!(
-            "failed to parse codex agent_message as ExtractionResult: {err}. text={text}"
-        ),
+        Language::English => {
+            format!("failed to parse codex agent_message as ExtractionResult: {err}. text={text}")
+        }
         Language::Portuguese => format!(
             "falha ao parsear agent_message do codex como ExtractionResult: {err}. text={text}"
         ),
@@ -75,7 +75,6 @@ pub fn mode_flag_conflicts(mode: &str, conflicts: &str) -> String {
         ),
     }
 }
-
 
 // ── GAP-SG-110/123: remaining Validation catalog helpers ──────────────────
 // Prefer these over ad-hoc AppError::Validation construction so EN/PT stay
@@ -203,9 +202,9 @@ pub fn child_name_not_kebab(child: &str) -> String {
         Language::English => {
             format!("child name '{child}' is not kebab-case ASCII; rename the parent memory")
         }
-        Language::Portuguese => format!(
-            "nome filho '{child}' não é kebab-case ASCII; renomeie a memória pai"
-        ),
+        Language::Portuguese => {
+            format!("nome filho '{child}' não é kebab-case ASCII; renomeie a memória pai")
+        }
     }
 }
 
@@ -302,9 +301,9 @@ pub fn entity_name_normalizes_too_short(original: &str, normalized: &str) -> Str
 /// Invalid pending-embeddings status filter.
 pub fn invalid_status_filter(other: &str) -> String {
     match current() {
-        Language::English => format!(
-            "invalid status filter: {other} (expected pending|in_progress|done|abandoned)"
-        ),
+        Language::English => {
+            format!("invalid status filter: {other} (expected pending|in_progress|done|abandoned)")
+        }
         Language::Portuguese => format!(
             "filtro de status inválido: {other} (esperado pending|in_progress|done|abandoned)"
         ),
@@ -622,9 +621,9 @@ pub fn preflight_probe_timed_out(secs: u64) -> String {
 /// Deep-research output path missing after atomic write.
 pub fn deep_research_output_missing(path: &str) -> String {
     match current() {
-        Language::English => format!(
-            "deep-research --output failed: path does not exist after atomic write: {path}"
-        ),
+        Language::English => {
+            format!("deep-research --output failed: path does not exist after atomic write: {path}")
+        }
         Language::Portuguese => format!(
             "deep-research --output falhou: caminho não existe após escrita atômica: {path}"
         ),
@@ -634,12 +633,12 @@ pub fn deep_research_output_missing(path: &str) -> String {
 /// Deep-research output file is empty.
 pub fn deep_research_output_empty(path: &str) -> String {
     match current() {
-        Language::English => format!(
-            "deep-research --output failed: written file is empty (0 bytes): {path}"
-        ),
-        Language::Portuguese => format!(
-            "deep-research --output falhou: arquivo escrito está vazio (0 bytes): {path}"
-        ),
+        Language::English => {
+            format!("deep-research --output failed: written file is empty (0 bytes): {path}")
+        }
+        Language::Portuguese => {
+            format!("deep-research --output falhou: arquivo escrito está vazio (0 bytes): {path}")
+        }
     }
 }
 
@@ -659,9 +658,9 @@ pub fn refuse_release_slot_without_yes(slot_id: &str, path: &str) -> String {
         Language::English => {
             format!("refusing to release slot {slot_id} without --yes (file: {path})")
         }
-        Language::Portuguese => format!(
-            "recusando liberar slot {slot_id} sem --yes (arquivo: {path})"
-        ),
+        Language::Portuguese => {
+            format!("recusando liberar slot {slot_id} sem --yes (arquivo: {path})")
+        }
     }
 }
 

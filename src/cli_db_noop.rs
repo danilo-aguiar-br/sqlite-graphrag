@@ -4,7 +4,8 @@
 //! (`config`, `slots`, `cache`, `completions`, `codex-models`) never open the
 //! graph database, but agents that append `--db` to every one-shot invocation
 //! must not receive clap exit 2. This module provides a single help string and
-//! an optional [`DbNoopArgs`] group for `#[command(flatten)]` composition.
+//! an optional [`DbNoopArgs`](crate::cli_db_noop::DbNoopArgs) group for
+//! `#[command(flatten)]` composition.
 
 /// Help text for host/XDG `--db` no-op (English; agent-facing clap surface).
 pub const DB_NOOP_HELP: &str = "Explicit database path. Accepted as a no-op for agent uniformity; host/XDG surfaces do not open the graph database";

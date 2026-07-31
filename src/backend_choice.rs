@@ -1,6 +1,5 @@
 //! LLM / embedding backend CLI choices (Wave C1).
 
-
 /// v1.0.82 (GAP-003): LLM backend for embedding. Accepts `auto` (default —
 /// detects `codex` or `claude` on the PATH), `codex` (forces codex exec), `claude`
 /// (forces claude -p), or `none` (skips embedding; useful for tests).
@@ -83,9 +82,9 @@ impl LlmBackendChoice {
                 LlmBackendKind::None,
             ],
             LlmBackendChoice::None => vec![LlmBackendKind::None],
-            LlmBackendChoice::Auto => parse_fallback_chain(
-                &crate::runtime_config::llm_fallback("codex,claude,none"),
-            ),
+            LlmBackendChoice::Auto => {
+                parse_fallback_chain(&crate::runtime_config::llm_fallback("codex,claude,none"))
+            }
         }
     }
 }
@@ -118,4 +117,3 @@ fn parse_fallback_chain(s: &str) -> Vec<crate::embedder::LlmBackendKind> {
     }
     chain
 }
-

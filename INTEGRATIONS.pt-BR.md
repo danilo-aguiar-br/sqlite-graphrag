@@ -7,7 +7,7 @@
 
 - Leia a versão em inglês em [INTEGRATIONS.md](INTEGRATIONS.md)
 - Cada receita abaixo está pronta para copiar e custa zero para executar
-- **v1.2.0 — Configuração via XDG, não env de produto.** Precedência: **flag CLI > XDG `config set` > default**. **DEFAULT_EMBEDDING_DIM=1024**. Help scrub (sem product env / sem Box about). URLs OpenRouter em `network.openrouter.*`. Use `config list --effective`, `pending-embeddings status`, `cache stats`, `purge --now`. Schema permanece v16. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico v118 supersedido). Schedulers: cron/systemd/launchd/Task Scheduler **local** — sem GitHub Actions como caminho de produto.
+- **v1.2.1 (atual):** selo CAPA da fila enrich — isolamento de claim por namespace, `--until-empty` conta só op+ns, `--force-redescribe` reabre skipped/done, re-embed por `LENGTH(embedding)=dim*4` + reconciliação de zumbis, strip de `entity:` no enqueue, validação de chunk no ns, CAPA-D marcadores compostos de configuration file. Schema permanece **v16** (sem migração do DB principal). Herda **v1.2.0 — Configuração via XDG, não env de produto.** Precedência: **flag CLI > XDG `config set` > default**. **DEFAULT_EMBEDDING_DIM=1024**. Help scrub (sem product env / sem Box about). URLs OpenRouter em `network.openrouter.*`. Use `config list --effective`, `pending-embeddings status`, `cache stats`, `purge --now`. Gate offline: `scripts/e2e_offline_v120.sh` (wrapper histórico v118 supersedido). Schedulers: cron/systemd/launchd/Task Scheduler **local** — sem GitHub Actions como caminho de produto.
 - **v1.0.79: todo build é apenas LLM e one-shot.** A geração de embedding delega para um subprocesso headless `claude code` ou `codex` (OAuth). O daemon, o runtime ONNX e a feature `embedding-legacy` foram totalmente removidos; os embeddings são em lote, paralelos (`--llm-parallelism`) e com **1024** dimensões por padrão (`--embedding-dim`, faixa [8, 4096]; v1.2.0).
 
 
@@ -27,6 +27,18 @@
 - `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` e `SQLITE_GRAPHRAG_GLINER_THRESHOLD` são aceitas por compatibilidade mas NÃO têm efeito desde a v1.0.79.
 - Para extração de entidades/relacionamentos curada por LLM use `ingest --mode claude-code` ou `ingest --mode codex`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
+
+## Novos Comandos e Flags (desde v1.2.1)
+
+- Crate **`1.2.1`**; pin de consumidores de biblioteca `=1.2.1`. Schema do DB principal permanece em **v16** (sem migrate; apenas comportamento da fila sidecar). Selo **CAPA** da fila enrich (julho 2026).
+- **Isolamento de claim por namespace** — `dequeue_next_pending`, `count_eligible_pending`, `--resume` / `--retry-failed` filtram por `operation` **e** `namespace`. Um drain de enrich em `ai-sdd` não reivindica nem conta mais linhas `global` / ns vazio (reduz HardFailure / circuit-breaker cross-namespace).
+- **`--until-empty` conta só esta op+namespace** — `count_eligible_pending` não soma mais *todas* as linhas pending entre operações (zumbis ReEmbed alienígenas não mantêm EntityDescriptions girando com `completed=0`).
+- **`--force-redescribe` reabre `skipped`/`done`** — `reopen_force_redescribe_candidates` roda uma vez por processo antes do primeiro enqueue para que `INSERT OR IGNORE` não seja no-op silencioso; nunca reabre `dead` (use `--requeue-dead`).
+- **Reconciliação de zumbis de re-embed** — `reconcile_satisfied_reembed_pending` marca linhas ReEmbed pending como `done` quando já existe vetor vivo na dim ativa (`LENGTH(embedding) = dim*4`), limpando zumbis sem chamadas de API.
+- **Elegibilidade de re-embed usa comprimento do BLOB** — scan/predicados selecionam linhas CORRUPT / META_AHEAD (`dim=1024` com BLOB 384-d ainda elegível quando `LENGTH(embedding) ≠ target_dim * 4`).
+- **Enqueue valida chaves de re-embed** — `entity:{name}` faz strip do prefixo na lookup da entidade (chave da fila permanece `entity:…`; nomes bare ainda funcionam; entidades ausentes rejeitadas). Chaves de chunk validam que `chunk_id` existe em memória não-deletada do namespace alvo.
+- **CAPA-D marcadores de baixa qualidade** — bare `%configuration file%` removido; só marcadores compostos (ex.: `is a configuration file`) para que prosa legítima de domínio não vire fodder de force-redescribe.
+- Regressões: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; suíte unitária da fila 38 testes OK.
 
 ## Novos Comandos e Flags (desde v1.2.0)
 
