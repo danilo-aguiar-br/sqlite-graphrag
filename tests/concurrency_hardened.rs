@@ -55,11 +55,6 @@ fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
     c
 }
 
-/// Isolation env for std::process::Command thread children.
-fn wire_child(c: &mut std::process::Command, root: &std::path::Path, db: &std::path::Path) {
-    common::wire_std_cmd(root, c, db);
-}
-
 /// Returns the lock file path for the given slot (1-based) inside the `TempDir`.
 fn slot_path(tmp: &TempDir, slot: usize) -> std::path::PathBuf {
     tmp.path().join(format!("cli-slot-{slot}.lock"))
@@ -101,9 +96,13 @@ fn cinco_instancias_quinta_exit_75() {
     // Occupy all 4 default slots
     let handles = ocupar_slots(&tmp, 4);
 
-    // 5th invocation with --wait-lock 0 must fail with exit 75
+    // 5th invocation with --wait-lock 0 must fail with exit 75.
+    // MUST use --cache-dir so lock files share the same directory as ocupar_slots
+    // (paths::cache_dir prefers CLI override over ProjectDirs under XDG_CACHE_HOME).
     sgr_cmd()
         .env("XDG_CACHE_HOME", tmp.path())
+        .arg("--cache-dir")
+        .arg(tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -148,9 +147,12 @@ fn wait_lock_3s_respeitado() {
         let _ = &tmp_path;
     });
 
-    // --wait-lock 3 must wait for release (within 3s) and complete
+    // --wait-lock 3 must wait for release (within 3s) and complete.
+    // MUST use --cache-dir to share lock directory with ocupar_slots.
     sgr_cmd()
         .env("XDG_CACHE_HOME", tmp.path())
+        .arg("--cache-dir")
+        .arg(tmp.path())
         .args([
             "--skip-memory-guard",
             "--max-concurrency",
@@ -177,10 +179,7 @@ fn optimistic_locking_conflito_exit_3() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     // Insert memory
     sgr_on(&tmp, &db_path)
@@ -202,13 +201,7 @@ fn optimistic_locking_conflito_exit_3() {
 
     // Obter updated_at via read para capturar o timestamp antes de modificar
     let output_leitura = sgr_on(&tmp, &db_path)
-        .args([
-            "read",
-            "--name",
-            "mem-conflito",
-            "--namespace",
-            "global",
-        ])
+        .args(["read", "--name", "mem-conflito", "--namespace", "global"])
         .output()
         .expect("output deve funcionar");
 
@@ -256,10 +249,7 @@ fn purge_during_recall_does_not_corrupt() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     // Insert some old memories so that purge has something to do
     for i in 0..3 {
@@ -300,15 +290,11 @@ fn purge_during_recall_does_not_corrupt() {
         barrier_recall.wait();
         let mut c = std::process::Command::new(&bin_recall);
         common::wire_std_cmd(&root_recall, &mut c, &db_path_recall);
-        c.args([
-            "--skip-memory-guard",
-            "recall",
-            "--db",
-        ])
-        .arg(&db_path_recall)
-        .args(["memória antiga", "--namespace", "global", "--k", "5"])
-        .output()
-        .expect("recall deve executar sem panic")
+        c.args(["--skip-memory-guard", "recall", "--db"])
+            .arg(&db_path_recall)
+            .args(["memória antiga", "--namespace", "global", "--k", "5"])
+            .output()
+            .expect("recall deve executar sem panic")
     });
 
     // Purge thread — concurrent purge with --dry-run so nothing is deleted
@@ -316,15 +302,11 @@ fn purge_during_recall_does_not_corrupt() {
         barrier_purge.wait();
         let mut c = std::process::Command::new(&bin_purge);
         common::wire_std_cmd(&root_purge, &mut c, &db_path_purge);
-        c.args([
-            "--skip-memory-guard",
-            "purge",
-            "--db",
-        ])
-        .arg(&db_path_purge)
-        .args(["--namespace", "global", "--dry-run"])
-        .output()
-        .expect("purge deve executar sem panic")
+        c.args(["--skip-memory-guard", "purge", "--db"])
+            .arg(&db_path_purge)
+            .args(["--namespace", "global", "--dry-run"])
+            .output()
+            .expect("purge deve executar sem panic")
     });
 
     let resultado_recall = handle_recall
@@ -372,10 +354,7 @@ fn dez_remembers_namespaces_diferentes() {
     let db_path = tmp.path().join("test.sqlite");
 
     // Init
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     let n_threads = 10;
     let barrier = Arc::new(Barrier::new(n_threads));
@@ -397,26 +376,22 @@ fn dez_remembers_namespaces_diferentes() {
                 let mut c = std::process::Command::new(&bin_clone);
                 c.env("PATH", &path_clone);
                 common::wire_std_cmd(&root_clone, &mut c, &db_path_clone);
-                c.args([
-                    "--skip-memory-guard",
-                    "remember",
-                    "--db",
-                ])
-                .arg(&db_path_clone)
-                .args([
-                    "--name",
-                    &format!("mem-thread-{i}"),
-                    "--type",
-                    "user",
-                    "--namespace",
-                    &namespace,
-                    "--description",
-                    &format!("memória do thread {i}"),
-                    "--body",
-                    &format!("corpo da memória isolada para o namespace {namespace}"),
-                ])
-                .output()
-                .expect("remember deve executar sem panic")
+                c.args(["--skip-memory-guard", "remember", "--db"])
+                    .arg(&db_path_clone)
+                    .args([
+                        "--name",
+                        &format!("mem-thread-{i}"),
+                        "--type",
+                        "user",
+                        "--namespace",
+                        &namespace,
+                        "--description",
+                        &format!("memória do thread {i}"),
+                        "--body",
+                        &format!("corpo da memória isolada para o namespace {namespace}"),
+                    ])
+                    .output()
+                    .expect("remember deve executar sem panic")
             })
         })
         .collect();
@@ -470,10 +445,7 @@ fn saturacao_10x_slots_bounded() {
     let tmp = TempDir::new().expect("TempDir");
     let db_path = tmp.path().join("test.sqlite");
 
-    sgr_on(&tmp, &db_path)
-        .args(["init"])
-        .assert()
-        .success();
+    sgr_on(&tmp, &db_path).args(["init"]).assert().success();
 
     let total_processes = 40;
     let barrier = Arc::new(Barrier::new(total_processes));

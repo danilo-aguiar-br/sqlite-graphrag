@@ -1,8 +1,6 @@
 //! Claude Code extraction spawn and output parsing.
 
-use super::types::{
-    ClaudeOutputElement, ExtractionResult, EXTRACTION_PROMPT, EXTRACTION_SCHEMA,
-};
+use super::types::{ClaudeOutputElement, ExtractionResult, EXTRACTION_PROMPT, EXTRACTION_SCHEMA};
 use crate::errors::AppError;
 use crate::spawn::env_whitelist::apply_env_whitelist;
 use std::io::Write;
@@ -106,18 +104,18 @@ pub(crate) fn extract_with_claude(
         return Err(crate::errors::AppError::from(e));
     }
 
-    let mut child = crate::commands::claude_runner::spawn_with_memory_limit(&mut cmd).map_err(|e| {
-        AppError::Io(std::io::Error::new(
-            e.kind(),
-            format!("failed to spawn claude: {e}"),
-        ))
-    })?;
+    let mut child =
+        crate::commands::claude_runner::spawn_with_memory_limit(&mut cmd).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                e.kind(),
+                format!("failed to spawn claude: {e}"),
+            ))
+        })?;
 
     let stdin_data = file_content.to_vec();
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::failed_to_open_claude_stdin()))?;
+    let mut child_stdin = child.stdin.take().ok_or_else(|| {
+        AppError::Validation(crate::i18n::validation::failed_to_open_claude_stdin())
+    })?;
     let stdin_thread = std::thread::spawn(move || -> Result<(), std::io::Error> {
         child_stdin.write_all(&stdin_data)?;
         drop(child_stdin);
@@ -132,7 +130,9 @@ pub(crate) fn extract_with_claude(
         Some(exit_status) => {
             stdin_thread
                 .join()
-                .map_err(|_| AppError::Validation(crate::i18n::validation::stdin_thread_panicked()))?
+                .map_err(
+                    |_| AppError::Validation(crate::i18n::validation::stdin_thread_panicked()),
+                )?
                 .map_err(AppError::Io)?;
 
             tracing::debug!(
@@ -200,15 +200,18 @@ pub(crate) fn extract_with_claude(
                         "Claude Code authentication may have failed. Re-authenticate with: claude"
                     );
                 }
-                return Err(AppError::Validation(crate::i18n::validation::process_exited(
-                    "claude -p",
-                    exit_status.code(),
-                    stderr_str.trim(),
-                )));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::process_exited(
+                        "claude -p",
+                        exit_status.code(),
+                        stderr_str.trim(),
+                    ),
+                ));
             }
 
-            let stdout = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation(crate::i18n::validation::claude_p_stdout_not_utf8()))?;
+            let stdout = String::from_utf8(stdout_buf).map_err(|_| {
+                AppError::Validation(crate::i18n::validation::claude_p_stdout_not_utf8())
+            })?;
             parse_claude_output(&stdout)
         }
         None => {

@@ -74,9 +74,7 @@ pub fn run_codex_ingest(args: &IngestArgs) -> Result<(), AppError> {
                 "UPDATE queue SET status='pending' WHERE status='processing'",
                 [],
             )
-            .map_err(|e| {
-                AppError::Validation(crate::i18n::validation::queue_resume_failed(&e))
-            })?;
+            .map_err(|e| AppError::Validation(crate::i18n::validation::queue_resume_failed(&e)))?;
         if reset > 0 {
             tracing::info!(target: "ingest", count = reset, "reset stuck processing files to pending");
         }
@@ -97,9 +95,7 @@ pub fn run_codex_ingest(args: &IngestArgs) -> Result<(), AppError> {
     if !args.resume && !args.retry_failed {
         queue_conn
             .execute("DELETE FROM queue", [])
-            .map_err(|e| {
-                AppError::Validation(crate::i18n::validation::queue_clear_failed(&e))
-            })?;
+            .map_err(|e| AppError::Validation(crate::i18n::validation::queue_clear_failed(&e)))?;
     }
 
     let mut new_count = 0usize;
@@ -398,9 +394,7 @@ pub fn run_codex_ingest(args: &IngestArgs) -> Result<(), AppError> {
                 .collect();
 
             let body_str = String::from_utf8(file_content.clone())
-                .map_err(|e| {
-                    AppError::Validation(crate::i18n::validation::file_not_utf8(&e))
-                })?;
+                .map_err(|e| AppError::Validation(crate::i18n::validation::file_not_utf8(&e)))?;
             let body_hash = blake3::hash(body_str.as_bytes()).to_hex().to_string();
             let new_memory = NewMemory {
                 name: name.clone(),

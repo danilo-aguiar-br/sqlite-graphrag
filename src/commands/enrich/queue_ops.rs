@@ -2,7 +2,6 @@
 
 use crate::errors::AppError;
 
-
 /// Classifies an enrich item failure into a retry/dead-letter outcome.
 ///
 /// This is the FALLBACK classifier: it is only consulted when the failure
@@ -241,7 +240,10 @@ pub(super) fn validate_claim(
             ),
         };
     }
-    if expected_item_type == "entity" && row.item_type != "entity" && !row.item_key.starts_with("entity:") {
+    if expected_item_type == "entity"
+        && row.item_type != "entity"
+        && !row.item_key.starts_with("entity:")
+    {
         // entity-descriptions: accept item_type=entity; bare entity names ok
         if row.item_type == "entity_pair" || is_non_memory_key_shape(&row.item_key) {
             return ClaimCheck::SkipWrongType {
@@ -296,41 +298,263 @@ pub(super) fn skip_wrong_type(
     Ok(())
 }
 
-/// GAP-CLI-QISO-01: claim the next pending row **for a single operation**.
+/// GAP-CLI-QISO-01: claim the next pending row **for a single operation + namespace**.
 ///
 /// `operation` must match the Debug label used at enqueue (`"EntityDescriptions"`,
 /// `"MemoryBindings"`, …). Rows with `LegacyUnscoped` / other ops are never claimed.
+///
+/// CAPA (dim-migrate 2026-07-30): claim MUST filter `namespace = ?2`. Without it,
+/// a drain for `ai-sdd` claimed `global`/empty-ns keys and failed with
+/// `chunk N not found in namespace 'ai-sdd'`, tripped the circuit breaker, and
+/// produced zero successful re-embeds on multi-namespace DBs.
 pub(super) fn dequeue_next_pending(
     queue_conn: &rusqlite::Connection,
     operation: &str,
+    namespace: &str,
     backoff_clause: &str,
 ) -> Result<DequeueOutcome, AppError> {
     // GAP-CLI-PRIO-03/04: claim highest priority first (hot > normal), then id.
     // GAP-CLI-QISO-01: strict operation filter — no OR operation IS NULL.
+    // CAPA: strict namespace filter — no OR namespace = '' (legacy residual
+    // empty-ns rows must be re-enqueued under the correct namespace, not claimed
+    // under whatever process happens to be draining).
     let dequeue_sql = format!(
         "UPDATE queue SET status='processing', attempt=attempt+1, \
          claimed_at=CAST(strftime('%s','now') AS INTEGER) \
          WHERE id = (SELECT id FROM queue WHERE status='pending' \
-                     AND operation = ?1 {backoff_clause} \
+                     AND operation = ?1 \
+                     AND namespace = ?2 \
+                     {backoff_clause} \
                      ORDER BY COALESCE(priority, 0) DESC, id ASC LIMIT 1) \
          RETURNING id, item_key, item_type, COALESCE(operation,''), attempt"
     );
-    match queue_conn.query_row(&dequeue_sql, rusqlite::params![operation], |row| {
-        Ok(ClaimedRow {
-            id: row.get(0)?,
-            item_key: row.get(1)?,
-            item_type: row.get(2)?,
-            operation: row.get(3)?,
-            attempt: row.get(4)?,
-        })
-    }) {
+    match queue_conn.query_row(
+        &dequeue_sql,
+        rusqlite::params![operation, namespace],
+        |row| {
+            Ok(ClaimedRow {
+                id: row.get(0)?,
+                item_key: row.get(1)?,
+                item_type: row.get(2)?,
+                operation: row.get(3)?,
+                attempt: row.get(4)?,
+            })
+        },
+    ) {
         Ok(claimed) => Ok(DequeueOutcome::Claimed(claimed)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(DequeueOutcome::Empty),
         Err(e) => Err(AppError::Database(e)),
     }
 }
 
+/// CAPA-A (2026-07-30): count pending rows eligible for **this** operation +
+/// namespace only — same isolation as [`dequeue_next_pending`].
+///
+/// `--until-empty` previously counted *all* pending rows across operations,
+/// so alien ReEmbed zombies kept EntityDescriptions spinning until max-runtime
+/// with `completed=0`. Strict op+ns (no `OR operation IS NULL`) matches claim.
+///
+/// `backoff_clause` is the same fragment drain uses (may be empty or
+/// `AND (next_retry_at IS NULL OR …)`); it is interpolated, not bound.
+pub(super) fn count_eligible_pending(
+    queue_conn: &rusqlite::Connection,
+    operation: &str,
+    namespace: &str,
+    backoff_clause: &str,
+) -> i64 {
+    let sql = format!(
+        "SELECT COUNT(*) FROM queue WHERE status='pending' \
+         AND operation = ?1 AND namespace = ?2 {backoff_clause}"
+    );
+    queue_conn
+        .query_row(&sql, rusqlite::params![operation, namespace], |r| r.get(0))
+        .unwrap_or(0)
+}
+
+/// CAPA-B/F: reopen `skipped`/`done` EntityDescriptions rows for force-redescribe
+/// scan candidates so `INSERT OR IGNORE` is not a silent no-op.
+///
+/// Call **once per process** before the first enqueue — not on every
+/// `--until-empty` re-scan — or preservation_failed items loop forever.
+/// Never reopens `dead` (use `--requeue-dead`).
+///
+/// Returns the number of rows updated to `pending`.
+pub(super) fn reopen_force_redescribe_candidates(
+    queue_conn: &rusqlite::Connection,
+    namespace: &str,
+    keys: &[String],
+) -> usize {
+    if keys.is_empty() {
+        return 0;
+    }
+    let mut total = 0usize;
+    for key in keys {
+        match queue_conn.execute(
+            "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
+             error=NULL, error_class=NULL, claimed_at=NULL, done_at=NULL \
+             WHERE operation = 'EntityDescriptions' \
+               AND namespace = ?1 \
+               AND item_key = ?2 \
+               AND status IN ('skipped', 'done')",
+            rusqlite::params![namespace, key],
+        ) {
+            Ok(n) => total = total.saturating_add(n),
+            Err(e) => {
+                tracing::warn!(
+                    target: "enrich",
+                    error = %e,
+                    key,
+                    "force-redescribe reopen failed for key"
+                );
+            }
+        }
+    }
+    total
+}
+
+/// CAPA-E: reset `processing` → `pending` scoped to one operation + namespace
+/// (`--resume` and graceful SIGTERM). Avoids stealing in-flight claims of
+/// other ops sharing the same sidecar.
+pub(super) fn reset_processing_for_op(
+    queue_conn: &rusqlite::Connection,
+    operation: &str,
+    namespace: &str,
+) -> Result<usize, AppError> {
+    let n = queue_conn.execute(
+        "UPDATE queue SET status='pending', claimed_at=NULL \
+         WHERE status='processing' AND operation = ?1 AND namespace = ?2",
+        rusqlite::params![operation, namespace],
+    )?;
+    Ok(n)
+}
+
+/// CAPA-E: reset `failed` → `pending` for one operation + namespace (`--retry-failed`).
+pub(super) fn reset_failed_for_op(
+    queue_conn: &rusqlite::Connection,
+    operation: &str,
+    namespace: &str,
+) -> Result<usize, AppError> {
+    let n = queue_conn.execute(
+        "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
+         error=NULL, error_class=NULL, claimed_at=NULL \
+         WHERE status='failed' AND operation = ?1 AND namespace = ?2",
+        rusqlite::params![operation, namespace],
+    )?;
+    Ok(n)
+}
+
+/// CAPA-C: true when a live embedding BLOB of the target dim exists
+/// (`LENGTH(embedding) = dim*4`), not merely a matching `dim` column.
+pub(super) fn entity_has_live_embedding(
+    main_conn: &rusqlite::Connection,
+    entity_id: i64,
+    dim: usize,
+) -> bool {
+    let bytes = (dim * 4) as i64;
+    main_conn
+        .query_row(
+            "SELECT 1 FROM entity_embeddings \
+             WHERE entity_id = ?1 AND LENGTH(embedding) = ?2 LIMIT 1",
+            rusqlite::params![entity_id, bytes],
+            |_| Ok(()),
+        )
+        .is_ok()
+}
+
+/// CAPA-C: live memory embedding at target dim (BLOB length).
+pub(super) fn memory_has_live_embedding(
+    main_conn: &rusqlite::Connection,
+    memory_id: i64,
+    dim: usize,
+) -> bool {
+    let bytes = (dim * 4) as i64;
+    main_conn
+        .query_row(
+            "SELECT 1 FROM memory_embeddings \
+             WHERE memory_id = ?1 AND LENGTH(embedding) = ?2 LIMIT 1",
+            rusqlite::params![memory_id, bytes],
+            |_| Ok(()),
+        )
+        .is_ok()
+}
+
+/// CAPA-C: live chunk embedding at target dim (BLOB length).
+pub(super) fn chunk_has_live_embedding(
+    main_conn: &rusqlite::Connection,
+    chunk_id: i64,
+    dim: usize,
+) -> bool {
+    let bytes = (dim * 4) as i64;
+    main_conn
+        .query_row(
+            "SELECT 1 FROM chunk_embeddings \
+             WHERE chunk_id = ?1 AND LENGTH(embedding) = ?2 LIMIT 1",
+            rusqlite::params![chunk_id, bytes],
+            |_| Ok(()),
+        )
+        .is_ok()
+}
+
+/// CAPA-C2: mark pending ReEmbed rows `done` when the main DB already has a
+/// live vector at the active dim — clears zombie pending without API calls.
+///
+/// Workload: serial SQLite I/O (orchestrator only; run before parallel drain).
+pub(super) fn reconcile_satisfied_reembed_pending(
+    main_conn: &rusqlite::Connection,
+    queue_conn: &rusqlite::Connection,
+    namespace: &str,
+) -> Result<usize, AppError> {
+    let dim = crate::constants::embedding_dim();
+    let mut stmt = queue_conn.prepare(
+        "SELECT id, item_key FROM queue \
+         WHERE status='pending' AND operation='ReEmbed' AND namespace=?1",
+    )?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map(rusqlite::params![namespace], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut reconciled = 0usize;
+    for (id, key) in rows {
+        let satisfied = if let Some(name) = key.strip_prefix("entity:") {
+            match main_conn.query_row(
+                "SELECT id FROM entities WHERE namespace=?1 AND name=?2",
+                rusqlite::params![namespace, name],
+                |r| r.get::<_, i64>(0),
+            ) {
+                Ok(eid) => entity_has_live_embedding(main_conn, eid, dim),
+                Err(_) => false,
+            }
+        } else if let Some(chunk_key) = key.strip_prefix("chunk:") {
+            match chunk_key.parse::<i64>() {
+                Ok(cid) => chunk_has_live_embedding(main_conn, cid, dim),
+                Err(_) => false,
+            }
+        } else {
+            match main_conn.query_row(
+                "SELECT id FROM memories WHERE namespace=?1 AND name=?2 AND deleted_at IS NULL",
+                rusqlite::params![namespace, key],
+                |r| r.get::<_, i64>(0),
+            ) {
+                Ok(mid) => memory_has_live_embedding(main_conn, mid, dim),
+                Err(_) => false,
+            }
+        };
+        if !satisfied {
+            continue;
+        }
+        let n = queue_conn.execute(
+            "UPDATE queue SET status='done', done_at=datetime('now'), claimed_at=NULL, \
+             error='reconciled: live embedding already present' \
+             WHERE id=?1 AND status='pending'",
+            rusqlite::params![id],
+        )?;
+        reconciled = reconciled.saturating_add(n);
+    }
+    Ok(reconciled)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-

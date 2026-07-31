@@ -94,58 +94,214 @@ pub struct SettingKey {
 ///
 /// Kept sorted so the emitted diagnostics are stable across runs.
 pub const SETTING_KEYS: &[SettingKey] = &[
-    SettingKey { key: "cache.dir", default: None },
-    SettingKey { key: "cli.max_instances", default: None },
-    SettingKey { key: "db.busy_base_delay_ms", default: Some("300") },
-    SettingKey { key: "db.busy_retries", default: Some("5") },
-    SettingKey { key: "db.path", default: None },
-    SettingKey { key: "db.query_timeout_ms", default: Some("5000") },
-    SettingKey { key: "display.tz", default: Some("UTC") },
-    SettingKey { key: "embedding.batch_size", default: Some("32") },
-    SettingKey { key: "embedding.claude_model", default: None },
-    SettingKey { key: "embedding.codex_model", default: None },
-    SettingKey { key: "embedding.dim", default: Some("1024") },
-    SettingKey { key: "embedding.opencode_model", default: None },
-    SettingKey { key: "enrich.entity_connect.default_limit", default: Some("100") },
-    SettingKey { key: "enrich.entity_connect.large_ns_limit", default: Some("25") },
-    SettingKey { key: "enrich.entity_description.domain", default: Some("auto") },
-    SettingKey { key: "enrich.entity_description.grounding_threshold", default: Some("0.12") },
-    SettingKey { key: "enrich.entity_description.min_corpus_chars", default: Some("40") },
-    SettingKey { key: "enrich.entity_description.quality_sample", default: Some("50") },
-    SettingKey { key: "enrich.yield_every_n_items", default: Some("10") },
-    SettingKey { key: "i18n.lang", default: Some("en") },
-    SettingKey { key: "ingest.low_memory", default: Some("false") },
-    SettingKey { key: "limits.max_entities_per_memory", default: Some("50") },
-    SettingKey { key: "limits.max_relations_per_memory", default: Some("50") },
-    SettingKey { key: "llm.claude_binary", default: None },
-    SettingKey { key: "llm.claude_empty_config_dir", default: None },
-    SettingKey { key: "llm.codex_binary", default: None },
-    SettingKey { key: "llm.fallback", default: Some("codex,claude,none") },
-    SettingKey { key: "llm.max_host_concurrency", default: None },
-    SettingKey { key: "llm.model", default: None },
-    SettingKey { key: "llm.opencode_binary", default: None },
-    SettingKey { key: "llm.opencode_model", default: None },
-    SettingKey { key: "llm.opencode_timeout", default: Some("300") },
-    SettingKey { key: "llm.probe_timeout_ms", default: Some("800") },
-    SettingKey { key: "llm.skip_embedding_on_failure", default: Some("false") },
-    SettingKey { key: "llm.slot_no_wait", default: Some("false") },
-    SettingKey { key: "llm.slot_wait_secs", default: Some("300") },
-    SettingKey { key: "log.format", default: Some("pretty") },
-    SettingKey { key: "log.level", default: Some("warn") },
-    SettingKey { key: "log.retention_days", default: Some("7") },
-    SettingKey { key: "log.rotation", default: Some("daily") },
-    SettingKey { key: "log.to_file", default: Some("false") },
-    SettingKey { key: "namespace.default", default: Some("global") },
-    SettingKey { key: "network.chat_url", default: None },
-    SettingKey { key: "network.embed_url", default: None },
-    SettingKey { key: "network.openrouter.chat_url", default: Some(crate::constants::DEFAULT_OPENROUTER_CHAT_URL) },
-    SettingKey { key: "network.openrouter.embeddings_url", default: Some(crate::constants::DEFAULT_OPENROUTER_EMBEDDINGS_URL) },
-    SettingKey { key: "parallelism.rayon_threads", default: None },
-    SettingKey { key: "retry.disable", default: Some("false") },
-    SettingKey { key: "shutdown.ignore", default: Some("false") },
-    SettingKey { key: "spawn.skip_preflight", default: Some("false") },
-    SettingKey { key: "spawn.strict_env_clear", default: Some("false") },
-    SettingKey { key: "system.max_load_per_ncpu", default: Some("2.0") },
+    SettingKey {
+        key: "cache.dir",
+        default: None,
+    },
+    SettingKey {
+        key: "cli.max_instances",
+        default: None,
+    },
+    SettingKey {
+        key: "db.busy_base_delay_ms",
+        default: Some("300"),
+    },
+    SettingKey {
+        key: "db.busy_retries",
+        default: Some("5"),
+    },
+    SettingKey {
+        key: "db.path",
+        default: None,
+    },
+    SettingKey {
+        key: "db.query_timeout_ms",
+        default: Some("5000"),
+    },
+    SettingKey {
+        key: "display.tz",
+        default: Some("UTC"),
+    },
+    SettingKey {
+        key: "embedding.batch_size",
+        default: Some("32"),
+    },
+    SettingKey {
+        key: "embedding.claude_model",
+        default: None,
+    },
+    SettingKey {
+        key: "embedding.codex_model",
+        default: None,
+    },
+    SettingKey {
+        key: "embedding.dim",
+        default: Some("1024"),
+    },
+    SettingKey {
+        key: "embedding.opencode_model",
+        default: None,
+    },
+    SettingKey {
+        key: "enrich.entity_connect.default_limit",
+        default: Some("100"),
+    },
+    SettingKey {
+        key: "enrich.entity_connect.large_ns_limit",
+        default: Some("25"),
+    },
+    SettingKey {
+        key: "enrich.entity_description.domain",
+        default: Some("auto"),
+    },
+    SettingKey {
+        key: "enrich.entity_description.grounding_threshold",
+        default: Some("0.12"),
+    },
+    SettingKey {
+        key: "enrich.entity_description.min_corpus_chars",
+        default: Some("40"),
+    },
+    SettingKey {
+        key: "enrich.entity_description.quality_sample",
+        default: Some("50"),
+    },
+    SettingKey {
+        key: "enrich.yield_every_n_items",
+        default: Some("10"),
+    },
+    SettingKey {
+        key: "i18n.lang",
+        default: Some("en"),
+    },
+    SettingKey {
+        key: "ingest.low_memory",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "limits.max_entities_per_memory",
+        default: Some("50"),
+    },
+    SettingKey {
+        key: "limits.max_relations_per_memory",
+        default: Some("50"),
+    },
+    SettingKey {
+        key: "llm.claude_binary",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.claude_empty_config_dir",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.codex_binary",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.fallback",
+        default: Some("codex,claude,none"),
+    },
+    SettingKey {
+        key: "llm.max_host_concurrency",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.model",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.opencode_binary",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.opencode_model",
+        default: None,
+    },
+    SettingKey {
+        key: "llm.opencode_timeout",
+        default: Some("300"),
+    },
+    SettingKey {
+        key: "llm.probe_timeout_ms",
+        default: Some("800"),
+    },
+    SettingKey {
+        key: "llm.skip_embedding_on_failure",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "llm.slot_no_wait",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "llm.slot_wait_secs",
+        default: Some("300"),
+    },
+    SettingKey {
+        key: "log.format",
+        default: Some("pretty"),
+    },
+    SettingKey {
+        key: "log.level",
+        default: Some("warn"),
+    },
+    SettingKey {
+        key: "log.retention_days",
+        default: Some("7"),
+    },
+    SettingKey {
+        key: "log.rotation",
+        default: Some("daily"),
+    },
+    SettingKey {
+        key: "log.to_file",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "namespace.default",
+        default: Some("global"),
+    },
+    SettingKey {
+        key: "network.chat_url",
+        default: None,
+    },
+    SettingKey {
+        key: "network.embed_url",
+        default: None,
+    },
+    SettingKey {
+        key: "network.openrouter.chat_url",
+        default: Some(crate::constants::DEFAULT_OPENROUTER_CHAT_URL),
+    },
+    SettingKey {
+        key: "network.openrouter.embeddings_url",
+        default: Some(crate::constants::DEFAULT_OPENROUTER_EMBEDDINGS_URL),
+    },
+    SettingKey {
+        key: "parallelism.rayon_threads",
+        default: None,
+    },
+    SettingKey {
+        key: "retry.disable",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "shutdown.ignore",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "spawn.skip_preflight",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "spawn.strict_env_clear",
+        default: Some("false"),
+    },
+    SettingKey {
+        key: "system.max_load_per_ncpu",
+        default: Some("2.0"),
+    },
 ];
 
 /// Iterates the registry key names in registration (sorted) order.
@@ -167,10 +323,8 @@ pub fn setting_key_names() -> impl Iterator<Item = &'static str> {
 // GAP-SG-79 / GAP-SG-122: legacy aliases map to the single canonical key.
 // `db.default_path` never took effect (paths always read `db.path`).
 // `paths.cache` was a parallel name for `cache.dir`.
-const LEGACY_SETTING_KEYS: &[(&str, &str)] = &[
-    ("db.default_path", "db.path"),
-    ("paths.cache", "cache.dir"),
-];
+const LEGACY_SETTING_KEYS: &[(&str, &str)] =
+    &[("db.default_path", "db.path"), ("paths.cache", "cache.dir")];
 
 /// Minimum Jaro-Winkler similarity required to suggest a replacement key.
 ///
@@ -281,9 +435,7 @@ pub fn get_setting(key: &str) -> Result<Option<String>, AppError> {
 /// Persist an operational setting in XDG config.toml (G-T-XDG-01).
 pub fn set_setting(key: &str, value: &str) -> Result<(), AppError> {
     if key.trim().is_empty() {
-        return Err(AppError::Validation(
-            "config key must be non-empty".into(),
-        ));
+        return Err(AppError::Validation("config key must be non-empty".into()));
     }
     // GAP-SG-80: an unvalidated insert persisted typos and obsolete keys while
     // reporting success, so the operator saw the value in `config show` and
@@ -336,7 +488,7 @@ pub struct ResolvedKey {
 /// Absolute path of `config.toml`.
 ///
 /// GAP-SG-98: delegates to [`crate::paths::config_dir`] so `--config-dir` is
-/// honoured. This function used to call [`ProjectDirs`] directly, which made it
+/// honoured. This function used to call [`directories::ProjectDirs`] directly, which made it
 /// a second, independent config-directory resolver that no flag could redirect.
 ///
 /// There is no cycle: [`crate::paths::config_dir`] consults only the CLI
@@ -621,10 +773,7 @@ mod tests {
             std::env::set_var("OPENROUTER_API_KEY", "env-must-be-ignored");
         }
         let resolved = resolve_api_key("openrouter-env-ignore-test-provider", None);
-        assert!(
-            resolved.is_none(),
-            "product env must not supply API keys"
-        );
+        assert!(resolved.is_none(), "product env must not supply API keys");
         unsafe {
             std::env::remove_var("OPENROUTER_API_KEY");
         }

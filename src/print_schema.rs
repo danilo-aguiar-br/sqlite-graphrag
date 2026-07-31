@@ -77,8 +77,8 @@ mod tests {
             SchemaId::EnrichStatus,
             SchemaId::ConfigList,
         ] {
-            let v: serde_json::Value =
-                serde_json::from_str(id.embedded()).unwrap_or_else(|e| panic!("{}: {e}", id.name()));
+            let v: serde_json::Value = serde_json::from_str(id.embedded())
+                .unwrap_or_else(|e| panic!("{}: {e}", id.name()));
             assert!(v.is_object(), "{} schema must be a JSON object", id.name());
             assert!(
                 v.get("$schema").is_some() || v.get("type").is_some(),

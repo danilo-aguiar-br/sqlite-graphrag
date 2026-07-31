@@ -1,13 +1,12 @@
 //! Persist helpers — write enrichment results to the main DB.
 
 /* wave-c1-imports */
-use rusqlite::Connection;
-use serde::Deserialize;
-use crate::errors::AppError;
 use crate::entity_type::EntityType;
+use crate::errors::AppError;
 use crate::storage::entities::{self, NewEntity, NewRelationship};
 use crate::storage::memories;
-
+use rusqlite::Connection;
+use serde::Deserialize;
 
 /// Persists entity bindings extracted by the LLM for a memory.
 ///
@@ -34,10 +33,13 @@ pub(super) fn persist_memory_bindings(
     }
 
     let extracted_entities: Vec<EntityItem> = serde_json::from_value(entities_json.clone())
-        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_parse_entities_array(&e)))?;
+        .map_err(|e| {
+            AppError::Validation(crate::i18n::validation::failed_to_parse_entities_array(&e))
+        })?;
 
-    let extracted_rels: Vec<RelItem> = serde_json::from_value(rels_json.clone())
-        .map_err(|e| AppError::Validation(crate::i18n::validation::failed_to_parse_relationships_array(&e)))?;
+    let extracted_rels: Vec<RelItem> = serde_json::from_value(rels_json.clone()).map_err(|e| {
+        AppError::Validation(crate::i18n::validation::failed_to_parse_relationships_array(&e))
+    })?;
 
     let mut ent_count = 0usize;
     let mut rel_count = 0usize;

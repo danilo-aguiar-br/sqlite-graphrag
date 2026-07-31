@@ -278,7 +278,9 @@ fn parse_status(s: &str) -> Result<PendingStatus, AppError> {
         "committed" => Ok(PendingStatus::Committed),
         "abandoned" => Ok(PendingStatus::Abandoned),
         "failed" => Ok(PendingStatus::Failed),
-        other => Err(AppError::Validation(crate::i18n::validation::unknown_pending_memories_status(other))),
+        other => Err(AppError::Validation(
+            crate::i18n::validation::unknown_pending_memories_status(other),
+        )),
     }
 }
 

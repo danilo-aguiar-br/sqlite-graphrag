@@ -24,31 +24,25 @@ fn path_arg(p: &std::path::Path) -> &std::path::Path {
 /// Helper: initialize a database at `db_path` with the standard schema
 /// so the `health` subcommand can run on it. Returns the tempdir so
 /// it stays alive for the test.
+fn sgr_bin() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_sqlite-graphrag"))
+}
+
 fn init_db(db_path: &std::path::Path) {
-    let status = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let status = sgr_bin()
         .arg("init")
         .arg("--db")
         .arg(path_arg(db_path))
         .arg("--json")
         .status()
-        .expect("spawn cargo run init");
+        .expect("spawn sqlite-graphrag init");
     assert!(status.success(), "init must succeed to run health");
 }
 
 /// Helper: invoke `sqlite-graphrag health --db <p> --namespace <ns> --json`
 /// and return `(status, stdout)`.
 fn run_health_with_namespace(db_path: &std::path::Path, namespace: &str) -> (i32, String) {
-    let output = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let output = sgr_bin()
         .arg("health")
         .arg("--db")
         .arg(path_arg(db_path))
@@ -56,7 +50,7 @@ fn run_health_with_namespace(db_path: &std::path::Path, namespace: &str) -> (i32
         .arg(namespace)
         .arg("--json")
         .output()
-        .expect("spawn cargo run health --namespace");
+        .expect("spawn sqlite-graphrag health --namespace");
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     (status, stdout)
@@ -65,18 +59,13 @@ fn run_health_with_namespace(db_path: &std::path::Path, namespace: &str) -> (i32
 /// Helper: invoke `sqlite-graphrag health --db <p> --json` (no namespace)
 /// to capture the global baseline response.
 fn run_health_global(db_path: &std::path::Path) -> (i32, String) {
-    let output = Command::new(env!("CARGO"))
-        .arg("run")
-        .arg("--quiet")
-        .arg("--bin")
-        .arg("sqlite-graphrag")
-        .arg("--")
+    let output = sgr_bin()
         .arg("health")
         .arg("--db")
         .arg(path_arg(db_path))
         .arg("--json")
         .output()
-        .expect("spawn cargo run health (global)");
+        .expect("spawn sqlite-graphrag health (global)");
     let status = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     (status, stdout)

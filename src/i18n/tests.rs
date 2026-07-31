@@ -227,12 +227,10 @@ mod validation_tests {
     fn reserved_name_en() {
         let msg = match Language::English {
             Language::English => {
-                "names and namespaces starting with __ are reserved for internal use"
-                    .to_string()
+                "names and namespaces starting with __ are reserved for internal use".to_string()
             }
             Language::Portuguese => {
-                "nomes e namespaces iniciados com __ são reservados para uso interno"
-                    .to_string()
+                "nomes e namespaces iniciados com __ são reservados para uso interno".to_string()
             }
         };
         assert!(msg.contains("reserved for internal use"), "obtido: {msg}");
@@ -242,12 +240,10 @@ mod validation_tests {
     fn reserved_name_pt() {
         let msg = match Language::Portuguese {
             Language::English => {
-                "names and namespaces starting with __ are reserved for internal use"
-                    .to_string()
+                "names and namespaces starting with __ are reserved for internal use".to_string()
             }
             Language::Portuguese => {
-                "nomes e namespaces iniciados com __ são reservados para uso interno"
-                    .to_string()
+                "nomes e namespaces iniciados com __ são reservados para uso interno".to_string()
             }
         };
         assert!(msg.contains("reservados para uso interno"), "obtido: {msg}");
@@ -259,8 +255,7 @@ mod app_error_pt_translation_tests {
 
     #[test]
     fn localized_message_pt_not_found_fully_translated() {
-        let err =
-            AppError::NotFound("memory 'test-mem' not found in namespace 'global'".into());
+        let err = AppError::NotFound("memory 'test-mem' not found in namespace 'global'".into());
         let pt = err.localized_message_for(crate::i18n::Language::Portuguese);
         assert!(
             pt.contains("memória"),
@@ -279,8 +274,7 @@ mod app_error_pt_translation_tests {
     #[test]
     fn localized_message_pt_duplicate_fully_translated() {
         let err = AppError::Duplicate(
-            "memory 'x' already exists in namespace 'global'. Use --force-merge to update."
-                .into(),
+            "memory 'x' already exists in namespace 'global'. Use --force-merge to update.".into(),
         );
         let pt = err.localized_message_for(crate::i18n::Language::Portuguese);
         assert!(pt.contains("memória"), "PT must translate 'memory': {pt}");

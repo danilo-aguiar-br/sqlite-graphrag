@@ -1,15 +1,15 @@
 //! Extracted from extraction.rs (Wave C1).
 
-use super::*;
 use super::postprocess::{
     persist_enriched_body, persist_entity_description, persist_memory_bindings,
     reembed_memory_vector,
 };
-use rusqlite::Connection;
-use crate::errors::AppError;
-use crate::entity_type::EntityType;
+use super::*;
 use crate::constants::MAX_MEMORY_BODY_LEN;
+use crate::entity_type::EntityType;
+use crate::errors::AppError;
 use crate::storage::entities::{self};
+use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn call_memory_bindings(
@@ -200,7 +200,9 @@ pub(crate) fn call_entity_description(
     let mut description = value
         .get("description")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_description_field()))?
+        .ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::llm_missing_description_field())
+        })?
         .to_string();
 
     // GAP-CLI-ED-03 / G-T-DRY-01 / G-PR-6: adaptive grounding.
@@ -232,10 +234,7 @@ pub(crate) fn call_entity_description(
             crate::preservation::PreservationVerdict::Unchanged { .. } => 1.0,
         };
         if score >= (threshold * 0.25).clamp(0.0, 1.0) {
-            verdict = crate::preservation::PreservationVerdict::Preserved {
-                score,
-                threshold,
-            };
+            verdict = crate::preservation::PreservationVerdict::Preserved { score, threshold };
         }
     }
     if !verdict.is_accepted() {
@@ -271,7 +270,9 @@ pub(crate) fn call_entity_description(
                         threshold,
                         min_corpus_chars,
                     );
-                    if v2.is_accepted() && !super::super::predicates::is_low_quality_description(&d2) {
+                    if v2.is_accepted()
+                        && !super::super::predicates::is_low_quality_description(&d2)
+                    {
                         description = d2;
                     }
                 }
@@ -467,7 +468,9 @@ pub(crate) fn call_body_enrich(
     let enriched_body = value
         .get("enriched_body")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::llm_missing_enriched_body_field()))?;
+        .ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::llm_missing_enriched_body_field())
+        })?;
 
     let chars_after = enriched_body.chars().count();
 
@@ -592,6 +595,21 @@ pub(crate) fn call_reembed(
             other => AppError::Database(other),
         })?;
 
+    // CAPA-C1: skip API when a live vector already exists at the active dim.
+    let dim = crate::constants::embedding_dim();
+    if super::queue::memory_has_live_embedding(conn, memory_id, dim) {
+        return Ok(EnrichItemResult::Done {
+            memory_id: Some(memory_id),
+            entity_id: None,
+            entities: 0,
+            rels: 0,
+            chars_before: Some(body.chars().count()),
+            chars_after: Some(body.chars().count()),
+            cost: 0.0,
+            is_oauth: true,
+        });
+    }
+
     if body.trim().is_empty() {
         return Ok(EnrichItemResult::Skipped {
             reason: "body is empty".to_string(),
@@ -650,6 +668,26 @@ fn call_reembed_entity(
             }
             other => AppError::Database(other),
         })?;
+
+    // CAPA-C1: skip API when a live vector already exists at the active dim.
+    let dim = crate::constants::embedding_dim();
+    if super::queue::entity_has_live_embedding(conn, entity_id, dim) {
+        let text_len = if description.is_empty() {
+            entity_name.chars().count()
+        } else {
+            entity_name.chars().count() + 1 + description.chars().count()
+        };
+        return Ok(EnrichItemResult::Done {
+            memory_id: None,
+            entity_id: Some(entity_id),
+            entities: 1,
+            rels: 0,
+            chars_before: Some(text_len),
+            chars_after: Some(text_len),
+            cost: 0.0,
+            is_oauth: true,
+        });
+    }
 
     let text = if description.is_empty() {
         entity_name.to_string()
@@ -720,6 +758,21 @@ fn call_reembed_chunk(
             other => AppError::Database(other),
         })?;
 
+    // CAPA-C1: skip API when a live vector already exists at the active dim.
+    let dim = crate::constants::embedding_dim();
+    if super::queue::chunk_has_live_embedding(conn, chunk_id, dim) {
+        return Ok(EnrichItemResult::Done {
+            memory_id: Some(memory_id),
+            entity_id: None,
+            entities: 0,
+            rels: 0,
+            chars_before: Some(chunk_text.chars().count()),
+            chars_after: Some(chunk_text.chars().count()),
+            cost: 0.0,
+            is_oauth: true,
+        });
+    }
+
     if chunk_text.trim().is_empty() {
         return Ok(EnrichItemResult::Skipped {
             reason: "chunk text is empty".to_string(),
@@ -763,10 +816,9 @@ pub(crate) fn find_codex_binary(explicit: Option<&Path>) -> Result<PathBuf, AppE
         if p.exists() {
             return Ok(p.to_path_buf());
         }
-        return Err(AppError::Validation(crate::i18n::validation::binary_not_found_at_path(
-                "Codex",
-                &p.display().to_string(),
-            )));
+        return Err(AppError::Validation(
+            crate::i18n::validation::binary_not_found_at_path("Codex", &p.display().to_string()),
+        ));
     }
 
     if let Some(env_path) = crate::runtime_config::codex_binary() {

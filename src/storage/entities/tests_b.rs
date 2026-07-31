@@ -32,11 +32,9 @@ fn new_entity_helper(name: &str) -> NewEntity {
     }
 }
 
-
 // ------------------------------------------------------------------ //
 // upsert_entity
 // ------------------------------------------------------------------ //
-
 
 #[test]
 fn test_upsert_relationship_creates_new() -> TestResult {

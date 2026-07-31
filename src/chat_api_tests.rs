@@ -45,15 +45,15 @@ async fn client_for(server: &MockServer, model: &str) -> OpenRouterChatClient {
 
 #[test]
 fn new_builds_client_and_binds_model() {
-    let client = OpenRouterChatClient::new(key(), "z-ai/glm-5.2".to_string(), 30)
-        .expect("client builds");
+    let client =
+        OpenRouterChatClient::new(key(), "z-ai/glm-5.2".to_string(), 30).expect("client builds");
     assert_eq!(client.model(), "z-ai/glm-5.2");
 }
 
 #[test]
 fn new_defaults_base_url_to_public_endpoint() {
-    let client = OpenRouterChatClient::new(key(), "z-ai/glm-5.2".to_string(), 30)
-        .expect("client builds");
+    let client =
+        OpenRouterChatClient::new(key(), "z-ai/glm-5.2".to_string(), 30).expect("client builds");
     assert_eq!(client.base_url, DEFAULT_OPENROUTER_CHAT_URL);
 }
 
@@ -307,8 +307,7 @@ async fn complete_non_json_content_errors_as_incompatible() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(success_body("this is not json", Some(0.0))),
+            ResponseTemplate::new(200).set_body_json(success_body("this is not json", Some(0.0))),
         )
         .mount(&server)
         .await;
@@ -385,9 +384,8 @@ async fn complete_retries_with_reasoning_omitted_when_mandatory() {
     // the one-shot fallback.
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(400).set_body_string(
-                "reasoning is mandatory for this model and cannot be disabled",
-            ),
+            ResponseTemplate::new(400)
+                .set_body_string("reasoning is mandatory for this model and cannot be disabled"),
         )
         .up_to_n_times(1)
         .expect(1)
@@ -461,7 +459,12 @@ async fn complete_honours_configured_timeout() {
         .complete("system", "input", TEST_SCHEMA, None)
         .await
         .expect_err("request exceeds the 1s timeout");
-    assert!(err.to_string().contains("timed out"), "got: {err}");
+    let msg = err.to_string();
+    // Locale-safe: EN "timed out" / PT "expirou (timeout)"
+    assert!(
+        msg.contains("timed out") || msg.contains("timeout") || msg.contains("expirou"),
+        "got: {msg}"
+    );
 }
 
 #[tokio::test]

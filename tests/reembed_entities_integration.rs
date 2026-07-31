@@ -26,7 +26,8 @@ fn cmd(temp: &TempDir) -> Command {
     c.env_clear()
         .env("HOME", temp.path())
         .env("HOME", temp.path())
-        .arg("--lang").arg("en")
+        .arg("--lang")
+        .arg("en")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {

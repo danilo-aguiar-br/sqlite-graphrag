@@ -6,7 +6,6 @@ use crate::extract::llm_embedding::LlmEmbedding;
 use parking_lot::Mutex;
 use std::path::Path;
 
-
 /// Embeds a single passage for storage. Delegates to the configured LLM
 /// headless (claude code / codex). Returns a vector of the active
 /// dimensionality.

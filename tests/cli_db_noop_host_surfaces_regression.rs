@@ -18,7 +18,11 @@ fn bin() -> Command {
         Command::new(path)
     } else {
         let mut c = Command::new(env!("CARGO"));
-        c.arg("run").arg("--quiet").arg("--bin").arg("sqlite-graphrag").arg("--");
+        c.arg("run")
+            .arg("--quiet")
+            .arg("--bin")
+            .arg("sqlite-graphrag")
+            .arg("--");
         c
     }
 }
@@ -77,11 +81,7 @@ fn host_surfaces_accept_db_noop_without_creating_path() {
     let s = sentinel.to_str().expect("utf8 path");
 
     // Read-only / non-destructive leaves (safe without init).
-    assert_db_noop(
-        "config doctor",
-        &["config", "doctor", "--db", s],
-        &sentinel,
-    );
+    assert_db_noop("config doctor", &["config", "doctor", "--db", s], &sentinel);
     assert_db_noop("config path", &["config", "path", "--db", s], &sentinel);
     assert_db_noop("config list", &["config", "list", "--db", s], &sentinel);
     assert_db_noop(
@@ -94,11 +94,7 @@ fn host_surfaces_accept_db_noop_without_creating_path() {
         &["config", "get", "embedding.dim", "--db", s],
         &sentinel,
     );
-    assert_db_noop(
-        "slots status",
-        &["slots", "status", "--db", s],
-        &sentinel,
-    );
+    assert_db_noop("slots status", &["slots", "status", "--db", s], &sentinel);
     assert_db_noop(
         "slots cleanup dry-run",
         &["slots", "cleanup", "--dry-run", "--db", s],
@@ -106,11 +102,7 @@ fn host_surfaces_accept_db_noop_without_creating_path() {
     );
     assert_db_noop("cache list", &["cache", "list", "--db", s], &sentinel);
     assert_db_noop("cache stats", &["cache", "stats", "--db", s], &sentinel);
-    assert_db_noop(
-        "codex-models",
-        &["codex-models", "--db", s],
-        &sentinel,
-    );
+    assert_db_noop("codex-models", &["codex-models", "--db", s], &sentinel);
     assert_db_noop(
         "completions bash",
         &["completions", "bash", "--db", s],

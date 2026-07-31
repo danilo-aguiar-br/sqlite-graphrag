@@ -17,16 +17,15 @@
 // artefact is shared and process-global resources (sqlite-vec auto-extension,
 // fastembed model cache) are loaded per child. Serialising eliminates races.
 
-use assert_cmd::prelude::*;
+use assert_cmd::Command;
 use serde_json::Value;
 use serial_test::serial;
 use std::path::Path;
-use std::process::Command;
 use tempfile::TempDir;
 
-/// Builds a fresh `Command` with the mock LLM PATH prepended.
+/// Builds a fresh `assert_cmd::Command` with the mock LLM PATH prepended.
 ///
-/// v1.0.76 spawns `claude` or `codex` on every `remember` / `ingest` /
+/// The binary spawns `claude` or `codex` on every `remember` / `ingest` /
 /// `edit`. The bundled mocks under `tests/mock-llm/` return a fixed
 /// 64-dim zero vector so the binary finishes without a real OAuth
 /// login. The mock directory is leaked (no TempDir cleanup) so the
@@ -58,9 +57,7 @@ fn ingest_cmd(temp: &TempDir) -> Command {
 fn init_db(temp: &TempDir) {
     let mut c = sgr_cmd();
     common::wire_assert_cmd(temp, &mut c, "graphrag.sqlite");
-    c.args(["--skip-memory-guard", "init"])
-        .assert()
-        .success();
+    c.args(["--skip-memory-guard", "init"]).assert().success();
 }
 
 /// Writes a Markdown file with the given basename and a deterministic body.

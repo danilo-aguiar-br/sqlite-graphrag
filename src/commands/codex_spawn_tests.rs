@@ -60,8 +60,14 @@ fn validate_codex_model_accepts_known() {
 fn validate_codex_model_rejects_unknown() {
     let err = validate_codex_model(Some("gpt-4")).unwrap_err();
     let msg = format!("{err}");
-    assert!(msg.contains("not supported"));
-    assert!(msg.contains("gpt-5.5"));
+    // Locale-safe: EN "not supported" / PT "não é suportado"
+    assert!(
+        msg.contains("not supported")
+            || msg.contains("não é suportado")
+            || msg.contains("suportado"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("gpt-5.5"), "got: {msg}");
 }
 
 #[test]
@@ -154,8 +160,7 @@ fn list_codex_models_extracts_from_models_array_v1_0_81_regression() {
     // list with metadata keys. Here we simulate a cache file by
     // setting HOME to a tempdir containing a synthetic cache and
     // verifying the metadata keys are NOT present in the output.
-    let tmp =
-        std::env::temp_dir().join(format!("codex-models-array-test-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("codex-models-array-test-{}", std::process::id()));
     std::fs::create_dir_all(tmp.join(".codex")).expect("mkdir");
     let cache_body = r#"{
         "fetched_at": "2026-06-14T06:43:56.639903114Z",
@@ -202,8 +207,7 @@ fn list_codex_models_extracts_from_models_array_v1_0_81_regression() {
 fn list_codex_models_falls_back_to_keys_when_models_field_absent() {
     // Legacy cache shape: keys are model ids directly (no models
     // array). v1.0.81 must still merge those keys into the result.
-    let tmp =
-        std::env::temp_dir().join(format!("codex-models-legacy-test-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("codex-models-legacy-test-{}", std::process::id()));
     std::fs::create_dir_all(tmp.join(".codex")).expect("mkdir");
     let cache_body = r#"{"legacy-model-x": 1, "legacy-model-y": 2}"#;
     std::fs::write(tmp.join(".codex/models_cache.json"), cache_body).expect("write cache");

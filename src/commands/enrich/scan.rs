@@ -56,27 +56,31 @@ const GENERIC_RELATION_PREDICATE: &str = "r.relation = 'applies_to'";
 // cannot drift (GAP-SG-77).
 // ---------------------------------------------------------------------------
 
-/// `re-embed --target memories`: memory `m` lacks a live vector.
+/// `re-embed --target memories`: memory `m` lacks a live vector at the target dim.
+/// CAPA: BLOB length is the source of truth (see predicates.rs).
 fn reembed_memory_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM memory_embeddings me WHERE me.memory_id = m.id \
-         AND me.dim = {dim} AND LENGTH(me.embedding) > 0)"
+         AND LENGTH(me.embedding) = {bytes})"
     )
 }
 
-/// `re-embed --target entities`: entity `e` lacks a live vector.
+/// `re-embed --target entities`: entity `e` lacks a live vector at the target dim.
 fn reembed_entity_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM entity_embeddings ev WHERE ev.entity_id = e.id \
-         AND ev.dim = {dim} AND LENGTH(ev.embedding) > 0)"
+         AND LENGTH(ev.embedding) = {bytes})"
     )
 }
 
-/// `re-embed --target chunks`: chunk `c` lacks a live vector.
+/// `re-embed --target chunks`: chunk `c` lacks a live vector at the target dim.
 fn reembed_chunk_predicate(dim: usize) -> String {
+    let bytes = dim * 4;
     format!(
         "NOT EXISTS (SELECT 1 FROM chunk_embeddings ce WHERE ce.chunk_id = c.id \
-         AND ce.dim = {dim} AND LENGTH(ce.embedding) > 0)"
+         AND LENGTH(ce.embedding) = {bytes})"
     )
 }
 
@@ -271,9 +275,7 @@ pub(super) fn scan_entities_without_description(
             n
         }
     });
-    let limit_clause = sql_limit
-        .map(|n| format!("LIMIT {n}"))
-        .unwrap_or_default();
+    let limit_clause = sql_limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
     // GAP-SG-77 / GAP-CLI-ED-06: status COUNT and scan MUST share one predicate.
     // Without force: NULL/empty only. With --force-redescribe: empty OR low-quality LIKEs.
     let desc_pred = super::predicates::entity_description_scan_predicate(force_redescribe);

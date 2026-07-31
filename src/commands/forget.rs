@@ -30,10 +30,7 @@ pub struct ForgetArgs {
     /// Use `purge` to permanently remove soft-deleted memories.
     #[arg(long)]
     pub name: Option<String>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Emit machine-readable JSON on stdout.

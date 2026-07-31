@@ -175,48 +175,28 @@ pub struct Cli {
     /// v1.0.82 (GAP-003): model to invoke on the chosen backend.
     /// Prefer the flag; optional XDG `llm.model`. The default depends
     /// on the backend (codex: `gpt-5.5`; claude: `claude-sonnet-4-6`).
-    #[arg(
-        long,
-        global = true,
-        value_name = "MODEL",
-            )]
+    #[arg(long, global = true, value_name = "MODEL")]
     pub llm_model: Option<String>,
 
     /// v1.0.82 (GAP-003): path to the `claude` binary (overrides
     /// PATH detection). Prefer the flag; optional XDG `llm.claude_binary`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "PATH",
-            )]
+    #[arg(long, global = true, value_name = "PATH")]
     pub claude_binary: Option<std::path::PathBuf>,
 
     /// v1.0.89 (GAP-1): path to the `codex` binary (overrides
     /// PATH detection). Prefer the flag; optional XDG `llm.codex_binary`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "PATH",
-            )]
+    #[arg(long, global = true, value_name = "PATH")]
     pub codex_binary: Option<std::path::PathBuf>,
 
     /// v1.0.90 (GAP-OPENCODE-001): path to the `opencode` binary (overrides
     /// PATH detection). Prefer the flag; optional XDG `llm.opencode_binary`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "PATH",
-            )]
+    #[arg(long, global = true, value_name = "PATH")]
     pub opencode_binary: Option<std::path::PathBuf>,
 
     /// v1.0.82 (GAP-005): chain of LLM backends tried in order
     /// when the primary fails. Default `codex,claude,none`. Prefer the
     /// flag; optional XDG `llm.fallback`.
-    #[arg(
-        long,
-        global = true,
-        default_value = "codex,claude,none",
-            )]
+    #[arg(long, global = true, default_value = "codex,claude,none")]
     pub llm_fallback: String,
 
     /// v1.0.82 (GAP-005): persists with a NULL embedding when all
@@ -234,21 +214,13 @@ pub struct Cli {
     /// v1.0.82 (GAP-004): host-wide limit of concurrent LLM
     /// subprocesses. Default derived from `ncpus`. Prefer the flag; optional XDG
     /// XDG `llm.max_host_concurrency`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "N",
-            )]
+    #[arg(long, global = true, value_name = "N")]
     pub llm_max_host_concurrency: Option<u32>,
 
     /// v1.0.82 (GAP-004): seconds to wait for a free LLM slot
     /// before failing with exit 75. Default 30s. Prefer the flag; optional XDG
     /// XDG `llm.slot_wait_secs`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "SECONDS",
-            )]
+    #[arg(long, global = true, value_name = "SECONDS")]
     pub llm_slot_wait_secs: Option<u64>,
 
     /// v1.0.82 (GAP-004): if set, fails immediately (exit 75)
@@ -270,11 +242,7 @@ pub struct Cli {
 
     /// v1.0.93: embedding model for the OpenRouter API. Required when
     /// `--embedding-backend openrouter`. Prefer the flag; optional XDG `embedding.model`.
-    #[arg(
-        long,
-        global = true,
-        value_name = "MODEL",
-            )]
+    #[arg(long, global = true, value_name = "MODEL")]
     pub embedding_model: Option<String>,
 
     /// v1.0.93: OpenRouter API key (prefer env var or config.toml over CLI flag
@@ -284,7 +252,7 @@ pub struct Cli {
         global = true,
         value_name = "KEY",
         hide = true,
-                hide_env_values = true
+        hide_env_values = true
     )]
     pub openrouter_api_key: Option<String>,
 
@@ -296,7 +264,6 @@ pub struct Cli {
 #[cfg(test)]
 #[path = "cli_json_only_format_tests.rs"]
 mod json_only_format_tests;
-
 
 impl Cli {
     /// Validates concurrency flags and returns a localised descriptive error if invalid.
@@ -636,7 +603,6 @@ pub enum MemoryType {
 #[cfg(test)]
 #[path = "cli_heavy_concurrency_tests.rs"]
 mod heavy_concurrency_tests;
-
 
 impl MemoryType {
     /// Return the canonical string representation.

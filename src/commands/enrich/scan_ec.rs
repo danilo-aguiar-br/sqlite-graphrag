@@ -176,4 +176,3 @@ fn scan_pairs_hub_island(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
-

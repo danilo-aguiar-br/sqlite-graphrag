@@ -120,10 +120,12 @@ pub fn validate_codex_model(model: Option<&str>) -> Result<(), AppError> {
     if CODEX_PRO_OAUTH_MODELS.contains(&m) {
         Ok(())
     } else {
-        Err(AppError::Validation(crate::i18n::validation::codex_model_not_supported_oauth(
+        Err(AppError::Validation(
+            crate::i18n::validation::codex_model_not_supported_oauth(
                 m,
                 &CODEX_PRO_OAUTH_MODELS.join(", "),
-            )))
+            ),
+        ))
     }
 }
 
@@ -476,7 +478,9 @@ pub fn parse_codex_jsonl(stdout: &str) -> Result<CodexResult, AppError> {
     })?;
 
     if turn_failed {
-        return Err(AppError::Validation(crate::i18n::validation::codex_turn_failed(&failed_message)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::codex_turn_failed(&failed_message),
+        ));
     }
     if schema_error {
         return Err(AppError::Validation(
@@ -484,7 +488,9 @@ pub fn parse_codex_jsonl(stdout: &str) -> Result<CodexResult, AppError> {
         ));
     }
     if rate_limited {
-        return Err(AppError::Validation(crate::i18n::validation::codex_rate_limited(&failed_message)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::codex_rate_limited(&failed_message),
+        ));
     }
 
     let extraction = parse_extraction_text(&text)?;

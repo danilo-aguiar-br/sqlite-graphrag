@@ -93,6 +93,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Asserções de teste envolvendo timestamps DEVEM ser timezone-agnostic — parseie ISO via `chrono::DateTime::parse_from_rfc3339` e compare `timestamp()` contra `DateTime::UNIX_EPOCH` em vez de strings hardcoded `1970-01-01T00:00:00`; esta regra foi adicionada depois de um vazamento de `SQLITE_GRAPHRAG_DISPLAY_TZ` em v1.0.66/v1.0.67 que tornou três testes pré-existentes flaky
 - Testes de embedding OpenRouter vivem em `tests/openrouter_embedding.rs` usando `wiremock` para mocking HTTP; execute com `cargo test --test openrouter_embedding`
 - Testes E2E OpenRouter com API real são opt-in: defina `OPENROUTER_API_KEY` e `--embedding-model` para executar contra endpoint ao vivo; estes NÃO fazem parte da suíte padrão `cargo test`
+- Regressões CAPA da fila enrich v1.2.1: ao editar enqueue/dequeue/predicados de re-embed, rode `cargo test --lib commands::enrich` e confirme que `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` permanecem verdes (isolamento de claim por namespace / strip de `entity:`)
 
 
 ## Documentação
@@ -127,6 +128,11 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Publicação final no crates.io é feita manualmente com `cargo publish --locked`
 
 ## Releases Recentes
+
+### v1.2.1 - 2026-07-31 — Selo CAPA da fila enrich (claim por namespace, reopen force-redescribe, verdade BLOB do re-embed)
+- Regressões da fila (rode ao tocar `src/commands/enrich/queue*.rs`, `predicates.rs`, `scan.rs`): `enqueue_candidate_accepts_entity_prefixed_reembed_key` (aceita `entity:ownership` e bare `ownership`; rejeita entidade ausente); `dequeue_next_pending_isolates_by_namespace` (claim filtrado por operation **e** namespace). Suíte unitária da fila: **38** testes OK (`cargo test --lib commands::enrich::queue` ou `cargo test --lib commands::enrich`).
+- Temas CAPA: isolamento de claim por namespace; contagem `--until-empty` só op+ns; `--force-redescribe` reabre `skipped`/`done` uma vez/processo; elegibilidade re-embed `LENGTH(embedding)=dim*4` + reconciliação de zumbis; validação de chunk no ns; CAPA-D só marcadores compostos de configuration file.
+- Sem migração de schema (DB principal permanece em **v16**). Veja `CHANGELOG.pt-BR.md` `[1.2.1]`; pin `=1.2.1`.
 
 ### v1.2.0 - 2026-07-29 — DEFAULT_EMBEDDING_DIM=1024, testes herméticos, residual seal
 - Harness de testes hermético: `IsolatedEnv` / `xdg_isolation_guard` (e `wire_assert_cmd`); **sem** product env `SQLITE_GRAPHRAG_*` como caminho operacional de config nos testes (apenas asserts negativos; GAP-SG-101/118).

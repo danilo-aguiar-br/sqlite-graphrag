@@ -5,7 +5,6 @@ use crate::errors::AppError;
 use rusqlite::Connection;
 use serde::Serialize;
 
-
 // ---------------------------------------------------------------------------
 // Queue DB
 // ---------------------------------------------------------------------------
@@ -121,9 +120,7 @@ pub(crate) fn open_queue_db<P: AsRef<std::path::Path>>(path: P) -> Result<Connec
         conn.execute_batch("ALTER TABLE queue ADD COLUMN claimed_at INTEGER")?;
     }
     if !has_priority {
-        conn.execute_batch(
-            "ALTER TABLE queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
-        )?;
+        conn.execute_batch("ALTER TABLE queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")?;
     }
     // GAP-CLI-QISO-01: rows with NULL operation predate per-op claim. Tag them
     // LegacyUnscoped so they are never claimable by a named operation drain
@@ -198,7 +195,11 @@ fn migrate_queue_add_namespace(conn: &Connection) -> Result<(), AppError> {
          ALTER TABLE queue_v120 RENAME TO queue;
          COMMIT;",
     )
-    .map_err(|e| AppError::Validation(crate::i18n::validation::queue_namespace_migration_failed(&e)))?;
+    .map_err(|e| {
+        AppError::Validation(crate::i18n::validation::queue_namespace_migration_failed(
+            &e,
+        ))
+    })?;
     Ok(())
 }
 
@@ -206,19 +207,25 @@ fn migrate_queue_add_namespace(conn: &Connection) -> Result<(), AppError> {
 /// (GAP-CLI-PRIO-03). Higher values are claimed first.
 pub const PRIORITY_HOT: i64 = 100;
 
-/// Count pending queue rows at or above `min_priority` for an operation label.
+/// Count pending queue rows at or above `min_priority` for an operation + namespace.
+///
+/// CAPA-G (2026-07-30): filter by `namespace` so HOT preemption for one ns does
+/// not see pending rows belonging to another namespace on a shared sidecar.
 pub(super) fn count_priority_pending(
     queue_conn: &Connection,
     operation: &str,
+    namespace: &str,
     min_priority: i64,
 ) -> Result<i64, rusqlite::Error> {
     // GAP-SG-97: status is a string literal — must be quoted.
+    // Strict operation + namespace (aligned with dequeue_next_pending).
     queue_conn.query_row(
         "SELECT COUNT(*) FROM queue \
          WHERE status='pending' \
-           AND (operation = ?1 OR operation IS NULL) \
-           AND COALESCE(priority, 0) >= ?2",
-        rusqlite::params![operation, min_priority],
+           AND operation = ?1 \
+           AND namespace = ?2 \
+           AND COALESCE(priority, 0) >= ?3",
+        rusqlite::params![operation, namespace, min_priority],
         |r| r.get(0),
     )
 }
@@ -262,9 +269,15 @@ pub(super) fn enqueue_candidate(
             }
         }
     } else if item_type == "entity" {
+        // v1.1.1 (P2) re-embed enqueues `entity:{name}` keys so drain can
+        // dispatch (`call_reembed` strips the prefix). Lookup must use the
+        // bare entity name — matching against the prefixed key rejects every
+        // candidate ("entity not found in namespace") and leaves the ~14k
+        // entity_embeddings residual stuck forever.
+        let entity_name = key.strip_prefix("entity:").unwrap_or(key);
         match main_conn.query_row(
             "SELECT id FROM entities WHERE namespace=?1 AND name=?2",
-            rusqlite::params![namespace, key],
+            rusqlite::params![namespace, entity_name],
             |r| r.get::<_, i64>(0),
         ) {
             Ok(_) => None,
@@ -278,8 +291,40 @@ pub(super) fn enqueue_candidate(
                 return;
             }
         }
+    } else if item_type == "chunk" {
+        // CAPA: never trust the scanner alone for chunk keys — residual
+        // empty-ns / cross-ns queue rows used to land here and then fail at
+        // drain with HardFailure + circuit breaker.
+        let chunk_key = key.strip_prefix("chunk:").unwrap_or(key);
+        let Ok(chunk_id) = chunk_key.parse::<i64>() else {
+            tracing::warn!(
+                target: "enrich",
+                namespace,
+                key,
+                "enqueue rejected: invalid chunk id in re-embed key"
+            );
+            return;
+        };
+        match main_conn.query_row(
+            "SELECT c.id FROM memory_chunks c
+             JOIN memories m ON m.id = c.memory_id
+             WHERE c.id = ?1 AND m.namespace = ?2 AND m.deleted_at IS NULL",
+            rusqlite::params![chunk_id, namespace],
+            |r| r.get::<_, i64>(0),
+        ) {
+            Ok(_) => None,
+            Err(_) => {
+                tracing::warn!(
+                    target: "enrich",
+                    namespace,
+                    key,
+                    "enqueue rejected: chunk not found in namespace"
+                );
+                return;
+            }
+        }
     } else {
-        // entity_pair / prefixed keys: trust the scanner; still scope by ns.
+        // entity_pair / other prefixed keys: trust the scanner; still scope by ns.
         None
     };
     if let Err(e) = queue_conn.execute(

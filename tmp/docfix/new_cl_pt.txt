@@ -1,0 +1,31 @@
+## [1.2.1] - 2026-07-31
+
+### Destaques
+- **Isolamento de namespace na fila enrich (claim + contagem + resume)** — `dequeue_next_pending`, `count_eligible_pending`, `--resume` / `--retry-failed` exigem `operation` **e** `namespace`. Um drain em `ai-sdd` deixa de claimar ou contar linhas de `global` / ns vazio.
+- **`--until-empty` conta só esta op+namespace** — antes contava *todas* as linhas pending de todas as operações; zumbis ReEmbed alienígenas faziam EntityDescriptions girar até max-runtime com `completed=0`.
+- **`--force-redescribe` reabre `skipped`/`done`** — `reopen_force_redescribe_candidates` roda uma vez por processo antes do primeiro enqueue para `INSERT OR IGNORE` não ser no-op silencioso; nunca reabre `dead` (use `--requeue-dead`).
+- **Reconciliação de zumbis ReEmbed** — `reconcile_satisfied_reembed_pending` marca pending ReEmbed como `done` quando já existe vetor vivo na dim ativa (`LENGTH(embedding) = dim*4`), sem chamar a API.
+- **Elegibilidade de re-embed usa comprimento do BLOB, não só a coluna `dim`** — scan/predicados selecionam linhas CORRUPT / META_AHEAD (`dim=1024` com BLOB 384-d permanece elegível).
+- **Enqueue valida chaves de re-embed** — `entity:{name}` remove o prefixo no lookup; nomes bare continuam ok; entidade ausente é rejeitada. Chunks validam se o `chunk_id` existe em memória não-deletada do namespace alvo.
+- **Marcadores CAPA-D de baixa qualidade** — removido `%configuration file%` solto; só compostos (ex. `is a configuration file`) para não marcar prosa legítima (config de lint clippy.toml) como força de redescribe.
+- Schema permanece em **v16** (sem migração do DB principal). Só comportamento da fila sidecar.
+- Nota: uma seção histórica antiga também titulada `[1.2.1] - 2026-04-18` (pin MSRV) permanece mais abaixo neste arquivo; **a crate 1.2.1 publicada nesta release é o selo CAPA da fila enrich de julho/2026**.
+
+### Corrigido
+- `enqueue_candidate` rejeitava toda chave `entity:…` de re-embed (`entity not found in namespace`) → `completed: 0` em ~14k entidades.
+- Claim sem filtro de namespace → HardFailure cross-namespace + circuit breaker.
+- Enqueue de chunk confiava só no scanner → chunks inválidos / de outro ns iam para dead-letter.
+- `--force-redescribe` não reprocessava linhas já `skipped`/`done` no sidecar.
+- ReEmbed deixava pending para sempre quando o BLOB vivo já batia com a dim alvo.
+- Falso positivo de force-redescribe em descriptions legítimas com "configuration file".
+
+### Adicionado
+- Regressão: `enqueue_candidate_accepts_entity_prefixed_reembed_key` (aceita `entity:ownership` e bare `ownership`; rejeita entidade inexistente).
+- Regressão: `dequeue_next_pending_isolates_by_namespace`.
+- Suite de queue: 38 testes OK.
+
+### Docs / empacotamento
+- Docs de produto, monografias, skills e `llms*` retargetados para **crate 1.2.1**.
+- Inventário completo de comandos da CLI mantido/atualizado nas monografias orientadas a operador.
+
+## [1.2.0] - 2026-07-29

@@ -347,12 +347,7 @@ fn recipe_07_namespace_flag_precedencia() {
     let dir = TempDir::new().unwrap();
 
     let output = cmd(&dir)
-        .args([
-            "namespace-detect",
-            "--namespace",
-            "meu-projeto",
-            "--json",
-        ])
+        .args(["namespace-detect", "--namespace", "meu-projeto", "--json"])
         .output()
         .unwrap();
 
@@ -722,14 +717,11 @@ fn recipe_13_parallel_namespaces() {
                 let mut c = std::process::Command::new(&bin);
                 c.env_clear().env("PATH", &path).arg("--skip-memory-guard");
                 common::wire_std_cmd(&root, &mut c, &db);
-                c.args([
-                    "recall",
-                    "--db",
-                ])
-                .arg(&db)
-                .args(["error rate", "--k", "5", "--namespace", &ns])
-                .output()
-                .expect("recall em thread deve executar sem panic")
+                c.args(["recall", "--db"])
+                    .arg(&db)
+                    .args(["error rate", "--k", "5", "--namespace", &ns])
+                    .output()
+                    .expect("recall em thread deve executar sem panic")
             })
         })
         .collect();

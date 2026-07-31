@@ -31,7 +31,9 @@ impl ExecutorVersion {
     pub fn parse(s: &str) -> Result<Self, AppError> {
         let trimmed = s.trim();
         if trimmed.is_empty() {
-            return Err(AppError::Validation(crate::i18n::validation::empty_version_string()));
+            return Err(AppError::Validation(
+                crate::i18n::validation::empty_version_string(),
+            ));
         }
         let channel_start = trimmed.find('-');
         let (numeric_part, channel_part) = match channel_start {

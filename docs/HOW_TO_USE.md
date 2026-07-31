@@ -1,4 +1,4 @@
-# HOW TO USE sqlite-graphrag (v1.2.0 — XDG config, dim 1024, E2E seal, schema v16)
+# HOW TO USE sqlite-graphrag (v1.2.1 — enrich CAPA seal, dim 1024, E2E, schema v16)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
@@ -6,7 +6,7 @@
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
 
-## Configuration (XDG — v1.2.0)
+## Configuration (XDG — v1.2.1)
 
 - Runtime knobs resolve as **CLI flag > XDG `config set` > named default**
 - Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime (forbidden for product configuration)
@@ -16,12 +16,50 @@
 - Fail-fast offline recall: `config set llm.query_embed_timeout_secs 3` and/or `--llm-backend none`
 - Soft-delete cleanup: `purge --now --yes` for immediate hard-delete; default retention is 90 days and `--yes` alone does **not** wipe recent soft-deletes
 - Allowed OS env only: locale (`LANG`/`LC_*`), `PATH`, `HOME`/`USERPROFILE`, XDG base dirs, `NO_COLOR`, plus subprocess OAuth whitelist (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, …)
-- Offline gate: `bash scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Pin library consumers to `=1.2.0`. Schema stays at **v16** (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**
+- Offline gate: `bash scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Pin library consumers to `=1.2.1`. Schema stays at **v16** (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**. Enrich CAPA seal (namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue) — see section below.
 
 ```bash
 sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
 sqlite-graphrag config list --effective --json
 sqlite-graphrag purge --now --yes --json   # after forget, when you want immediate hard-delete
+```
+
+## What Changed in v1.2.1 — Enrich Queue CAPA Seal (No Migration)
+
+- Crate **1.2.1**; schema **unchanged** at **v16**. No main-DB migration — **sidecar queue behaviour only**. Pin library consumers to `=1.2.1`.
+- **Namespace isolation on claim** — `dequeue_next_pending` requires `operation` **and** `namespace`. Enrich in `ai-sdd` no longer processes `global` / empty-ns rows.
+- **`--until-empty` counts only this op+namespace** — `count_eligible_pending` (not all pending across operations). Alien ReEmbed zombies no longer keep EntityDescriptions spinning until max-runtime with `completed=0`.
+- **`--force-redescribe` reopens `skipped`/`done`** — `reopen_force_redescribe_candidates` once per process before first enqueue; never reopens `dead` (use `--requeue-dead`).
+- **Re-embed zombie reconciliation** — `reconcile_satisfied_reembed_pending` marks pending ReEmbed `done` when live BLOB already matches active dim (`LENGTH(embedding) = dim*4`).
+- **Re-embed eligibility uses BLOB length** — eligible when no vector with `LENGTH(embedding) = target_dim * 4`. CORRUPT rows (`dim=1024`, BLOB still 384) re-embed again.
+- **Enqueue validates re-embed keys** — `entity:{name}` strips prefix for entity lookup; bare names still work; missing entities rejected. Chunk keys validate `chunk_id` exists in a non-deleted memory of the target namespace.
+- **CAPA-D low-quality markers** — compound "configuration file" phrases only (no bare `%configuration file%` FP).
+- Regressions: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; queue suite **38** OK.
+- Offline gate unchanged: `scripts/e2e_offline_v120.sh` **20/20**. Residual: live LQ description backfill remains operator campaign (`--force-redescribe` + `--until-empty`).
+- See [MIGRATION.md](MIGRATION.md) and [CHANGELOG.md](../CHANGELOG.md) `[1.2.1]`.
+
+### Recipes — enrich CAPA (v1.2.1)
+
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+
+# Status (no LLM) — scoped by operation + namespace
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace global -q
+
+# Re-embed entities after dim migrate / CORRUPT BLOB (LENGTH eligibility)
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace global -q --wait-lock 60
+
+# Force-redescribe with reopen of skipped/done (never dead)
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace global -q
+
+# Skipped-sink recovery (no raw SQL)
+sqlite-graphrag enrich --db "$DB" --list-skipped --operation entity-descriptions --namespace global -q
+sqlite-graphrag enrich --db "$DB" --requeue-skipped --operation entity-descriptions --namespace global -q
 ```
 
 ## What Changed in v1.2.0 — dim 1024 + XDG Config + residual seal (No Migration)
@@ -711,7 +749,7 @@ Workarounds:
    `src/extract/llm_embedding.rs`).
 
 
-## Complete CLI command inventory (v1.2.0)
+## Complete CLI command inventory (v1.2.1)
 
 Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
 
@@ -819,8 +857,16 @@ Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
   - `--requeue-skipped` — move `skipped` → `pending`
   - `--prune-dead-orphans` — drop memory-keyed dead rows missing from main DB
   - `--prune-dead-entity-orphans` — drop entity-keyed dead rows from the sidecar
+- `enrich` write flags relevant in **v1.2.1**
+  - `--until-empty` — loop scan→drain until eligible queue empty or `--max-runtime`; counts **this op+namespace only**
+  - `--force-redescribe` — reopen `skipped`/`done` once per process for entity-descriptions low-quality rewrite; never reopens `dead`
+  - `--operation re-embed --target memories|entities|chunks|all` — BLOB-length eligibility + zombie reconcile
+  - `--namespace` — claim, count, and resume are namespace-scoped
+  - `--mode openrouter` / `--rest-concurrency` — REST judge/embed fan-out
 
 > **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2.
+
+> **Top-level inventory (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
 
 ## See Also
 

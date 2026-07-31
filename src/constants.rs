@@ -40,13 +40,11 @@ pub const DEFAULT_LOG_LEVEL: &str = "info";
 
 /// Default OpenRouter chat completions endpoint (override via XDG
 /// `network.openrouter.chat_url` or alias `network.chat_url`).
-pub const DEFAULT_OPENROUTER_CHAT_URL: &str =
-    "https://openrouter.ai/api/v1/chat/completions";
+pub const DEFAULT_OPENROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 
 /// Default OpenRouter embeddings endpoint (override via XDG
 /// `network.openrouter.embeddings_url` or alias `network.embed_url`).
-pub const DEFAULT_OPENROUTER_EMBEDDINGS_URL: &str =
-    "https://openrouter.ai/api/v1/embeddings";
+pub const DEFAULT_OPENROUTER_EMBEDDINGS_URL: &str = "https://openrouter.ai/api/v1/embeddings";
 
 /// Fail-fast probe budget for LLM backends before spawning (ms).
 /// Override via XDG `llm.probe_timeout_ms`.

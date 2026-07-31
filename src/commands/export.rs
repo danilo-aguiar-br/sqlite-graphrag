@@ -20,10 +20,7 @@ use serde::Serialize;
 /// Export args.
 pub struct ExportArgs {
     /// Namespace (flag / XDG namespace.default / global).
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     pub namespace: Option<String>,
     /// Filter by memory type.
     #[arg(long, value_enum)]

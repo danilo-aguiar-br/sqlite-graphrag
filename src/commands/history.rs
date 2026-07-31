@@ -36,10 +36,7 @@ pub struct HistoryArgs {
     /// so that `restore --version <V>` workflow remains discoverable after `forget`.
     #[arg(long)]
     pub name: Option<String>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Omit body content from each version to reduce response size.
@@ -60,10 +57,7 @@ pub struct HistoryArgs {
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
     /// Path to graphrag.sqlite. Overrides the XDG `db.path` setting.
-    #[arg(
-        long,
-                help = "Path to graphrag.sqlite"
-    )]
+    #[arg(long, help = "Path to graphrag.sqlite")]
     pub db: Option<String>,
 }
 

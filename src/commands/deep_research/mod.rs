@@ -17,12 +17,10 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 mod pipeline;
-use pipeline::{
-    compute_sub_embeddings, execute_sub_query, resolve_sub_queries,
-};
+use pipeline::{compute_sub_embeddings, execute_sub_query, resolve_sub_queries};
 
 #[cfg(test)]
-use pipeline::{{decompose_query, decompose_query_with_sources}};
+use pipeline::{decompose_query, decompose_query_with_sources};
 
 /// Arguments for the `deep-research` subcommand.
 #[derive(clap::Args)]
@@ -136,10 +134,7 @@ pub struct DeepResearchArgs {
     )]
     pub max_neighbors_per_hop: Option<usize>,
     /// Namespace (flag / XDG namespace.default / global).
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     pub namespace: Option<String>,
     /// Research mode: `none` (local heuristic, default), `claude-code`, `codex` (v1.1.0).
     #[arg(long, default_value = "none", value_parser = ["none"], hide = true)]
@@ -669,13 +664,15 @@ async fn run_async(
         // path was requested and the final file is missing or empty.
         crate::atomic_io::write_json_atomic(path, &response)?;
         if !path.exists() {
-            return Err(AppError::Validation(crate::i18n::validation::deep_research_output_missing(
-                    &path.display().to_string(),
-                )));
+            return Err(AppError::Validation(
+                crate::i18n::validation::deep_research_output_missing(&path.display().to_string()),
+            ));
         }
         let meta = std::fs::metadata(path).map_err(AppError::Io)?;
         if meta.len() == 0 {
-            return Err(AppError::Validation(crate::i18n::validation::deep_research_output_empty(&path.display().to_string())));
+            return Err(AppError::Validation(
+                crate::i18n::validation::deep_research_output_empty(&path.display().to_string()),
+            ));
         }
         let file_bytes = std::fs::read(path).map_err(AppError::Io)?;
         let digest = blake3::hash(&file_bytes).to_hex().to_string();

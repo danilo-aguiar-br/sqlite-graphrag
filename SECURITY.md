@@ -11,10 +11,14 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.0 / crate 1.2.0) |
+| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.1 / crate 1.2.1) |
 | 1.1.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 0.x     | Unsupported | No patches provided      |
+
+### v1.2.1 security-relevant notes
+- **Namespace claim isolation** on the enrich sidecar: `dequeue_next_pending` / `count_eligible_pending` / resume require `operation` **and** `namespace`, so a drain in one namespace cannot claim or process pending work from another (reduces cross-namespace processing risk and circuit-breaker fallout)
+- Schema stays at **v16** (no main-DB migration); changes are sidecar queue behaviour only
 
 ### v1.2.0 security-relevant notes
 - No product env (`SQLITE_GRAPHRAG_*`) on the hot path; runtime config is flag > XDG `config set` > default

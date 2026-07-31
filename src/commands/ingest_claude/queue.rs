@@ -4,7 +4,6 @@ use crate::errors::AppError;
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-
 /// Collects files matching the pattern (reuses ingest logic).
 pub(crate) fn collect_matching_files(
     dir: &Path,

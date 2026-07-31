@@ -1,9 +1,47 @@
-# COMO USAR sqlite-graphrag (v1.2.0 — XDG config, dim 1024, schema v16)
+# COMO USAR sqlite-graphrag (v1.2.1 — selo CAPA enrich, dim 1024, schema v16)
 
 > Entregue memória persistente a qualquer agente de IA com um binário local, um único arquivo SQLite, e a CLI de LLM que você já confia.
 
 - English version: [HOW_TO_USE.md](HOW_TO_USE.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md) para referência de comandos
+
+## O Que Mudou na v1.2.1 — Selo CAPA da Fila Enrich (Sem Migração)
+
+- Crate **1.2.1**; schema **inalterado** em **v16**. Sem migração main-DB — **somente comportamento do sidecar**. Pin de consumidores de biblioteca em `=1.2.1`.
+- **Isolamento de namespace no claim** — `dequeue_next_pending` exige `operation` **e** `namespace`. Enrich em `ai-sdd` não processa mais linhas de `global` / ns vazio.
+- **`--until-empty` conta só esta op+namespace** — `count_eligible_pending` (não todo pending entre operações). Zumbis ReEmbed de outra op não mantêm EntityDescriptions girando até max-runtime com `completed=0`.
+- **`--force-redescribe` reabre `skipped`/`done`** — `reopen_force_redescribe_candidates` uma vez por processo antes do primeiro enqueue; nunca reabre `dead` (use `--requeue-dead`).
+- **Reconciliação de zumbi re-embed** — `reconcile_satisfied_reembed_pending` marca ReEmbed pending como `done` quando o BLOB live já corresponde à dim ativa (`LENGTH(embedding) = dim*4`).
+- **Elegibilidade re-embed por comprimento do BLOB** — elegível quando não há vetor com `LENGTH(embedding) = target_dim * 4`. Linhas CORRUPT (`dim=1024`, BLOB ainda 384) re-embedam de novo.
+- **Enqueue valida chaves re-embed** — `entity:{name}` remove o prefixo no lookup; nomes bare ainda funcionam; entidades ausentes rejeitadas. Chaves de chunk validam que `chunk_id` existe em memória não-deletada do namespace alvo.
+- **Marcadores CAPA-D de baixa qualidade** — apenas frases compostas de "configuration file" (sem FP bare `%configuration file%`).
+- Regressões: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; suite da fila **38** OK.
+- Gate offline inalterado: `scripts/e2e_offline_v120.sh` **20/20**. Residual: backfill live de descrições LQ permanece campanha do operador (`--force-redescribe` + `--until-empty`).
+- Veja [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md) e [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md) `[1.2.1]`.
+
+### Receitas — CAPA do enrich (v1.2.1)
+
+```bash
+DB="${DB:-$HOME/.local/share/sqlite-graphrag/memory.db}"
+MODEL="${MODEL:-deepseek/deepseek-v4-flash:nitro}"
+
+# Status (sem LLM) — escopado por operação + namespace
+sqlite-graphrag enrich --db "$DB" --status --operation re-embed --namespace global -q
+
+# Re-embed de entidades após migrate de dim / BLOB CORRUPT (elegibilidade por LENGTH)
+sqlite-graphrag enrich --db "$DB" --operation re-embed --target entities \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --until-empty --namespace global -q --wait-lock 60
+
+# Force-redescribe com reopen de skipped/done (nunca dead)
+sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
+  --mode openrouter --openrouter-model "$MODEL" \
+  --force-redescribe --until-empty --namespace global -q
+
+# Recuperação do sink skipped (sem SQL bruto)
+sqlite-graphrag enrich --db "$DB" --list-skipped --operation entity-descriptions --namespace global -q
+sqlite-graphrag enrich --db "$DB" --requeue-skipped --operation entity-descriptions --namespace global -q
+```
 
 ## O Que Mudou na v1.2.0 — dim 1024 + XDG (Sem Migração)
 
@@ -617,7 +655,7 @@ Soluções alternativas:
 2. Use uma CLI de LLM mock que devolve uma resposta JSON fixa para o prompt de embedding (usada internamente pelos testes unitários em `src/extract/llm_embedding.rs`).
 
 
-## Inventário completo de comandos CLI (v1.2.0)
+## Inventário completo de comandos CLI (v1.2.1)
 
 Comandos de topo (de `sqlite-graphrag --help`) com propósito em uma linha:
 
@@ -725,8 +763,16 @@ Comandos de topo (de `sqlite-graphrag --help`) com propósito em uma linha:
   - `--requeue-skipped` — move `skipped` → `pending`
   - `--prune-dead-orphans` — remove dead com chave de memória ausente do DB principal
   - `--prune-dead-entity-orphans` — remove dead com chave de entidade do sidecar
+- Flags de escrita do `enrich` relevantes na **v1.2.1**
+  - `--until-empty` — loop scan→drain até a fila elegível esvaziar ou `--max-runtime`; conta **somente esta op+namespace**
+  - `--force-redescribe` — reabre `skipped`/`done` uma vez por processo para reescrever entity-descriptions de baixa qualidade; nunca reabre `dead`
+  - `--operation re-embed --target memories|entities|chunks|all` — elegibilidade por comprimento do BLOB + reconciliação de zumbis
+  - `--namespace` — claim, contagem e resume escopados por namespace
+  - `--mode openrouter` / `--rest-concurrency` — fan-out REST de judge/embed
 
 > **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2.
+
+> **Inventário top-level (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
 
 ## Veja Também
 

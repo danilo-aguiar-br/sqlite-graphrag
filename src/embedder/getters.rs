@@ -36,11 +36,9 @@ pub fn get_embedder(_models_dir: &Path) -> Result<&'static Mutex<LlmEmbedding>, 
     }
     let backend = LlmEmbedding::detect_available()?;
     let _ = EMBEDDER.set(Mutex::new(backend));
-    EMBEDDER
-        .get()
-        .ok_or_else(|| {
-            AppError::Embedding(crate::i18n::validation::embedding_embedder_unavailable())
-        })
+    EMBEDDER.get().ok_or_else(|| {
+        AppError::Embedding(crate::i18n::validation::embedding_embedder_unavailable())
+    })
 }
 
 /// ADR-0042 / GAP-002: returns the process-wide Claude embedder, lazily
@@ -124,9 +122,7 @@ pub fn get_openrouter_chat_client(
         crate::chat_api::OpenRouterChatClient::new(api_key, model.to_string(), timeout_secs)?;
     let _ = OPENROUTER_CHAT_CLIENT.set(client);
     OPENROUTER_CHAT_CLIENT.get().ok_or_else(|| {
-        AppError::Embedding(
-            crate::i18n::validation::embedding_openrouter_chat_client_unavailable(),
-        )
+        AppError::Embedding(crate::i18n::validation::embedding_openrouter_chat_client_unavailable())
     })
 }
 

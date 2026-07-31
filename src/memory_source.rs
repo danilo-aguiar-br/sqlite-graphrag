@@ -97,14 +97,16 @@ impl TryFrom<&str> for MemorySource {
             "system" => Ok(Self::System),
             "import" => Ok(Self::Import),
             "sync" => Ok(Self::Sync),
-            other => Err(AppError::Validation(crate::i18n::validation::invalid_memory_source(
+            other => Err(AppError::Validation(
+                crate::i18n::validation::invalid_memory_source(
                     &format!("{other:?}"),
                     &Self::ALL
                         .iter()
                         .map(|v| v.as_str())
                         .collect::<Vec<_>>()
                         .join(", "),
-                ))),
+                ),
+            )),
         }
     }
 }
@@ -136,14 +138,16 @@ pub fn validate_source(raw: &str) -> Result<&'static str, AppError> {
         "system" => Ok("system"),
         "import" => Ok("import"),
         "sync" => Ok("sync"),
-        other => Err(AppError::Validation(crate::i18n::validation::invalid_memory_source(
+        other => Err(AppError::Validation(
+            crate::i18n::validation::invalid_memory_source(
                 &format!("{other:?}"),
                 &MemorySource::ALL
                     .iter()
                     .map(|v| v.as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
-            ))),
+            ),
+        )),
     }
 }
 
@@ -183,7 +187,11 @@ mod tests {
         // G29 reproducer: "enrich" is the historical bug.
         let err = MemorySource::try_from("enrich").unwrap_err();
         let msg = format!("{err}");
-        assert!(msg.contains("invalid memory source"), "got: {msg}");
+        // Locale-safe: EN "invalid memory source" / PT "fonte de memória inválida"
+        assert!(
+            msg.contains("invalid memory source") || msg.contains("fonte de memória inválida"),
+            "got: {msg}"
+        );
         assert!(msg.contains("\"enrich\""), "got: {msg}");
         assert!(msg.contains("agent"), "must list agent as valid: {msg}");
     }

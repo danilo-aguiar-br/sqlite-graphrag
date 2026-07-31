@@ -23,9 +23,9 @@ pub fn reserved_name() -> String {
 /// Localized message for `name_kebab`.
 pub fn name_kebab(nome: &str) -> String {
     match current() {
-        Language::English => format!(
-            "name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
-        ),
+        Language::English => {
+            format!("name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'")
+        }
         Language::Portuguese => {
             format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
         }
@@ -62,9 +62,9 @@ pub fn new_name_kebab(nome: &str) -> String {
         Language::English => format!(
             "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
         ),
-        Language::Portuguese => format!(
-            "novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'"
-        ),
+        Language::Portuguese => {
+            format!("novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
+        }
     }
 }
 
@@ -140,12 +140,12 @@ pub fn config_key_retired(key: &str, replacement: &str) -> String {
 /// Localized message for `invalid_tz`.
 pub fn invalid_tz(v: &str) -> String {
     match current() {
-        Language::English => format!(
-            "display.tz invalid: '{v}'; use an IANA name like 'America/Sao_Paulo'"
-        ),
-        Language::Portuguese => format!(
-            "display.tz inválido: '{v}'; use um nome IANA como 'America/Sao_Paulo'"
-        ),
+        Language::English => {
+            format!("display.tz invalid: '{v}'; use an IANA name like 'America/Sao_Paulo'")
+        }
+        Language::Portuguese => {
+            format!("display.tz inválido: '{v}'; use um nome IANA como 'America/Sao_Paulo'")
+        }
     }
 }
 
@@ -212,8 +212,7 @@ pub fn sync_destination_equals_source() -> String {
             "destination path must differ from the source database path".to_string()
         }
         Language::Portuguese => {
-            "caminho de destino deve ser diferente do caminho do banco de dados fonte"
-                .to_string()
+            "caminho de destino deve ser diferente do caminho do banco de dados fonte".to_string()
         }
     }
 }
@@ -412,12 +411,10 @@ pub fn strict_name_not_canonical(original: &str, normalized: &str) -> String {
 pub fn enable_ner_skip_extraction_exclusive() -> String {
     match current() {
         Language::English => {
-            "--enable-ner and --skip-extraction are mutually exclusive; remove one"
-                .to_string()
+            "--enable-ner and --skip-extraction are mutually exclusive; remove one".to_string()
         }
         Language::Portuguese => {
-            "--enable-ner e --skip-extraction são mutuamente exclusivos; remova um"
-                .to_string()
+            "--enable-ner e --skip-extraction são mutuamente exclusivos; remova um".to_string()
         }
     }
 }
@@ -573,11 +570,7 @@ pub fn failed_to_parse_chat_response(err: &impl std::fmt::Display) -> String {
 }
 
 /// OpenRouter returned a non-success status for a model.
-pub fn openrouter_status_error(
-    status: &impl std::fmt::Display,
-    model: &str,
-    body: &str,
-) -> String {
+pub fn openrouter_status_error(status: &impl std::fmt::Display, model: &str, body: &str) -> String {
     match current() {
         Language::English => {
             format!("OpenRouter returned {status} for model '{model}': {body}")
@@ -689,18 +682,13 @@ pub fn openrouter_model_required() -> String {
 /// OpenRouter API key could not be resolved.
 pub fn openrouter_api_key_not_found() -> String {
     match current() {
-        Language::English => {
-            "OpenRouter API key not found; store it via \
+        Language::English => "OpenRouter API key not found; store it via \
              `config add-key --provider openrouter`, or pass --openrouter-api-key \
              (product env is deprecated)"
-                .to_string()
-        }
-        Language::Portuguese => {
-            "chave de API OpenRouter não encontrada; armazene via \
+            .to_string(),
+        Language::Portuguese => "chave de API OpenRouter não encontrada; armazene via \
              `config add-key --provider openrouter`, ou passe --openrouter-api-key \
              (env de produto está depreciada)"
-                .to_string()
-        }
+            .to_string(),
     }
 }
-

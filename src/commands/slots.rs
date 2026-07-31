@@ -196,10 +196,12 @@ fn run_release(slot_id: u32, yes: bool) -> Result<(), AppError> {
         )));
     }
     if !yes {
-        return Err(AppError::Validation(crate::i18n::validation::refuse_release_slot_without_yes(
+        return Err(AppError::Validation(
+            crate::i18n::validation::refuse_release_slot_without_yes(
                 &slot_id.to_string(),
                 &path.display().to_string(),
-            )));
+            ),
+        ));
     }
     std::fs::remove_file(&path).map_err(AppError::Io)?;
     let out = serde_json::json!({

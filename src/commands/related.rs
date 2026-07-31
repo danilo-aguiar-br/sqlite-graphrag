@@ -120,7 +120,9 @@ pub fn run(args: RelatedArgs) -> Result<(), AppError> {
         .to_string();
 
     if name.trim().is_empty() {
-        return Err(AppError::Validation(crate::i18n::validation::name_must_not_be_empty()));
+        return Err(AppError::Validation(
+            crate::i18n::validation::name_must_not_be_empty(),
+        ));
     }
 
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;

@@ -37,10 +37,7 @@ pub struct RestoreArgs {
     /// requiring the user to discover the version first.
     #[arg(long)]
     pub version: Option<i64>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Optimistic locking: reject if the current updated_at does not match (exit 3).

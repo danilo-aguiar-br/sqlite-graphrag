@@ -41,7 +41,8 @@ fn cmd(temp: &TempDir) -> Command {
         .env("HOME", temp.path())
         .env("HOME", temp.path())
         .env("XDG_CACHE_HOME", &cache)
-        .arg("--lang").arg("en")
+        .arg("--lang")
+        .arg("en")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {

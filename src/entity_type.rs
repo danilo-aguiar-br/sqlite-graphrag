@@ -259,9 +259,9 @@ mod tests {
 
     #[test]
     fn from_str_unknown_folds_to_concept() {
-            let result = "not-a-real-type".parse::<EntityType>();
-            assert_eq!(result.unwrap(), EntityType::Concept);
-        }
+        let result = "not-a-real-type".parse::<EntityType>();
+        assert_eq!(result.unwrap(), EntityType::Concept);
+    }
 
     #[test]
     fn as_str_returns_canonical_lowercase() {

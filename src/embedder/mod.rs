@@ -76,12 +76,20 @@ mod fallback;
 mod getters;
 mod passage;
 
+pub use backend::{
+    bytes_to_f32, embed_via_backend, embed_via_backend_legacy, embed_via_backend_strict,
+    embedding_dim, f32_to_bytes, LlmBackendKind,
+};
 pub use batch::{
     chunk_embed_batch_size, effective_permits, embed_entity_texts_cached,
     embed_passages_controlled_local, embed_passages_parallel_local,
-    embed_passages_parallel_with_embedding_choice, embed_texts_parallel,
-    embed_texts_parallel_with, entity_embed_batch_size, EmbedCacheStats,
-    CHUNK_EMBED_BATCH_SIZE, EMBED_BATCH_CALIBRATION_DIM, ENTITY_EMBED_BATCH_SIZE,
+    embed_passages_parallel_with_embedding_choice, embed_texts_parallel, embed_texts_parallel_with,
+    entity_embed_batch_size, EmbedCacheStats, CHUNK_EMBED_BATCH_SIZE, EMBED_BATCH_CALIBRATION_DIM,
+    ENTITY_EMBED_BATCH_SIZE,
+};
+pub use fallback::{
+    classify_embedding_error, embed_with_fallback, try_embed_query_with_deterministic_fallback,
+    try_embed_query_with_fallback, EmbeddingErrorKind, FallbackReason,
 };
 pub use getters::{
     embed_via_claude_local, embed_via_claude_local_resolved, embed_via_opencode_local_resolved,
@@ -91,16 +99,8 @@ pub use getters::{
 pub use passage::{
     embed_passage, embed_passage_local, embed_passage_local_resolved, embed_passage_or_skip,
     embed_passage_with_choice, embed_passage_with_embedding_choice, embed_passages_controlled,
-    embed_query, embed_query_local, should_skip_embedding_on_failure,
-    try_embed_query_with_choice, try_embed_query_with_embedding_choice,
-};
-pub use fallback::{
-    classify_embedding_error, embed_with_fallback, try_embed_query_with_deterministic_fallback,
-    try_embed_query_with_fallback, EmbeddingErrorKind, FallbackReason,
-};
-pub use backend::{
-    bytes_to_f32, embed_via_backend, embed_via_backend_legacy, embed_via_backend_strict,
-    embedding_dim, f32_to_bytes, LlmBackendKind,
+    embed_query, embed_query_local, should_skip_embedding_on_failure, try_embed_query_with_choice,
+    try_embed_query_with_embedding_choice,
 };
 
 // Crate-visible helpers used across submodules.
@@ -117,4 +117,3 @@ mod tests;
 #[cfg(test)]
 #[path = "../embedder_fallback_tests.rs"]
 mod embed_with_fallback_tests;
-

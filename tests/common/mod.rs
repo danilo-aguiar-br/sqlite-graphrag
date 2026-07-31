@@ -62,7 +62,8 @@ pub fn prepend_path(mock_dir: &std::path::Path) -> std::ffi::OsString {
     let current = std::env::var_os("PATH").unwrap_or_default();
     let mut entries = vec![mock_dir.to_path_buf()];
     entries.extend(std::env::split_paths(&current));
-    std::env::join_paths(entries).expect("prepend_path: PATH entries must not contain the separator")
+    std::env::join_paths(entries)
+        .expect("prepend_path: PATH entries must not contain the separator")
 }
 
 /// Hermetic per-test environment.

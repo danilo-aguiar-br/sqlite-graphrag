@@ -11,10 +11,14 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 | Versão  | Status        | Correções de Segurança     |
 | ------- | ------------- | -------------------------- |
-| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.0 / crate 1.2.0) |
+| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.1 / crate 1.2.1) |
 | 1.1.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 1.0.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
+
+### Notas de segurança relevantes da v1.2.1
+- **Isolamento de claim por namespace** na fila sidecar do enrich: `dequeue_next_pending` / `count_eligible_pending` / resume exigem `operation` **e** `namespace`, de modo que um drain em um namespace não pode reivindicar ou processar trabalho pending de outro (reduz risco de processamento cross-namespace e efeito de circuit-breaker)
+- Schema permanece em **v16** (sem migração do DB principal); mudanças são só de comportamento da fila sidecar
 
 ### Notas de segurança relevantes da v1.2.0
 - Sem product env (`SQLITE_GRAPHRAG_*`) no hot path; config de runtime é flag > XDG `config set` > default

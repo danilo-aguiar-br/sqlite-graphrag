@@ -115,7 +115,8 @@ fn llm_backend_codex_is_accepted_on_command_line() {
 fn llm_backend_none_via_env_var_aborts() {
     let tmp = TempDir::new().expect("tempdir");
     let assert = cmd_base(&tmp)
-        .arg("--llm-backend").arg("none")
+        .arg("--llm-backend")
+        .arg("none")
         .arg("remember")
         .arg("--name")
         .arg("smoke-env-none")

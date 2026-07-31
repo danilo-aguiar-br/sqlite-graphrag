@@ -14,7 +14,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 impl LlmEmbedding {
-
     /// LLM call. Returns `(global_index, vector)` pairs. Async — this
     /// is the unit of work scheduled by the bounded fan-out in
     /// `crate::embedder`.
@@ -118,7 +117,11 @@ impl LlmEmbedding {
         Ok(result)
     }
 
-    pub(crate) fn invoke_with_prefix(&self, prefix: &str, text: &str) -> Result<Vec<f32>, AppError> {
+    pub(crate) fn invoke_with_prefix(
+        &self,
+        prefix: &str,
+        text: &str,
+    ) -> Result<Vec<f32>, AppError> {
         let dim = crate::constants::embedding_dim();
         let inner = self.invoke_single_async(prefix, text, dim);
         // v1.0.79 (G42/A2): reuse the process-wide multi-thread runtime
@@ -165,10 +168,7 @@ impl LlmEmbedding {
         })?;
         if parsed.embedding.len() != dim {
             return Err(AppError::Embedding(
-                crate::i18n::validation::embedding_llm_returned_dims(
-                    parsed.embedding.len(),
-                    dim,
-                ),
+                crate::i18n::validation::embedding_llm_returned_dims(parsed.embedding.len(), dim),
             ));
         }
         Ok(parsed.embedding)
@@ -215,8 +215,6 @@ impl LlmEmbedding {
         *slot = Some((dim, Arc::clone(&file)));
         Ok(file)
     }
-
-
 
     async fn invoke_claude(&self, prompt: &str, schema: &str) -> Result<String, AppError> {
         // v1.0.69 hardening: --strict-mcp-config --mcp-config <PATH> --settings
@@ -329,9 +327,7 @@ impl LlmEmbedding {
                     .take(120)
                     .collect();
                 return Err(AppError::Embedding(
-                    crate::i18n::validation::embedding_oauth_usage_quota_exhausted_claude(
-                        &snippet,
-                    ),
+                    crate::i18n::validation::embedding_oauth_usage_quota_exhausted_claude(&snippet),
                 ));
             }
         }
@@ -419,14 +415,11 @@ impl LlmEmbedding {
             }
         };
         if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(prompt.as_bytes())
-                .await
-                .map_err(|e| {
-                    AppError::Embedding(
-                        crate::i18n::validation::embedding_codex_stdin_write_failed(e),
-                    )
-                })?;
+            stdin.write_all(prompt.as_bytes()).await.map_err(|e| {
+                AppError::Embedding(crate::i18n::validation::embedding_codex_stdin_write_failed(
+                    e,
+                ))
+            })?;
             drop(stdin);
         }
         let output =
@@ -559,7 +552,6 @@ impl LlmEmbedding {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
-
 }
 
 /// G42/S6: resolves the empty `CLAUDE_CONFIG_DIR` used for embedding

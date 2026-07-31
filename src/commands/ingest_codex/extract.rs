@@ -59,21 +59,19 @@ pub(crate) fn extract_with_codex(
     // EXTRACTION_SCHEMA_CODEX into the named tempfile), and the document
     // content goes through stdin via a dedicated thread (see below). Strip
     // the file the helper just rewrote — our caller pre-wrote it.
-    let _ = std::fs::write(
-        schema_file,
-        EXTRACTION_SCHEMA_CODEX,
-    );
+    let _ = std::fs::write(schema_file, EXTRACTION_SCHEMA_CODEX);
 
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = crate::commands::claude_runner::spawn_with_memory_limit(&mut cmd).map_err(|e| {
-        AppError::Io(std::io::Error::new(
-            e.kind(),
-            format!("failed to spawn codex: {e}"),
-        ))
-    })?;
+    let mut child =
+        crate::commands::claude_runner::spawn_with_memory_limit(&mut cmd).map_err(|e| {
+            AppError::Io(std::io::Error::new(
+                e.kind(),
+                format!("failed to spawn codex: {e}"),
+            ))
+        })?;
 
     // Build stdin: prompt + document content (strict UTF-8 to surface encoding bugs early)
     let file_utf8 = String::from_utf8(file_content.to_vec())
@@ -81,10 +79,9 @@ pub(crate) fn extract_with_codex(
     let stdin_payload = format!("{EXTRACTION_PROMPT}\n\n---\n\nDocument content:\n\n{file_utf8}");
     let stdin_bytes = stdin_payload.into_bytes();
 
-    let mut child_stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Validation(crate::i18n::validation::failed_to_open_codex_stdin()))?;
+    let mut child_stdin = child.stdin.take().ok_or_else(|| {
+        AppError::Validation(crate::i18n::validation::failed_to_open_codex_stdin())
+    })?;
     let stdin_thread = std::thread::spawn(move || -> Result<(), std::io::Error> {
         child_stdin.write_all(&stdin_bytes)?;
         drop(child_stdin);
@@ -99,7 +96,9 @@ pub(crate) fn extract_with_codex(
         Some(exit_status) => {
             stdin_thread
                 .join()
-                .map_err(|_| AppError::Validation(crate::i18n::validation::stdin_thread_panicked()))?
+                .map_err(
+                    |_| AppError::Validation(crate::i18n::validation::stdin_thread_panicked()),
+                )?
                 .map_err(AppError::Io)?;
 
             tracing::debug!(
@@ -134,15 +133,18 @@ pub(crate) fn extract_with_codex(
                         "Codex CLI authentication expired. Re-authenticate with: codex auth login"
                     );
                 }
-                return Err(AppError::Validation(crate::i18n::validation::process_exited(
-                    "codex exec",
-                    exit_status.code(),
-                    stderr_str.trim(),
-                )));
+                return Err(AppError::Validation(
+                    crate::i18n::validation::process_exited(
+                        "codex exec",
+                        exit_status.code(),
+                        stderr_str.trim(),
+                    ),
+                ));
             }
 
-            let stdout = String::from_utf8(stdout_buf)
-                .map_err(|_| AppError::Validation(crate::i18n::validation::codex_exec_stdout_not_utf8()))?;
+            let stdout = String::from_utf8(stdout_buf).map_err(|_| {
+                AppError::Validation(crate::i18n::validation::codex_exec_stdout_not_utf8())
+            })?;
             parse_codex_output(&stdout)
         }
         None => {
@@ -171,7 +173,9 @@ pub(crate) fn extract_with_codex(
 ///
 /// Returns `AppError::Validation` when no agent_message is found, when the
 /// turn failed, or when the extracted JSON cannot be parsed as `ExtractionResult`.
-pub(crate) fn parse_codex_output(stdout: &str) -> Result<(ExtractionResult, Option<CodexUsage>), AppError> {
+pub(crate) fn parse_codex_output(
+    stdout: &str,
+) -> Result<(ExtractionResult, Option<CodexUsage>), AppError> {
     let mut last_agent_text: Option<String> = None;
     let mut usage: Option<CodexUsage> = None;
     let mut rate_limited = false;
@@ -264,16 +268,14 @@ pub(crate) fn parse_codex_output(stdout: &str) -> Result<(ExtractionResult, Opti
         ));
     }
 
-    let text = last_agent_text.ok_or_else(|| {
-        AppError::Validation(crate::i18n::validation::codex_no_agent_message())
-    })?;
+    let text = last_agent_text
+        .ok_or_else(|| AppError::Validation(crate::i18n::validation::codex_no_agent_message()))?;
 
     let extraction: ExtractionResult = serde_json::from_str(&text).map_err(|e| {
-        AppError::Validation(crate::i18n::validation::failed_to_parse_codex_agent_message(
-            &e, &text,
-        ))
+        AppError::Validation(
+            crate::i18n::validation::failed_to_parse_codex_agent_message(&e, &text),
+        )
     })?;
 
     Ok((extraction, usage))
 }
-

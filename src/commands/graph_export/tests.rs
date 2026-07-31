@@ -214,8 +214,7 @@ fn graph_stats_cli_accepts_format_text() {
 
 #[test]
 fn graph_stats_cli_rejects_format_mermaid() {
-    let parsed =
-        Cli::try_parse_from(["sqlite-graphrag", "graph", "stats", "--format", "mermaid"]);
+    let parsed = Cli::try_parse_from(["sqlite-graphrag", "graph", "stats", "--format", "mermaid"]);
     assert!(parsed.is_err(), "graph stats must reject format=mermaid");
 }
 

@@ -12,10 +12,7 @@ pub fn heavy_command_detected(available_mb: u64, safe_concurrency: usize) -> Str
 }
 
 /// Reducing concurrency.
-pub fn reducing_concurrency(
-    requested_concurrency: usize,
-    effective_concurrency: usize,
-) -> String {
+pub fn reducing_concurrency(requested_concurrency: usize, effective_concurrency: usize) -> String {
     format!(
         "Reduzindo a concorrência solicitada de {requested_concurrency} para \
          {effective_concurrency} para evitar oversubscription de memória"

@@ -68,8 +68,7 @@ fn test_parse_claude_output_result_fallback() {
         {"type":"system","subtype":"init"},
         {"type":"result","is_error":false,"total_cost_usd":0.01,"structured_output":null,"result":"{\"name\":\"test-fallback\",\"description\":\"A fallback test\",\"entities\":[{\"name\":\"fb-entity\",\"entity_type\":\"concept\"}],\"relationships\":[]}"}
     ]"#;
-    let (result, cost, _is_oauth) =
-        parse_claude_output(output).expect("result fallback must work");
+    let (result, cost, _is_oauth) = parse_claude_output(output).expect("result fallback must work");
     assert_eq!(result.name, "test-fallback");
     assert_eq!(result.entities.len(), 1);
     assert!(result.relationships.is_empty());

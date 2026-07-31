@@ -192,7 +192,9 @@ fn parse_status(s: &str) -> Result<PendingEmbeddingStatus, AppError> {
         "in_progress" => Ok(PendingEmbeddingStatus::InProgress),
         "done" => Ok(PendingEmbeddingStatus::Done),
         "abandoned" => Ok(PendingEmbeddingStatus::Abandoned),
-        other => Err(AppError::Validation(crate::i18n::validation::unknown_pending_embeddings_status(other))),
+        other => Err(AppError::Validation(
+            crate::i18n::validation::unknown_pending_embeddings_status(other),
+        )),
     }
 }
 

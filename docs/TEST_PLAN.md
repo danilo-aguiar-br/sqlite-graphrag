@@ -17,6 +17,23 @@
 - Excludes manual exploratory testing and downstream consumer projects
 
 
+## v1.2.1 regression gate (enrich CAPA — sidecar only)
+
+- Scope: no main-DB migration (schema **v16**); enrich sidecar CAPA A–D + enqueue fixes.
+- Unit / lib regressions (must be green):
+  - `enqueue_candidate_accepts_entity_prefixed_reembed_key` — `entity:` prefix strip + bare name + missing reject
+  - `dequeue_next_pending_isolates_by_namespace` — claim by `operation` + `namespace`
+  - Enrich queue unit suite: **38** tests OK
+- Behaviour contracts (exercise via unit/integration or operator smoke):
+  - `--until-empty` / `count_eligible_pending` counts **this op+namespace only** (not all-ops)
+  - `--force-redescribe` reopens `skipped`/`done` once per process; never reopens `dead`
+  - Re-embed: `reconcile_satisfied_reembed_pending` when `LENGTH(embedding) = dim*4`; eligibility by BLOB length (CORRUPT/META_AHEAD re-eligible)
+  - Chunk enqueue validates `chunk_id` in target namespace non-deleted memory
+  - CAPA-D: compound "configuration file" markers only (no bare FP)
+- Offline gate: `bash scripts/e2e_offline_v120.sh` still **20/20** (unchanged harness; CAPA covered by unit suite)
+- Pass criterion: queue suite 38 OK; named CAPA regressions green; offline 20/20
+- Companion docs: [TESTING.md](TESTING.md), [MIGRATION.md](MIGRATION.md), [CHANGELOG.md](../CHANGELOG.md) `[1.2.1]`
+
 ## v1.2.0 regression gate (XDG + dim 1024 + offline E2E)
 
 - Command: `bash scripts/e2e_offline_v120.sh` (expects **20/20 PASS** — 15 `check()` + 5 manual PASS; binary 1.2.0+; historical wrapper `e2e_offline_v118.sh` superseded)

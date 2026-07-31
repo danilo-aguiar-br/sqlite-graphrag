@@ -7,8 +7,8 @@ use std::time::Instant;
 use rusqlite::Connection;
 
 use super::args::{EnrichArgs, EnrichMode, EnrichOperation};
-use super::scan::scan_operation;
 use super::extraction::find_codex_binary;
+use super::scan::scan_operation;
 use crate::commands::ingest_claude::find_claude_binary;
 use crate::errors::AppError;
 
@@ -240,7 +240,9 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                             "wait for the OAuth window to reset or use --fallback-mode codex",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
+                return PreflightOutcome::Error(AppError::Validation(
+                    crate::i18n::validation::preflight_probe_failed(stderr.trim()),
+                ));
             }
             PreflightOutcome::Healthy
         }
@@ -290,7 +292,9 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                         suggestion: "wait for the rate-limit window to reset",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
+                return PreflightOutcome::Error(AppError::Validation(
+                    crate::i18n::validation::preflight_probe_failed(stderr.trim()),
+                ));
             }
             PreflightOutcome::Healthy
         }
@@ -301,14 +305,15 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                 Ok(b) => b,
                 Err(e) => return PreflightOutcome::Error(e),
             };
-            let model =
-                crate::commands::opencode_runner::resolve_opencode_model(args.opencode_model.as_deref());
-            let mut cmd =
-                match crate::commands::opencode_runner::build_opencode_command_sync(&bin, &model, "ping", "")
-                {
-                    Ok(c) => c,
-                    Err(e) => return PreflightOutcome::Error(e),
-                };
+            let model = crate::commands::opencode_runner::resolve_opencode_model(
+                args.opencode_model.as_deref(),
+            );
+            let mut cmd = match crate::commands::opencode_runner::build_opencode_command_sync(
+                &bin, &model, "ping", "",
+            ) {
+                Ok(c) => c,
+                Err(e) => return PreflightOutcome::Error(e),
+            };
             let child = match crate::commands::opencode_runner::spawn_opencode(&mut cmd) {
                 Ok(c) => c,
                 Err(e) => return PreflightOutcome::Error(AppError::Io(e)),
@@ -328,7 +333,9 @@ pub(crate) fn run_preflight_probe(args: &EnrichArgs) -> PreflightOutcome {
                         suggestion: "wait for the rate-limit window to reset",
                     };
                 }
-                return PreflightOutcome::Error(AppError::Validation(crate::i18n::validation::preflight_probe_failed(stderr.trim())));
+                return PreflightOutcome::Error(AppError::Validation(
+                    crate::i18n::validation::preflight_probe_failed(stderr.trim()),
+                ));
             }
             PreflightOutcome::Healthy
         }
@@ -356,7 +363,9 @@ pub(crate) fn wait_with_timeout(
     let Some(exit) = child.wait_timeout(timeout).map_err(AppError::Io)? else {
         let _ = child.kill();
         let _ = child.wait();
-        return Err(AppError::Validation(crate::i18n::validation::preflight_probe_timed_out(start.elapsed().as_secs())));
+        return Err(AppError::Validation(
+            crate::i18n::validation::preflight_probe_timed_out(start.elapsed().as_secs()),
+        ));
     };
     let mut stdout = Vec::new();
     if let Some(mut out) = child.stdout.take() {
@@ -507,10 +516,12 @@ pub(crate) fn validate_mode_conditional_flags_enrich(args: &EnrichArgs) -> Resul
     }
 
     if !conflicts.is_empty() {
-        return Err(AppError::Validation(crate::i18n::validation::mode_flag_conflicts(
+        return Err(AppError::Validation(
+            crate::i18n::validation::mode_flag_conflicts(
                 &args.mode().to_string(),
                 &conflicts.join("\n  - "),
-            )));
+            ),
+        ));
     }
 
     Ok(())

@@ -116,10 +116,7 @@ pub struct RememberArgs {
         conflicts_with_all = ["graph_stdin", "entities_file", "relationships_file"]
     )]
     pub graph_file: Option<std::path::PathBuf>,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Inline JSON object with arbitrary metadata key-value pairs. Mutually exclusive with --metadata-file.

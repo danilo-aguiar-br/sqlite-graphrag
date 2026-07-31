@@ -1,7 +1,10 @@
 //! Handlers for `graph` subcommands.
 
 use super::args::*;
-use super::formats::{EdgeOut, GraphSnapshot, NodeOut, render_dot, render_json, render_mermaid, render_ndjson_streaming};
+use super::formats::{
+    render_dot, render_json, render_mermaid, render_ndjson_streaming, EdgeOut, GraphSnapshot,
+    NodeOut,
+};
 use crate::cli::GraphExportFormat;
 use crate::errors::AppError;
 use crate::output;

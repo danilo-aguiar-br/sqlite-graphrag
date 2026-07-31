@@ -52,10 +52,7 @@ pub struct SplitBodyArgs {
     /// Only memories with `LENGTH(body) > threshold` are split. Default 25000 chars.
     #[arg(long, value_name = "N", default_value_t = DEFAULT_SPLIT_THRESHOLD)]
     pub threshold: usize,
-    #[arg(
-        long,
-        help = "Namespace (flag / XDG namespace.default / global)"
-    )]
+    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
     /// Namespace scope.
     pub namespace: Option<String>,
     /// Preview the split(s) without writing. Emits the planned child names and
@@ -367,11 +364,15 @@ fn split_single(
 
 fn validate_child_name(child: &str, parent: &str) -> Result<(), AppError> {
     if child.is_empty() || child.len() > MAX_MEMORY_NAME_LEN {
-        return Err(AppError::Validation(crate::i18n::validation::child_name_exceeds_max(child, parent, MAX_MEMORY_NAME_LEN)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::child_name_exceeds_max(child, parent, MAX_MEMORY_NAME_LEN),
+        ));
     }
     let slug_re = crate::constants::name_slug_regex();
     if !slug_re.is_match(child) {
-        return Err(AppError::Validation(crate::i18n::validation::child_name_not_kebab(child)));
+        return Err(AppError::Validation(
+            crate::i18n::validation::child_name_not_kebab(child),
+        ));
     }
     Ok(())
 }

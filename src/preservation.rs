@@ -289,14 +289,9 @@ mod tests {
 
     #[test]
     fn grounding_without_evidence_is_accepted() {
-        let verdict = PreservationVerdict::evaluate_grounding(
-            "Some entity description",
-            "",
-            0.5,
-        );
+        let verdict = PreservationVerdict::evaluate_grounding("Some entity description", "", 0.5);
         assert!(verdict.is_accepted());
     }
-
 
     #[test]
     fn identical_strings_score_one() {

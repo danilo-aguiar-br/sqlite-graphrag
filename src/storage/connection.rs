@@ -58,6 +58,7 @@ fn adopt_embedding_dim(conn: &Connection) {
 /// Ensure schema.
 pub fn ensure_schema(conn: &mut Connection) -> Result<(), AppError> {
     crate::migrations::runner()
+        .set_abort_divergent(false)
         .run(conn)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
     conn.execute_batch(&format!(
@@ -114,7 +115,15 @@ pub fn ensure_db_ready(paths: &AppPaths) -> Result<(), AppError> {
                 "auto-migrating database schema"
             );
         }
+        // GAP-SG-140: `V002__vec_tables.sql` was edited after it had already been
+        // applied in the field, so every legacy database carries a divergent
+        // checksum for it. refinery aborts on divergence by default, which blocks
+        // ALL pending migrations (exit 20) on databases below schema 16. The
+        // divergence is inert: `V013__drop_vec_use_blob_embeddings.sql` already
+        // drops the tables V002 created, so the historical text no longer
+        // describes any live object. Tolerate divergence and keep migrating.
         crate::migrations::runner()
+            .set_abort_divergent(false)
             .run(&mut conn)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("auto-migration failed: {e}")))?;
         conn.execute_batch(&format!("PRAGMA user_version = {target_user_version};"))?;

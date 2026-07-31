@@ -262,7 +262,10 @@ fn open_conn(db: Option<&str>) -> Result<(AppPaths, rusqlite::Connection), AppEr
 }
 
 /// Shared by `embedding status` and `pending-embeddings status` (GAP-E2E-09).
-pub(crate) fn run_status(args: EmbeddingStatusArgs, llm_backend: LlmBackendChoice) -> Result<(), AppError> {
+pub(crate) fn run_status(
+    args: EmbeddingStatusArgs,
+    llm_backend: LlmBackendChoice,
+) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let (_paths, conn) = open_conn(args.db.as_deref())?;
 

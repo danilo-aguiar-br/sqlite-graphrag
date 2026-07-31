@@ -189,6 +189,22 @@
 - `deep-research` short flag `-o` is a CLI alias of `--output`; ack schema unchanged (`deep-research-output-ack.schema.json`).
 - Offline gate: `scripts/e2e_offline_v120.sh` (**20/20**). Help must not advertise product `SQLITE_GRAPHRAG_*` env as config.
 
+### Schema Notes in v1.2.1 (enrich CAPA — no schema field change)
+
+- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.1**.
+- **Sidecar behaviour only** — full CAPA list (no new stdout fields):
+  1. `dequeue_next_pending` — claim by `operation` **and** `namespace`
+  2. `count_eligible_pending` for `--until-empty` — counts **op+ns only**
+  3. `reopen_force_redescribe_candidates` — reopens `skipped`/`done` once per process; **never** `dead`
+  4. `reconcile_satisfied_reembed_pending` — marks ReEmbed pending `done` when live BLOB matches (`LENGTH(embedding) = dim*4`); clears zombies without API calls
+  5. Re-embed eligibility by BLOB **LENGTH**, not `dim` column alone (CORRUPT rows re-embed)
+  6. `entity:` prefix strip on enqueue lookup (queue key stays `entity:…`)
+  7. Chunk enqueue validates namespace (non-deleted memory in target ns)
+  8. CAPA-D — compound "configuration file" markers only
+- **`enrich-status.schema.json` / `enrich-summary.schema.json` unchanged** — no schema field change expected for the CAPA seal; agents continue Must-Ignore on unknown keys.
+- Offline gate remains `scripts/e2e_offline_v120.sh` (**20/20** PASS).
+- Regressions: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; queue suite **38** OK.
+
 ### Schema Notes in v1.2.0 (product seal — no new schema files required)
 - **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.0**.
 - **`DEFAULT_EMBEDDING_DIM=1024`** — `init` stamps `schema_meta.dim` from the default (or `--embedding-dim` / XDG override). Existing DBs keep their stamped dim until re-embed. This is a runtime/init constant change, **not** a new `*.schema.json` file.
@@ -324,6 +340,22 @@
 - `enrich-summary.schema.json` — opcionais `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate`.
 - Flag curta `-o` de `deep-research` é alias CLI de `--output`; schema de ack inalterado.
 - Gate offline: `scripts/e2e_offline_v120.sh` (**20/20**). Help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config.
+
+### Notas de Schema na v1.2.1 (CAPA enrich — sem mudança de campos de schema)
+
+- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.1**.
+- **Somente comportamento do sidecar** — lista CAPA completa (nenhum campo novo de stdout):
+  1. `dequeue_next_pending` — claim por `operation` **e** `namespace`
+  2. `count_eligible_pending` para `--until-empty` — conta **só op+ns**
+  3. `reopen_force_redescribe_candidates` — reabre `skipped`/`done` uma vez por processo; **nunca** `dead`
+  4. `reconcile_satisfied_reembed_pending` — marca ReEmbed pending como `done` quando o BLOB vivo casa (`LENGTH(embedding) = dim*4`); limpa zumbis sem chamadas de API
+  5. Elegibilidade de re-embed por **LENGTH** do BLOB, não só a coluna `dim` (linhas CORRUPT re-embedam)
+  6. Strip do prefixo `entity:` no lookup de enqueue (chave da fila permanece `entity:…`)
+  7. Enqueue de chunk valida namespace (memória não-deletada no ns alvo)
+  8. CAPA-D — apenas marcadores compostos de "configuration file"
+- **`enrich-status.schema.json` / `enrich-summary.schema.json` inalterados** — nenhuma mudança de campo de schema esperada para o selo CAPA; agentes continuam Must-Ignore em chaves desconhecidas.
+- Gate offline permanece `scripts/e2e_offline_v120.sh` (**20/20** PASS).
+- Regressões: `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`; suite da fila **38** OK.
 
 ### Notas de Schema na v1.2.0 (selo de produto — sem novos arquivos de schema)
 - **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.0**.

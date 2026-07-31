@@ -234,7 +234,14 @@ pub fn run(args: MigrateArgs) -> Result<(), AppError> {
     sanitize_null_applied_on(&conn)?;
     ensure_v013_tables_exist(&conn)?;
 
+    // GAP-SG-140: mirror the auto-migration tolerance from
+    // `storage::connection::ensure_db_ready`. A legacy database carries a
+    // divergent checksum for `V002__vec_tables.sql`, whose tables V013 already
+    // dropped. Aborting here would make plain `migrate` fail on exactly the
+    // databases the auto-migration path can now upgrade. `--rehash` remains the
+    // way to normalize `refinery_schema_history` when the operator wants it.
     crate::migrations::runner()
+        .set_abort_divergent(false)
         .run(&mut conn)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
 

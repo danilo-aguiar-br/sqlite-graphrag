@@ -306,4 +306,3 @@ pub(crate) fn init_storage(paths: &AppPaths) -> Result<Connection, AppError> {
     let conn = open_rw(&paths.db)?;
     Ok(conn)
 }
-

@@ -249,8 +249,7 @@ impl OpenRouterChatClient {
         model: String,
         timeout_secs: u64,
     ) -> Result<Self, AppError> {
-        let base_url =
-            crate::runtime_config::openrouter_chat_url(DEFAULT_OPENROUTER_CHAT_URL);
+        let base_url = crate::runtime_config::openrouter_chat_url(DEFAULT_OPENROUTER_CHAT_URL);
         Self::new_with_base_url(api_key, model, timeout_secs, base_url)
     }
 
@@ -620,9 +619,9 @@ impl OpenRouterChatClient {
             if status.is_success() {
                 let body = resp.text().await.map_err(|e| {
                     ChatError::new(
-                        AppError::Validation(crate::i18n::validation::failed_to_read_response_body(
-                            &e,
-                        )),
+                        AppError::Validation(
+                            crate::i18n::validation::failed_to_read_response_body(&e),
+                        ),
                         AttemptOutcome::Transient,
                     )
                 })?;

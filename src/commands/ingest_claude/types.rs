@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const MIN_CLAUDE_VERSION: &str = "2.1.0";
 
-
 pub(crate) const EXTRACTION_SCHEMA: &str = r#"{
   "type": "object",
   "properties": {

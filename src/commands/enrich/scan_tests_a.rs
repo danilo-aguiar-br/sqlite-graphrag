@@ -268,8 +268,7 @@ fn scan_memories_without_embeddings_respects_name_filter() {
     .unwrap();
 
     let results =
-        scan_memories_without_embeddings(&conn, "global", None, &["match-me".to_string()])
-            .unwrap();
+        scan_memories_without_embeddings(&conn, "global", None, &["match-me".to_string()]).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].1, "match-me");
 }
@@ -438,4 +437,3 @@ fn count_operation_backlog_memory_bindings_counts_unbound() {
     let scanned = scan_unbound_memories(&conn, "global", None, &[]).unwrap();
     assert_eq!(n as usize, scanned.len());
 }
-

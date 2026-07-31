@@ -85,7 +85,10 @@ mod tests {
         // Without display.tz in XDG config, resolver returns UTC.
         // (Host config may set display.tz; only assert Ok.)
         let result = resolve_tz_from_xdg();
-        assert!(result.is_ok(), "xdg tz resolve must not error when unset/valid");
+        assert!(
+            result.is_ok(),
+            "xdg tz resolve must not error when unset/valid"
+        );
     }
 
     #[test]

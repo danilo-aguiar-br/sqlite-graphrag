@@ -66,12 +66,7 @@ pub fn is_skipped() -> bool {
     crate::config::get_setting("spawn.skip_preflight")
         .ok()
         .flatten()
-        .is_some_and(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes"
-            )
-        })
+        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
 /// Arguments for the pre-flight validation gate.
