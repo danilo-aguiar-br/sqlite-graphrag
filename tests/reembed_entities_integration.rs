@@ -4,7 +4,7 @@
 //! Asserts that `enrich --operation re-embed --target entities` backfills
 //! `entity_embeddings` (0 -> N) and is idempotent (no duplicate rows).
 //!
-//! Uses the bundled `tests/mock-llm/claude` mock (64-dim zero vector)
+//! Uses the offline OpenRouter stub in `tests/common/openrouter_mock.rs`
 //! instead of OpenRouter so the test is hermetic (no API key, no network).
 
 use assert_cmd::Command;
@@ -24,8 +24,6 @@ fn sgr_cmd() -> Command {
 fn cmd(temp: &TempDir) -> Command {
     let mut c = sgr_cmd();
     c.env_clear()
-        .env("HOME", temp.path())
-        .env("HOME", temp.path())
         .arg("--lang")
         .arg("en")
         .current_dir(temp.path());
@@ -34,6 +32,11 @@ fn cmd(temp: &TempDir) -> Command {
             c.env(var, v);
         }
     }
+    // GAP-SG-101 / G-T-XDG-04: product env was retired, so `init` without
+    // `--db` resolves through XDG and never through `current_dir`. This suite
+    // asserts against `temp/graphrag.sqlite`, so `db.path` must be planted or
+    // every assertion opens an empty file and reports "no such table".
+    common::wire_assert_cmd(temp, &mut c, "graphrag.sqlite");
     c.env("PATH", common::prepend_path(&common::mock_llm_path()));
     c
 }
@@ -89,10 +92,6 @@ fn seed_entities_without_embedding(tmp: &TempDir) {
             "--description",
             "d",
             "--graph-stdin",
-            "--llm-backend",
-            "claude",
-            "--embedding-dim",
-            "64",
             "--json",
         ])
         .write_stdin(GRAPH_PAYLOAD)
@@ -109,13 +108,11 @@ fn run_reembed_entities(tmp: &TempDir) {
             "--target",
             "entities",
             "--mode",
-            "claude-code",
+            "openrouter",
+            "--openrouter-model",
+            "stub/model",
             "--embedding-backend",
-            "llm",
-            "--embedding-dim",
-            "64",
-            "--llm-backend",
-            "claude",
+            "openrouter",
             "--json",
         ])
         .assert()

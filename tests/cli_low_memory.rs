@@ -40,6 +40,9 @@ mod common;
 /// OS, unlike `XDG_*`.
 fn base_cmd(temp: &TempDir) -> Command {
     let mut cmd = sgr_cmd();
+    common::write_sandbox_config(&temp.path().join("config"), None);
+    cmd.arg("--embedding-model")
+        .arg(common::openrouter_mock::STUB_MODEL);
     cmd.arg("--config-dir").arg(temp.path().join("config"));
     cmd.arg("--cache-dir").arg(temp.path().join("cache"));
     // Keep tests deterministic regardless of the host shell's env.

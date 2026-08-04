@@ -237,10 +237,6 @@ pub mod llm {
     pub mod exit_code_hints;
 }
 
-/// v1.0.75 (G22 solution): spawn subsystem abstraction with
-/// `VersionAdapter` trait for codex/claude/opencode executors.
-pub mod spawn;
-
 /// Memory guard: checks RAM availability before loading the ONNX model.
 pub mod memory_guard;
 
@@ -255,11 +251,20 @@ pub mod namespace;
 /// Centralized stdout/stderr emitters for CLI output formatting.
 pub mod output;
 
+/// GAP-SG-142: agent-native reshaping (`--select`, `--filter`, `--sort`,
+/// `--dedupe-by`, `--max-items`, `--count-only`, `--truncate-content`,
+/// `--max-output-bytes`) applied at the single stdout emission point.
+pub mod agent_surface;
+
 /// Agent-native R-AN-01: `--print-schema` emits embedded JSON Schema and exits.
 pub mod print_schema;
 
 /// Dual-format argument parser: accepts Unix epoch and RFC 3339.
 pub mod parsers;
+
+/// The one resolution of a query string into a live embedding, shared by every
+/// read path so `vec_degraded` means the same thing in each envelope.
+pub mod query_embedding;
 
 /// G29 Step 4: preservation checks (Jaccard trigram) for LLM-enriched bodies.
 pub mod preservation;

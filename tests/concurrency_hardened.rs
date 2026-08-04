@@ -9,8 +9,9 @@
 // `--skip-memory-guard` is used so that the RAM check does not abort before
 // the semaphore is exercised in CI environments with limited memory.
 //
-// Flaky timing tests are marked with `#[ignore]` and document how to run them
-// manually.
+// Timing-sensitive tests hold their slots inside the test process, so the
+// waiting child always races against a hold this process controls; none of them
+// is `#[ignore]`d.
 
 use assert_cmd::Command;
 use serial_test::serial;
@@ -49,6 +50,8 @@ fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
         .env("XDG_RUNTIME_DIR", tmp.path().join("xdg_runtime"))
         .arg("--config-dir")
         .arg(tmp.path().join("config"))
+        .arg("--embedding-model")
+        .arg(common::openrouter_mock::STUB_MODEL)
         .arg("--cache-dir")
         .arg(tmp.path())
         .arg("--skip-memory-guard");
@@ -124,14 +127,10 @@ fn cinco_instancias_quinta_exit_75() {
 // Occupies all slots, releases after 1s in a separate thread, confirms that
 // --wait-lock 3 aguarda e conclui com sucesso.
 //
-// MARCADO #[ignore] — adiciona ~1-2s ao CI e depende de timing de threads.
-// Para rodar manualmente:
-//   cargo test -- --ignored wait_lock_3s_respeitado
+// Costs ~1s: the slots are released after 800ms while the child waits up to 3s.
 
 #[test]
 #[serial]
-// TODO v1.0.89: flaky timing — avaliar estabilização quando ambiente CI oferecer sleep determinístico.
-#[ignore = "flaky — depende de timing de threads — rodar manualmente com: cargo test -- --ignored"]
 fn wait_lock_3s_respeitado() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let tmp_path = tmp.path().to_path_buf();

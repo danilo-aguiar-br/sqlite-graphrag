@@ -108,10 +108,12 @@ pub(crate) fn persist_staged(
             |r| r.get::<_, i64>(0).map(|v| v > 0),
         )?;
         if !ns_exists && active_count >= crate::constants::MAX_NAMESPACES_ACTIVE {
-            return Err(AppError::NamespaceError(format!(
-                "active namespace limit of {} exceeded while creating '{namespace}'",
-                crate::constants::MAX_NAMESPACES_ACTIVE
-            )));
+            return Err(AppError::NamespaceError(
+                crate::i18n::errors_ops::active_namespace_limit_reached(
+                    crate::constants::MAX_NAMESPACES_ACTIVE,
+                    namespace,
+                ),
+            ));
         }
     }
 
@@ -223,10 +225,9 @@ pub(crate) fn persist_staged(
             // GAP-SG-55: identical content already stored under a different name
             // → skip creating a duplicate (reported as `skipped` by the caller).
             if let Some(hash_id) = duplicate_hash_id {
-                return Err(AppError::Duplicate(format!(
-                    "identical body already stored as memory id {hash_id} (dedup by body_hash); skipping '{}'",
-                    staged.name
-                )));
+                return Err(AppError::Duplicate(
+                    crate::i18n::errors_ops::duplicate_body_hash(hash_id, &staged.name),
+                ));
             }
 
             let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

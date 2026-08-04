@@ -1,5 +1,4 @@
-## Adições à Suite de Testes da v1.0.83 (ADR-0041)
-- 6 novos testes de regressão em `tests/claude_runner_env.rs` cobrem o fix do env whitelist
+# TESTES — Adições à Suite de Testes da v1.0.83 (ADR-0041)
 - `claude_subprocess_inherits_custom_anthropic_provider_env` — documenta a decisão de design de que o caminho de integração equivalente é coberto pela variante codex abaixo (a instalação real de `claude` em CI colide com o truque de prefixar PATH com o mock); veja ADR-0041 §Verification
 - `claude_subprocess_rejects_prohibited_anthropic_api_key` — confirma que o guard OAuth-only ainda aborta o spawn com exit não-zero quando `ANTHROPIC_API_KEY` está setada; o script mock pode ou não rodar dependendo se o guard dispara primeiro
 - `codex_subprocess_inherits_openai_base_url` — verifica que a env var `OPENAI_BASE_URL` propaga do pai para o subprocesso codex, o caminho canônico de teste de integração cross-process
@@ -15,6 +14,63 @@
 - Leia a versão em inglês em [TESTING.md](TESTING.md)
 - Plano de testes formal com camadas, gatilhos e gates de release: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)
 
+
+## v1.2.2 — Superfície de Saída Agent-Native e Type-Check Multiplataforma
+
+### Testando a superfície de saída
+
+As oito flags globais (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`) são aplicadas em um **único** ponto — `src/agent_surface/` remodela o envelope serializado, então uma implementação cobre a CLI inteira. Teste ali, não por subcomando.
+
+- Suite unitária: `src/agent_surface/tests.rs`. Os módulos irmãos `filter.rs`, `shape.rs` e `budget.rs` NÃO têm `#[test]` próprio; toda asserção sobre eles vive em `tests.rs`.
+- As invariantes que precisam permanecer verdes, porque cada uma é uma forma de mentir para o agente:
+  - **Envelope de falha nunca é filtrado.** `error: true` / `ok: false` chega ao chamador literalmente. Se `--filter` pudesse suprimi-lo, um agente leria uma falha como conjunto de resultados vazio.
+  - **Documento `$schema` passa intacto.** É contrato, não conjunto de resultados.
+  - **Truncagem nunca é silenciosa.** Tudo que foi removido é registrado em `agent_surface` e levanta a flag `truncated` de topo.
+  - **Streams NDJSON contornam a superfície.** Remodelá-los mudaria o contrato do stream.
+  - **`--filter` malformado sai com exit 2** em vez de devolver zero linhas — um typo nunca pode parecer resultado vazio legítimo.
+  - **Chave ausente é pulada, não emitida como `null`** — uma projeção jamais pode inventar campo.
+  - **`--max-output-bytes` descarta elementos do fim, nunca fatia o texto JSON** — envelope fatiado não faria parse.
+  - **Sem knob definido, o envelope é idêntico byte a byte à saída anterior à v1.2.2** — a superfície é opt-in.
+
+```bash
+cargo test --lib agent_surface
+```
+
+### Exemplos documentados são executáveis
+
+`tests/readme_examples_executable.rs` faz `include_str!` dos dois READMEs e **executa** os blocos `bash` cercados contra o binário real, exigindo pelo menos **dez** blocos executáveis por README. Um bloco é pulado quando contém `|`, `>`, `<`, `$(`, crase, `&&`, `||` ou `;`; quando usa `--embedding-backend openrouter` (o job de CI é hermético, sem chave); ou quando a linha anterior à cerca de abertura carrega `<!-- skip-test -->` (a forma `<!-- skip-test: motivo -->` também é aceita). Um `TempDir` e um `init` são compartilhados por README.
+
+Portanto, um **exemplo novo que DEVA rodar** precisa ser comando único, offline, sem pipe e sem redirecionamento. Um exemplo novo que não possa rodar precisa do marcador explícito — nunca o deixe sem marcação torcendo para dar certo.
+
+```bash
+cargo test --test readme_examples_executable
+```
+
+`docs/COOKBOOK.md` **não** tem validação de exemplos: as receitas em `tests/cookbook_recipes.rs` estão hardcoded lá, não são parseadas do documento. Editar uma receita do cookbook não muda o que aquele teste assere.
+
+### Gate de release — por que `--no-fail-fast` não é opcional
+
+```bash
+cargo test --all-features --no-fail-fast
+```
+
+Sem `--no-fail-fast`, o cargo para no primeiro alvo vermelho. A execução então reporta um **prefixo da suíte** com output que parece completo — você lê uma cauda verde que nunca foi alcançada. `--no-fail-fast` roda todos os alvos e reporta todas as falhas, que é a única forma do gate significar o que promete.
+
+### Type-check multiplataforma — o ponto cego do `#[cfg]`
+
+Um `#[cfg]` mutuamente exclusivo cria **duas árvores de compilação**, e um gate local no Linux só enxerga uma delas. Foi exatamente assim que a CLI parou de compilar em Windows e macOS sem ninguém notar: todo teste local ficava verde, porque a árvore quebrada nunca era construída.
+
+O alvo óbvio, `x86_64-pc-windows-msvc`, falha em `ring` por falta de `lib.exe`. Use o alvo GNU: com mingw ele compila a crate inteira, e é `cfg(windows)` do mesmo jeito:
+
+<!-- skip-test: compilação cruzada, exige a toolchain mingw -->
+```bash
+env CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc \
+    AR_x86_64_pc_windows_gnu=x86_64-w64-mingw32-ar \
+    CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
+    cargo check --target x86_64-pc-windows-gnu --all-features
+```
+
+Pré-requisito: `rustup target add x86_64-pc-windows-gnu` e a toolchain mingw-w64. Veja também [CROSS_PLATFORM.pt-BR.md](CROSS_PLATFORM.pt-BR.md).
 
 ## v1.2.1 — Regressões CAPA da Fila Enrich
 
@@ -48,7 +104,7 @@ cargo build --release && bash scripts/e2e_offline_v120.sh
 - Smoke de contrato complementar (veja [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)): materialização `deep-research -o`, `description` em `memory-entities`, `entities_created`/`enrich_recommended` no remember, campos de qualidade em `enrich --status --force-redescribe`, honestidade do help de entity-connect (totalmente implementado).
 - Contratos unitários/integração companheiros:
   - `tests/help_no_product_env` — o help não deve anunciar product env `SQLITE_GRAPHRAG_*` como mecanismo de config.
-  - `tests/cli_db_noop_host_surfaces_regression.rs` — **GAP-SG-139**: folhas host/XDG (`config`×9, `slots`×3, `cache`×3, `codex-models`, `completions`) aceitam `--db` como no-op documentado (`src/cli_db_noop.rs`).
+  - `tests/cli_db_noop_host_surfaces_regression.rs` — **GAP-SG-139**: folhas host/XDG (`config`×9, `slots`×3, `cache`×3, `completions`) aceitam `--db` como no-op documentado (`src/cli_db_noop.rs`).
 - **NÃO** é pipeline obrigatório de GitHub Actions do produto — rode localmente (ou cron/systemd/launchd no host). GitHub Actions é infraestrutura opcional do operador, não o gate de release desta CLI.
 - Pré-requisito de build: binário release em `target/release/sqlite-graphrag` (o script compila se faltar).
 
@@ -64,12 +120,12 @@ cargo test --test cli_db_noop_host_surfaces_regression
 - Prefira `cargo test` / nextest **local**; **não** trate GitHub Actions como CI de produto obrigatório para esta CLI.
 - Nota histórica: alguns workflows rodavam `clippy` e `test` em uma matriz de 2 features desde a v1.0.79: `default` e `llm-only` (`embedding-legacy` foi removida junto com a feature).
 - Os jobs `default` e `llm-only` instalam uma CLI stub `mock-llm` no `PATH` para que os testes de round-trip de embedding rodem sem uma assinatura real de LLM.
-- 26 arquivos de teste foram cabeados para consumir a mock LLM CLI como substituto drop-in para `claude -p`, `codex exec` e `opencode run`. Isso desbloqueia o CI de exigir credenciais OAuth reais.
+- 26 arquivos de teste foram cabeados para consumir uma mock LLM CLI para que o CI nunca precisasse de credenciais vivas. Esse harness está INERTE desde a remoção dos backends por subprocesso; o caminho offline agora precisa de um stub OpenRouter.
 - 107 de 115 testes previamente lentos foram corrigidos no commit `bd0a3f5` (a mock LLM desbloqueia testes que dependiam de um turno OAuth real).
 - Execute a matriz multi-OS **localmente** (GitHub Actions não é obrigatório para o produto): `cargo test --lib` em Linux, macOS e Windows; agende com cron, systemd.timer ou launchd — nunca como pipeline obrigatório de GitHub Actions para a CLI.
 
 ### Contrato da Mock LLM CLI
-- Os mocks são shell scripts em `tests/mock-llm/` (`claude`, `codex` e `opencode`) que devolvem JSON determinístico para qualquer prompt; os testes de integração os copiam para um diretório temporário e o prependem ao `PATH`.
+- Os scripts mock em `tests/mock-llm/` foram preservados mas não são mais alcançáveis: nada spawna CLI local.
 - Para requisições de embedding: devolvem vetores `f32` de 64 dimensões zerados (a dimensionalidade default ativa desde a v1.0.79, G42/S1).
 - Os dois formatos de resposta são falados desde o fix do G43: single (`{"embedding":[...]}`) e batch (`{"items":[{"i":N,"v":[...]}]}` quando o prompt pede EXATAMENTE N itens, G42/S2).
 - Testes de extração de entidades devem mockar em nível mais alto ou chamar a API da biblioteca; os scripts são dedicados ao caminho de embedding.
@@ -111,7 +167,7 @@ cargo test --test cli_db_noop_host_surfaces_regression
 
 - `tests/health_namespace_regression.rs::health_accepts_namespace_flag_v1089` — GAP-E2E-002. Verifica que `health --namespace prod --json` retorna 0 e filtra contagens para o namespace
 - `tests/migrate_dry_run_regression.rs::dry_run_does_not_mutate_schema_history_v1089` — GAP-E2E-009. Verifica que `migrate --dry-run` sai com 0 e `refinery_schema_history` permanece inalterado
-- `tests/codex_models_json_regression.rs::codex_models_json_flag_accepted_as_noop_v1089` — GAP-E2E-010a. Verifica que `codex-models --json` sai com 0 com envelope JSON
+- `tests/codex_models_json_regression.rs` — REMOVIDO. O comando `codex-models` e seu teste de regressão saíram junto com os backends de subprocesso na v1.2.0; o comando agora responde exit 2. Listado aqui como histórico para que quem encontrar o nome numa nota de release antiga saiba por que o arquivo não existe
 - `tests/cli_db_flag_parity_regression.rs` (5 testes) — GAP-E2E-008 + GAP-E2E-010b. Verifica que `embedding status`, `embedding list`, `embedding abandon`, `pending list`, `pending show` todos aceitam `--db <PATH>` sem erro de clap
 - `tests/ingest_auto_describe_regression.rs` (5 testes) — GAP-E2E-011. Verifica `extract_heuristic_description(body, path_hint)`:
   - `auto_describe_uses_body_summary` — primeira linha significativa (>20 chars) vence

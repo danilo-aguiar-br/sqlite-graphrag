@@ -1,9 +1,18 @@
 //! GAP-007 (v1.0.88) regression tests: ensure the `slots` text-mode
 //! output path uses `tracing::info!` rather than `println!`. The
-//! `slots status` JSON path is allowed to keep `println!` because that
-//! path IS the data payload (the JSON envelope that the operator
-//! requested); the regression is specifically about non-JSON output
-//! bypassing the structured-log pipeline.
+//! regression is about non-JSON output bypassing the structured-log
+//! pipeline.
+//!
+//! GAP-SG-142 tightened this. The JSON payload used to be allowed to keep
+//! its `println!`, on the grounds that it IS the data rather than a log
+//! line. That reasoning covered the stdout/stderr split but missed two
+//! other things `println!` bypasses: the `BrokenPipe` tolerance in
+//! [`sqlite_graphrag::output`], and the agent-native reshaping surface
+//! (`--select`, `--filter`, `--max-output-bytes`, …), which is applied at
+//! the single emission point in that module. A payload printed directly
+//! is invisible to both. Every stdout payload now routes through
+//! `output::emit_json*`, so the assertion below is zero `println!`, not
+//! one.
 
 /// Helper: extract the body of a function up to the next `fn ` at
 /// the same indent level (column 0). The returned slice is everything
@@ -108,22 +117,19 @@ fn slots_release_routes_through_tracing() {
         "run_release JSON output must use emit_json_compact"
     );
 
-    // The textual `slots status` path (run_status) must not use
-    // println! EXCEPT for the JSON data payload at the end.
+    // GAP-SG-142: `run_status` must not use println! at all. The text
+    // path goes to tracing and the JSON payload goes to `output`.
     let run_status_body = extract_fn_body(&source, "run_status");
-    // The JSON data payload `println!("{json}");` is the ONE allowed
-    // println! invocation (it IS the data payload, not a log line).
     let total_println = count_println_invocations(run_status_body);
     assert_eq!(
-        total_println, 1,
-        "run_status must contain exactly 1 println! invocation (the JSON data payload); found {total_println}"
+        total_println, 0,
+        "run_status must contain zero println! invocations; the JSON payload belongs to \
+         output::emit_json so it inherits BrokenPipe tolerance and the agent-native \
+         reshaping surface. found {total_println}"
     );
-    // And that single occurrence must be the JSON payload, not a log
-    // line. (The replace-and-contains-println! approach would also
-    // work but a numeric count is more robust to comment drift.)
     assert!(
-        run_status_body.contains("println!(\"{json}\");"),
-        "the single println! in run_status must be the JSON data payload `println!(\"{{json}}\");`"
+        run_status_body.contains("output::emit_json(&output)"),
+        "the JSON payload in run_status must be emitted through output::emit_json"
     );
 
     // BUG-SLOTS-YES-IGNORED fix: the old eprintln! prompt was replaced

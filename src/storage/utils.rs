@@ -82,9 +82,9 @@ where
         retries = max_retries,
         "SQLITE_BUSY exhausted all retries"
     );
-    Err(AppError::DbBusy(format!(
-        "SQLITE_BUSY after {max_retries} retries"
-    )))
+    Err(AppError::DbBusy(
+        crate::i18n::errors_ops::sqlite_busy_after_retries(max_retries),
+    ))
 }
 
 #[cfg(test)]
@@ -230,10 +230,28 @@ mod tests {
         assert!(matches!(result, Err(AppError::DbBusy(_))));
     }
 
-    /// GAP-SG-87: factory defaults remain active when no XDG override is set.
+    /// GAP-SG-87 / GAP-SG-199: the busy policy is always usable, whatever the
+    /// host config says.
+    ///
+    /// This asserts only what does NOT depend on the host: both resolvers apply
+    /// `.max(1)`, so neither can ever hand back a budget of zero that would
+    /// spin-zero or divide by nothing.
+    ///
+    /// The stronger claim — that an ABSENT override resolves to the compiled
+    /// constant — moved to `tests/busy_policy_hermetic.rs`, because it is only
+    /// true under an isolated XDG root. Asserting it here compared a RESOLVED
+    /// value against a compiled one while the resolver reads the developer's
+    /// real config, so `config set db.busy_retries 12` — a documented, legitimate
+    /// key — turned the suite red without a line of code changing.
     #[test]
     fn resolved_busy_policy_defaults_match_constants() {
-        assert_eq!(resolved_busy_retries(), MAX_SQLITE_BUSY_RETRIES);
-        assert_eq!(resolved_busy_base_delay_ms(), SQLITE_BUSY_BASE_DELAY_MS);
+        assert!(
+            resolved_busy_retries() >= 1,
+            "retry budget must never resolve to zero"
+        );
+        assert!(
+            resolved_busy_base_delay_ms() >= 1,
+            "base delay must never resolve to zero"
+        );
     }
 }

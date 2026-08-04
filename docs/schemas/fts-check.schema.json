@@ -7,6 +7,9 @@
   "required": ["action", "integrity_ok", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action":       { "type": "string", "const": "checked", "description": "Always 'checked' on success." },
     "integrity_ok": { "type": "boolean", "description": "True when the FTS5 index passes its integrity check." },
     "detail":       { "type": ["string", "null"], "description": "Optional human-readable detail message, null when integrity_ok is true." },

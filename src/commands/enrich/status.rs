@@ -36,13 +36,14 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
         // recoverable, re-running re-fails the same way). Distinct from the
         // memory-scoped prune below.
         if args.prune_dead_entity_orphans {
-            let pruned = prune_dead_entity_orphans(&queue_conn, &op_label)?;
+            let pruned = prune_dead_entity_orphans(&queue_conn, &op_label, &namespace)?;
             let dead_total: i64 = queue_conn
                 .query_row(
                     "SELECT COUNT(*) FROM queue WHERE status='dead' \
                  AND item_type='entity' \
-                 AND (operation = ?1 OR operation IS NULL)",
-                    rusqlite::params![op_label],
+                 AND (operation = ?1 OR operation IS NULL) \
+                 AND namespace = ?2",
+                    rusqlite::params![op_label, namespace],
                     |r| r.get(0),
                 )
                 .unwrap_or(0);
@@ -66,8 +67,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             let dead_total: i64 = queue_conn
                 .query_row(
                     "SELECT COUNT(*) FROM queue WHERE status='dead' \
-                 AND (operation = ?1 OR operation IS NULL)",
-                    rusqlite::params![op_label],
+                 AND (operation = ?1 OR operation IS NULL) \
+                 AND namespace = ?2",
+                    rusqlite::params![op_label, namespace],
                     |r| r.get(0),
                 )
                 .unwrap_or(0);
@@ -86,10 +88,11 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             let mut stmt = queue_conn.prepare(
                 "SELECT item_key, item_type, attempt, error_class, error, \
                      finish_reason, input_tokens, output_tokens FROM queue \
-             WHERE status='dead' AND (operation = ?1 OR operation IS NULL) ORDER BY id",
+             WHERE status='dead' AND (operation = ?1 OR operation IS NULL) \
+               AND namespace = ?2 ORDER BY id",
             )?;
             let rows = stmt
-                .query_map(rusqlite::params![op_label], |r| {
+                .query_map(rusqlite::params![op_label, namespace], |r| {
                     Ok(DeadItem {
                         dead_item: true,
                         item_key: r.get(0)?,
@@ -123,10 +126,11 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             let mut stmt = queue_conn.prepare(
                 "SELECT item_key, item_type, attempt, error_class, error, \
                      finish_reason, input_tokens, output_tokens FROM queue \
-             WHERE status='skipped' AND (operation = ?1 OR operation IS NULL) ORDER BY id",
+             WHERE status='skipped' AND (operation = ?1 OR operation IS NULL) \
+               AND namespace = ?2 ORDER BY id",
             )?;
             let rows = stmt
-                .query_map(rusqlite::params![op_label], |r| {
+                .query_map(rusqlite::params![op_label, namespace], |r| {
                     Ok(DeadItem {
                         dead_item: false,
                         item_key: r.get(0)?,
@@ -160,8 +164,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             let skipped_total: i64 = queue_conn
                 .query_row(
                     "SELECT COUNT(*) FROM queue WHERE status='skipped' \
-                 AND (operation = ?1 OR operation IS NULL)",
-                    rusqlite::params![op_label],
+                 AND (operation = ?1 OR operation IS NULL) \
+                 AND namespace = ?2",
+                    rusqlite::params![op_label, namespace],
                     |r| r.get(0),
                 )
                 .unwrap_or(0);
@@ -169,8 +174,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
                 .execute(
                     "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
                  error=NULL, error_class=NULL \
-                 WHERE status='skipped' AND (operation = ?1 OR operation IS NULL)",
-                    rusqlite::params![op_label],
+                 WHERE status='skipped' AND (operation = ?1 OR operation IS NULL) \
+                   AND namespace = ?2",
+                    rusqlite::params![op_label, namespace],
                 )
                 .map_err(|e| {
                     AppError::Validation(crate::i18n::validation::requeue_skipped_failed(&e))
@@ -191,8 +197,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
         let dead_total: i64 = queue_conn
             .query_row(
                 "SELECT COUNT(*) FROM queue WHERE status='dead' \
-             AND (operation = ?1 OR operation IS NULL)",
-                rusqlite::params![op_label],
+             AND (operation = ?1 OR operation IS NULL) \
+             AND namespace = ?2",
+                rusqlite::params![op_label, namespace],
                 |r| r.get(0),
             )
             .unwrap_or(0);
@@ -200,8 +207,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             .execute(
                 "UPDATE queue SET status='pending', attempt=0, next_retry_at=NULL, \
              error=NULL, error_class=NULL \
-             WHERE status='dead' AND (operation = ?1 OR operation IS NULL)",
-                rusqlite::params![op_label],
+             WHERE status='dead' AND (operation = ?1 OR operation IS NULL) \
+               AND namespace = ?2",
+                rusqlite::params![op_label, namespace],
             )
             .map_err(|e| AppError::Validation(crate::i18n::validation::requeue_dead_failed(&e)))?
             as i64;
@@ -223,7 +231,7 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
         ensure_db_ready(&paths)?;
         let conn = open_rw(&paths.db)?;
         let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
-        let unbound_backlog = scan_unbound_memories(&conn, &namespace, None, &[])?.len();
+        let unbound_backlog = scan_unbound_memories(&conn, &namespace, None, &[], 512)?.len();
         // GAP-SG-77: DB-semantics backlog for the queried operation (fixes the
         // false pending=0 for entity-descriptions/body-enrich/re-embed).
         // GAP-CLI-ED-STATUS-01: honour --force-redescribe on status COUNT.

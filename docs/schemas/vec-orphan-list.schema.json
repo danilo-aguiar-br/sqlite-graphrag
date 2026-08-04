@@ -5,6 +5,8 @@
   "description": "Response shape of `sqlite-graphrag vec orphan-list --json`. Added in v1.0.69 as part of G39 to surface vec_memories, vec_entities, and vec_chunks rows whose parent was soft-deleted or never existed.",
   "type": "object",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "namespace": {
       "type": "string",
       "description": "Namespace the orphan scan ran in"

@@ -18,13 +18,13 @@ fn embed_err(msg: &str) -> AppError {
 }
 
 /// GAP-004: a message containing "OAuth" maps to OAuthQuota (with
-/// "claude" backend hint, since the message names claude explicitly).
+/// "openrouter" backend hint, since the message names claude explicitly).
 #[test]
 fn classify_oauth_message_routes_to_oauth_quota() {
-    let r = classify_embedding_error(embed_err("OAuth token expired for claude"));
+    let r = classify_embedding_error(embed_err("OAuth token expired for openrouter"));
     match r {
         sqlite_graphrag::embedder::FallbackReason::OAuthQuota { backend } => {
-            assert_eq!(backend, "claude");
+            assert_eq!(backend, "openrouter");
         }
         other => panic!("expected OAuthQuota, got {other:?}"),
     }

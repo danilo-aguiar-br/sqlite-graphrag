@@ -78,7 +78,7 @@ completion de saída estruturada e retorna
 
 `EnrichMode` ganha a variante `OpenRouter` (Display `"openrouter"`).
 Novos flags: `--openrouter-model` (OBRIGATÓRIO neste modo),
-`--openrouter-api-key` (env `OPENROUTER_API_KEY`), `--openrouter-timeout`,
+`--openrouter-api-key` (XDG via `config add-key` (OPENROUTER_API_KEY is not read at runtime)), `--openrouter-timeout`,
 `--openrouter-base-url`. `validate_mode_flags` rejeita flags de modo
 cruzado (flags claude/codex/opencode sob `--mode openrouter`). O preflight
 probe valida apenas a chave de API neste modo — sem spawn de subprocesso.

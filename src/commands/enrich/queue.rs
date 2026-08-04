@@ -13,9 +13,11 @@ use serde::Serialize;
 ///
 /// # Schema note (GAP-SG-121)
 ///
-/// This schema is **not** the same product as the ingest sidecars
-/// (`.ingest-queue.sqlite` in `ingest_claude` / `ingest_codex`), which key on
-/// `file_path` for file-progress tracking. Shared connection setup lives in
+/// This schema is **not** the same product as the ingest sidecar
+/// (`.ingest-queue.sqlite`), which keys on `file_path` for file-progress
+/// tracking. The distinction dates from the `ingest_claude` / `ingest_codex`
+/// frontends v1.2.0 removed, and outlived them: `ingest` still keeps its own
+/// sidecar. Shared connection setup lives in
 /// [`crate::pragmas::apply_sidecar_queue_pragmas`]; table DDL stays separate.
 ///
 /// GAP-SG-95: namespace-scoped queue with ternary UNIQUE
@@ -487,6 +489,11 @@ pub fn cleanup_queue_entry(db_path: &std::path::Path, memory_id: i64, name: &str
 /// confirmed-orphan rows from the queue sidecar. Entity-keyed dead rows
 /// (`item_type='entity'`) are left untouched — their key is an entity name, not
 /// a memory name. Returns the number of rows pruned.
+///
+/// The queue SELECT is scoped to `namespace` (strict equality, aligned with
+/// [`count_priority_pending`] and `dequeue_next_pending`). Without that scope a
+/// dead row belonging to namespace A was checked against namespace B's memories,
+/// found absent, and deleted as an orphan — silent cross-namespace data loss.
 pub(super) fn prune_dead_orphans(
     queue_conn: &Connection,
     main_conn: &Connection,
@@ -497,10 +504,13 @@ pub(super) fn prune_dead_orphans(
         let mut stmt = queue_conn.prepare(
             "SELECT id, item_key FROM queue \
              WHERE status='dead' AND item_type='memory' \
-             AND (operation = ?1 OR operation IS NULL) ORDER BY id",
+             AND (operation = ?1 OR operation IS NULL) \
+             AND namespace = ?2 ORDER BY id",
         )?;
         let rows = stmt
-            .query_map(rusqlite::params![operation], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .query_map(rusqlite::params![operation, namespace], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         rows
     };
@@ -529,15 +539,20 @@ pub(super) fn prune_dead_orphans(
 /// [`prune_dead_orphans`], this does NOT consult the main DB: entity dead rows
 /// are terminal artifacts of re-extraction/rename and have no recovery path
 /// (re-running them re-fails the same way). Returns the number of rows pruned.
+///
+/// Scoped to `namespace` for the same reason as [`prune_dead_orphans`]: a prune
+/// asked for one namespace must never delete another namespace's dead rows.
 pub(super) fn prune_dead_entity_orphans(
     queue_conn: &Connection,
     operation: &str,
+    namespace: &str,
 ) -> Result<i64, AppError> {
     let pruned = queue_conn.execute(
         "DELETE FROM queue \
          WHERE status='dead' AND item_type='entity' \
-         AND (operation = ?1 OR operation IS NULL)",
-        rusqlite::params![operation],
+         AND (operation = ?1 OR operation IS NULL) \
+         AND namespace = ?2",
+        rusqlite::params![operation, namespace],
     )? as i64;
     if pruned > 0 {
         let _ = queue_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
@@ -653,9 +668,21 @@ pub struct DeadSummary {
 // claim/failure helpers in queue_ops.rs
 pub(super) use super::queue_ops::*;
 
+// GAP-SG-146: test modules are named for what they cover. The former
+// `tests_a`/`tests_b` split was by file size and told the reader nothing.
+// `test_fixtures` holds the helpers both halves used to duplicate verbatim.
 #[cfg(test)]
-#[path = "queue_tests_a.rs"]
-mod tests_a;
+#[path = "queue_claim_tests.rs"]
+mod claim_tests;
 #[cfg(test)]
-#[path = "queue_tests_b.rs"]
-mod tests_b;
+#[path = "queue_failure_tests.rs"]
+mod failure_tests;
+#[cfg(test)]
+#[path = "queue_lifecycle_tests.rs"]
+mod lifecycle_tests;
+#[cfg(test)]
+#[path = "queue_test_fixtures.rs"]
+mod test_fixtures;
+#[cfg(test)]
+#[path = "queue_transition_tests.rs"]
+mod transition_tests;

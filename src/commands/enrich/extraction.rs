@@ -5,7 +5,6 @@ use super::prompts;
 use super::queue;
 use super::scan;
 use crate::errors::AppError;
-use std::path::Path;
 
 // Re-export for child ops modules that use `use super::*`.
 pub(crate) use super::args::EnrichMode;
@@ -19,33 +18,6 @@ pub(crate) use super::schemas::{
     GRAPH_AUDIT_PROMPT, GRAPH_AUDIT_SCHEMA, RELATION_RECLASSIFY_PROMPT, RELATION_RECLASSIFY_SCHEMA,
     WEIGHT_CALIBRATE_PROMPT, WEIGHT_CALIBRATE_SCHEMA,
 };
-
-// ---------------------------------------------------------------------------
-// LLM invocation — Claude Code
-// ---------------------------------------------------------------------------
-
-/// Calls `claude -p` via the shared `claude_runner` module (G02).
-///
-/// Returns `(output_value, cost_usd, is_oauth)`.
-pub(crate) fn call_claude(
-    binary: &Path,
-    prompt: &str,
-    json_schema: &str,
-    input_text: &str,
-    model: Option<&str>,
-    timeout_secs: u64,
-) -> Result<(serde_json::Value, f64, bool), AppError> {
-    let result = crate::commands::claude_runner::run_claude(
-        binary,
-        prompt,
-        json_schema,
-        input_text,
-        model,
-        timeout_secs,
-        7,
-    )?;
-    Ok((result.value, result.cost_usd, result.is_oauth))
-}
 
 /// GAP-SG-72/73 (v1.1.00): per-item failure diagnostics captured from a
 /// [`crate::chat_api::ChatError`] returned by [`call_openrouter`]. The
@@ -61,10 +33,8 @@ pub(crate) struct OpenRouterFailureDiagnostics {
     pub(crate) completion_tokens: Option<i64>,
 }
 
-// GAP-SG-72/73: `call_openrouter` returns the same `(Value, f64, bool)` tuple
-// shape as the subprocess providers (`call_claude`/`call_codex`/
-// `call_opencode`) so every `call_*` helper above can keep matching on
-// `mode` uniformly. That tuple has no room for `ChatError`'s typed
+// GAP-SG-72/73: `call_openrouter` returns a `(Value, f64, bool)` tuple.
+// That tuple has no room for `ChatError`'s typed
 // `retry_class` / truncation diagnostics, so they are stashed here on
 // failure and drained by the caller in `mod.rs` right after every
 // `call_result` (mirrors the `ENRICH_LAST_BACKEND` accumulator in
@@ -87,8 +57,7 @@ pub(crate) fn take_last_openrouter_failure() -> Option<OpenRouterFailureDiagnost
 }
 
 /// v1.0.95 (ADR-0054): route a single JUDGE turn through the OpenRouter
-/// chat-completions REST API. Unlike the subprocess runners there is no
-/// `binary` argument: the process-wide chat client (initialised in `run()`
+/// chat-completions REST API. The process-wide chat client (initialised in `run()`
 /// before scan) is fetched from the singleton and driven synchronously via
 /// the shared tokio runtime. Returns `(value, cost_usd, is_oauth=false)`
 /// where `cost_usd` is read from the response `usage.cost`.
@@ -109,21 +78,30 @@ pub(crate) fn call_openrouter(
     timeout_secs: u64,
 ) -> Result<(serde_json::Value, f64, bool), AppError> {
     // `model` is bound into the client singleton at init; `timeout_secs` is
-    // enforced by the reqwest builder. Both remain in the signature for
-    // parity with the subprocess runners.
+    // enforced by the reqwest builder.
     let _ = (model, timeout_secs);
     let client = crate::embedder::openrouter_chat_client().ok_or_else(|| {
         AppError::Validation(
             "OpenRouter chat client not initialised before dispatch (internal error)".into(),
         )
     })?;
-    let runtime = crate::embedder::shared_runtime()?;
-    match runtime.block_on(client.complete(
+    // GAP-001 (v1.1.04): canonical nested-runtime guard. This was the last
+    // `block_on` in the crate without it — calling it from inside a Tokio
+    // context panicked with "cannot start a runtime from within a runtime".
+    // Reachable today from any async caller of the enrich drain, and from the
+    // `#[tokio::test]` harness. Inside an existing runtime, `block_in_place`
+    // moves the blocking wait off the worker so the pool stays healthy.
+    let completion = client.complete(
         prompt,
         input_text,
         json_schema,
         Some(crate::constants::ENRICH_INITIAL_MAX_TOKENS),
-    )) {
+    );
+    let outcome = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(completion)),
+        Err(_) => crate::embedder::shared_runtime()?.block_on(completion),
+    };
+    match outcome {
         Ok(completion) => Ok((completion.value, completion.cost_usd, false)),
         Err(chat_err) => {
             LAST_OPENROUTER_FAILURE.with(|cell| {
@@ -174,20 +152,19 @@ pub(crate) enum EnrichItemResult {
 // ---------------------------------------------------------------------------
 
 // Wave C1: operation helpers are children of this module so `use super::*` works.
-#[path = "extraction_ops_a.rs"]
-mod ops_a;
-#[path = "extraction_ops_b.rs"]
-mod ops_b;
-#[path = "extraction_ops_c.rs"]
-mod ops_c;
-#[path = "extraction_providers.rs"]
-mod providers;
+// GAP-SG-146: children are named for what they DO. The former `_a`/`_b`/`_c`
+// suffixes recorded how the file had been sliced by size, not what lived in it,
+// which is exactly the drift the gap records.
+#[path = "extraction_bindings.rs"]
+mod bindings;
+#[path = "extraction_body.rs"]
+mod body;
+#[path = "extraction_descriptions.rs"]
+mod descriptions;
+#[path = "extraction_graph.rs"]
+mod graph;
 
-pub(super) use ops_a::*;
-pub(super) use ops_b::*;
-pub(super) use ops_c::*;
-pub(super) use providers::*;
-
-#[cfg(test)]
-#[path = "extraction_tests.rs"]
-mod tests;
+pub(super) use bindings::*;
+pub(super) use body::*;
+pub(super) use descriptions::*;
+pub(super) use graph::*;

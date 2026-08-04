@@ -452,11 +452,11 @@ pub fn run(args: HealthArgs) -> Result<(), AppError> {
     let db_size_bytes = fs::metadata(&paths.db).map(|m| m.len()).unwrap_or(0);
 
     // G46: the ONNX model cache no longer exists in the LLM-only build
-    // (v1.0.76+). model_ok now reports whether an LLM CLI (claude or codex)
-    // is reachable on PATH — the real prerequisite for embedding generation.
-    let model_ok = crate::commands::ingest_claude::find_claude_binary(None).is_ok()
-        || crate::commands::ingest_codex::find_codex_binary(None).is_ok();
-    tracing::info!(target: "health", model_ok = %model_ok, "LLM CLI availability check complete");
+    // (v1.0.76+). OpenRouter REST is the only embedding backend, so model_ok
+    // reports whether an API key resolves — the real prerequisite for
+    // embedding generation.
+    let model_ok = crate::config::resolve_api_key("openrouter", None).is_some();
+    tracing::info!(target: "health", model_ok = %model_ok, "OpenRouter key availability check complete");
 
     // Builds the checks array for detailed diagnostics
     let mut checks: Vec<HealthCheck> = Vec::with_capacity(8);
@@ -529,14 +529,25 @@ pub fn run(args: HealthArgs) -> Result<(), AppError> {
     });
 
     checks.push(HealthCheck {
-        name: "llm_cli".to_string(),
+        // Renamed from `llm_cli` in v1.2.5: since v1.0.76 this probes whether an
+        // OpenRouter key is reachable, not whether a CLI sits on PATH, and the
+        // product has had no LLM subprocess since v1.2.0. `health.schema.json`
+        // types `name` as a free string and no test or document pinned the old
+        // value, so the rename costs nothing and stops the envelope naming a
+        // component that does not exist.
+        name: "embedding_key".to_string(),
         ok: model_ok,
         detail: if model_ok {
             None
         } else {
+            // The check itself moved to the OpenRouter key in v1.0.76 (see the
+            // `resolve_api_key` call above), but this message kept telling the
+            // operator to install two CLIs that v1.2.0 removed from the product.
+            // Following it fixed nothing: the check would still fail.
             Some(
-                "no LLM CLI found on PATH; install 'claude' (Claude Code) or 'codex' \
-                 (Codex CLI) — required for embedding generation since v1.0.76"
+                "no OpenRouter API key reachable; store one with \
+                 `sqlite-graphrag config add-key --provider openrouter --from-stdin` \
+                 or pass --openrouter-api-key — embedding generation is REST-only"
                     .to_string(),
             )
         },
@@ -563,27 +574,9 @@ pub fn run(args: HealthArgs) -> Result<(), AppError> {
         (Some(count), warning)
     };
 
-    // G25: detect super-hub entities (degree > 50)
+    // G25: detect super-hub entities.
     let (super_hub_count, super_hub_warning) = {
-        let mut stmt = conn.prepare_cached(
-            "SELECT e.name, COUNT(r.id) as deg FROM entities e \
-             LEFT JOIN relationships r ON e.id = r.source_id OR e.id = r.target_id \
-             GROUP BY e.id HAVING deg > 50 ORDER BY deg DESC LIMIT 5",
-        )?;
-        let hubs: Vec<(String, i64)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .filter_map(|r| r.ok())
-            .collect();
-        let count = hubs.len() as i64;
-        let warning = if count > 0 {
-            let names: Vec<String> = hubs
-                .iter()
-                .map(|(n, d)| format!("{n} (degree {d})"))
-                .collect();
-            Some(format!("super-hubs detected: {}", names.join(", ")))
-        } else {
-            None
-        };
+        let (count, warning) = super_hub_stats(&conn)?;
         (Some(count), warning)
     };
 
@@ -672,6 +665,53 @@ pub fn run(args: HealthArgs) -> Result<(), AppError> {
     output::emit_json(&response)?;
     Ok(())
 }
+/// Counts super-hub entities and names a sample of the widest ones.
+///
+/// The count spans the whole graph; the warning names only
+/// [`crate::constants::HEALTH_SUPER_HUB_SAMPLE_LIMIT`] entities. They need
+/// separate queries because deriving the count from the sample capped it at the
+/// sample size: a graph with hundreds of hubs reported exactly five and never
+/// moved, contradicting the documented meaning of the field.
+fn super_hub_stats(conn: &rusqlite::Connection) -> Result<(i64, Option<String>), AppError> {
+    let threshold = crate::constants::HEALTH_SUPER_HUB_DEGREE_THRESHOLD;
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM ( \
+           SELECT e.id FROM entities e \
+           LEFT JOIN relationships r ON e.id = r.source_id OR e.id = r.target_id \
+           GROUP BY e.id HAVING COUNT(r.id) > ?1 \
+         )",
+        rusqlite::params![threshold],
+        |r| r.get(0),
+    )?;
+    if count == 0 {
+        return Ok((0, None));
+    }
+
+    let sample_limit =
+        i64::try_from(crate::constants::HEALTH_SUPER_HUB_SAMPLE_LIMIT).unwrap_or(i64::MAX);
+    let mut stmt = conn.prepare_cached(
+        "SELECT e.name, COUNT(r.id) as deg FROM entities e \
+         LEFT JOIN relationships r ON e.id = r.source_id OR e.id = r.target_id \
+         GROUP BY e.id HAVING deg > ?1 ORDER BY deg DESC LIMIT ?2",
+    )?;
+    let names: Vec<String> = stmt
+        .query_map(rusqlite::params![threshold, sample_limit], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .filter_map(|r| r.ok())
+        .map(|(n, d)| format!("{n} (degree {d})"))
+        .collect();
+
+    Ok((
+        count,
+        Some(format!(
+            "super-hubs detected ({count} total, showing {}): {}",
+            names.len(),
+            names.join(", ")
+        )),
+    ))
+}
+
 #[cfg(test)]
 #[path = "../health_tests.rs"]
 mod tests;

@@ -40,7 +40,7 @@ fn embedding_inside_active_runtime_does_not_panic() {
             let _ = try_embed_query_with_embedding_choice(
                 std::path::Path::new("/tmp/nonexistent-models"),
                 "query de teste",
-                EmbeddingBackendChoice::Llm,
+                EmbeddingBackendChoice::Auto,
                 LlmBackendChoice::None,
             );
         })

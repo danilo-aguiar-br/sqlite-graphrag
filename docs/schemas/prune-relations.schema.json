@@ -7,6 +7,8 @@
   "required": ["action", "relation", "count", "entities_affected", "namespace", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "action":            { "type": "string", "enum": ["pruned", "dry_run"], "description": "Whether relationships were actually deleted or just counted." },
     "relation":          { "type": "string", "description": "The relation type that was pruned (e.g. 'mentions')." },
     "count":             { "type": "integer", "minimum": 0, "description": "Number of relationships deleted (or that would be deleted in dry_run)." },

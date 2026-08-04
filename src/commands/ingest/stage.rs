@@ -21,7 +21,7 @@ pub(crate) struct StagedFile {
     pub(crate) relationships: Vec<NewRelationship>,
     pub(crate) entity_embeddings: Option<Vec<Vec<f32>>>,
     pub(crate) urls: Vec<crate::extraction::ExtractedUrl>,
-    /// v1.0.84 (ADR-0042): discriminator of the LLM backend that actually
+    /// v1.0.84 (ADR-0042): discriminator of the embedding backend that actually
     /// ran the body embedding. `None` when the parallel batch
     /// embed_passages_parallel_local fell back to different backends
     /// across chunks (there is no single stable discriminator).
@@ -301,9 +301,9 @@ pub(crate) fn stage_one_body(
                 });
             }
         }
-        match crate::embedder::embed_passages_parallel_with_embedding_choice(
+        match crate::embedder::embed_passages_parallel_shared(
             &paths.models,
-            &chunk_texts,
+            std::sync::Arc::from(chunk_texts),
             llm_parallelism,
             crate::embedder::chunk_embed_batch_size(),
             embedding_backend,

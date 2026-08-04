@@ -284,3 +284,261 @@ mod app_error_pt_translation_tests {
         );
     }
 }
+
+/// GAP-SG-143: guards for the `NotFound` message catalog and for the rule that
+/// user-facing error text is never assembled outside `crate::i18n::validation`.
+mod not_found_catalog_tests {
+    use crate::errors::AppError;
+    use crate::i18n::validation::catalog_samples;
+    use crate::i18n::Language;
+
+    /// English fragments that must never survive into the Portuguese rendering.
+    ///
+    /// Each one is a substring the catalog actually emits, so a miss here means
+    /// a real bilingual hybrid reached the operator — not a hypothetical one.
+    const ENGLISH_RESIDUE: &[&str] = &[
+        "not found",
+        "memory",
+        "entity",
+        "relationship",
+        "edge '",
+        "Did you mean",
+        "Re-run with",
+        "is not held",
+        "no key with fingerprint",
+        "exists but belongs",
+        "in namespace '",
+        ", not '",
+    ];
+
+    /// Every catalog entry, rendered through the real error path, must come out
+    /// of `pt-BR` with zero English left.
+    ///
+    /// This is what makes the split safe: the builders own the English, the
+    /// `app_error_pt::not_found` chain owns the Portuguese, and neither side can
+    /// be extended alone without this failing.
+    #[test]
+    fn not_found_catalog_has_no_english_residue_in_pt() {
+        for english in catalog_samples() {
+            let pt = AppError::NotFound(english.clone())
+                .localized_message_for(Language::Portuguese)
+                .to_lowercase();
+            for residue in ENGLISH_RESIDUE {
+                assert!(
+                    !pt.contains(&residue.to_lowercase()),
+                    "pt-BR rendering still carries the English fragment {residue:?}\n  \
+                     english: {english}\n  pt:      {pt}\n  \
+                     fix: extend the replace chain in \
+                     src/i18n/validation/app_error_pt.rs::not_found"
+                );
+            }
+        }
+    }
+
+    /// The builders must never read the process locale.
+    ///
+    /// Checked at the SOURCE, not by flipping the language: `i18n::init` is a
+    /// `OnceLock`, so a test cannot switch locales mid-process. A `current()`
+    /// call in this module would make the English payload depend on the host
+    /// locale, which breaks `localized_message_for(English)` and feeds the
+    /// Portuguese replace-chain text it can no longer match.
+    #[test]
+    fn not_found_catalog_never_reads_the_locale() {
+        let source = include_str!("validation/messages_not_found.rs");
+        let code: String = source
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains("current()"),
+            "messages_not_found must stay locale-independent; \
+             Portuguese belongs in app_error_pt::not_found"
+        );
+    }
+
+    /// `catalog_samples` must exercise EVERY builder in the module.
+    ///
+    /// Without this, someone adds a builder, forgets the sample, and the
+    /// residue test above silently stops covering it.
+    #[test]
+    fn not_found_catalog_covers_every_builder() {
+        let source = include_str!("validation/messages_not_found.rs");
+        let builders = source.lines().filter(|l| l.starts_with("pub fn ")).count();
+        assert_eq!(
+            builders,
+            catalog_samples().len(),
+            "src/i18n/validation/messages_not_found.rs has {builders} builders but \
+             catalog_samples() lists {}; add the missing entry",
+            catalog_samples().len()
+        );
+    }
+}
+
+/// GAP-SG-143: the anti-regression guard. Without it the migration undoes
+/// itself the next time someone reaches for `format!` in a hurry.
+mod error_message_source_guard {
+    /// Every `AppError` variant whose payload is VISIBLE TO THE OPERATOR and
+    /// must therefore come from the `crate::i18n` catalogs.
+    ///
+    /// The list describes the variants the operator can READ, not the ones a
+    /// migration happened to reach first. Calibrating it against the migrated
+    /// sample is exactly how the original two-entry version passed while seven
+    /// further variants — `DbBusy`, `LockBusy`, `Conflict`, `Duplicate`,
+    /// `NamespaceError`, `LimitExceeded`, `Embedding` — still built their text
+    /// inline. Any new variant that reaches stderr belongs here on the day it
+    /// is added.
+    ///
+    /// Indices 0 and 1 are load-bearing: the two self-tests below quote
+    /// `BANNED[0]` and `BANNED[1]`.
+    const BANNED: &[&str] = &[
+        "AppError::Validation(format!(",
+        "AppError::NotFound(format!(",
+        "AppError::DbBusy(format!(",
+        "AppError::LockBusy(format!(",
+        "AppError::Conflict(format!(",
+        "AppError::Duplicate(format!(",
+        "AppError::NamespaceError(format!(",
+        "AppError::LimitExceeded(format!(",
+        "AppError::Embedding(format!(",
+    ];
+
+    /// One source character plus the 1-based line it came from.
+    struct Normalized {
+        text: String,
+        line_of_byte: Vec<usize>,
+    }
+
+    /// Strips `//` line comments and ALL whitespace, keeping a byte-to-line map.
+    ///
+    /// Both steps are load-bearing. Comments are stripped because
+    /// `messages_naming.rs` and its siblings document the banned pattern in prose and
+    /// a literal match
+    /// would flag the very file that fixes it. Whitespace is stripped because
+    /// rustfmt splits these constructors across lines the moment the arguments
+    /// grow, so a literal search finds nothing and the guard passes while
+    /// broken — the failure mode the config track already hit on its own
+    /// anti-drift test.
+    ///
+    /// String literals are NOT parsed. A literal containing `//` would be
+    /// truncated here; that only ever produces a false NEGATIVE on the rest of
+    /// the line, never a false positive, and no banned pattern is preceded by
+    /// one in this crate.
+    fn normalize(source: &str) -> Normalized {
+        let mut text = String::with_capacity(source.len());
+        let mut line_of_byte = Vec::with_capacity(source.len());
+        for (idx, raw) in source.lines().enumerate() {
+            let code = match raw.find("//") {
+                Some(pos) => &raw[..pos],
+                None => raw,
+            };
+            for ch in code.chars().filter(|c| !c.is_whitespace()) {
+                let before = text.len();
+                text.push(ch);
+                line_of_byte.resize(text.len(), idx + 1);
+                debug_assert!(text.len() > before);
+            }
+        }
+        Normalized { text, line_of_byte }
+    }
+
+    /// Collects every `.rs` file under `dir`, recursively.
+    fn rust_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                rust_sources(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// `src/i18n/**` defines the catalog and documents the banned pattern, so it
+    /// is the one place allowed to mention it. Files whose name carries `test`
+    /// are fixtures and assertions, not user-facing paths.
+    fn is_exempt(path: &std::path::Path) -> bool {
+        let as_str = path.to_string_lossy().replace('\\', "/");
+        if as_str.contains("/src/i18n/") {
+            return true;
+        }
+        path.file_name()
+            .map(|n| n.to_string_lossy().contains("test"))
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn user_facing_errors_are_not_built_with_inline_format() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_sources(&root, &mut files);
+        assert!(files.len() > 50, "source walk found only {}", files.len());
+
+        let mut offenders: Vec<String> = Vec::new();
+        for path in files {
+            if is_exempt(&path) {
+                continue;
+            }
+            let source = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let normalized = normalize(&source);
+            for banned in BANNED {
+                let needle: String = banned.chars().filter(|c| !c.is_whitespace()).collect();
+                let mut from = 0;
+                while let Some(hit) = normalized.text[from..].find(&needle) {
+                    let at = from + hit;
+                    let line = normalized.line_of_byte.get(at).copied().unwrap_or(0);
+                    offenders.push(format!(
+                        "{}:{line} builds `{banned}...)` inline",
+                        path.strip_prefix(&root).unwrap_or(&path).display()
+                    ));
+                    from = at + needle.len();
+                }
+            }
+        }
+
+        assert!(
+            offenders.is_empty(),
+            "GAP-SG-143: user-facing error text must come from \
+             crate::i18n::validation so pt-BR stays covered.\n{}\n\
+             Add a builder in src/i18n/validation/messages_not_found.rs, the \
+             Validation catalogs under src/i18n/validation/, or \
+             crate::i18n::errors_ops for operational payloads, and call it here.",
+            offenders.join("\n")
+        );
+    }
+
+    /// The guard must actually detect the pattern, including the rustfmt-split
+    /// shape. A guard that cannot fail is not a guard.
+    #[test]
+    fn the_guard_detects_a_line_split_constructor() {
+        let split = "let e = AppError::NotFound(format!(\n    \"memory '{x}' not found\"\n));";
+        let normalized = normalize(split);
+        let needle: String = BANNED[1].chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            normalized.text.contains(&needle),
+            "normalisation must survive a rustfmt line split: {}",
+            normalized.text
+        );
+    }
+
+    /// ...and must NOT fire on prose that merely mentions the pattern.
+    #[test]
+    fn the_guard_ignores_the_pattern_inside_a_comment() {
+        let prose =
+            "// Prefer these over ad-hoc AppError::Validation(format!(...)) so EN/PT\nlet x = 1;";
+        let normalized = normalize(prose);
+        let needle: String = BANNED[0].chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            !normalized.text.contains(&needle),
+            "a comment must not trip the guard: {}",
+            normalized.text
+        );
+    }
+}

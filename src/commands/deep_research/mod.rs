@@ -3,6 +3,10 @@
 //! Orchestrates parallel multi-hop GraphRAG search via query decomposition.
 //! The workload is I/O-bound (SQLite WAL reads), so tokio is used instead of
 //! rayon. Each sub-query opens its own read-only connection.
+//!
+//! [`args`] holds the CLI surface and [`envelope`] the serialisation shapes;
+//! [`pipeline`] decomposes the query and executes each sub-query. The fan-out
+//! orchestration itself stays here.
 
 use crate::errors::AppError;
 use crate::output;
@@ -11,279 +15,26 @@ use crate::storage::connection::open_ro;
 use crate::storage::{entities, memories};
 
 use serde::Serialize;
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
+mod args;
+mod envelope;
 mod pipeline;
+
+pub use args::DeepResearchArgs;
+use envelope::{
+    DeepResearchResponse, DeepResult, GraphContext, GraphContextEntity, GraphContextRel, MergedHit,
+    ResearchStats,
+};
+pub(super) use envelope::{EvidenceChain, EvidenceNode, SubQuery, SubQueryResult};
 use pipeline::{compute_sub_embeddings, execute_sub_query, resolve_sub_queries};
 
 #[cfg(test)]
 use pipeline::{decompose_query, decompose_query_with_sources};
-
-/// Arguments for the `deep-research` subcommand.
-#[derive(clap::Args)]
-#[command(
-    about = "Deep parallel multi-hop GraphRAG research via query decomposition",
-    after_long_help = "CONTRACT:\n  \
-        stdout = pretty JSON envelope only (machine-readable).\n  \
-        stderr = tracing / progress / diagnostics only.\n  \
-        Never redirect with `&>` or `2>&1` into the same file as stdout — that\n  \
-        contaminates the JSON and breaks jaq/jq. Prefer:\n  \
-        sqlite-graphrag deep-research \"q\" > out.json 2>/dev/null\n  \
-        or --output out.json (atomic write via atomwrite algorithm).\n\n\
-EXAMPLES:\n  \
-        # Basic deep research (single-token queries auto-expand into aspects)\n  \
-        sqlite-graphrag deep-research \"danilo\"\n\n  \
-        # With custom parameters\n  \
-        sqlite-graphrag deep-research \"auth\" --k 20 --max-hops 3 --max-sub-queries 7\n\n  \
-        # Include full memory bodies in output\n  \
-        sqlite-graphrag deep-research \"auth\" --with-bodies\n\n  \
-        # Manual sub-queries (one query per line)\n  \
-        sqlite-graphrag deep-research \"danilo\" --sub-query-strategy manual \\\n  \
-          --sub-queries-file aspects.txt\n\n  \
-        # Atomic JSON file (crash-safe; preferred for large --with-bodies runs)\n  \
-        sqlite-graphrag deep-research \"auth\" --output /tmp/dr.json\n\n  \
-        # Tune RRF and graph scoring\n  \
-        sqlite-graphrag deep-research \"auth and deployment\" --rrf-k 60 --graph-decay 0.7"
-)]
-pub struct DeepResearchArgs {
-    /// Research query to decompose and search.
-    #[arg(
-        value_name = "QUERY",
-        allow_hyphen_values = true,
-        help = "Research query to decompose and search"
-    )]
-    pub query: String,
-    /// Results per sub-query (Recall@20 captures 95%+ relevant hits).
-    #[arg(
-        long,
-        short,
-        aliases = ["limit", "top-k"],
-        default_value_t = 20,
-        help = "Results per sub-query (Recall@20 captures 95%+ relevant hits)"
-    )]
-    pub k: usize,
-    /// Maximum sub-queries from decomposition (covers complex multi-hop queries).
-    #[arg(
-        long,
-        default_value_t = 7,
-        help = "Maximum sub-queries (covers complex multi-hop queries)"
-    )]
-    pub max_sub_queries: usize,
-    /// Multi-hop graph traversal depth (sweet spot: 2-3 hops).
-    #[arg(
-        long,
-        default_value_t = 3,
-        help = "Multi-hop graph traversal depth (sweet spot: 2-3 hops)"
-    )]
-    pub max_hops: usize,
-    /// Minimum edge weight for graph traversal.
-    #[arg(
-        long,
-        default_value_t = 0.3,
-        help = "Minimum edge weight for graph traversal"
-    )]
-    pub min_weight: f64,
-    /// Maximum concurrent sub-queries (default: min(cpus, 8)).
-    #[arg(long, help = "Maximum concurrent sub-queries (default: min(cpus, 8))")]
-    pub max_concurrency: Option<usize>,
-    /// Timeout per sub-query in seconds.
-    #[arg(long, default_value_t = 30, help = "Timeout per sub-query in seconds")]
-    pub timeout: u64,
-    /// Include full memory bodies in results.
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Include full memory bodies in results"
-    )]
-    pub with_bodies: bool,
-    /// Maximum results after deduplication.
-    #[arg(
-        long,
-        default_value_t = 50,
-        help = "Maximum results after deduplication"
-    )]
-    pub max_results: usize,
-    /// RRF k parameter controlling score smoothing (higher = less weight on top ranks).
-    #[arg(
-        long,
-        default_value_t = 60.0,
-        help = "RRF k parameter (higher = less weight on top ranks)"
-    )]
-    pub rrf_k: f64,
-    /// Decay factor applied to graph scores per hop (score = seed_score * decay^hop).
-    #[arg(
-        long,
-        default_value_t = 0.7,
-        help = "Graph score decay factor per hop (0.0-1.0)"
-    )]
-    pub graph_decay: f64,
-    /// Minimum score threshold for graph-expanded results (filters noise).
-    #[arg(
-        long,
-        default_value_t = 0.05,
-        help = "Minimum score threshold for graph-expanded results"
-    )]
-    pub graph_min_score: f64,
-    /// Limit top-k neighbours followed per entity per hop (None = unlimited).
-    #[arg(
-        long,
-        help = "Limit neighbours per entity per hop for graph traversal (default: unlimited)"
-    )]
-    pub max_neighbors_per_hop: Option<usize>,
-    /// Namespace (flag / XDG namespace.default / global).
-    #[arg(long, help = "Namespace (flag / XDG namespace.default / global)")]
-    pub namespace: Option<String>,
-    /// Research mode: `none` (local heuristic, default), `claude-code`, `codex` (v1.1.0).
-    #[arg(long, default_value = "none", value_parser = ["none"], hide = true)]
-    pub mode: String,
-    /// Maximum LLM cost in USD (effective with --mode claude-code/codex, reserved for v1.1.0).
-    #[arg(
-        long,
-        value_name = "USD",
-        help = "Max LLM cost in USD (effective with --mode claude-code/codex)"
-    )]
-    pub max_cost_usd: Option<f64>,
-    /// JSON output (always on, kept for consistency).
-    #[arg(long, hide = true)]
-    pub json: bool,
-    /// Database path.
-    #[arg(long)]
-    pub db: Option<String>,
-    /// Sub-query strategy: `heuristic` (default, syntactic + single-token aspects)
-    /// or `manual` (requires `--sub-queries-file`).
-    #[arg(
-        long,
-        default_value = "heuristic",
-        value_parser = ["heuristic", "manual"],
-        help = "Sub-query strategy: heuristic (default) or manual"
-    )]
-    pub sub_query_strategy: String,
-    /// Path to a UTF-8 text file with one sub-query per line (required when
-    /// `--sub-query-strategy manual`). Empty lines and `#` comments are ignored.
-    #[arg(
-        long,
-        value_name = "PATH",
-        help = "File with one sub-query per line (manual strategy)"
-    )]
-    pub sub_queries_file: Option<std::path::PathBuf>,
-    /// Write the JSON envelope atomically to this path (tempfile→fsync→rename).
-    /// When set, stdout receives a short confirmation JSON
-    /// `{ "written": "<path>", "bytes": N, "blake3": "..." }` instead of the full
-    /// envelope — preventing shell redirect truncation of multi-MB payloads.
-    #[arg(
-        short = 'o',
-        long,
-        value_name = "PATH",
-        help = "Atomic JSON output path (atomwrite algorithm; short -o)"
-    )]
-    pub output: Option<std::path::PathBuf>,
-}
-
-#[derive(Serialize)]
-pub(super) struct SubQuery {
-    pub(super) id: usize,
-    pub(super) text: String,
-    pub(super) source: &'static str,
-}
-
-#[derive(Serialize)]
-struct DeepResult {
-    name: String,
-    score: f64,
-    source: String,
-    sub_query_ids: Vec<usize>,
-    snippet: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<String>,
-    hop_distance: Option<usize>,
-}
-
-/// A node in a reconstructed evidence path.
-#[derive(Serialize, Clone)]
-pub(super) struct EvidenceNode {
-    pub(super) entity: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) relation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) weight: Option<f64>,
-}
-
-/// A directed evidence chain reconstructed from BFS predecessors.
-///
-/// Fields:
-/// - `from`: name of the seed (source) entity.
-/// - `to`: name of the terminal (target) entity.
-/// - `path`: ordered list of intermediate nodes from `from` to `to`.
-/// - `total_weight`: product of edge weights along the path.
-/// - `sub_query_ids`: which sub-queries produced this chain.
-#[derive(Serialize)]
-pub(super) struct EvidenceChain {
-    pub(super) from: String,
-    pub(super) to: String,
-    pub(super) path: Vec<EvidenceNode>,
-    pub(super) total_weight: f64,
-    pub(super) depth: usize,
-    pub(super) sub_query_ids: Vec<usize>,
-}
-
-#[derive(Serialize)]
-struct ResearchStats {
-    sub_queries_total: usize,
-    sub_queries_completed: usize,
-    sub_queries_failed: usize,
-    sub_queries_timed_out: usize,
-    unique_memories_found: usize,
-    evidence_chains_found: usize,
-    elapsed_ms: u64,
-    vec_degraded: bool,
-}
-
-#[derive(Serialize)]
-struct GraphContextEntity {
-    name: String,
-    entity_type: String,
-    degree: u32,
-}
-
-#[derive(Serialize)]
-struct GraphContextRel {
-    from: String,
-    to: String,
-    relation: String,
-    weight: f64,
-}
-
-#[derive(Serialize)]
-struct GraphContext {
-    entities: Vec<GraphContextEntity>,
-    relationships: Vec<GraphContextRel>,
-}
-
-#[derive(Serialize)]
-struct DeepResearchResponse {
-    query: String,
-    sub_queries: Vec<SubQuery>,
-    results: Vec<DeepResult>,
-    evidence_chains: Vec<EvidenceChain>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    graph_context: Option<GraphContext>,
-    stats: ResearchStats,
-}
-
-/// Aggregated hit data: (score, source_label, snippet, body, hop_distance, sub_query_ids).
-type MergedHit = (f64, String, String, String, Option<usize>, Vec<usize>);
-
-/// Intermediate result from a single sub-query execution.
-pub(super) struct SubQueryResult {
-    pub(super) sub_query_id: usize,
-    /// (memory_id, score, source_label, snippet, body, hop_distance)
-    pub(super) hits: Vec<(i64, f64, String, String, String, Option<usize>)>,
-    /// Evidence chains reconstructed from BFS.
-    pub(super) chains: Vec<EvidenceChain>,
-}
 
 /// Sync entry point — builds a tokio runtime for the async fan-out.
 #[tracing::instrument(skip_all, level = "debug", name = "deep_research")]
@@ -291,6 +42,7 @@ pub fn run(
     args: DeepResearchArgs,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
+    fail_on_degraded: bool,
 ) -> Result<(), AppError> {
     tracing::debug!(target: "deep_research", query = %args.query, k = args.k, "starting deep research");
 
@@ -306,11 +58,25 @@ pub fn run(
     // Resolve sub-queries once (shared by embedding precompute + fan-out).
     let sub_query_plan = resolve_sub_queries(&args)?;
     let sub_query_texts: Vec<String> = sub_query_plan.iter().map(|s| s.text.clone()).collect();
-    let (sub_embeddings, vec_degraded) =
+    let (sub_embeddings, vec_degraded, degraded_reason_code) =
         compute_sub_embeddings(&paths, &sub_query_texts, embedding_backend, llm_backend);
+    // Decide ANTES de construir o runtime e de gastar o fan-out inteiro: sem isto a
+    // pesquisa devolvia só-FTS com exit 0 e a flag era placebo. Falhar aqui também
+    // evita pagar as chamadas de rede de uma pesquisa que o operador já declarou
+    // não querer em modo degradado.
+    if let Some(err) = crate::query_embedding::degradation_failure(
+        fail_on_degraded,
+        vec_degraded,
+        degraded_reason_code,
+    ) {
+        return Err(err);
+    }
 
+    // GAP-SG-141 B2: no explicit worker count. Tokio already defaults to the
+    // number of cores available to the process, and the fan-out below scales
+    // with the sub-query plan, so a fixed width could only under-serve it. The
+    // embed runtime keeps its own knob because it sizes a DIFFERENT reactor.
     let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
         .enable_all()
         .build()
         .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to build tokio runtime: {e}")))?;
@@ -345,8 +111,14 @@ async fn run_async(
         return Err(AppError::Validation(crate::i18n::validation::empty_query()));
     }
 
-    if args.max_cost_usd.is_some() && args.mode == "none" {
-        tracing::warn!(target: "deep_research", "--max-cost-usd has no effect without --mode claude-code/codex");
+    if args.max_cost_usd.is_some() {
+        // `--mode` accepts only `none` since v1.2.0, so the guard on the mode
+        // was dead and the message pointed at two backends the product removed.
+        // The flag stays accepted and stays inert; saying so is the whole point.
+        tracing::warn!(
+            target: "deep_research",
+            "--max-cost-usd is inert: deep-research has no LLM mode, so nothing is billed"
+        );
     }
 
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
@@ -586,17 +358,21 @@ async fn run_async(
                  JOIN entities s ON s.id = r.source_id \
                  JOIN entities t ON t.id = r.target_id \
                  WHERE r.source_id IN ({placeholders}) AND r.target_id IN ({placeholders}) \
-                 LIMIT 50"
+                 LIMIT ?"
             );
             if let Ok(mut stmt) = conn.prepare(&sql) {
                 let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
-                    Vec::with_capacity(entity_ids.len() * 2);
+                    Vec::with_capacity(entity_ids.len() * 2 + 1);
                 for id in &entity_ids {
                     params.push(Box::new(*id));
                 }
                 for id in &entity_ids {
                     params.push(Box::new(*id));
                 }
+                params.push(Box::new(
+                    i64::try_from(crate::constants::K_DEEP_RESEARCH_GRAPH_EDGES_LIMIT)
+                        .unwrap_or(i64::MAX),
+                ));
                 let param_refs: Vec<&dyn rusqlite::types::ToSql> =
                     params.iter().map(|p| p.as_ref()).collect();
                 if let Ok(rows) = stmt.query_map(param_refs.as_slice(), |r| {
@@ -700,8 +476,5 @@ async fn run_async(
     Ok(())
 }
 
-// Re-export sub_query_results field initialisation for the stats counter.
-// The field is moved out of run_async after the join loop; we need to shadow it.
-// ────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests;

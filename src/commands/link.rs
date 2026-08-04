@@ -350,9 +350,9 @@ fn resolve_entity_name_by_id(
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
     }) {
         Ok(row) => Ok(row),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(format!(
-            "entity id={id} not found in namespace '{namespace}'"
-        ))),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(
+            crate::i18n::validation::entity_id_not_found_in_namespace(id, namespace),
+        )),
         Err(e) => Err(AppError::Database(e)),
     }
 }

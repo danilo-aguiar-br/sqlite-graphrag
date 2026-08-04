@@ -96,9 +96,9 @@ pub(crate) fn run_embed_phase(
                 });
             }
         }
-        match crate::embedder::embed_passages_parallel_with_embedding_choice(
+        match crate::embedder::embed_passages_parallel_shared(
             &paths.models,
-            &chunk_texts,
+            std::sync::Arc::from(chunk_texts),
             args.llm_parallelism as usize,
             crate::embedder::chunk_embed_batch_size(),
             embedding_backend,

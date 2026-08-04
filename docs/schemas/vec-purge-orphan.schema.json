@@ -5,6 +5,9 @@
   "description": "Response shape of `sqlite-graphrag vec purge-orphan --yes --json`. Added in v1.0.69 as part of G39. Purges orphans from vec_memories, vec_entities, and vec_chunks in a single transaction.",
   "type": "object",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action": {
       "type": "string",
       "enum": ["purged", "dry_run"],

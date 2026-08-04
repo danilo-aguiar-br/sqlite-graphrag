@@ -33,6 +33,73 @@ fn open_health_test_db() -> Connection {
     conn
 }
 
+/// Builds a graph holding `hubs` entities whose degree clears the super-hub
+/// threshold, so the count and the sample can be told apart.
+fn open_graph_test_db(hubs: usize) -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        "CREATE TABLE entities (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+         CREATE TABLE relationships (
+             id INTEGER PRIMARY KEY,
+             source_id INTEGER NOT NULL,
+             target_id INTEGER NOT NULL
+         );",
+    )
+    .unwrap();
+
+    let degree = crate::constants::HEALTH_SUPER_HUB_DEGREE_THRESHOLD + 1;
+    let mut rel_id = 0i64;
+    for h in 0..hubs {
+        let hub_id = h as i64 + 1;
+        conn.execute(
+            "INSERT INTO entities (id, name) VALUES (?1, ?2)",
+            rusqlite::params![hub_id, format!("hub-{h}")],
+        )
+        .unwrap();
+        for _ in 0..degree {
+            rel_id += 1;
+            conn.execute(
+                "INSERT INTO relationships (id, source_id, target_id) VALUES (?1, ?2, ?2)",
+                rusqlite::params![rel_id, hub_id],
+            )
+            .unwrap();
+        }
+    }
+    conn
+}
+
+/// The count is a property of the graph; the warning is a sample of it. Reading
+/// the count off the sample capped it at the sample size, so a graph with
+/// hundreds of hubs reported exactly the sample limit and never moved.
+#[test]
+fn super_hub_count_spans_the_graph_rather_than_the_sample() {
+    let sample = crate::constants::HEALTH_SUPER_HUB_SAMPLE_LIMIT;
+    let hubs = sample + 3;
+    let conn = open_graph_test_db(hubs);
+
+    let (count, warning) = super::super_hub_stats(&conn).unwrap();
+
+    assert_eq!(
+        usize::try_from(count).unwrap(),
+        hubs,
+        "count must span the graph, not stop at the {sample}-entity sample"
+    );
+    let warning = warning.expect("hubs are present, so a warning is due");
+    assert_eq!(
+        warning.matches("degree").count(),
+        sample,
+        "the warning names only the sample: {warning}"
+    );
+}
+
+#[test]
+fn super_hub_stats_stays_silent_on_a_graph_without_hubs() {
+    let conn = open_graph_test_db(0);
+    let (count, warning) = super::super_hub_stats(&conn).unwrap();
+    assert_eq!(count, 0);
+    assert!(warning.is_none());
+}
+
 #[test]
 fn memory_embedding_health_prefers_memory_embeddings_and_counts_soft_deleted_as_orphaned() {
     let conn = open_health_test_db();

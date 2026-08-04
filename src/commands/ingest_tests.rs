@@ -8,7 +8,6 @@ use super::scan_fs::{
     MAX_NAME_COLLISION_SUFFIX,
 };
 use super::stage::StagedFile;
-use super::validate::validate_mode_conditional_flags_ingest;
 use crate::chunking;
 use crate::constants::DERIVED_NAME_MAX_LEN;
 use crate::errors::AppError;
@@ -57,55 +56,6 @@ fn name_prefix_applies_after_kebab_normalization_and_fits_cap() {
     assert_eq!(final_name, "projx-my-file-name");
     assert!(final_name.len() <= crate::constants::MAX_MEMORY_NAME_LEN);
     assert!(crate::constants::name_slug_regex().is_match(&final_name));
-}
-
-/// GAP-SG-29: `ingest --mode none --resume` is rejected fail-fast by the
-/// mode-conditional validator, which `run()` invokes as its very first
-/// statement (before any DB/IO). clap 4.6 derive cannot express a
-/// value-conditional conflict (`--mode=none` vs `--resume`) without also
-/// breaking the valid `--mode claude-code --resume` combo, so the contract
-/// is enforced here instead of at the parser layer.
-#[test]
-fn ingest_mode_none_with_resume_is_rejected() {
-    use crate::cli::{Cli, Commands};
-    use clap::Parser;
-
-    let none_resume = Cli::try_parse_from([
-        "sqlite-graphrag",
-        "ingest",
-        "./docs",
-        "--mode",
-        "none",
-        "--resume",
-    ])
-    .expect("parse succeeds; the conflict is value-conditional");
-    let args = match none_resume.command {
-        Some(Commands::Ingest(a)) => a,
-        other => panic!("expected ingest, got {other:?}"),
-    };
-    assert!(
-        validate_mode_conditional_flags_ingest(&args).is_err(),
-        "--mode none + --resume must be rejected fail-fast"
-    );
-
-    // The valid LLM-mode combo is NOT rejected.
-    let claude_resume = Cli::try_parse_from([
-        "sqlite-graphrag",
-        "ingest",
-        "./docs",
-        "--mode",
-        "claude-code",
-        "--resume",
-    ])
-    .expect("parse");
-    let args = match claude_resume.command {
-        Some(Commands::Ingest(a)) => a,
-        other => panic!("expected ingest, got {other:?}"),
-    };
-    assert!(
-        validate_mode_conditional_flags_ingest(&args).is_ok(),
-        "--mode claude-code + --resume is valid and must pass"
-    );
 }
 
 fn setup_ingest_conn() -> Connection {

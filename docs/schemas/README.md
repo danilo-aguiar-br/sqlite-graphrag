@@ -12,6 +12,8 @@
 - The 17 new fields added in v1.0.89: `vec_memories_missing`, `vec_memories_orphaned`, `sqlite_version`, `mentions_ratio`, `mentions_warning`, `top_relation`, `top_relation_ratio`, `applies_to_ratio`, `relation_concentration_warning`, `super_hub_count`, `super_hub_warning`, `top_hub_entity`, `top_hub_degree`, `hub_warning`, `non_normalized_count`, `normalization_warning`, `fts_query_ok`
 - New exit code 16 (`EX_CONFIG`) emitted by `AppError::PreFlightFailed` is documented in v1.0.87 (ADR-0045, GAP-META-005) — see `error-envelope.schema.json` for the structured `PreFlightError` variant details
 ### Schema Files
+> **Cross-cutting schema.** `agent-surface.schema.json` is not bound to a single subcommand. It defines `$defs/AgentSurfaceMeta` and `$defs/CountOnlyEnvelope`, referenced by every envelope that accepts the agent-native flags (`--select`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`). Since v1.2.5 (GAP-SG-191) it also carries `secondary_capped`, the list of secondary array keys `--max-items` truncated.
+
 | Subcommand | Schema file |
 |---|---|
 | `init` | `init.schema.json` |
@@ -58,9 +60,9 @@
 | `config list` / `config list --effective` | `config-list.schema.json` |
 | `ingest` (per-file event) | `ingest-file-event.schema.json` |
 | `ingest` (summary, updated v1.0.84, ADR-0042) | `ingest-summary.schema.json` |
-| `ingest --mode claude-code` (phase event) | `ingest-claude-phase.schema.json` |
-| `ingest --mode claude-code` (per-file event) | `ingest-claude-file-event.schema.json` |
-| `ingest --mode claude-code` (summary) | `ingest-claude-summary.schema.json` |
+| (retired mode, phase event — file retained) | `ingest-claude-phase.schema.json` |
+| (retired mode, per-file event — DEPRECATED alias) | `ingest-claude-file-event.schema.json` |
+| (retired mode, summary — DEPRECATED alias) | `ingest-claude-summary.schema.json` |
 | `debug-schema` | `debug-schema.schema.json` |
 | `fts rebuild` | `fts-rebuild.schema.json` |
 | `fts check` | `fts-check.schema.json` |
@@ -80,7 +82,6 @@
 | `vec orphan-list` (v1.0.69) | `vec-orphan-list.schema.json` |
 | `vec purge-orphan` (v1.0.69) | `vec-purge-orphan.schema.json` |
 | `vec stats` (v1.0.69) | `vec-stats.schema.json` |
-| `codex-models` (v1.0.69) | `codex-models.schema.json` |
 | `slots status` (v1.0.82, GAP-004) | `slots-status.schema.json` |
 | `pending list` (v1.0.82, GAP-001) | `pending-list.schema.json` |
 | `embedding status` (v1.0.82, GAP-005, updated v1.0.84, ADR-0042) | `embedding-status.schema.json` |
@@ -93,16 +94,15 @@
 - `cache` (`list` / `stats` / `clear-models`) has **no** dedicated `cache.schema.json`; JSON output is informal / operational (list + size stats). Agents should treat unexpected fields as Must-Ignore. Coverage of cache behaviour lives in monographs (`HOW_TO_USE`, `COOKBOOK`, `AGENTS`), not in this schema index
 - `daemon` was removed in v1.0.76 (remaining code deleted in v1.0.79) — no JSON schema applies (historical)
 ### Ingest Mode Schema Selection
-- `--mode none` uses `ingest-file-event.schema.json` and `ingest-summary.schema.json`; `--mode gliner` was REMOVED in v1.1.02 (the `IngestMode` enum now exposes only `none`, `claude-code`, `codex`, `opencode` — clap rejects `gliner` with exit 2)
-- `--mode claude-code` uses `ingest-claude-phase.schema.json`, `ingest-claude-file-event.schema.json`, and `ingest-claude-summary.schema.json`
-- Claude-code mode emits additional phase events (validate, scan) before per-file events
-- Per-file events in claude-code mode include `entities`, `rels`, and `cost_usd` fields not present in normal ingest
-- `--mode codex` (added in v1.0.62) reuses the same NDJSON schema format as `--mode claude-code` — no separate codex schemas needed
-- Codex mode emits the same PhaseEvent, FileEvent, and Summary shapes; agents validating claude-code output can reuse those schemas unchanged
+- `ingest --mode` accepts **only `none`** (body-only). The LLM-curated modes (`claude-code`, `codex`, `opencode`) were REMOVED; clap rejects them with exit 2, as it already did for `gliner` (removed in v1.1.02)
+- `--mode none` uses `ingest-file-event.schema.json` and `ingest-summary.schema.json`
+- `ingest-claude-phase.schema.json`, `ingest-claude-file-event.schema.json` and `ingest-claude-summary.schema.json` are **retained artifacts of the retired LLM modes**. Nothing in the CLI emits them any more; they stay in this directory only for consumers pinned to their `$id`. New consumers MUST validate against the canonical `ingest-file-event.schema.json` / `ingest-summary.schema.json`
+- Fields the surviving mode does not produce are **omitted from the line**, never emitted as `null`. `entities`, `rels`, `cost_usd`, `input_tokens`, `output_tokens`, `input_tokens_total` and `output_tokens_total` belonged to the retired LLM modes and no longer appear
+- Known outlier: the dry-run path emits `status: "skip"` where every other site says `"skipped"`. The canonical schema accepts both and documents `skip` as a legacy alias; consumers MUST treat them as one value
 
 ### Error Envelope Changes in v1.0.68 (G28-B)
 - The `error-envelope.schema.json` `message` field for `code: 75` now has two distinct templates, both routed to the same exit code
-- Template A (new since v1.0.68, G28-B): `job <job_type> for namespace '<namespace>' is already running (exit 75); wait for it to finish or pass --wait-job-singleton <SECONDS>` — emitted by `enrich`, `ingest --mode claude-code`, and `ingest --mode codex` when a concurrent invocation holds the singleton
+- Template A (new since v1.0.68, G28-B): `job <job_type> for namespace '<namespace>' is already running (exit 75); wait for it to finish or pass --wait-job-singleton <SECONDS>` — emitted by `enrich` when a concurrent invocation holds the singleton
 - Template B (legacy): `all <max> concurrency slots occupied after waiting <waited_secs>s (exit 75); use --max-concurrency or wait for other invocations to finish` — emitted by the counting semaphore for any other command
 - Agents can disambiguate the two with a regex on `message`: matches `^job ` for Template A and `^all ` for Template B
 - The schema itself remains `additionalProperties: false` because variant-specific fields are intentionally NOT serialised to JSON; structured access to `job_type` and `namespace` requires agents to parse the quoted strings inside `message`
@@ -189,9 +189,23 @@
 - `deep-research` short flag `-o` is a CLI alias of `--output`; ack schema unchanged (`deep-research-output-ack.schema.json`).
 - Offline gate: `scripts/e2e_offline_v120.sh` (**20/20**). Help must not advertise product `SQLITE_GRAPHRAG_*` env as config.
 
+### Schema Notes in v1.2.2 (`schema` subcommand — no schema field change)
+
+- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.2**.
+- **New `schema` subcommand** — the catalog of all **74** contracts no longer requires an agent to list `docs/schemas/` off disk:
+  - `sqlite-graphrag schema` emits **NDJSON**, one line per contract, shaped `{"id","invoke"}`; `invoke` is the ready-to-copy command
+  - `sqlite-graphrag schema --name <ID>` emits that contract's JSON Schema document
+  - An unknown `<ID>` exits **4** (not found), never an empty catalog
+  - `--json` does not change the listing: it is NDJSON by definition
+- **`$schema` documents are exempt from the agent-native surface.** `--filter`, `--select` and the other v1.2.2 knobs never reshape a contract document; it is recognised by its `$schema` member and passes through untouched. An agent can therefore chain `schema --name <ID>` with any global flag without corrupting the contract.
+- **`--mode claude-code` NDJSON contract unified (GAP-SG-148 item 5).** The mode no longer reports through a parallel type: per-file events and the summary use the **same `IngestFileEvent` / `IngestSummary`** as the standard pipeline.
+  - Per-file `status` is **`indexed`** when a memory was written — **not `done`**. Full enum: `indexed`, `failed`, `skipped`, `preview`
+  - The summary reports **`files_total`, `files_succeeded`, `files_failed`, `files_skipped`** — **not `completed`**
+  - `entities`, `rels` and `cost_usd` are optional members of the shared type: they carry values in the LLM modes and are omitted on the wire by the standard pipeline, so a `--mode none` line stays byte-identical to what it was before the unification
+
 ### Schema Notes in v1.2.1 (enrich CAPA — no schema field change)
 
-- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.1**.
+- **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.2** (v1.2.1 note retained below; the agent-native output surface adds no schema field).
 - **Sidecar behaviour only** — full CAPA list (no new stdout fields):
   1. `dequeue_next_pending` — claim by `operation` **and** `namespace`
   2. `count_eligible_pending` for `--until-empty` — counts **op+ns only**
@@ -209,7 +223,7 @@
 - **No required main-DB migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Crate **1.2.0**.
 - **`DEFAULT_EMBEDDING_DIM=1024`** — `init` stamps `schema_meta.dim` from the default (or `--embedding-dim` / XDG override). Existing DBs keep their stamped dim until re-embed. This is a runtime/init constant change, **not** a new `*.schema.json` file.
 - **`enrich --list-skipped` / `enrich --requeue-skipped`** — recoverable skipped/preservation sink (mirrors `--list-dead` / `--requeue-dead`). **No new schema file**: list/requeue reuse the existing dead-inspector envelope (`DeadItem` lines + `DeadSummary` with `action: "list-skipped"` / `"requeue-skipped"`). If a payload looks enrich-status-like or carries extra observational fields, agents **MUST** treat unknown keys as Must-Ignore (do not hard-fail).
-- **GAP-SG-139 is a CLI input contract only** (no schema change): host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2. Graph subcommands still open the DB.
+- **GAP-SG-139 is a CLI input contract only** (no schema change): host/XDG leaves (`config`, `slots`, `cache`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2. Graph subcommands still open the DB.
 - Index already covers `config-list.schema.json` for `config list` / `config list --effective`. There is **no** `cache.schema.json` (see Commands Without JSON Schemas).
 - Offline gate remains `scripts/e2e_offline_v120.sh` (**20/20** PASS).
 
@@ -302,9 +316,9 @@
 | `config list` / `config list --effective` | `config-list.schema.json` |
 | `ingest` (evento por arquivo) | `ingest-file-event.schema.json` |
 | `ingest` (sumário, atualizado v1.0.84, ADR-0042) | `ingest-summary.schema.json` |
-| `ingest --mode claude-code` (evento de fase) | `ingest-claude-phase.schema.json` |
-| `ingest --mode claude-code` (evento por arquivo) | `ingest-claude-file-event.schema.json` |
-| `ingest --mode claude-code` (sumário) | `ingest-claude-summary.schema.json` |
+| (modo aposentado, evento de fase — arquivo preservado) | `ingest-claude-phase.schema.json` |
+| (modo aposentado, evento por arquivo — alias DESCONTINUADO) | `ingest-claude-file-event.schema.json` |
+| (modo aposentado, sumário — alias DESCONTINUADO) | `ingest-claude-summary.schema.json` |
 | `debug-schema` | `debug-schema.schema.json` |
 | `fts rebuild` | `fts-rebuild.schema.json` |
 | `fts check` | `fts-check.schema.json` |
@@ -324,7 +338,6 @@
 | `vec orphan-list` (v1.0.69) | `vec-orphan-list.schema.json` |
 | `vec purge-orphan` (v1.0.69) | `vec-purge-orphan.schema.json` |
 | `vec stats` (v1.0.69) | `vec-stats.schema.json` |
-| `codex-models` (v1.0.69) | `codex-models.schema.json` |
 | `slots status` (v1.0.82, GAP-004) | `slots-status.schema.json` |
 | `pending list` (v1.0.82, GAP-001) | `pending-list.schema.json` |
 | `embedding status` (v1.0.82, GAP-005, atualizado v1.0.84, ADR-0042) | `embedding-status.schema.json` |
@@ -341,9 +354,23 @@
 - Flag curta `-o` de `deep-research` é alias CLI de `--output`; schema de ack inalterado.
 - Gate offline: `scripts/e2e_offline_v120.sh` (**20/20**). Help não deve anunciar product env `SQLITE_GRAPHRAG_*` como config.
 
+### Notas de Schema na v1.2.2 (subcomando `schema` — sem mudança de campos)
+
+- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.2**.
+- **Novo subcomando `schema`** — o catálogo dos **75** contratos deixa de exigir que o agente liste `docs/schemas/` no disco:
+  - `sqlite-graphrag schema` emite **NDJSON**, uma linha por contrato, no formato `{"id","invoke"}`; `invoke` já traz o comando pronto para copiar
+  - `sqlite-graphrag schema --name <ID>` emite o documento JSON Schema daquele contrato
+  - `<ID>` desconhecido sai com **exit 4** (not found), nunca com um catálogo vazio
+  - `--json` não muda a saída da listagem: ela já é NDJSON por definição
+- **Documentos `$schema` são isentos da superfície agent-native.** `--filter`, `--select` e os demais knobs da v1.2.2 nunca remodelam um documento de contrato; ele é reconhecido pelo membro `$schema` e passa intacto. Um agente pode encadear `schema --name <ID>` com qualquer flag global sem corromper o contrato.
+- **Contrato NDJSON do `--mode claude-code` unificado (GAP-SG-148 item 5).** O modo deixou de reportar por um tipo paralelo: eventos por arquivo e sumário usam os **mesmos `IngestFileEvent` / `IngestSummary`** do pipeline padrão.
+  - `status` por arquivo é **`indexed`** quando a memória foi escrita — **não `done`**. Enum completa: `indexed`, `failed`, `skipped`, `preview`
+  - O sumário reporta **`files_total`, `files_succeeded`, `files_failed`, `files_skipped`** — **não `completed`**
+  - `entities`, `rels` e `cost_usd` são membros opcionais do tipo compartilhado: carregam valor nos modos LLM e são omitidos no wire pelo pipeline padrão, então uma linha de `--mode none` continua idêntica byte a byte ao que era antes da unificação
+
 ### Notas de Schema na v1.2.1 (CAPA enrich — sem mudança de campos de schema)
 
-- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.1**.
+- **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.2** (nota da v1.2.1 mantida abaixo; a superfície de saída agent-native não acrescenta campo de schema).
 - **Somente comportamento do sidecar** — lista CAPA completa (nenhum campo novo de stdout):
   1. `dequeue_next_pending` — claim por `operation` **e** `namespace`
   2. `count_eligible_pending` para `--until-empty` — conta **só op+ns**
@@ -361,7 +388,7 @@
 - **Sem migração main-DB obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Crate **1.2.0**.
 - **`DEFAULT_EMBEDDING_DIM=1024`** — `init` grava `schema_meta.dim` a partir do default (ou override `--embedding-dim` / XDG). Bancos existentes mantêm o dim carimbado até re-embed. Mudança de constante de runtime/init, **não** um novo arquivo `*.schema.json`.
 - **`enrich --list-skipped` / `enrich --requeue-skipped`** — sink recuperável de `skipped`/preservation (espelha `--list-dead` / `--requeue-dead`). **Sem novo schema**: list/requeue reutilizam o envelope do inspetor dead (`DeadItem` + `DeadSummary` com `action: "list-skipped"` / `"requeue-skipped"`). Se o payload parecer enrich-status ou trouxer campos observacionais extras, agentes **DEVEM** tratar chaves desconhecidas como Must-Ignore (não falhar de forma rígida).
-- **GAP-SG-139 é apenas contrato de entrada CLI** (sem mudança de schema): folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2. Subcomandos de grafo continuam abrindo o DB.
+- **GAP-SG-139 é apenas contrato de entrada CLI** (sem mudança de schema): folhas host/XDG (`config`, `slots`, `cache`, `completions`) aceitam `--db` como **no-op** documentado para que agentes que anexam `--db` em toda invocação não recebam clap exit 2. Subcomandos de grafo continuam abrindo o DB.
 - O índice já cobre `config-list.schema.json` para `config list` / `config list --effective`. **Não** existe `cache.schema.json` (veja Comandos Sem JSON Schema).
 - Gate offline permanece `scripts/e2e_offline_v120.sh` (**20/20** PASS).
 

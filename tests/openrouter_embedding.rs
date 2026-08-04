@@ -56,13 +56,16 @@ fn embedding_backend_flag_accepts_auto() {
         .success();
 }
 
+/// `--embedding-backend llm` was REMOVED with the subprocess backends; the
+/// surviving pair is `auto|openrouter`. `--llm-backend none` still selects the
+/// no-embedding path, which is what this case actually pins.
 #[test]
 #[serial]
-fn embedding_backend_flag_accepts_llm() {
+fn embedding_backend_auto_with_llm_backend_none_persists() {
     let tmp = TempDir::new().expect("tempdir");
     cmd_base(&tmp)
         .arg("--embedding-backend")
-        .arg("llm")
+        .arg("auto")
         .arg("--llm-backend")
         .arg("none")
         .arg("--skip-embedding-on-failure")
@@ -84,8 +87,14 @@ fn embedding_backend_flag_accepts_llm() {
 #[serial]
 fn embedding_backend_openrouter_without_key_fails() {
     let tmp = TempDir::new().expect("tempdir");
-    cmd_base(&tmp)
-        .arg("--embedding-backend")
+    let mut c = cmd_base(&tmp);
+    // The shared sandbox plants a stub key; this case's SUBJECT is its
+    // absence, so the config is rewritten without one.
+    common::write_sandbox_config_without_key(
+        &tmp.path().join("config"),
+        Some(&tmp.path().join("test.sqlite")),
+    );
+    c.arg("--embedding-backend")
         .arg("openrouter")
         .arg("remember")
         .arg("--name")

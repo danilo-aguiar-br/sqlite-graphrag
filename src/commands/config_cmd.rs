@@ -71,17 +71,22 @@ pub enum ConfigAction {
     },
     /// Set an operational setting in XDG config (G-T-XDG-01).
     ///
-    /// Known keys (non-exhaustive):
-    /// `enrich.preserve_threshold`, `enrich.entity_description.domain`,
-    /// `enrich.entity_description.grounding_threshold`,
-    /// `enrich.entity_connect.default_limit`,
-    /// `enrich.entity_connect.max_runtime_secs`,
+    /// Run `config doctor --json` for the full list of accepted keys with their
+    /// defaults. That listing is derived from the registry, so it cannot drift
+    /// from what the binary accepts — a static list here can, and did
+    /// (GAP-SG-203). The sample below is kept short for that reason; the
+    /// authoritative answer is always `config doctor`.
+    ///
+    /// The value is validated against the key's domain, so a bad timezone or a
+    /// non-numeric size is rejected here rather than misbehaving later.
+    ///
+    /// Sample of accepted keys: `db.path`, `display.tz`, `embedding.dim`,
+    /// `embedding.model`, `embedding.backend`, `llm.backend`, `log.level`,
+    /// `log.format`, `namespace.default`,
     /// `network.openrouter.chat_url` (alias `network.chat_url`),
-    /// `network.openrouter.embeddings_url` (alias `network.embed_url`),
-    /// `log.level`, `log.format`, `display.tz`,
-    /// `embedding.dim`, `llm.concurrency`.
+    /// `network.openrouter.embeddings_url` (alias `network.embed_url`).
     Set {
-        /// Dotted key name, e.g. `enrich.preserve_threshold`.
+        /// Dotted key name, e.g. `display.tz`.
         key: String,
         /// Value as string (parsed by consumers).
         value: String,
@@ -146,6 +151,12 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
             db: _,
         } => {
             let key = if from_stdin {
+                // Declarative refusal (`--no-input`): never reach for the key.
+                if crate::stdin_helper::no_input() {
+                    return Err(AppError::Validation(
+                        crate::i18n::validation::no_input_blocks_stdin(),
+                    ));
+                }
                 let mut buf = String::new();
                 io::stdin().read_to_string(&mut buf).map_err(AppError::Io)?;
                 buf.trim().to_string()
@@ -175,7 +186,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 "provider": provider,
                 "fingerprint": fingerprint,
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
         ConfigAction::ListKeys { json: _, db: _ } => {
@@ -193,7 +204,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 })
                 .collect();
             let output = json!({ "keys": keys });
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            crate::output::emit_json(&output)?;
             Ok(())
         }
         ConfigAction::RemoveKey {
@@ -205,16 +216,16 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
             let before = cfg.keys.len();
             cfg.keys.retain(|k| k.fingerprint != fingerprint);
             if cfg.keys.len() == before {
-                return Err(AppError::NotFound(format!(
-                    "no key with fingerprint {fingerprint}"
-                )));
+                return Err(AppError::NotFound(
+                    crate::i18n::validation::api_key_fingerprint_not_found(&fingerprint),
+                ));
             }
             config::save_config(&cfg)?;
             let output = json!({
                 "action": "key_removed",
                 "fingerprint": fingerprint,
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
         ConfigAction::Doctor { json: _, db: _ } => {
@@ -255,9 +266,6 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                     "i18n.lang" => rt.lang.as_deref(),
                     "log.level" => rt.log_level.as_deref(),
                     "log.format" => rt.log_format.as_deref(),
-                    "llm.claude_binary" => rt.claude_binary.as_deref(),
-                    "llm.codex_binary" => rt.codex_binary.as_deref(),
-                    "llm.opencode_binary" => rt.opencode_binary.as_deref(),
                     "llm.model" => rt.llm_model.as_deref(),
                     "llm.fallback" => rt.llm_fallback.as_deref(),
                     "db.path" => rt.db_path.as_deref(),
@@ -295,7 +303,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 "product_env_reads": false,
                 "note": "Precedence: CLI flag > XDG config set > named default. No SQLITE_GRAPHRAG_* product env.",
             });
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            crate::output::emit_json(&output)?;
             Ok(())
         }
         ConfigAction::Path { json: _, db: _ } => {
@@ -304,7 +312,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 "config_path": path.display().to_string(),
                 "exists": path.exists(),
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
         ConfigAction::Set {
@@ -319,7 +327,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 "key": key,
                 "value": value,
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
         ConfigAction::Get {
@@ -328,12 +336,24 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
             db: _,
         } => {
             let value = config::get_setting(&key)?;
+            // GAP-SG-202: `found: false` alone conflated two states an operator
+            // must tell apart — a real key that is simply unset, and a key that
+            // does not exist at all. `config set` has always answered exit 1
+            // with a did-you-mean for the second, so the two verbs disagreed
+            // about the same string, and a typo read as "exists, empty".
+            //
+            // The exit code stays 0 on purpose: scripts probe presence with
+            // this command, and turning a probe into a failure would break them
+            // to say something the envelope can carry instead.
+            let known = config::is_known_setting(&key);
             let output = json!({
                 "key": key,
                 "value": value,
                 "found": value.is_some(),
+                "known": known,
+                "suggestion": if known { None } else { config::nearest_setting_key(&key) },
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
         ConfigAction::List {
@@ -347,36 +367,35 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
             }
             let mut settings = config::list_settings()?;
             if effective {
-                // GAP-SG-93: defaults MUST come from constants / named defaults,
-                // never hard-coded literals that can drift from DEFAULT_EMBEDDING_DIM.
-                let dim_default = crate::constants::DEFAULT_EMBEDDING_DIM.to_string();
-                let probe_default = crate::constants::DEFAULT_LLM_PROBE_TIMEOUT_MS.to_string();
-                let defaults: &[(&str, &str)] = &[
-                    (
-                        "network.openrouter.chat_url",
-                        crate::constants::DEFAULT_OPENROUTER_CHAT_URL,
-                    ),
-                    (
-                        "network.openrouter.embeddings_url",
-                        crate::constants::DEFAULT_OPENROUTER_EMBEDDINGS_URL,
-                    ),
-                    ("llm.probe_timeout_ms", probe_default.as_str()),
-                    ("llm.fallback", "codex,claude,none"),
-                    ("embedding.dim", dim_default.as_str()),
-                    ("log.level", crate::constants::DEFAULT_LOG_LEVEL),
-                    ("display.tz", "UTC"),
-                ];
-                for (k, v) in defaults {
+                // GAP-SG-93 established that defaults must come from constants
+                // rather than literals. GAP-SG-209 finishes the job: this used
+                // to be a hand-maintained list of SEVEN pairs while
+                // `SETTING_KEYS` declares a default for roughly fifty keys, so
+                // `--effective` promised "well-known defaults" and delivered a
+                // seventh of them. Worse, it was a SECOND copy — `display.tz`
+                // was spelled `"UTC"` here and `Some("UTC")` in the registry,
+                // free to drift apart in silence.
+                //
+                // The registry is the single source of truth for which keys
+                // exist AND what they fall back to, so read it. A key whose
+                // default is `None` is one the host derives at runtime (an XDG
+                // directory, the CPU count, a probe); inventing a literal for
+                // those would print a number the process never uses, which is
+                // the drift this loop exists to prevent.
+                for entry in config::SETTING_KEYS {
+                    let Some(default) = entry.default else {
+                        continue;
+                    };
                     settings
-                        .entry(k.to_string())
-                        .or_insert_with(|| v.to_string());
+                        .entry(entry.key.to_string())
+                        .or_insert_with(|| default.to_string());
                 }
             }
             let output = json!({
                 "settings": settings,
                 "effective": effective,
             });
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            crate::output::emit_json(&output)?;
             Ok(())
         }
         ConfigAction::Unset {
@@ -390,7 +409,7 @@ pub fn run(args: ConfigArgs) -> Result<(), AppError> {
                 "key": key,
                 "removed": removed,
             });
-            println!("{}", serde_json::to_string(&output)?);
+            crate::output::emit_json_compact(&output)?;
             Ok(())
         }
     }

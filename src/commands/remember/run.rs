@@ -1,7 +1,7 @@
 //! Orchestration entry point for the `remember` command.
 
 use super::args::RememberArgs;
-use super::graph_input::{normalize_and_validate_graph_input, GraphInput};
+use super::graph_input::normalize_and_validate_graph_input;
 use crate::chunking;
 use crate::entity_type::EntityType;
 use crate::errors::AppError;
@@ -27,197 +27,16 @@ pub fn run(
     tracing::debug!(target: "remember", name = %args.name, "persisting memory");
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
 
-    // Capture the original `--name` before normalization so the JSON response can
-    // surface `name_was_normalized` + `original_name` (B_4 in v1.0.32). Stored as
-    // an owned String because `args.name` is moved into the response below.
-    let original_name = args.name.clone();
+    let resolved_name = super::name::resolve(&args)?;
+    let original_name = resolved_name.original;
+    let normalized_name = resolved_name.normalized;
+    let name_was_normalized = resolved_name.was_normalized;
 
-    // Auto-normalize to kebab-case before validation (P2-H).
-    // v1.0.20: also trims hyphens at the boundary (including trailing) to avoid rejection
-    // after truncation by a long filename ending in a hyphen.
-    let normalized_name = {
-        let lower = args.name.to_lowercase().replace(['_', ' '], "-");
-        let trimmed = lower.trim_matches('-').to_string();
-        if trimmed != args.name {
-            tracing::warn!(target: "remember",
-                original = %args.name,
-                normalized = %trimmed,
-                "name auto-normalized to kebab-case"
-            );
-        }
-        trimmed
-    };
-    let name_was_normalized = normalized_name != original_name;
-
-    // GAP-SG-37: when --strict-name is set, refuse to silently rewrite the name.
-    // The operator gets the canonical form so they can re-submit it explicitly.
-    if args.strict_name && name_was_normalized {
-        return Err(AppError::Validation(
-            crate::i18n::validation::strict_name_not_canonical(&original_name, &normalized_name),
-        ));
-    }
-
-    if normalized_name.is_empty() {
-        return Err(AppError::Validation(
-            crate::i18n::validation::name_empty_after_normalization(),
-        ));
-    }
-    if normalized_name.len() > MAX_MEMORY_NAME_LEN {
-        return Err(AppError::LimitExceeded(
-            crate::i18n::validation::name_length(MAX_MEMORY_NAME_LEN),
-        ));
-    }
-
-    if normalized_name.starts_with("__") {
-        return Err(AppError::Validation(
-            crate::i18n::validation::reserved_name(),
-        ));
-    }
-
-    {
-        let slug_re = crate::constants::name_slug_regex();
-        if !slug_re.is_match(&normalized_name) {
-            return Err(AppError::Validation(crate::i18n::validation::name_kebab(
-                &normalized_name,
-            )));
-        }
-    }
-
-    if let Some(ref desc) = args.description {
-        if desc.len() > MAX_MEMORY_DESCRIPTION_LEN {
-            return Err(AppError::Validation(
-                crate::i18n::validation::description_exceeds(MAX_MEMORY_DESCRIPTION_LEN),
-            ));
-        }
-    }
-
-    // GAP-SG-30: capture whether the body comes from an explicit source before
-    // `args.body` is moved below; --graph-file only adopts the file's body when
-    // no explicit body source was supplied.
-    let body_explicitly_provided =
-        args.body.is_some() || args.body_file.is_some() || args.body_stdin;
-
-    let mut raw_body = if let Some(ref b) = args.body {
-        b.clone()
-    } else if let Some(ref path) = args.body_file {
-        let file_size = std::fs::metadata(path).map_err(AppError::Io)?.len();
-        if file_size > MAX_MEMORY_BODY_LEN as u64 {
-            return Err(AppError::BodyTooLarge {
-                bytes: file_size,
-                limit: MAX_MEMORY_BODY_LEN as u64,
-            });
-        }
-        match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                let bytes = std::fs::read(path).map_err(AppError::Io)?;
-                tracing::warn!(target: "remember", "body file contains invalid UTF-8; replacing invalid sequences");
-                String::from_utf8_lossy(&bytes).into_owned()
-            }
-            Err(e) => return Err(AppError::Io(e)),
-        }
-    } else if args.body_stdin || args.graph_stdin {
-        crate::stdin_helper::read_stdin_with_timeout(60)?
-    } else {
-        String::new()
-    };
-
-    let mut entities_provided_externally =
-        args.entities_file.is_some() || args.relationships_file.is_some();
-
-    let mut graph = GraphInput::default();
-    if let Some(ref path) = args.entities_file {
-        let file_size = std::fs::metadata(path).map_err(AppError::Io)?.len();
-        if file_size > MAX_MEMORY_BODY_LEN as u64 {
-            return Err(AppError::BodyTooLarge {
-                bytes: file_size,
-                limit: MAX_MEMORY_BODY_LEN as u64,
-            });
-        }
-        let content = std::fs::read_to_string(path).map_err(AppError::Io)?;
-        // v1.1.1 (P7): boundary validation with context — an invalid
-        // entity_type surfaces the FromStr message (13 valid values + hints)
-        // as a Validation error instead of a bare Json error (exit 20).
-        graph.entities = serde_json::from_str(&content).map_err(|e| {
-            AppError::Validation(crate::i18n::validation::invalid_json_in_flag(
-                "--entities-file",
-                &e,
-            ))
-        })?;
-    }
-    if let Some(ref path) = args.relationships_file {
-        let file_size = std::fs::metadata(path).map_err(AppError::Io)?.len();
-        if file_size > MAX_MEMORY_BODY_LEN as u64 {
-            return Err(AppError::BodyTooLarge {
-                bytes: file_size,
-                limit: MAX_MEMORY_BODY_LEN as u64,
-            });
-        }
-        let content = std::fs::read_to_string(path).map_err(AppError::Io)?;
-        graph.relationships = serde_json::from_str(&content).map_err(|e| {
-            AppError::Validation(crate::i18n::validation::invalid_json_in_flag(
-                "--relationships-file",
-                &e,
-            ))
-        })?;
-    }
-    if args.graph_stdin {
-        graph = serde_json::from_str::<GraphInput>(&raw_body).map_err(|e| {
-            AppError::Validation(crate::i18n::validation::invalid_json_payload_on_flag(
-                "--graph-stdin",
-                &e,
-            ))
-        })?;
-        raw_body = graph.body.take().unwrap_or_default();
-    }
-    if args.graph_stdin && !graph.entities.is_empty() {
-        entities_provided_externally = true;
-    }
-    // GAP-SG-30: graph from a file, combinable with any body source. Conflicts
-    // with --graph-stdin/--entities-file/--relationships-file (enforced by clap),
-    // so `graph` is still empty here when --graph-file is set.
-    if let Some(ref path) = args.graph_file {
-        let file_size = std::fs::metadata(path).map_err(AppError::Io)?.len();
-        if file_size > MAX_MEMORY_BODY_LEN as u64 {
-            return Err(AppError::BodyTooLarge {
-                bytes: file_size,
-                limit: MAX_MEMORY_BODY_LEN as u64,
-            });
-        }
-        let content = std::fs::read_to_string(path).map_err(AppError::Io)?;
-        let mut gf = serde_json::from_str::<GraphInput>(&content).map_err(|e| {
-            AppError::Validation(crate::i18n::validation::invalid_json_in_flag(
-                "--graph-file",
-                &e,
-            ))
-        })?;
-        graph.entities = gf.entities;
-        graph.relationships = gf.relationships;
-        if !body_explicitly_provided {
-            raw_body = gf.body.take().unwrap_or_default();
-        }
-        if !graph.entities.is_empty() {
-            entities_provided_externally = true;
-        }
-    }
-
-    if graph.entities.len() > max_entities_per_memory() {
-        return Err(AppError::LimitExceeded(errors_msg::entity_limit_exceeded(
-            max_entities_per_memory(),
-        )));
-    }
-    let mut relationships_updated = false;
-    let rel_cap = max_relationships_per_memory();
-    if graph.relationships.len() > rel_cap {
-        tracing::warn!(target: "remember",
-            count = graph.relationships.len(),
-            cap = rel_cap,
-            "truncating relationships to cap"
-        );
-        graph.relationships.truncate(rel_cap);
-        relationships_updated = true;
-    }
-    normalize_and_validate_graph_input(&mut graph)?;
+    let resolved_input = super::input::resolve(&args)?;
+    let mut raw_body = resolved_input.raw_body;
+    let mut graph = resolved_input.graph;
+    let entities_provided_externally = resolved_input.entities_provided_externally;
+    let mut relationships_updated = resolved_input.relationships_updated;
 
     // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings — bytes
     // (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6 — reusing
@@ -351,9 +170,12 @@ pub fn run(
             |r| r.get::<_, i64>(0).map(|v| v > 0),
         )?;
         if !ns_exists && active_count >= MAX_NAMESPACES_ACTIVE {
-            return Err(AppError::NamespaceError(format!(
-                "active namespace limit of {MAX_NAMESPACES_ACTIVE} reached while trying to create '{namespace}'"
-            )));
+            return Err(AppError::NamespaceError(
+                crate::i18n::errors_ops::active_namespace_limit_reached(
+                    MAX_NAMESPACES_ACTIVE,
+                    &namespace,
+                ),
+            ));
         }
     }
 
@@ -394,9 +216,12 @@ pub fn run(
         // UPDATE path (--force-merge) — inherit missing fields from stored row.
         let existing_row = memories::read_by_name(&conn, &namespace, &normalized_name)?
             .ok_or_else(|| {
-                AppError::NotFound(format!(
-                    "memory '{normalized_name}' not found in namespace '{namespace}'"
-                ))
+                AppError::NotFound(
+                    crate::i18n::validation::memory_named_not_found_in_namespace(
+                        &normalized_name,
+                        &namespace,
+                    ),
+                )
             })?;
         let t = args
             .r#type

@@ -4,6 +4,7 @@
 
 use super::args::{EnrichOperation, ReEmbedTarget};
 use super::predicates::{entity_description_scan_predicate, *};
+use super::scan::sql::{limit_clause, limit_param};
 use crate::errors::AppError;
 use rusqlite::Connection;
 
@@ -12,13 +13,14 @@ pub(super) fn scan_entities_for_type_validation(
     namespace: &str,
     limit: Option<usize>,
 ) -> Result<Vec<(i64, String, String)>, AppError> {
-    let limit_clause = limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
+    // GAP-SG-167: the cap is BOUND, never pasted into the SQL text.
+    let limit_sql = limit_clause(2);
     let sql = format!(
-        "SELECT id, name, type FROM entities WHERE namespace = ?1 ORDER BY (id * 2654435761) % 2147483647 {limit_clause}"
+        "SELECT id, name, type FROM entities WHERE namespace = ?1 ORDER BY (id * 2654435761) % 2147483647 {limit_sql}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
-        .query_map(rusqlite::params![namespace], |r| {
+        .query_map(rusqlite::params![namespace, limit_param(limit)], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -31,15 +33,16 @@ pub(super) fn scan_generic_descriptions(
     namespace: &str,
     limit: Option<usize>,
 ) -> Result<Vec<(i64, String, String)>, AppError> {
-    let limit_clause = limit.map(|n| format!("LIMIT {n}")).unwrap_or_default();
+    // GAP-SG-167: the cap is BOUND, never pasted into the SQL text.
+    let limit_sql = limit_clause(2);
     let sql = format!(
         "SELECT id, name, description FROM memories WHERE namespace = ?1 AND deleted_at IS NULL \
          AND {GENERIC_DESCRIPTION_PREDICATE} \
-         ORDER BY (id * 2654435761) % 2147483647 {limit_clause}"
+         ORDER BY (id * 2654435761) % 2147483647 {limit_sql}"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt
-        .query_map(rusqlite::params![namespace], |r| {
+        .query_map(rusqlite::params![namespace, limit_param(limit)], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;

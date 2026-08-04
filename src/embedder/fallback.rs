@@ -184,24 +184,19 @@ impl std::error::Error for FallbackReason {}
 /// [`FallbackReason`] so callers can route to FTS5 + LIKE fallback instead
 /// of returning exit 11 to the user.
 ///
-/// This is the bridge between the hard-fail `embed_query_local` (used by
-/// write paths where embedding failure aborts the operation) and the
-/// graceful-degradation contract of `recall` / `hybrid-search` in v1.0.80.
+/// This is the bridge between the hard-fail write paths (where embedding
+/// failure aborts the operation) and the graceful-degradation contract of
+/// `recall` / `hybrid-search` in v1.0.80.
 pub fn try_embed_query_with_fallback(
     models_dir: &Path,
     query: &str,
 ) -> Result<(Vec<f32>, LlmBackendKind), FallbackReason> {
-    match embed_query_local(models_dir, query) {
-        Ok(v) => Ok((v, LlmBackendKind::None)),
-        Err(e) => Err(classify_embedding_error(e)),
-    }
+    try_embed_query_with_choice(models_dir, query, None)
 }
 
 /// G58 / ADR-0043 (v1.0.85): deterministic fallback for `recall` and
 /// `hybrid-search`.
 ///
-/// - On `OAuthQuota { backend }`, retry once with the alternative backend
-///   (codex ↔ claude) before giving up.
 /// - On `SlotExhausted`, sleep 750ms and retry once (gives the slot
 ///   semaphore time to release a permit from a sibling subprocess).
 /// - On any other `FallbackReason`, return immediately (deterministic).
@@ -212,22 +207,10 @@ pub fn try_embed_query_with_deterministic_fallback(
 ) -> Result<(Vec<f32>, LlmBackendKind), FallbackReason> {
     match try_embed_query_with_choice(models_dir, query, choice) {
         Ok(t) => Ok(t),
-        Err(reason @ FallbackReason::OAuthQuota { backend }) => {
-            let alt = match backend {
-                "codex" => Some(crate::cli::LlmBackendChoice::Claude),
-                "claude" => Some(crate::cli::LlmBackendChoice::Codex),
-                "opencode" => Some(crate::cli::LlmBackendChoice::Codex),
-                "openrouter" => Some(crate::cli::LlmBackendChoice::Codex),
-                _ => None,
-            };
-            if let Some(alt_choice) = alt {
-                try_embed_query_with_choice(models_dir, query, Some(alt_choice))
-            } else {
-                Err(reason)
-            }
-        }
         Err(reason @ FallbackReason::SlotExhausted) => {
-            std::thread::sleep(std::time::Duration::from_millis(750));
+            std::thread::sleep(std::time::Duration::from_millis(
+                crate::constants::EMBED_SLOT_RETRY_DELAY_MS,
+            ));
             try_embed_query_with_choice(models_dir, query, choice).or(Err(reason))
         }
         Err(other) => Err(other),
@@ -260,51 +243,20 @@ pub fn classify_embedding_error(err: AppError) -> FallbackReason {
             // 6-variant enum (they have no lexical marker) so we keep them
             // as explicit guards at the head of the match.
             EmbeddingErrorKind::SlotExhausted => FallbackReason::SlotExhausted,
-            EmbeddingErrorKind::OAuth => {
-                let backend = if msg.contains("codex") {
-                    "codex"
-                } else if msg.contains("claude") || msg.contains("anthropic-ratelimit") {
-                    // G45-CR5: anthropic-ratelimit-* headers are emitted only by
-                    // the Claude CLI subprocess; treat them as claude quota
-                    // signals even when the message text omits the word
-                    // "claude" explicitly.
-                    "claude"
-                } else if msg.contains("opencode") {
-                    "opencode"
-                } else {
-                    "unknown"
-                };
-                FallbackReason::OAuthQuota { backend }
-            }
-            EmbeddingErrorKind::Quota => {
-                let backend = if msg.contains("codex") {
-                    "codex"
-                } else if msg.contains("claude") || msg.contains("anthropic-ratelimit") {
-                    "claude"
-                } else if msg.contains("opencode") {
-                    "opencode"
+            EmbeddingErrorKind::OAuth | EmbeddingErrorKind::Quota => {
+                let backend = if msg.contains("openrouter") {
+                    "openrouter"
                 } else {
                     "unknown"
                 };
                 FallbackReason::OAuthQuota { backend }
             }
             EmbeddingErrorKind::BackendMismatch => {
-                // The `msg.contains("claude")` arm is intentionally
-                // placed BEFORE the OAuth arm so that a backend-mismatch
-                // message that mentions both "claude" and "codex" maps to
-                // BackendMismatch (the more specific failure mode).
-                let (requested, resolved) =
-                    if msg.contains("requested claude") && msg.contains("but codex") {
-                        ("claude", "codex")
-                    } else if msg.contains("requested codex") && msg.contains("but claude") {
-                        ("codex", "claude")
-                    } else if msg.contains("requested claude") {
-                        ("claude", "unknown")
-                    } else if msg.contains("requested codex") {
-                        ("codex", "unknown")
-                    } else {
-                        ("unknown", "unknown")
-                    };
+                let (requested, resolved) = if msg.contains("requested openrouter") {
+                    ("openrouter", "unknown")
+                } else {
+                    ("unknown", "unknown")
+                };
                 FallbackReason::BackendMismatch {
                     requested,
                     resolved,
@@ -323,7 +275,7 @@ pub fn classify_embedding_error(err: AppError) -> FallbackReason {
     }
 }
 // backends before giving up. The chain order matches the user-supplied
-// `--llm-fallback` list (default: codex, claude, none).
+// `--llm-fallback` list (default: none).
 // =============================================================================
 
 /// Tries each LLM backend in `chain` in order, returning the first
@@ -337,9 +289,7 @@ pub fn classify_embedding_error(err: AppError) -> FallbackReason {
 /// a `pending_embeddings` row that can be retried later by the
 /// `embedding retry` subcommand.
 ///
-/// Defaults the chain to `[codex, claude, none]` when `chain` is
-/// empty, matching the v1.0.81 behaviour where codex was the
-/// implicit default and claude was the implicit fallback.
+/// Defaults the chain to `[openrouter, none]` when `chain` is empty.
 pub fn embed_with_fallback(
     models_dir: &Path,
     text: &str,
@@ -348,20 +298,15 @@ pub fn embed_with_fallback(
 ) -> Result<(Vec<f32>, LlmBackendKind), AppError> {
     use crate::llm::exit_code_hints::LlmBackendError;
     let effective: Vec<LlmBackendKind> = if chain.is_empty() {
-        vec![
-            LlmBackendKind::Codex,
-            LlmBackendKind::Claude,
-            LlmBackendKind::Opencode,
-            LlmBackendKind::None,
-        ]
+        vec![LlmBackendKind::OpenRouter, LlmBackendKind::None]
     } else {
         chain.to_vec()
     };
 
     let mut last_err: Option<AppError> = None;
     for backend in &effective {
-        // GAP-E2E-06 / v1.1.8: fail-fast credential/binary probe so Auto
-        // does not burn ~20s on a dead Codex/Claude before FTS fallback.
+        // GAP-E2E-06 / v1.1.8: fail-fast credential probe so a dead
+        // backend does not stall the chain before FTS fallback.
         if let Err(probe_err) = backend_ready_probe(backend) {
             tracing::warn!(
                 target: "embedding",
@@ -372,11 +317,6 @@ pub fn embed_with_fallback(
             last_err = Some(probe_err);
             continue;
         }
-        // BUG-003 / v1.0.85: propagar o backend REAL retornado por
-        // embed_via_backend (que pode diferir do chain position quando
-        // LlmEmbedding::detect_available substitui codex por claude).
-        // O tuple `(_, requested_kind)` é descartado — só queremos o
-        // backend resolvido na primeira posição.
         // ADR-0046 / BUG-11 v1.0.88: use `embed_via_backend_strict` so the
         // sentinel `None` backend propagates the last real error instead
         // of silently degrading to `Ok((Vec::new(), None))`. This is the

@@ -26,7 +26,7 @@ use std::time::Duration;
 const ORPHAN_MIN_AGE_SECS: u64 = 60;
 
 #[cfg(unix)]
-const ORPHAN_SCAN_TARGETS: &[&str] = &["claude", "codex", "sqlite-graphrag"];
+const ORPHAN_SCAN_TARGETS: &[&str] = &["sqlite-graphrag"];
 
 /// Reaper report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,7 +61,6 @@ pub fn scan_and_kill_orphans() -> ReaperReport {
         }
         // G42/S4 (v1.0.79): also remove stale `codex-home-{pid}`
         // isolation directories left behind by crashed invocations.
-        clean_stale_codex_homes();
     }
 
     let max = crate::llm_slots::default_max_concurrency();
@@ -198,57 +197,6 @@ fn check_process_age(pid: i32, min_age_secs: u64) -> bool {
     elapsed >= Duration::from_secs(min_age_secs)
 }
 
-/// G42/S4 (v1.0.79): removes `~/.local/share/sqlite-graphrag/codex-home-{pid}`
-/// directories whose owning PID is no longer alive.
-///
-/// `prepare_isolated_codex_home` creates one directory per process and
-/// never deletes it (deleting on exit would race a concurrent invocation
-/// re-using the same PID number). The reaper is the right owner for the
-/// cleanup: at startup it removes every stale dir in one sweep.
-///
-/// Best-effort and conservative: a dir is removed only when (a) the name
-/// parses as `codex-home-<pid>`, (b) `kill(pid, 0)` reports the process
-/// gone (ESRCH), and (c) the pid is not our own.
-#[cfg(unix)]
-fn clean_stale_codex_homes() {
-    let Ok(home) = std::env::var("HOME") else {
-        return;
-    };
-    let base = std::path::Path::new(&home).join(".local/share/sqlite-graphrag");
-    let Ok(entries) = std::fs::read_dir(&base) else {
-        return;
-    };
-    let mut removed = 0usize;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name_str) = name.to_str() else {
-            continue;
-        };
-        let Some(pid_str) = name_str.strip_prefix("codex-home-") else {
-            continue;
-        };
-        let Ok(pid) = pid_str.parse::<i32>() else {
-            continue;
-        };
-        if pid == std::process::id() as i32 {
-            continue;
-        }
-        // kill(pid, 0): signal 0 performs the permission/existence check
-        // without delivering a signal. ESRCH means the process is gone.
-        let alive = unsafe { libc::kill(pid, 0) } == 0
-            || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH);
-        if alive {
-            continue;
-        }
-        if std::fs::remove_dir_all(entry.path()).is_ok() {
-            removed += 1;
-        }
-    }
-    if removed > 0 {
-        tracing::info!(target: "reaper", removed, "removed stale codex-home isolation dirs");
-    }
-}
-
 #[cfg(unix)]
 fn terminate_pid(pid: i32) -> std::io::Result<()> {
     // SIGTERM first; if the process ignores it for >2s, the caller can
@@ -286,13 +234,6 @@ mod tests {
         // a CLI invocation from killing a concurrent peer that just
         // started 5s ago.
         assert_eq!(ORPHAN_MIN_AGE_SECS, 60);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn orphan_targets_include_claude_and_codex() {
-        assert!(ORPHAN_SCAN_TARGETS.contains(&"claude"));
-        assert!(ORPHAN_SCAN_TARGETS.contains(&"codex"));
     }
 
     #[cfg(unix)]

@@ -222,6 +222,7 @@ fn hybrid_search_response_shape_tem_results() {
         vec_error: None,
         warning: None,
         backend_invoked: None,
+        max_graph_results: None,
         vec_degraded_reason: None,
     };
 

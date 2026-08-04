@@ -7,15 +7,18 @@
   "required": ["memory_id", "name", "action", "version", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "memory_id":  { "type": "integer" },
     "name":       { "type": "string" },
     "action":     { "type": "string", "enum": ["updated"] },
     "version":    { "type": "integer", "minimum": 1 },
     "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding (claude, codex, or none). Omitted when no backend was invoked.",
+      "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding (openrouter or none). Omitted when no backend was invoked.",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     }
   }
 }

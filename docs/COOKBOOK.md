@@ -1,6 +1,6 @@
-# v1.2.1 recipes (enrich CAPA + XDG + dim 1024 + E2E)
+# v1.2.5 recipes (agent-native output surface + enrich CAPA + XDG + dim 1024 + E2E)
 
-> Current crate **1.2.1**, schema **v16** (no main-DB migration; sidecar behaviour only). **DEFAULT_EMBEDDING_DIM=1024**. Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` / 16/16 superseded). Enrich recovery: `--list-skipped` / `--requeue-skipped`. **GAP-SG-139:** `--db` no-op on host/XDG leaves. CAPA: namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue.
+> Current crate **1.2.2**, schema **v16** (no main-DB migration; sidecar behaviour only). **DEFAULT_EMBEDDING_DIM=1024**. Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` / 16/16 superseded). Enrich recovery: `--list-skipped` / `--requeue-skipped`. **GAP-SG-139:** `--db` no-op on host/XDG leaves. CAPA: namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue.
 > Portuguese recipes: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 
 ## How To Re-Embed Entities After Dim Migrate (CORRUPT BLOB / META_AHEAD)
@@ -175,7 +175,8 @@ sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter
 # aliases also accepted: network.chat_url / network.embed_url
 sqlite-graphrag config list --effective --json | jaq '.settings'
 # Secrets: prefer stdin key store
-printf '%s' "$OPENROUTER_API_KEY" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+printf '%s' "$KEY" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# OPENROUTER_API_KEY is not read at runtime — pipe the secret from a file or secret store
 # or per-call: --openrouter-api-key (avoid shell history when possible)
 ```
 
@@ -191,7 +192,7 @@ printf '%s' "$OPENROUTER_API_KEY" | sqlite-graphrag config add-key --provider op
 ### Solution
 ```bash
 # Fail-fast query embed budget (default 3s) + probe
-sqlite-graphrag config set llm.query_embed_timeout_secs 3
+sqlite-graphrag config set llm.probe_timeout_ms 3000
 sqlite-graphrag config set llm.probe_timeout_ms 800
 # Explicit offline path
 sqlite-graphrag recall "auth tests" --k 5 --llm-backend none --json
@@ -199,7 +200,7 @@ sqlite-graphrag hybrid-search "auth tests" --k 5 --llm-backend none --json
 ```
 
 ### Explanation
-- Credential probe + `llm.query_embed_timeout_secs` abort the Auto embed attempt quickly so FTS/hybrid paths stay interactive
+- Credential probe + `llm.probe_timeout_ms` abort the Auto embed attempt quickly so FTS/hybrid paths stay interactive
 
 ## How To purge --now After forget
 
@@ -278,7 +279,7 @@ sqlite-graphrag config list --json
 sqlite-graphrag config list --effective --json
 sqlite-graphrag config doctor --json
 sqlite-graphrag config get network.openrouter.embeddings_url --json
-sqlite-graphrag config unset llm.query_embed_timeout_secs --json
+sqlite-graphrag config unset llm.probe_timeout_ms --json
 ```
 
 ### Explanation
@@ -313,7 +314,7 @@ sqlite-graphrag enrich --operation entity-descriptions \
 
 ### Problem
 - Agent harnesses append `--db <PATH>` to every invocation for isolation
-- Host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) historically rejected unknown `--db` with clap exit 2
+- Host/XDG leaves (`config`, `slots`, `cache`, `completions`) historically rejected unknown `--db` with clap exit 2
 
 ### Solution
 ```bash
@@ -322,7 +323,6 @@ DB=/data/team.sqlite
 # Graph surfaces open the DB as usual
 sqlite-graphrag health --db "$DB" --json
 sqlite-graphrag namespace-detect --db "$DB" --json
-sqlite-graphrag codex-models --db "$DB" --json   # --db is a documented no-op
 
 # Host/XDG leaves accept --db as no-op (GAP-SG-139) — agents may always pass it
 sqlite-graphrag config list --effective --db "$DB" --json
@@ -351,12 +351,12 @@ bash scripts/e2e_offline_v120.sh
 
 ### Explanation
 - Harness isolates XDG (`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / …) and uses `--db` flags only
-- No product `SQLITE_GRAPHRAG_*` exports; no `OPENROUTER_API_KEY` required
+- No product `SQLITE_GRAPHRAG_*` exports; OpenRouter key comes from XDG `config add-key` (OPENROUTER_API_KEY is not read at runtime)
 - Asserts include help contract, dim 1024, list-skipped flags, Auto recall fail-fast, and related v1.2.0 contracts
 
 ---
 
-## Complete CLI command inventory (v1.2.1)
+## Complete CLI command inventory (v1.2.5)
 
 Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`) with a one-line purpose:
 
@@ -391,7 +391,6 @@ Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`
 - `export` — export memories as NDJSON
 - `fts` — FTS5 index management family
 - `vec` — vector table maintenance family
-- `codex-models` — list ChatGPT Pro OAuth accepted models
 - `prune-relations` — bulk-delete all relationships of a given type
 - `prune-ner` — remove NER bindings from `memory_entities`
 - `slots` — host-wide LLM slot semaphore inspection/cleanup
@@ -424,8 +423,24 @@ Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`
 - `cache` — `clear-models`, `list`, `stats`
 - `enrich` inspectors — `--status`, `--list-dead`, `--requeue-dead`, **`--list-skipped`**, **`--requeue-skipped`**, `--prune-dead-orphans`, `--prune-dead-entity-orphans`
 - `enrich` write flags (v1.2.1 CAPA) — `--until-empty` (counts **this op+namespace only**), `--force-redescribe` (reopens `skipped`/`done` once per process; never `dead`), `--operation re-embed --target memories|entities|chunks|all` (BLOB-length eligibility + zombie reconcile), `--namespace` (claim/count/resume scoped)
+- Global output flags added in **v1.2.2** (apply to every subcommand)
+  - `--select <KEYS>` / `--fields` — keep only these keys per result element; dotted paths OK; missing key skipped, never `null`
+  - `--filter <EXPR>` — `key=value`, `key!=value`, `key~substring`; `==` synonym of `=`; repeat to conjoin with AND; malformed exits 2
+  - `--max-items <N>` — cap on emitted elements, applied after filtering; distinct from per-subcommand `--limit` and from `-k`
+  - `--sort <KEY>` — ascending by dotted path; numbers numeric, rest text
+  - `--dedupe-by <KEY>` — drop later elements repeating the value
+  - `--count-only` — payload becomes `{"count": N}`
+  - `--truncate-content <N>` — shorten strings past N characters, never bytes
+  - `--max-output-bytes <N>` — cap the envelope by dropping trailing elements, never by slicing JSON
+  - Failure envelopes (`error: true` / `ok: false`) and `$schema` documents are never reshaped; NDJSON streams bypass the surface
+- Global input flag added in **v1.2.2**
+  - `--no-input` — refuse stdin anywhere in the invocation; every stdin reader fails up front with exit 1; precedence flag > XDG `cli.no_input` > `false`
+- `schema` — machine-readable catalog of all **75** JSON contracts
+  - `schema` — NDJSON listing, one `{"id","invoke"}` per line; `invoke` is the ready-to-copy command
+  - `schema --name <ID>` — emit that contract's JSON Schema document
+  - Unknown `<ID>` exits **4**; `$schema` documents are exempt from the agent-native output surface, so any global flag can be chained safely
 
-> Full nested detail: [HOW_TO_USE.md — Complete CLI command inventory (v1.2.1)](HOW_TO_USE.md#complete-cli-command-inventory-v121). **GAP-SG-139:** host/XDG leaves accept `--db` as no-op. **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` **20/20**. CAPA regressions / queue suite **38** OK — see [gaps.md](../gaps.md).
+> Full nested detail: [HOW_TO_USE.md — Complete CLI command inventory (v1.2.5)](HOW_TO_USE.md#complete-cli-command-inventory-v125). **GAP-SG-139:** host/XDG leaves accept `--db` as no-op. **DEFAULT_EMBEDDING_DIM=1024**. Offline gate: `scripts/e2e_offline_v120.sh` **20/20**. CAPA regressions / queue suite **38** OK — see [gaps.md](../gaps.md).
 
 ---
 
@@ -497,7 +512,7 @@ In strict mode, only `PATH` is preserved. The custom-provider vars stay in the p
 | --- | --- | --- |
 | `exit 11` with `401 Invalid authentication credentials` | v1.0.82 or earlier; env_clear stripped the token | Upgrade to v1.0.83 (`cargo install sqlite-graphrag --version 1.0.83 --force`) |
 | `exit 1` with `OAuth-only mandate violated` | `ANTHROPIC_API_KEY` is set; guard rejects it | Unset `ANTHROPIC_API_KEY`; use `ANTHROPIC_AUTH_TOKEN` instead |
-| Embedding succeeds but `recall` returns nothing | Provider returned different dimensionality than the database | Run `sqlite-graphrag enrich --operation re-embed --target all --limit 100 --mode codex` to refresh embeddings at the active provider's dim (`--target all` since v1.1.01; omit it on older binaries) |
+| Embedding succeeds but `recall` returns nothing | Provider returned different dimensionality than the database | Run `sqlite-graphrag enrich --operation re-embed --target all --limit 100 --mode openrouter --openrouter-model MODEL` to refresh embeddings at the active provider's dim (`--target all` since v1.1.01; omit it on older binaries) |
 | Token appears in stderr logs | (should never happen; audit test enforces) | File a bug with stderr capture; the no-leak test `audit_no_token_leak_in_subprocess_stderr` enforces this invariant |
 
 
@@ -540,7 +555,7 @@ See `docs/decisions/adr-0041-preserve-custom-provider-env.md` for the full archi
 
 
 ## Latency Note — v1.0.76 LLM-Only
-- The CLI is 100% one-shot. Every `remember` / `ingest` / `recall` / `hybrid-search` spawns a headless `claude -p`, `codex exec`, or `opencode run` subprocess (OAuth) for embedding generation
+- The CLI is 100% one-shot. Every `remember` / `ingest` / `recall` / `hybrid-search` issues an OpenRouter REST request for embedding generation
 - There is no daemon, no IPC, no background process
 - Subprocess spawn cost is approximately 1-3 seconds per call
 - Batch pipelines should batch chunks on the LLM side (one prompt with N passages) via `embed_passages_controlled` to amortize spawn cost.
@@ -575,7 +590,7 @@ sqlite-graphrag health --json
 
 
 ### Explanation
-- Command `init` creates the SQLite file and validates that an LLM CLI (`claude`, `codex`, or `opencode`) is reachable on `PATH`. No model download; the LLM subprocess is the model.
+- Command `init` creates the SQLite file. No model download; the remote model is the model.
 - Flag `--namespace default` is a user-chosen name; the built-in fallback namespace is `global`
 - Command `health` validates integrity with `PRAGMA integrity_check` and returns JSON
 - Exit code `0` signals the database is ready for writes and reads from any agent
@@ -592,50 +607,6 @@ sqlite-graphrag health --json
 - Recipe "How to schedule purge and vacuum with cron, systemd.timer, or launchd"
 
 
-## How To Use OpenRouter For Fast Embedding (v1.0.93)
-### Problem
-- Subprocess LLM embedding takes 15-60 seconds per call due to process cold-start
-- Bulk ingest of 100+ documents takes hours with subprocess embedding
-- You want faster embedding without changing your existing database schema
-
-### Solution
-```bash
-# Set your OpenRouter API key
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
-
-# Remember with OpenRouter (best quality: Google Gemini 001)
-sqlite-graphrag --embedding-backend openrouter \
-  --embedding-model "google/gemini-embedding-001" \
-  remember --name my-note --type note \
-  --description "fast embedding via OpenRouter" \
-  --body "content to embed" --json
-
-# Bulk ingest with OpenRouter + auto-enrich
-sqlite-graphrag --embedding-backend openrouter \
-  --embedding-model "qwen/qwen3-embedding-8b" \
-  ingest ./docs --pattern "*.md" --recursive \
-  --enrich-after --llm-backend codex --json
-
-# Free tier: use NVIDIA Nemotron (no cost)
-sqlite-graphrag --embedding-backend openrouter \
-  --embedding-model "nvidia/llama-nemotron-embed-vl-1b-v2:free" \
-  recall "search query" --k 10 --json
-```
-
-### Explanation
-- `--embedding-backend openrouter` selects the REST API path (~200ms vs 15s subprocess)
-- `--embedding-model` is REQUIRED — there is no default model for OpenRouter
-- All 10 verified models produce 384-dim vectors via MRL — zero schema change
-- Top models by recall score: Google Gemini 001 (0.892), Mistral (0.832), Qwen 8B (0.814)
-- Free option: NVIDIA Nemotron produces decent quality (0.662) at zero cost
-- `--enrich-after` on ingest triggers entity extraction after embedding completes
-- OpenRouter config errors return exit code 78 (`EX_CONFIG`)
-
-### See Also
-- Recipe "How to bootstrap memory database in 60 seconds"
-- `docs/decisions/adr-0052-openrouter-embedding-backend.md`
-
-
 ## How To Start And Monitor The Daemon For Lower Latency — REMOVED (v1.0.76+; code deleted in v1.0.79)
 ### Problem (v1.0.74 and earlier)
 - Every `recall` and `remember` call paid a 1-second cold start to load the ONNX embedding model
@@ -643,7 +614,7 @@ sqlite-graphrag --embedding-backend openrouter \
 
 ### Status (v1.0.76+)
 - The `daemon` subcommand and ALL daemon infrastructure were REMOVED from the codebase
-- The CLI is 100% one-shot: every `remember` / `ingest` / `recall` / `hybrid-search` spawns a headless `claude -p` or `codex exec` subprocess for embedding generation
+- The CLI is 100% one-shot: every `remember` / `ingest` / `recall` / `hybrid-search` issues an OpenRouter REST request for embedding generation
 - There is no IPC, no Unix socket, no background process
 - See ADR-0021 for the deprecation rationale and ADR-0019 for the LLM-only architecture
 
@@ -686,7 +657,7 @@ sqlite-graphrag --embedding-backend openrouter \
 
 ## How To Upgrade To v1.1.02 (GLiNER Removal + TooManyTokens Typed + Entity Orphan Prune)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.02; `Cargo.toml` version is `1.1.2`; binary ~19 MiB).
-- BREAKING (Gap 1): `--gliner-variant` is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the `--max-entity-degree` precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`/`claude-code`/`codex`/`opencode`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
+- BREAKING (Gap 1): `--gliner-variant` is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the `--max-entity-degree` precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
 - Gap 2: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
 - Gap 3: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings now backfill reliably.
 - New maintenance flag `enrich --prune-dead-entity-orphans` (ADR-0062): deletes `status='dead' AND item_type='entity'` rows from `.enrich-queue.sqlite`; mutually exclusive with `--prune-dead-orphans`. Run both in sequence for a full orphan sweep after bulk entity renames/merges/purges.
@@ -713,8 +684,8 @@ sqlite-graphrag --embedding-backend openrouter \
 
 ## How To Upgrade To v1.0.94 (Four-Gap Remediation)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force`.
-- BREAKING: every `enrich` invocation now requires `--mode` (`claude-code`|`codex`|`opencode`|`openrouter`). Update scripts to `enrich --operation memory-bindings --mode codex`.
-- The default embedding dimension is **1024** (v1.2.0). Fresh databases use 1024; legacy 64/384-dim databases keep their recorded dim. Re-embed at the active dim with `sqlite-graphrag --llm-backend codex --llm-model gpt-5.4-mini enrich --operation re-embed --limit 100 --resume --mode codex --json`.
+- BREAKING: every `enrich` invocation now requires `--mode`. The only accepted value is `openrouter`. Update scripts to `enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL`.
+- The default embedding dimension is **1024** (v1.2.0). Fresh databases use 1024; legacy 64/384-dim databases keep their recorded dim. Re-embed at the active dim with `sqlite-graphrag --embedding-backend openrouter --embedding-model MODEL enrich --operation re-embed --limit 100 --resume --mode openrouter --openrouter-model MODEL --json`.
 
 ## How To Upgrade From v1.0.74 Or v1.0.75 To v1.0.76 (LLM-Only)
 ### Problem
@@ -740,7 +711,7 @@ sqlite-graphrag migrate --to-llm-only --drop-vec-tables --db /path/to/graphrag.s
   - Applies the V013 migration which drops the three vec tables and creates the BLOB-backed `memory_embeddings` / `entity_embeddings` / `chunk_embeddings` tables
 - `--drop-vec-tables` is the explicit safety guard; without it, `--to-llm-only` refuses to run
 - The CLI is `~14.6 MiB` (down from 39 MB); no ONNX model download; no local fastembed install
-- New `remember` / `edit` / `ingest` calls re-embed the affected memory via `claude code` or `codex` headless subprocess (OAuth)
+- New `remember` / `edit` / `ingest` calls re-embed the affected memory via the OpenRouter REST API
 - See `docs/MIGRATION.md` for the full v1.0.74 → v1.0.76 → v1.1.0 path and `docs/decisions/adr-0019-llm-only-one-shot.md` for the architectural rationale
 
 ### Variants
@@ -1023,93 +994,6 @@ sqlite-graphrag related "$SEED" --hops 2 --json \
 - Recipe "How to combine vector and FTS search with tunable weights"
 - Recipe "How to traverse entity graph for multi-hop recall"
 
-
-## How To Diagnose Pre-flight Validation Failures (v1.0.87+, ADR-0045)
-
-### Problem
-- `remember`, `ingest --mode claude-code`, `ingest --mode codex`, or any LLM-spawning subcommand fails immediately with exit code 16
-- The error happens BEFORE the LLM subprocess starts, so no OAuth tokens are consumed
-- You need to know which of the 7 guards rejected the spawn so you can fix the configuration
-
-### Solution
-- The preflight validation layer (ADR-0045, GAP-META-005) gates every LLM subprocess spawn
-- The error envelope on stderr is structured: `{error: true, code: 16, message: "...", error_class: "permanent", retryable: false, variant: "<PreFlightError variant>"}`
-- Eight variants are exposed: `ArgvExceedsArgMax`, `BinaryNotFound`, `McpConfigInlineJsonRejected`, `McpConfigPathMissing`, `McpConfigPathInvalidJson`, `WalkUpMcpJsonInvalid`, `OutputBufferTooSmall`, `ClaudeConfigDirNotEmpty`
-- The 7 guards run in this order: `check_argv_size`, `check_binary_exists`, `check_mcp_config_inline`, `check_mcp_config_path`, `check_walkup_mcp_json`, `check_output_buffer`, `check_claude_config_dir`
-- Bypass in emergencies: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` disables all 7 guards. Bypassing reverts to direct `Command::spawn()` and inherits all 5 BUG classes from GAP-META-005
-
-### Recipe — Diagnose and fix each variant
-
-```bash
-# Variant: ArgvExceedsArgMax (Bug 3 of GAP-META-005)
-# Symptom: body > ARG_MAX minus 4 KB fails with E2BIG post-fork
-# Fix: split memory body into smaller chunks; use --max-body-bytes N
-sqlite-graphrag remember --name "large-mem" --body "$(cat big.txt)" 2>&1 | jaq '.variant'
-# Expected: "ArgvExceedsArgMax" with total_bytes and arg_max details
-# Fix: sqlite-graphrag edit --name "large-mem" --body-file chunk1.txt
-
-# Variant: BinaryNotFound
-# Symptom: claude, codex, or opencode not on PATH
-sqlite-graphrag remember --name "test" --body "x" 2>&1 | jaq '.variant, .path'
-# Expected: "BinaryNotFound" with path to missing binary
-# Fix: export PATH="/path/to/claude:$PATH"
-
-# Variant: McpConfigInlineJsonRejected (Bug 2)
-# Symptom: --mcp-config '{}' literal rejected by Claude Code 2.1.177
-# The preflight auto-substitutes a tempfile holding {"mcpServers":{}}, so this variant
-# only triggers if the tempfile write itself fails. Check /tmp write permissions.
-
-# Variant: McpConfigPathMissing or McpConfigPathInvalidJson
-# Symptom: --mcp-config points at nonexistent or malformed file
-sqlite-graphrag remember --name "test" --body "x" --claude-mcp-config /bad/path.json 2>&1 | jaq '.variant'
-# Fix: ensure the file exists and parses as valid JSON
-
-# Variant: WalkUpMcpJsonInvalid (Bug 5)
-# Symptom: an ancestor directory contains a syntactically invalid .mcp.json
-# Or a syntactically valid one with non-empty mcpServers object
-sqlite-graphrag remember --name "test" --body "x" 2>&1 | jaq '.variant, .path'
-# Fix: remove or fix the offending .mcp.json file in the ancestor chain
-# Or: sqlite-graphrag init --workspace /tmp/clean-dir && cd /tmp/clean-dir
-
-# Variant: OutputBufferTooSmall (Bug 4)
-# Symptom: downstream JSON parser truncated at 65.536 chars
-# Fix: preflight auto-doubles the buffer capacity above 64 KB
-# This variant triggers only if buffer allocation fails (memory pressure)
-
-# Variant: ClaudeConfigDirNotEmpty
-# Symptom: CLAUDE_CONFIG_DIR points at a populated directory
-sqlite-graphrag remember --name "test" --body "x" 2>&1 | jaq '.variant, .path'
-# Fix: export CLAUDE_CONFIG_DIR=/tmp/empty-dir/ (the dir must exist but be empty)
-# Or: sqlite-graphrag --strict-env-clear remember --name "test" --body "x"
-```
-
-### Recipe — Bypass in emergencies
-
-```bash
-# When preflight fails in a CI environment and you need to proceed immediately
-SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 sqlite-graphrag remember --name "test" --body "x"
-# Warning: bypassing re-enables all 5 BUG classes from GAP-META-005:
-#   - E2BIG on large argv (Bug 3)
-#   - Invalid MCP configuration from Claude Code 2.1.177 (Bug 2)
-#   - Truncated JSON output at 65.536 chars (Bug 4)
-#   - .mcp.json walk-up failures (Bug 5)
-#   - Silent entities:0 extraction in ingest (Bug 1)
-
-# Recommended pattern: detect exit 16, fix the variant, retry
-out=$(sqlite-graphrag remember --name "test" --body "x" 2>&1) || {
-    exit_code=$?
-    if [ $exit_code -eq 16 ]; then
-        variant=$(echo "$out" | jaq -r '.variant')
-        echo "Preflight failed: $variant" >&2
-        # Apply fix per variant...
-    fi
-}
-```
-
-### Cross-references
-- `docs/HEADLESS_INVOCATION.md` — preflight layer in headless contexts
-- `docs/SECURITY.md` — preflight as defense-in-depth before OAuth
-- `docs/decisions/adr-0045-preflight-validation-layer.md` (en + pt-BR) — full architectural decision
 
 ## How To Use Schema Drift Recovery (v1.0.89+, GAP-E2E-007, ADR-0048)
 
@@ -1943,7 +1827,7 @@ async fn retrieve_relevant_context(
 ```
 
 ### Explanation
-- sqlite-graphrag stores embeddings via the LLM subprocess (claude or codex) independently of any other LLM provider
+- sqlite-graphrag stores embeddings via the OpenRouter REST API independently of any other LLM provider
 - Switching from OpenAI to Mistral via `genai` does not invalidate existing memory entries
 - `hybrid-search` combines vector similarity and FTS giving richer context than vector alone
 - Formatting turns as `[role] content` preserves conversation structure in the memory body
@@ -2486,104 +2370,30 @@ sqlite-graphrag merge-entities --names "jwt-authentication,jwt-tokens" --into jw
 - The target entity must already exist (exit 4 if not found)
 - Use `memory-entities --entity jwt-auth --json` afterwards to verify the consolidated bindings
 
-## How To Ingest Documents With LLM-Curated Entities (v1.0.62)
+## How To Ingest Documents And Then Extract The Graph
 ### Problem
 - Default `ingest` creates body-only memories with zero entities and zero relationships
 - The GLiNER-era NER (≤ v1.0.75) produced noisy entities (ALL_CAPS generics, stop words) and low-quality `mentions` relationships; clean-up of that legacy is still relevant on old databases
 - Manual `remember --graph-stdin` per file is time-consuming for large document sets
 ### Solution
-```bash
-sqlite-graphrag ingest ./docs --mode claude-code --recursive --json
-```
-### Explanation
-- `--mode claude-code` spawns `claude -p` headless for each file with `--json-schema` for guaranteed structured output
-- Extracts domain-specific entities (concepts, tools, decisions) and typed relationships with strength scores
-- Entity types and relationship types are constrained to canonical enums — impossible to generate noise
-- Requires Claude Code >= 2.1.0 installed locally with active Pro/Max subscription
-- Resume interrupted ingestion with `--resume`; retry failures with `--retry-failed`
-- Set `--max-cost-usd 5.00` to limit spend; track cost per file in NDJSON output
-- --claude-timeout <S> sets per-file subprocess timeout (default 300s) to prevent hung processes
-
-### Recipe: Preview Claude Code Ingest with Dry Run
-### Problem
-- You want to see which files will be processed and what names will be derived before spending LLM tokens
-### Solution
-```bash
-sqlite-graphrag ingest ./docs --mode claude-code --dry-run --json
-```
-### Explanation
-- `--dry-run` with `--mode claude-code` emits preview events without spawning any Claude processes
-- Each file shows its derived kebab-case name in the NDJSON output with `status: "preview"`
-- Zero tokens consumed, zero API calls made
-- Verify file-to-name mapping before committing to a full extraction run
-
-### Recipe: Resume Interrupted Claude Code Ingest
-### Problem
-- A large ingest was interrupted (network failure, budget exceeded, manual abort) and you want to continue from where it stopped
-### Solution
-```bash
-sqlite-graphrag ingest ./docs --mode claude-code --resume --keep-queue --json
-```
-### Explanation
-- `--resume` resets files stuck in `processing` status back to `pending` for re-extraction
-- Files already marked `done` in the queue DB are skipped — zero duplicate work
-- `--keep-queue` retains the queue DB for inspection or further retries
-- Combine with `--max-cost-usd` to set incremental budget caps across multiple resume runs
-
-### Recipe: Retry Only Failed Files from Claude Code Ingest
-### Problem
-- Some files failed during extraction (rate limits, malformed content, timeouts) and you want to retry only those failures
-### Solution
-```bash
-sqlite-graphrag ingest ./docs --mode claude-code --retry-failed --claude-timeout 600 --json
-```
-### Explanation
-- `--retry-failed` resets only `failed` files to `pending`, skipping all `done` files
-- `--claude-timeout 600` increases per-file timeout to 10 minutes for large documents that timed out
-- Previously successful files are untouched — no duplicate token spend
-- Combine with `--keep-queue` to preserve queue for further inspection
-
-## How To Ingest Documents With OpenAI Codex CLI (v1.0.62)
-
-### Problem
-- You want LLM-curated entity and relationship extraction during bulk ingestion
-- You have an OpenAI API key and Codex CLI installed instead of Claude Code
-- You want vendor choice between Anthropic and OpenAI for extraction workloads
-
-### Solution
-- Use `ingest --mode codex` to spawn `codex exec --json` per file with structured output
-- Codex CLI extracts domain-specific entities and typed relationships from each document
-- Full embedding pipeline ensures memories are searchable via `recall` and `hybrid-search`
-
+- Ingestion and extraction are two SEPARATE invocations. `ingest --mode none` writes bodies and embeddings; a distinct `enrich` pass extracts the graph
+- Never chain them with `&&` — wait for exit 0 from the write before starting the enrich
 ### Recipe
-
-<!-- skip-test -->
 ```bash
-sqlite-graphrag ingest ./docs --mode codex --recursive --json
+# Step 1 — bodies + embeddings
+sqlite-graphrag ingest ./docs --mode none --recursive --pattern "*.md" \
+  --type document --json
+
+# Step 2 — graph extraction, SEPARATE process, only after step 1 exits 0
+sqlite-graphrag enrich --operation memory-bindings \
+  --mode openrouter --openrouter-model MODEL \
+  --until-empty --max-runtime 3600 --rest-concurrency 8 --json
 ```
-
-### Variations
-- Use `--codex-model gpt-5.5` to select the extraction model (accepted: codex-auto-review, gpt-5.3-codex-spark, gpt-5.4, gpt-5.4-mini, gpt-5.5)
-- Use `--codex-binary /usr/local/bin/codex` to specify binary path
-- Use `--codex-timeout 600` to increase per-file timeout from default 300s
-- Use `--dry-run` to preview file-to-name mapping without spawning Codex
-- Use `--resume` to continue interrupted ingest from queue DB
-- Use `--max-cost-usd 5.00` to cap cumulative extraction cost (token-based estimation)
-- Set `SQLITE_GRAPHRAG_CODEX_BINARY` env var to override PATH lookup permanently
-
-### Notes
-- Requires Codex CLI 0.130.0+ installed locally with active OpenAI API key
-- Codex reports token usage (input_tokens, output_tokens) instead of cost_usd
-- Uses same NDJSON output format as `--mode claude-code` (PhaseEvent, FileEvent, Summary)
-- Queue DB `.ingest-queue.sqlite` enables resume/retry across sessions
-- Subprocess runs with `env_clear()` + selective injection for security hardening
-
-> **Authentication:** OAuth is the ONLY accepted credential flow. API keys are PROHIBITED.
-> `--mode claude-code` reads OAuth from `~/.claude/.credentials.json` (Claude Pro/Max/Team).
-> `--mode codex` reads device auth from `codex login` (OpenAI ChatGPT).
-> Defining `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment ABORTS the spawn with `AppError::Validation` and exit code 1. The `--bare` flag (which would also demand an API key) is REMOVED from all executable code paths.
-> See `docs/decisions/adr-0011-oauth-only-enforcement.md` for the full rationale.
-
+### Explanation
+- `ingest --mode` accepts only `none`; the LLM-curated modes were removed and clap rejects them with exit 2
+- The queue flags that belonged to those modes (`--resume`, `--retry-failed`, `--keep-queue`) no longer exist
+- `enrich` keeps its own sidecar queue, so `--until-empty` converges without an external retry loop
+- Monitor with `enrich --status --json` until `scan_backlog`, `queue_pending` and `eligible_now` all reach 0
 
 ## How To Reclassify Relationship Types In Bulk (v1.0.65)
 
@@ -2639,8 +2449,8 @@ sqlite-graphrag normalize-entities --yes --json
 
 ### Solution
 ```bash
-sqlite-graphrag enrich --operation memory-bindings --mode claude-code --limit 50 --dry-run --json
-sqlite-graphrag enrich --operation memory-bindings --mode claude-code --limit 50 --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --limit 50 --dry-run --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --limit 50 --json
 ```
 
 ### Explanation
@@ -2651,14 +2461,13 @@ sqlite-graphrag enrich --operation memory-bindings --mode claude-code --limit 50
 - Output is NDJSON: phase events, per-item events, and summary line
 
 ### Variants
-- Generate entity descriptions: `sqlite-graphrag enrich --operation entity-descriptions --mode claude-code --limit 100 --json`
-- Expand short memory bodies: `sqlite-graphrag enrich --operation body-enrich --mode claude-code --limit 20 --json`
-- Resume after interruption: `sqlite-graphrag enrich --operation memory-bindings --mode claude-code --resume --json`
-- Use Codex instead of Claude: `sqlite-graphrag enrich --operation memory-bindings --mode codex --limit 50 --json`
-- Enrich via OpenRouter REST without a local CLI: `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model <model> --json` — `--openrouter-model` is required (no default; absence exits 1 before any network call) and the key comes from `OPENROUTER_API_KEY`; the JUDGE runs over `/chat/completions` with strict `json_schema`, and `--openrouter-timeout` defaults to 300s (`--openrouter-base-url` optional)
+- Generate entity descriptions: `sqlite-graphrag enrich --operation entity-descriptions --mode openrouter --openrouter-model MODEL --limit 100 --json`
+- Expand short memory bodies: `sqlite-graphrag enrich --operation body-enrich --mode openrouter --openrouter-model MODEL --limit 20 --json`
+- Resume after interruption: `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --resume --json`
+- Enrich via OpenRouter REST without a local CLI: `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model <model> --json` — `--openrouter-model` is required (no default; absence exits 1 before any network call) and the key comes from `config add-key` (OPENROUTER_API_KEY is not read at runtime); the JUDGE runs over `/chat/completions` with strict `json_schema`, and `--openrouter-timeout` defaults to 300s (`--openrouter-base-url` optional)
 - Drain the backlog until it converges (v1.0.96, no external loop): `sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --until-empty --rest-concurrency 8 --json` — `--until-empty` scans and drains until no eligible items remain or `--max-runtime` (default 3600s) expires; the dead-letter queue (`error_class`/`next_retry_at`, terminal `dead` after `--max-attempts`, default 8) guarantees the live set strictly decreases
 - Inspect the queue without running the LLM (v1.0.96): `sqlite-graphrag enrich --status --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro --json` — read-only counts (`unbound_backlog`, per-operation `scan_backlog`, `queue_pending/done/failed/dead/skipped`, `eligible_now`, `waiting`); never spawns the LLM and never acquires the singleton, so it is safe to poll mid-drain. `scan_backlog` (GAP-SG-77, v1.1.0) is the real per-operation database backlog a scan would enqueue — it kills the false `pending=0` for `entity-descriptions`/`body-enrich`/`re-embed`, and `state` derives `pending-scan` from it; since v1.1.01, `re-embed` reports `scan_backlog` per `--target` (memories/entities/chunks)
-- Run with parallel LLM workers: `sqlite-graphrag enrich --operation entity-descriptions --mode claude-code --llm-parallelism 4 --json`
+- Run with parallel LLM workers: `sqlite-graphrag enrich --operation entity-descriptions --mode openrouter --openrouter-model MODEL --llm-parallelism 4 --json`
 
 
 ## How To Clean Orphan Dead-Letter Rows (v1.0.97)
@@ -2773,33 +2582,6 @@ sqlite-graphrag completions fish > ~/.config/fish/completions/sqlite-graphrag.fi
 - Recipe "How to integrate sqlite-graphrag with Claude Code subprocess loop"
 
 
-## How To Cap Process Proliferation On Claude Code Enrichment (G28, v1.0.68)
-### Problem
-- Running `sqlite-graphrag enrich --mode claude-code --llm-parallelism 4` on a workstation with 10+ MCP servers configured typically spawns 4 × 4 workers × 10 MCPs = 160+ child processes, which on a 10-CPU host can saturate load average to 27× the CPU count (real incident: 2026-06-03).
-- Two parallel `enrich` invocations on the same database compound the problem and may also deadlock on the SQLite single-writer contention.
-
-### Solution
-```bash
-# Step 1: create an empty config directory once (idempotent)
-mkdir -p /tmp/claude-empty-config
-
-# Step 2: point the CLI at it (env var, opt-in)
-export SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR=/tmp/claude-empty-config
-
-# Step 3: run enrichment with conservative parallelism
-sqlite-graphrag enrich --operation body-enrich --mode claude-code \
-  --llm-parallelism 4 --limit 50 --json
-
-# Step 4: a second concurrent invocation against the same DB will fail fast:
-sqlite-graphrag enrich --operation memory-bindings --mode claude-code --json
-# → exit 75, error: "job enrich for namespace 'global' is already running"
-```
-
-### Explanation
-- `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` is honored by `claude_runner::build_claude_command` in v1.0.68.  The subprocess is spawned with `CLAUDE_CONFIG_DIR=<that dir>`, which is the only mechanism upstream Claude Code actually honours (see [anthropics/claude-code#10787]).  We deliberately do NOT pass `--strict-mcp-config` or `mcp-config` because both are ignored.
-- `enrich` (and `ingest --mode claude-code|codex`) acquire a per-namespace singleton in v1.0.68.  The second concurrent invocation receives `AppError::JobSingletonLocked` (exit 75) instead of stacking.
-- A `tracing::warn!` is emitted when `--llm-parallelism > 4` recommending the combination with the env-var override to keep the host responsive.
-
 ## How To Survive Shutdown Signals During Long Embedding Jobs (v1.0.80, ADR-0034)
 
 ### Problem
@@ -2832,8 +2614,8 @@ setsid -w timeout 600 \
 
 ### Explanation
 
-- **Layer 1 (PATH)** routes any spawned `claude -p` or
-  `codex exec` through the deterministic mock-llm binary
+- **Layer 1 (PATH)** routes any spawned helper through the
+  deterministic mock binary
   committed at `tests/mock-llm/`. The real LLM subprocess is
   bypassed; SIGINT cannot kill a subprocess that does not exist.
   This is the cheapest layer and the right default for CI.
@@ -2921,8 +2703,7 @@ sqlite-graphrag remember --wait-embed-singleton 30 --graph-stdin < payload.json
   embedding instantaneous, so the singleton only adds poll
   latency without benefit.
 - For high-throughput ingest pipelines: do NOT increase
-  `--llm-parallelism` above 4 in Claude mode without setting
-  `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` (G28-A). The
+  `--llm-parallelism` above 4. The
   cross-process singleton does NOT replace the G28-A MCP
   isolation guidance; both apply.
 
@@ -2994,11 +2775,10 @@ sqlite-graphrag --lang pt read --name memoria-fantasma --json
 
 ### Variants
 - For low-RAM containers (≤ 4 GB): add `SQLITE_GRAPHRAG_LOW_MEMORY=1` and `--llm-parallelism 1`.
-- For CI runners: set the env var via the workflow YAML and pass `--max-rss-mb 2048` to `ingest --mode claude-code` to abort early on memory pressure.
+- For CI runners: set the env var via the workflow YAML and pass `--max-rss-mb 2048` to `ingest --mode openrouter --openrouter-model MODEL` to abort early on memory pressure.
 
 ### See Also
 - Recipe "How to integrate sqlite-graphrag with Claude Code subprocess loop"
-- docs/HOW_TO_USE.md → "Capping process proliferation on Claude Code runs (G28, v1.0.68)"
 
 
 ## Recipes added in v1.0.82
@@ -3011,23 +2791,10 @@ sqlite-graphrag remember --name v1-0-82-release --type decision \
 
 # Stage 2: SIGTERM during LLM embed subprocess -> row stays queued
 # Stage 3: re-spawn the embed subprocess manually
-sqlite-graphrag pending list --filter-status queued --json | jaq '.pending[] | .id'
+sqlite-graphrag pending list --status pending --json | jaq '.pending[] | .id'
 
 # Cleanup terminal-state rows periodically
 sqlite-graphrag pending cleanup --filter-status done --yes --json
-```
-### Recipe — codex OAuth 401 Mitigation (GAP-005, ADR-0040)
-```bash
-# After upgrading to v1.0.82, refresh the OAuth token once
-codex login
-
-# Configure fallback chain so a refresh_token_reused 401 routes to claude
-sqlite-graphrag remember --name auth-design --type decision \
-  --body "OAuth 401 mitigation pattern with backend chain" \
-  --llm-backend codex,claude --json
-
-# Inspect any rows that exhausted all backends
-sqlite-graphrag pending-embeddings list --filter-status failed --json
 ```
 ### Recipe — Cross-Process Slot Observability (GAP-004, ADR-0039)
 ```bash
@@ -3052,13 +2819,13 @@ sqlite-graphrag remember --name foo --type note --body "..." --json
 ```
 ### Recipe — Custom Backend Chain (GAP-003, ADR-0038)
 ```bash
-# Force claude only (no fallback)
+# Explicit OpenRouter backend (the default)
 sqlite-graphrag remember --name a --type note --body "..." \
-  --llm-backend claude --json
+  --llm-backend openrouter --json
 
-# Allow null embedding when both fail
+# Allow a null embedding when the backend fails
 sqlite-graphrag remember --name b --type note --body "..." \
-  --llm-backend codex,claude,none --skip-embedding-on-failure --json
+  --llm-backend none --skip-embedding-on-failure --json
 
 # Health check after batch
 sqlite-graphrag health --json | jaq '.counts'
@@ -3068,20 +2835,21 @@ sqlite-graphrag health --json | jaq '.counts'
 
 ### Problem
 
-Embedding via subprocess LLM (codex/claude/opencode) takes 15-60 seconds per
-call due to cold-start overhead. Bulk ingest of 100 files may take 25+ minutes.
-The subprocess model is also fragile under SIGTERM and requires OAuth sessions.
+Embedding via a spawned local CLI used to take 15-60 seconds per call due to
+cold-start overhead; bulk ingest of 100 files could take 25+ minutes, and the
+subprocess model was fragile under SIGTERM.
 
 ### Solution
 
 Use `--embedding-backend openrouter` with a dedicated embedding model to call
-the OpenRouter REST API directly (~200ms per call). No subprocess, no OAuth,
-no cold-start. Export `OPENROUTER_API_KEY` and pass `--embedding-model`.
+the OpenRouter REST API directly (~200ms per call). No subprocess, no
+cold-start. Store the key with `config add-key` and pass `--embedding-model`.
 
 ### Setup
 
 ```bash
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+printf "%s" "sk-or-v1-your-key-here" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# OPENROUTER_API_KEY is not read at runtime (G-T-XDG-04)
 ```
 
 ### Remember with OpenRouter
@@ -3137,11 +2905,10 @@ Switching models mid-project requires re-embedding existing memories.
 
 ### Variants
 
-- `--embedding-backend auto` — uses OpenRouter if `OPENROUTER_API_KEY` is
-  set, otherwise falls back to the subprocess LLM chain.
-- `--embedding-backend llm` — forces subprocess LLM (codex/claude), ignores
-  any OpenRouter key present in the environment.
-- Passing `--openrouter-api-key` inline overrides `OPENROUTER_API_KEY`.
+- `--embedding-backend auto` — uses OpenRouter when a client is initialised,
+  otherwise degrades to the `none` backend.
+- `--embedding-backend openrouter` — requires a key; exit 78 when absent.
+- Passing `--openrouter-api-key` inline overrides the XDG-stored key (OPENROUTER_API_KEY is not read at runtime).
 
 ### See Also
 
@@ -3299,7 +3066,7 @@ sqlite-graphrag split-body --name huge-import-log --json
 sqlite-graphrag split-body --batch --threshold 25000 --json
 
 # Daughters are NOT embedded inline — re-embed them so they become searchable
-mkdir -p /tmp/graphrag-empty-config && SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/graphrag-empty-config timeout 600 sqlite-graphrag \
+timeout 600 sqlite-graphrag \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
   enrich --operation re-embed --target memories \
   --mode openrouter --openrouter-model deepseek/deepseek-v4-flash:nitro \
@@ -3319,7 +3086,7 @@ sqlite-graphrag remember --name probe --type note --description d --body "x" \
   --gliner-variant small --json
 # expected: clap exit 2, error "unexpected argument '--gliner-variant'"
 ```
-- The `IngestMode` enum in v1.1.02 exposes only `none`, `claude-code`, `codex`, `opencode` — `gliner` is gone
+- The `IngestMode` enum in v1.1.02 exposes only `none` — `gliner` is gone
 - The env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` are silently ignored (no error, no warning)
 
 ### Recipe — Sweep Both Memory-Keyed And Entity-Keyed Dead-Letter Orphans

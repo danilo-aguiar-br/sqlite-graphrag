@@ -1,4 +1,6 @@
+use super::fts::preprocess_fts_query;
 use super::*;
+use rusqlite::params;
 use rusqlite::Connection;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;

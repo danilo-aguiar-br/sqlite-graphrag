@@ -1,6 +1,7 @@
 //! Extracted `heavy_concurrency_tests` (Wave C1).
 
 use super::*;
+use clap::Parser;
 
 #[test]
 fn command_heavy_detects_init_and_embeddings() {

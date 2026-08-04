@@ -60,6 +60,11 @@ fn cmd(temp: &TempDir) -> Command {
     // for every `remember` / `ingest` / `edit`; without the mock in
     // PATH the spawn calls the real CLI on the host which fails.
     c.env("PATH", common::prepend_path(&mock_dir));
+    // Offline OpenRouter stub: `env_clear` leaves HOME as the only config
+    // channel, so the sandbox config lands under $HOME/.config.
+    common::write_sandbox_config(&temp.path().join(".config").join("sqlite-graphrag"), None);
+    c.arg("--embedding-model")
+        .arg(common::openrouter_mock::STUB_MODEL);
     c
 }
 

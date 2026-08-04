@@ -16,6 +16,14 @@ use crate::storage::{entities, memories};
 use std::collections::HashSet;
 use std::sync::Arc;
 
+/// Vetores por sub-consulta, se houve degradação, e o código da PRIMEIRA delas.
+///
+/// O terceiro elemento entrou na v1.2.5 junto com a ligação de
+/// `--fail-on-degraded`: [`crate::query_embedding::degradation_failure`] deriva a
+/// classe do erro do CÓDIGO e nunca da prosa, e até então este caminho logava o
+/// código e o descartava. Sem ele nenhum chamador conseguia honrar esse contrato.
+pub(super) type SubEmbeddings = (Vec<Option<Arc<Vec<f32>>>>, bool, Option<&'static str>);
+
 /// GAP-001 (v1.1.04): computes per-sub-query embeddings OUTSIDE the tokio
 /// runtime. `try_embed_query_with_embedding_choice` (OpenRouter path) calls
 /// `shared_runtime()?.block_on(...)` internally; running it inside the
@@ -29,13 +37,19 @@ pub(super) fn compute_sub_embeddings(
     sub_query_texts: &[String],
     embedding_backend: crate::cli::EmbeddingBackendChoice,
     llm_backend: crate::cli::LlmBackendChoice,
-) -> (Vec<Option<Arc<Vec<f32>>>>, bool) {
+) -> SubEmbeddings {
     output::emit_progress_i18n(
         "Computing per-sub-query embeddings...",
         "Calculando embeddings por sub-consulta...",
     );
     let mut sub_embeddings: Vec<Option<Arc<Vec<f32>>>> = Vec::with_capacity(sub_query_texts.len());
     let mut vec_degraded = false;
+    // O código da PRIMEIRA degradação, guardado para `--fail-on-degraded`. Antes o
+    // `reason_code` só era logado e descartado, então nenhum chamador conseguia
+    // classificar a falha pelo código em vez da prosa — que é o que
+    // `degradation_failure` exige. Primeira e não última: uma sub-consulta que
+    // falhou por timeout não deve ser reclassificada por outra que falhou depois.
+    let mut first_reason_code: Option<&'static str> = None;
     for sq_text in sub_query_texts {
         match crate::embedder::try_embed_query_with_embedding_choice(
             &paths.models,
@@ -45,13 +59,15 @@ pub(super) fn compute_sub_embeddings(
         ) {
             Ok((v, _backend)) => sub_embeddings.push(Some(Arc::new(v))),
             Err(reason) => {
-                tracing::warn!(target: "deep_research", fallback_reason = %reason, reason_code = %reason.reason_code(), "embedding failed for sub-query; falling back to FTS5");
+                let code = reason.reason_code();
+                tracing::warn!(target: "deep_research", fallback_reason = %reason, reason_code = %code, "embedding failed for sub-query; falling back to FTS5");
                 sub_embeddings.push(None);
                 vec_degraded = true;
+                first_reason_code.get_or_insert(code);
             }
         }
     }
-    (sub_embeddings, vec_degraded)
+    (sub_embeddings, vec_degraded, first_reason_code)
 }
 
 /// Build the sub-query plan from CLI strategy (heuristic or manual file).

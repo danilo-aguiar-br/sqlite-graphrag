@@ -7,6 +7,8 @@
   "required": ["entity_name", "memories", "count", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "entity_name": { "type": "string", "description": "Name of the entity whose bound memories are listed." },
     "memories": {
       "type": "array",

@@ -1,3 +1,46 @@
+## v1.2.2 — Coverage Update (agent-native output surface)
+
+- Current product docs target **crate 1.2.2**, schema **v16** (no main-DB migration; purely additive CLI surface).
+- **v1.2.2 themes (must appear in README, HOW_TO, AGENTS, COOKBOOK, MIGRATION, HEADLESS, TESTING, INTEGRATIONS, SECURITY, llms, skills, FRAMEWORK):**
+  1. Eight global output flags — `--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
+  2. Fixed pipeline order — filter → sort → dedupe → max-items → select → count-only → truncate-content → max-output-bytes
+  3. `--filter` grammar `key=value` / `key!=value` / `key~substring`; `==` synonym of `=`; repeat conjoins with AND; malformed exits **2**
+  4. `--max-items` bounds emission only — distinct from per-subcommand `--limit` and from `-k`
+  5. **Failure envelopes are never filtered** — `error: true` / `ok: false` always reaches the caller
+  6. `$schema` documents pass through untouched; NDJSON streams bypass the surface
+  7. Truncation is never silent — recorded under `agent_surface`, raises top-level `truncated`
+  8. `--no-input` — declarative stdin refusal, **exit 1** up front; precedence flag > XDG `cli.no_input` > `false`
+  9. Caps precedence — flag > XDG `agent_surface.*` > `0` (disabled); no envelope change when no flag is set
+- Full CLI inventory stamped **v1.2.2** in operator-facing monographs (HOW_TO, HEADLESS, COOKBOOK, AGENTS). Anchors renamed to `#complete-cli-command-inventory-v122` / `#inventário-completo-de-comandos-cli-v122`; all six referrers updated in the same pass (`AGENTS`, `COOKBOOK`, `CROSS_PLATFORM`, `HEADLESS_INVOCATION` EN + the two PT referrers).
+- Offline gate remains `scripts/e2e_offline_v120.sh` **20/20**.
+- Machine contracts: no schema field change; `$schema` documents are explicitly exempt from reshaping.
+- See [CHANGELOG.md](../CHANGELOG.md) `[1.2.2]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+
+| Document | EN Coverage | PT-BR Coverage | Drift |
+|---|---|---|---|
+| `README.md` / `README.pt-BR.md` | v1.2.2 (surface table + `--no-input` + offline examples) | v1.2.2 (espelhado; PT gained the previously missing v1.0.82/v1.0.85 global-flags table) | Current→1.2.2 |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.2 (owned by the release track) | v1.2.2 (must include `[1.2.2]`) | Current→1.2.2 |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.2 banner + pin | v1.2.2 (espelhado) | Current→1.2.2 |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.2 notes | espelhado | Current→1.2.2 |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 release log retained (historical) | espelhado | Historical entries only |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.2 surface block + inventory | v1.2.2 (espelhado) | Current→1.2.2 |
+| `llms-full.txt` | v1.2.2 patch notes | N/A | Current→1.2.2 |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.2 REQUIRED block + context-economy example + `--no-input` | v1.2.2 (espelhado) | Current→1.2.2 |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Current→1.2.2 |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Current→1.2.2 |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.1→1.2.2 additive upgrade | v1.2.2 (espelhado) | Current→1.2.2 |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.2 surface invariants + `--no-fail-fast` rationale + Windows GNU type-check | v1.2.2 (espelhado) | Current→1.2.2 |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.2 title | v1.2.2 (espelhado) | Current→1.2.2 |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.2 inventory + pin | v1.2.2 (espelhado) | Current→1.2.2 |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.1 gate rows retained (historical) | espelhado | Historical entries only |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.2 (EN-canonical meta-doc; surface matrix) | N/A (historical exception — no mandatory PT pair) | Current→1.2.2 |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.2 surface + `--no-input` in Global Flags | v1.2.2 (espelhado) | Current→1.2.2 |
+| `docs/schemas/` | 100% + v1.2.2 note (no schema field change; `$schema` exempt from reshaping) | N/A (bilingual inline README) | Current→1.2.2 |
+
+- Historical seal note for **crate 1.2.1** (superseded by the v1.2.2 surface above): schema **v16** (no main-DB migration).
+
+> **Historical matrix (crate 1.2.1 CAPA seal — superseded by the v1.2.2 matrix at the top of this file).** Drift column is **not** Current.
+
 ## v1.2.1 — Coverage Update (enrich CAPA seal)
 
 - Current product docs target **crate 1.2.1**, schema **v16** (no main-DB migration; sidecar queue behaviour only).
@@ -18,24 +61,24 @@
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.2.1 (CAPA + dim 1024 + e2e_v120) | v1.2.1 (espelhado) | Current→1.2.1 |
-| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.1 (100%) | v1.2.1 (must include `[1.2.1]`) | Current→1.2.1 |
-| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.1 CAPA themes | v1.2.1 (espelhado) | Current→1.2.1 |
-| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + CAPA note | espelhado | Current→1.2.1 |
-| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 hermetic + queue 38 | v1.2.1 (espelhado) | Current→1.2.1 |
-| `llms.txt` / `llms.pt-BR.txt` | v1.2.1 CAPA + inventory | v1.2.1 (espelhado) | Current→1.2.1 |
-| `llms-full.txt` | v1.2.1 patch notes | N/A | Current→1.2.1 |
-| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.1 CAPA REQUIRED block | v1.2.1 (espelhado) | Current→1.2.1 |
-| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.1 re-embed / force-redescribe / until-empty recipes | v1.2.1 (espelhado) | Current→1.2.1 |
-| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.1 CAPA + full CLI inventory | v1.2.1 (espelhado) | Current→1.2.1 |
-| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.0→1.2.1 sidecar-only upgrade | v1.2.1 (espelhado) | Current→1.2.1 |
-| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.1 CAPA regressions + queue 38 | v1.2.1 (espelhado) | Current→1.2.1 |
-| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.1 operator notes | v1.2.1 (espelhado) | Current→1.2.1 |
-| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.1 CAPA for agents + inventory | v1.2.1 (espelhado) | Current→1.2.1 |
-| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.1 CAPA gate rows | v1.2.1 (espelhado) | Current→1.2.1 |
-| `DOCUMENTATION_FRAMEWORK.md` | v1.2.1 (EN-canonical meta-doc; CAPA matrix) | N/A (historical exception — no mandatory PT pair) | Current→1.2.1 |
-| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.1 CAPA + full CLI | v1.2.1 (espelhado) | Current→1.2.1 |
-| `docs/schemas/` (70+ schemas) | 100% + v1.2.1 note (enrich-status/summary **unchanged**; CAPA sidecar-only) | N/A (bilingual inline README) | Current→1.2.1 |
+| `README.md` / `README.pt-BR.md` | v1.2.1 (CAPA + dim 1024 + e2e_v120) | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.1 (100%) | v1.2.1 (must include `[1.2.1]`) | Historical (superseded by 1.2.2) |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.1 CAPA themes | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + CAPA note | espelhado | Historical (superseded by 1.2.2) |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 hermetic + queue 38 | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.1 CAPA + inventory | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `llms-full.txt` | v1.2.1 patch notes | N/A | Historical (superseded by 1.2.2) |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.1 CAPA REQUIRED block | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.1 re-embed / force-redescribe / until-empty recipes | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.1 CAPA + full CLI inventory | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.0→1.2.1 sidecar-only upgrade | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.1 CAPA regressions + queue 38 | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.1 operator notes | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.1 CAPA for agents + inventory | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.1 CAPA gate rows | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.1 (EN-canonical meta-doc; CAPA matrix) | N/A (historical exception — no mandatory PT pair) | Historical (superseded by 1.2.2) |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.1 CAPA + full CLI | v1.2.1 (espelhado) | Historical (superseded by 1.2.2) |
+| `docs/schemas/` (70+ schemas) | 100% + v1.2.1 note (enrich-status/summary **unchanged**; CAPA sidecar-only) | N/A (bilingual inline README) | Historical (superseded by 1.2.2) |
 
 ## v1.2.0 — Coverage Update (XDG + dim 1024 + E2E seal)
 
@@ -105,7 +148,7 @@ This section updates the framework to cover the documentation generated for the 
 - No default model — user MUST specify `--embedding-model` when using `--embedding-backend openrouter`
 - New ADR: ADR-0052 (openrouter-embedding-backend) — EN + PT-BR
 - New test plan section in `TEST_PLAN.md` and `TEST_PLAN.pt-BR.md` covering layers 1/2/7/8
-- New env var: `OPENROUTER_API_KEY`
+`config add-key --provider openrouter` (OPENROUTER_API_KEY is not read at runtime)
 - New env var: `SQLITE_GRAPHRAG_EMBEDDING_BACKEND`
 - Documented in: ALL 12 root .md files, ALL 24 docs/ .md files, 7 schema JSON files, `docs/schemas/README.md`, `docs/decisions/INDEX.md`
 
@@ -116,7 +159,7 @@ This section updates the framework to cover the documentation generated for the 
 
 ### v1.0.95 — OpenRouter Chat Enrich (ADR-0054, GAP-OR-ENRICH)
 - New `enrich --mode openrouter` routes the enrich JUDGE to the OpenRouter REST `/chat/completions` endpoint; structured extraction (memory-bindings, entity-descriptions, body-enrich) no longer requires a local claude/codex/opencode CLI.
-- New flags: `--openrouter-model` (REQUIRED, no default, exit 1 when absent), `--openrouter-api-key` (env `OPENROUTER_API_KEY`), `--openrouter-timeout` (default 300), `--openrouter-base-url` (optional).
+- New flags: `--openrouter-model` (REQUIRED, no default, exit 1 when absent), `--openrouter-api-key` (XDG via `config add-key` (OPENROUTER_API_KEY is not read at runtime)), `--openrouter-timeout` (default 300), `--openrouter-base-url` (optional).
 - New module `src/chat_api.rs` (`OpenRouterChatClient`) mirrors `src/embedding_api.rs`; the SCAN->JUDGE->PERSIST pipeline is unchanged — only the JUDGE transport moves.
 - Structured Outputs strict mode plus `provider.require_parameters`; `reasoning.enabled:false` with a reasoning-mandatory fallback path.
 - `usage.cost` is read from the response; 13/13 OpenRouter text models compatible (9 with `reasoning.enabled:false`, 4 via the reasoning-mandatory fallback).
@@ -277,7 +320,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - CADA arquivo `.md` na raiz DEVE ter seu par `.pt-BR.md` espelhado
 - CADA arquivo `.md` na pasta `docs/` DEVE ter seu par `.pt-BR.md` espelhado
 - CADA arquivo `.txt` de LLM DEVE ter seu par `.pt-BR.txt` espelhado
-- CADA pasta em `skill/` DEVE ter variante `-en` e variante `-pt`
+- CADA pasta em `skills/` DEVE ter variante `-en` e variante `-pt`
 - NUNCA publique arquivo de documentação sem seu par bilíngue
 - NUNCA misture idiomas dentro do mesmo arquivo
 - NUNCA traduza automaticamente sem revisão humana
@@ -298,7 +341,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - NUNCA use `NOME-pt.md` sem o `-BR` completo
 
 
-## Camada 1 — Pasta Raiz (18 arquivos MD + 2 pares de templates + 3 licenças + 4 configs)
+## Camada 1 — Pasta Raiz (13 arquivos MD + 3 arquivos llms.txt + 2 pares de templates + 3 licenças + 4 configs)
 
 ### OBRIGATÓRIO — Inventário Completo da Raiz — Documentação Bilíngue
 - `README.md` + `README.pt-BR.md` — Porta de entrada do projeto
@@ -433,7 +476,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - VERSÃO única em inglês — documento técnico interno
 
 
-## Camada 2 — Pasta docs/ (14 arquivos MD + subpasta schemas/)
+## Camada 2 — Pasta docs/ (17 arquivos MD + subpasta schemas/ + subpasta decisions/)
 
 ### OBRIGATÓRIO — Inventário Completo da Pasta docs/
 - `docs/AGENTS.md` + `docs/AGENTS.pt-BR.md` — Guia completo para integração com agentes de IA
@@ -614,11 +657,11 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - ENTREGA: qualquer parser ou agente VALIDA output do CLI programaticamente
 
 
-## Camada 3 — Pasta skill/ (2 pastas, 2 arquivos SKILL.md)
+## Camada 3 — Pasta skills/ (2 pastas, 2 arquivos SKILL.md)
 
-### OBRIGATÓRIO — Inventário Completo da Pasta skill/
-- `skill/<nome-projeto>-en/SKILL.md` — Skill de instrução para agentes de IA em inglês
-- `skill/<nome-projeto>-pt/SKILL.md` — Skill de instrução para agentes de IA em português
+### OBRIGATÓRIO — Inventário Completo da Pasta skills/
+- `skills/<nome-projeto>-en/SKILL.md` — Skill de instrução para agentes de IA em inglês
+- `skills/<nome-projeto>-pt/SKILL.md` — Skill de instrução para agentes de IA em português
 
 ### OBRIGATÓRIO — Estrutura de Diretório da Skill
 - CADA idioma em pasta separada com sufixo `-en` ou `-pt`
@@ -762,25 +805,31 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - CORREÇÃO aplicada no projeto modelo antes do v1.0.68 — ver `gaps.md` entrada de resolução v1.0.68
 
 
-## Camada Auxiliar — CI/CD Workflows (.github/workflows/)
+## Camada Auxiliar — Portões Locais (sem CI/CD)
 
-### OBRIGATÓRIO — Inventário de Workflows
-- `.github/workflows/ci.yml` — Pipeline de validação em push e PR
-- `.github/workflows/release.yml` — Pipeline de build e publicação em tags `v*`
-- NUNCA publique release sem workflow de CI passando
-- NUNCA publique sem workflow de release automatizado
+### PROIBIDO — CI/CD e Workflows
+- PROIBIDO `.github/workflows/` neste projeto
+- PROIBIDO `ci.yml`, `release.yml` ou qualquer GitHub Action
+- PROIBIDO pipeline de publicação automática em `crates.io` ou em release do GitHub
+- PROIBIDO condicionar entrega a um portão remoto que este projeto não executa
+- Até a v1.2.4 esta seção exigia `ci.yml` e `release.yml` como OBRIGATÓRIOS, contradizendo a política do produto; `.github/` sempre conteve apenas `ISSUE_TEMPLATE/` e `PULL_REQUEST_TEMPLATE.md`, nunca um workflow
 
-### OBRIGATÓRIO — ci.yml
-- DEVE executar: fmt, clippy, test, doc, audit, deny em matrix multi-OS
-- DEVE incluir job `msrv` para validar MSRV declarado
-- DEVE incluir job `language-check` para auditoria de idioma no código
-- DEVE incluir job `commit-check` para bloquear Co-authored-by de agentes
+### OBRIGATÓRIO — `cargo test` como Único Portão Automático
+- DEVE tratar `cargo test --all-features` como o portão de release
+- DEVE rodar sem `--no-fail-fast` ao menos uma vez: o primeiro binário que sai anormalmente impede todos os seguintes, e foi assim que a v1.2.4 lançou com 61 de 87 suítes nunca executadas (GAP-SG-175, reincidente em GAP-SG-189)
+- DEVE rodar `cargo test --all-features --no-fail-fast` para a contagem completa de asserções
+- DEVE rodar `cargo clippy --all-targets --all-features -- -D warnings`
+- DEVE rodar `cargo test --doc` porque doctests só executam por último e a cascata os torna inalcançáveis
+- DEVE registrar contagem de binários, de asserções e o exit code no bloco de versão do `CHANGELOG`
 
-### OBRIGATÓRIO — release.yml
-- DEVE triggerar em tags `v*`
-- DEVE incluir: validate, build-matrix, publish-github-release, publish-crates-io
-- DEVE gerar binários para: linux-gnu, linux-musl, macos-arm64, macos-x86, windows-msvc
-- DEVE gerar SHA256SUMS.txt para verificação de integridade
+### OBRIGATÓRIO — Portões de Documentação em `tests/`
+- `tests/docs_consistency.rs` — impede `gaps.md` e `CHANGELOG` de divergirem
+- `tests/docs_xdg_coverage.rs` — impede o par README de divergir de `src/config/registry.rs`, nas duas direções: chave não documentada e chave documentada que o binário rejeita
+- `tests/docs_env_channel_guard.rs` — impede que a documentação ensine env de produto
+- `tests/readme_examples_executable.rs` — executa todo bloco bash do par README
+- `tests/cookbook_recipes.rs` — executa as receitas do COOKBOOK
+- `tests/binary_size_documented_regression.rs` — impede alegação de tamanho de binário divergente do real
+- DEVE criar um portão novo sempre que um documento passar a afirmar um fato mecanicamente verificável
 
 
 ## Camada Auxiliar — Pastas de Suporte
@@ -851,10 +900,10 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - [x] docs/TESTING.md + docs/TESTING.pt-BR.md criados com estratégia de testes
 - [x] docs/schemas/README.md criado bilíngue inline com índice de schemas
 - [x] docs/schemas/*.schema.json criados para cada subcomando com saída JSON
-- [x] skill/<projeto>-en/SKILL.md criado com referência operacional completa
-- [x] skill/<projeto>-pt/SKILL.md criado espelhando versão EN
-- [x] .github/workflows/ci.yml criado com pipeline de validação multi-OS
-- [x] .github/workflows/release.yml criado com pipeline de publicação em tags
+- [x] skills/<projeto>-en/SKILL.md criado com referência operacional completa
+- [x] skills/<projeto>-pt/SKILL.md criado espelhando versão EN
+- [~] .github/workflows/ci.yml RETIRADO — item legado, nunca existiu neste projeto
+- [~] .github/workflows/release.yml RETIRADO — item legado, nunca existiu neste projeto
 - [x] .github/ISSUE_TEMPLATE/ criado com templates de bug e feature request
 - [x] .github/PULL_REQUEST_TEMPLATE.md criado com checklist de validação
 - [x] TODOS os cross-references entre idiomas verificados em TODOS os pares
@@ -863,7 +912,10 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 
 ### OBRIGATÓRIO — Quando o Checklist Está 100% Concluído
 - MARQUE cada item como `[x]` no checklist acima
+- MARQUE com `[~]` o item RETIRADO por contradizer a política do produto
 - A remoção de qualquer item só é permitida quando ele vira legado documentado em `gaps.md`
+- GAP-SG-206 — os dois itens de `.github/workflows/` estavam marcados `[x]` afirmando pipelines criados, enquanto a seção "PROIBIDO" deste mesmo arquivo os proíbe; a contradição sobreviveu ao GAP-SG-197, que corrigiu só metade do documento
+- `tests/no_ci_workflows_gate.rs` passou a segurar as duas pontas — o diretório e o texto
 - Projetos que herdam o template DEVEM copiar o checklist já marcado como ponto de partida
 - ADICIONE novos itens quando o framework ganhar regras; nunca remova itens marcados como concluídos
 
@@ -879,7 +931,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - [ ] docs/schemas/*.schema.json atualizados se houver mudanças de output JSON
 - [ ] docs/schemas/README.md atualizado se houver novos schemas
 - [ ] docs/decisions/adr-NNNN-*.md criado para cada decisão arquitetural nova
-- [ ] skill/*/SKILL.md atualizados se houver mudanças operacionais
+- [ ] skills/*/SKILL.md atualizados se houver mudanças operacionais
 - [ ] llms.txt + llms.pt-BR.txt atualizados se houver mudanças na proposta de valor
 - [ ] llms-full.txt atualizado para refletir estado atual completo
 - [ ] gaps.md atualizado com nova rodada de acceptance testing
@@ -906,7 +958,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - docs/MIGRATION.md: 250-300 linhas
 - docs/TESTING.md: 220-240 linhas
 - docs/schemas/README.md: 120-130 linhas
-- skill/*/SKILL.md: 800-850 linhas
+- skills/*/SKILL.md: 800-850 linhas
 
 ### Referência de Contagem de Schemas
 - UM schema `.json` por subcomando que emite JSON no stdout

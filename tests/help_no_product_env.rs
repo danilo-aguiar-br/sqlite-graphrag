@@ -21,6 +21,16 @@ fn assert_clean_help(label: &str, text: &str) {
         !text.contains("Boxed to keep"),
         "{label}: help still leaks clippy Box about:\n{text}"
     );
+    // v1.2.0 removed every headless-subprocess backend, but the `enrich`
+    // examples kept `--mode codex --codex-model gpt-5.4-mini` as their FIRST
+    // entry until v1.2.5 — an operator who copied it got a clap parse error,
+    // because `EnrichMode` only ever accepts `openrouter`.
+    for dead in ["codex", "claude-code", "opencode"] {
+        assert!(
+            !text.contains(dead),
+            "{label}: help advertises `{dead}`, a backend the product removed:\n{text}"
+        );
+    }
 }
 
 #[test]

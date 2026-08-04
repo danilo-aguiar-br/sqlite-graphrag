@@ -7,10 +7,13 @@
   "required": ["db_path", "schema_version", "model", "dim", "namespace", "status", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "db_path":        { "type": "string", "description": "Resolved path to the SQLite database file for this invocation." },
     "schema_version": { "type": ["integer", "string"], "description": "SQLite PRAGMA user_version after migration. Emitted as string by binary." },
-    "model":          { "type": "string", "description": "Embedding model name downloaded or reused." },
-    "dim":            { "type": "integer", "description": "Embedding vector dimension (default 64 since v1.0.79; e.g. 384 on pre-v1.0.79 databases)." },
+    "model":          { "type": "string", "description": "Embedding model bound to this invocation, resolved as --embedding-model > XDG embedding.model > \"none\". Carried the CLI version until v1.2.4." },
+    "dim":            { "type": "integer", "description": "Embedding vector dimension (default 1024 since v1.2.0; smaller values appear on databases created by earlier releases)." },
     "namespace":      { "type": "string", "description": "Active namespace resolved at init time." },
     "status":         { "type": "string", "enum": ["created", "already_exists", "ok"], "description": "Whether the database was newly created or already existed." },
     "elapsed_ms":     { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }

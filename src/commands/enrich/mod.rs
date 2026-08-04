@@ -12,14 +12,15 @@
 //! - `body-enrich`: memories with short bodies get expanded by the LLM (GAP-18)
 //! - `re-embed`: memories without a vector row get re-embedded without rewriting body
 //!
-//! Architecture mirrors `ingest_claude.rs`: SCAN → JUDGE (LLM) → PERSIST, with a
-//! SQLite queue DB derived next to `--db` (GAP-SG-64) for resume/retry support.
-// Workload: Subprocess I/O-bound (claude/codex API calls with network wait)
+//! Architecture is SCAN → JUDGE (LLM) → PERSIST, with a SQLite queue DB derived
+//! next to `--db` (GAP-SG-64) for resume/retry support. The shape was inherited
+//! from the retired `ingest_claude.rs`, which v1.2.0 deleted along with every
+//! headless-subprocess frontend.
+// Workload: network-bound. JUDGE issues OpenRouter chat-completions requests
+// over HTTP in-process; `--rest-concurrency` is the only fan-out knob.
 //!
 //! # DRY note
 //!
-//! v1.0.97: `claude_runner.rs` now hosts the shared Claude invocation helpers
-//! (`run_claude`, `parse_claude_output`, `spawn_with_memory_limit`).
 //! GAP-SG-121: enrich vs ingest queue table shapes are different products
 //! (item_key/operation vs file_path); only sidecar WAL/busy pragmas are shared
 //! via [`crate::pragmas::apply_sidecar_queue_pragmas`].
@@ -37,6 +38,7 @@ mod prompts;
 mod quality_sample;
 mod queue;
 mod queue_ops;
+mod reembed;
 mod run;
 mod scan;
 mod scan_ec;
@@ -47,6 +49,25 @@ mod status;
 pub(crate) const DEFAULT_RATE_LIMIT_WAIT: u64 = 60;
 pub(crate) const DEFAULT_BODY_ENRICH_MIN_CHARS: usize = 500;
 pub(crate) const DEFAULT_BODY_ENRICH_MAX_CHARS: usize = 2000;
+
+// GAP-SG-149: single source of truth for the enrich knobs that both the clap
+// surface (`default_value_t`) and the synthesized `EnrichArgs` of
+// `ingest --enrich-after` must agree on. Before this, `enrich_after.rs`
+// carried its own literals and two of them DIVERGED from the documented
+// default, so the auto-pass silently ran under a different contract than the
+// one `enrich --help` advertises.
+/// Attempts before a queue row is dead-lettered.
+pub(crate) const DEFAULT_ENRICH_MAX_ATTEMPTS: u32 = 8;
+/// Seconds after which a `processing` claim is considered abandoned.
+pub(crate) const DEFAULT_ENRICH_STALE_CLAIM_SECS: u64 = 1800;
+/// Seconds of headroom kept below a provider rate-limit reset.
+pub(crate) const DEFAULT_ENRICH_RATE_LIMIT_BUFFER_SECS: u64 = 300;
+/// Consecutive hard failures that trip the circuit breaker.
+pub(crate) const DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD: u32 = 5;
+/// Minimum similarity for an enriched body to be accepted as preserving.
+pub(crate) const DEFAULT_ENRICH_PRESERVE_THRESHOLD: f64 = 0.7;
+/// Minimum grounding score for a generated entity description.
+pub(crate) const DEFAULT_ENRICH_GROUNDING_THRESHOLD: f64 = 0.12;
 
 pub use args::{EnrichArgs, EnrichMode, EnrichOperation, ReEmbedTarget};
 pub use queue::{cleanup_queue_entry, DeadItem, DeadSummary, EnrichStatus, WaitingItem};

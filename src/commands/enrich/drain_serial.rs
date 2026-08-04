@@ -10,14 +10,16 @@ use super::events::*;
 use super::extraction::{
     call_body_enrich, call_body_extract, call_deep_research_synth, call_description_enrich,
     call_domain_classify, call_entity_connect, call_entity_description, call_entity_type_validate,
-    call_graph_audit, call_memory_bindings, call_reembed, call_relation_reclassify,
-    call_weight_calibrate, take_last_openrouter_failure, EnrichItemResult,
+    call_graph_audit, call_memory_bindings, call_relation_reclassify, call_weight_calibrate,
+    take_last_openrouter_failure, EnrichItemResult,
 };
 use super::prompts;
 use super::queue::{
-    dequeue_next_pending, heartbeat, item_type_for, record_item_failure, record_item_failure_typed,
-    requeue_wrong_op, skip_wrong_type, validate_claim, ClaimCheck, DequeueOutcome,
+    dequeue_next_pending, heartbeat, item_type_for, mark_done, mark_skipped, record_item_failure,
+    record_item_failure_typed, requeue_rate_limited, requeue_wrong_op, skip_wrong_type,
+    validate_claim, ClaimCheck, DequeueOutcome,
 };
+use super::reembed::{run_reembed_cycle, ReembedCycle, ReembedCycleCtx, ReembedTally};
 use super::scheduler;
 use super::DEFAULT_RATE_LIMIT_WAIT;
 use crate::errors::AppError;
@@ -68,6 +70,45 @@ pub(crate) fn drain_serial(
             if !oauth_detected && cost_total >= budget {
                 tracing::warn!(target: "enrich", spent = cost_total, budget, "budget exceeded, stopping");
                 break;
+            }
+        }
+
+        // GAP-SG-141 (B1): `re-embed` is the only operation whose handler can
+        // serve N items with ONE remote call, so it claims a whole batch and
+        // bypasses the one-row-per-call body below. The other 13 operations are
+        // chat-backed and have no batch handler — they fall through unchanged.
+        if matches!(args.operation(), EnrichOperation::ReEmbed) {
+            let ctx = ReembedCycleCtx {
+                main_conn: conn,
+                queue_conn,
+                namespace,
+                op_label,
+                backoff_clause,
+                paths,
+                llm_backend,
+                embedding_backend,
+                max_attempts: args.max_attempts,
+                total,
+                stdout_mu: None,
+            };
+            let mut tally = ReembedTally {
+                completed,
+                failed,
+                skipped,
+            };
+            let cycle = run_reembed_cycle(&ctx, &mut tally, None);
+            completed = tally.completed;
+            failed = tally.failed;
+            skipped = tally.skipped;
+            match cycle {
+                ReembedCycle::Progressed => continue,
+                ReembedCycle::Empty | ReembedCycle::BreakerOpen => break,
+                ReembedCycle::DbBusy => {
+                    return Err(AppError::DbBusy(
+                        "SQLITE_BUSY exhausted bounded retries while claiming a re-embed batch"
+                            .into(),
+                    ))
+                }
             }
         }
 
@@ -175,14 +216,11 @@ pub(crate) fn drain_serial(
                 llm_backend,
                 embedding_backend,
             ),
-            EnrichOperation::ReEmbed => call_reembed(
-                conn,
-                namespace,
-                &item_key,
-                paths,
-                llm_backend,
-                embedding_backend,
-            ),
+            // GAP-SG-141 (B1): handled by the batched cycle above; the arm
+            // stays so the match remains exhaustive.
+            EnrichOperation::ReEmbed => Ok(EnrichItemResult::Skipped {
+                reason: "re-embed is served by the batched claim path".to_string(),
+            }),
             EnrichOperation::WeightCalibrate => call_weight_calibrate(
                 conn,
                 namespace,
@@ -309,20 +347,18 @@ pub(crate) fn drain_serial(
                     }
                 };
 
-                if let Err(e) = queue_conn.execute(
-        "UPDATE queue SET status='done', memory_id=?1, entity_id=?2, entities=?3, rels=?4, cost_usd=?5, elapsed_ms=?6, done_at=datetime('now') WHERE id=?7",
-        rusqlite::params![
-            memory_id,
-            entity_id,
-            entities as i64,
-            rels as i64,
-            cost,
-            item_started.elapsed().as_millis() as i64,
-            queue_id
-        ],
-    ) {
-            tracing::warn!(target: "enrich", error = %e, "queue done update failed");
-        }
+                if let Err(e) = mark_done(
+                    queue_conn,
+                    queue_id,
+                    memory_id,
+                    entity_id,
+                    entities,
+                    rels,
+                    cost,
+                    item_started.elapsed().as_millis() as i64,
+                ) {
+                    tracing::warn!(target: "enrich", error = %e, "queue done update failed");
+                }
 
                 if persist_err.is_none() {
                     completed += 1;
@@ -391,12 +427,9 @@ pub(crate) fn drain_serial(
             }
             Ok(EnrichItemResult::Skipped { reason }) => {
                 skipped += 1;
-                if let Err(e) = queue_conn.execute(
-        "UPDATE queue SET status='skipped', error=?1, done_at=datetime('now') WHERE id=?2",
-        rusqlite::params![reason, queue_id],
-    ) {
-            tracing::warn!(target: "enrich", error = %e, "queue skipped update failed");
-        }
+                if let Err(e) = mark_skipped(queue_conn, queue_id, &reason) {
+                    tracing::warn!(target: "enrich", error = %e, "queue skipped update failed");
+                }
                 emit_json(&ItemEvent {
                     item: &item_key,
                     status: "skipped",
@@ -429,12 +462,9 @@ pub(crate) fn drain_serial(
                 let reason = format!(
             "preservation_failed: jaccard={score:.3} threshold={threshold:.3} (orig={chars_before} chars, new={chars_after} chars)"
         );
-                if let Err(qe) = queue_conn.execute(
-            "UPDATE queue SET status='skipped', error=?1, done_at=datetime('now') WHERE id=?2",
-            rusqlite::params![reason, queue_id],
-        ) {
-            tracing::warn!(target: "enrich", error = %qe, "queue preservation_failed update failed");
-        }
+                if let Err(qe) = mark_skipped(queue_conn, queue_id, &reason) {
+                    tracing::warn!(target: "enrich", error = %qe, "queue preservation_failed update failed");
+                }
                 emit_json(&ItemEvent {
                     item: &item_key,
                     status: "preservation_failed",
@@ -463,10 +493,7 @@ pub(crate) fn drain_serial(
                         let jitter = if half == 0 { 0 } else { fastrand::u64(0..half) };
                         let actual_wait = half + jitter;
                         tracing::warn!(target: "enrich", delay_secs = actual_wait, error_kind = "rate_limited", "rate limited, backing off");
-                        if let Err(qe) = queue_conn.execute(
-                            "UPDATE queue SET status='pending' WHERE id=?1",
-                            rusqlite::params![queue_id],
-                        ) {
+                        if let Err(qe) = requeue_rate_limited(queue_conn, queue_id) {
                             tracing::warn!(target: "enrich", error = %qe, "queue pending update failed");
                         }
                         std::thread::sleep(std::time::Duration::from_secs(actual_wait));

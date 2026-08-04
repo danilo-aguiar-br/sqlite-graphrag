@@ -28,13 +28,12 @@ fn openrouter_mode_requires_model_flag() {
         .stderr(contains("openrouter-model"));
 }
 
-/// Cross-provider flags (`--claude-binary`, etc.) are rejected when
-/// `--mode openrouter` is selected. The G20 conflict check runs at the very
-/// top of `run()` — before the model/API-key checks — so passing a model is
-/// not required to trigger it, and the result is deterministic regardless of
-/// environment.
+/// The cross-provider flags were REMOVED with the subprocess backends, so the
+/// rejection moved one layer earlier: clap now refuses the unknown argument
+/// with exit 2 instead of the G20 conflict check returning exit 1. The input
+/// under test is unchanged and it still must not be accepted.
 #[test]
-fn openrouter_mode_rejects_crossed_claude_flag() {
+fn openrouter_mode_rejects_removed_claude_flag() {
     Command::cargo_bin("sqlite-graphrag")
         .expect("binary builds")
         .args([
@@ -50,14 +49,13 @@ fn openrouter_mode_rejects_crossed_claude_flag() {
         ])
         .assert()
         .failure()
-        .code(1)
-        .stderr(contains("claude-binary"))
-        .stderr(contains("openrouter"));
+        .code(2)
+        .stderr(contains("claude-binary"));
 }
 
-/// A codex flag crossed into `--mode openrouter` is likewise rejected.
+/// A removed codex flag is likewise refused by clap with exit 2.
 #[test]
-fn openrouter_mode_rejects_crossed_codex_flag() {
+fn openrouter_mode_rejects_removed_codex_flag() {
     Command::cargo_bin("sqlite-graphrag")
         .expect("binary builds")
         .args([
@@ -73,6 +71,6 @@ fn openrouter_mode_rejects_crossed_codex_flag() {
         ])
         .assert()
         .failure()
-        .code(1)
+        .code(2)
         .stderr(contains("codex-model"));
 }

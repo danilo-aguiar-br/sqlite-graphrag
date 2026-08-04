@@ -4,9 +4,12 @@
   "title": "RecallResponse",
   "description": "Response emitted by `sqlite-graphrag recall` on stdout as a single JSON line. backend_invoked and vec_degraded_reason added in v1.0.84 by ADR-0042.",
   "$defs": {
+    "RecallItemRequired": {
+      "description": "GAP-SG-142: the full row contract, applied only when no `agent_surface` record is present. Projection under `--select`/`--fields` legitimately removes members from every row.",
+      "required": ["memory_id", "name", "namespace", "type", "description", "snippet", "distance", "score", "source"]
+    },
     "RecallItem": {
       "type": "object",
-      "required": ["memory_id", "name", "namespace", "type", "description", "snippet", "distance", "score", "source"],
       "additionalProperties": false,
       "properties": {
         "memory_id":   { "type": "integer" },
@@ -23,9 +26,12 @@
     }
   },
   "type": "object",
-  "required": ["query", "k", "direct_matches", "graph_matches", "results", "elapsed_ms"],
+  "required": ["query", "k", "results", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "query":          { "type": "string" },
     "k":              { "type": "integer", "minimum": 1 },
     "direct_matches": { "type": "array", "items": { "$ref": "#/$defs/RecallItem" } },
@@ -33,14 +39,28 @@
     "results":        { "type": "array", "items": { "$ref": "#/$defs/RecallItem" }, "description": "Aggregate alias of direct_matches + graph_matches." },
     "elapsed_ms":     { "type": "integer", "minimum": 0 },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding for this query (claude, codex, or none). Omitted when embedding was skipped or the response fell back fully to graph.",
+      "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding for this query (openrouter or none). Omitted when embedding was skipped or the response fell back fully to graph.",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     },
     "vec_degraded_reason": {
       "description": "v1.0.84 (ADR-0042) / v1.0.85 (ADR-0043): structured reason why live embedding degraded. Seven-variant enum discriminates embedding_failed, slot_exhausted (GAP-003), oauth_quota (G58, G45-CR5), backend_mismatch, dim_zero, cancelled, timeout. Omitted when live embedding succeeded. Null when no degradation path was triggered.",
       "type": ["string", "null"],
       "enum": ["embedding_failed", "slot_exhausted", "oauth_quota", "backend_mismatch", "dim_zero", "cancelled", "timeout", null]
     }
-}
+},
+  "allOf": [
+    {
+      "description": "GAP-SG-142: `direct_matches` and `graph_matches` are the two halves `results` concatenates. The agent-native surface reshapes `results` and drops both, recording them under `agent_surface.aliases_removed`, so they are required only for an unshaped envelope. The per-row `required` list is guarded the same way because `--select`/`--fields` projects rows down to the requested keys.",
+      "if": { "not": { "required": ["agent_surface"] } },
+      "then": {
+        "required": ["direct_matches", "graph_matches"],
+        "properties": {
+          "direct_matches": { "items": { "$ref": "#/$defs/RecallItemRequired" } },
+          "graph_matches":  { "items": { "$ref": "#/$defs/RecallItemRequired" } },
+          "results":        { "items": { "$ref": "#/$defs/RecallItemRequired" } }
+        }
+      }
+    }
+  ]
 }

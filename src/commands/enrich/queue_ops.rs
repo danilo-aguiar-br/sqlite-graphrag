@@ -2,6 +2,40 @@
 
 use crate::errors::AppError;
 
+/// Runs a queue write-back (`mark_done` / `mark_skipped` / `heartbeat`) under
+/// the same bounded busy-retry budget the claim path has used since GAP-SG-76,
+/// and reports whether the row was actually written.
+///
+/// The claim was retry-protected and the write-back was not: in the parallel
+/// drain and in the re-embed batch cycle its result was discarded with
+/// `let _ =`. Under `--rest-concurrency 16` a SQLITE_BUSY on `mark_done`
+/// silently lost the completion, the row stayed in `processing`, the
+/// stale-claim sweep handed it back, and the provider was billed a second time
+/// for work already paid for. Losing a write-back is not cosmetic and must not
+/// be swallowed.
+///
+/// `drain_serial` already inspected these results and needs no wrapper.
+pub(super) fn writeback<T, E, F>(what: &str, worker_id: usize, item: &str, op: F) -> bool
+where
+    F: Fn() -> Result<T, E>,
+    AppError: From<E>,
+{
+    match crate::storage::utils::with_busy_retry(|| op().map_err(AppError::from)) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::error!(
+                target: "enrich",
+                worker = worker_id,
+                item = %item,
+                writeback = %what,
+                error = %e,
+                "queue write-back lost after bounded retries; item will be reprocessed and re-billed"
+            );
+            false
+        }
+    }
+}
+
 /// Classifies an enrich item failure into a retry/dead-letter outcome.
 ///
 /// This is the FALLBACK classifier: it is only consulted when the failure
@@ -298,6 +332,76 @@ pub(super) fn skip_wrong_type(
     Ok(())
 }
 
+/// GAP-SG-145: mark a claimed queue row `done` with the per-item accounting
+/// the drain collected.
+///
+/// The serial loop and every parallel worker previously carried a byte-for-byte
+/// copy of this `UPDATE`; the twin copies were free to drift in silence. The
+/// emitted SQL is unchanged, so this is a pure de-duplication with no behaviour
+/// change. `entities`/`rels` are cast to `i64` here because the queue schema
+/// stores counters as integers while the callers count with `usize`.
+///
+/// Returns the number of updated rows; callers decide whether a failed write is
+/// logged (serial) or ignored (parallel worker), preserving their current
+/// behaviour.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn mark_done(
+    queue_conn: &rusqlite::Connection,
+    queue_id: i64,
+    memory_id: Option<i64>,
+    entity_id: Option<i64>,
+    entities: usize,
+    rels: usize,
+    cost_usd: f64,
+    elapsed_ms: i64,
+) -> Result<usize, rusqlite::Error> {
+    queue_conn.execute(
+        "UPDATE queue SET status='done', memory_id=?1, entity_id=?2, entities=?3, rels=?4, cost_usd=?5, elapsed_ms=?6, done_at=datetime('now') WHERE id=?7",
+        rusqlite::params![
+            memory_id,
+            entity_id,
+            entities as i64,
+            rels as i64,
+            cost_usd,
+            elapsed_ms,
+            queue_id
+        ],
+    )
+}
+
+/// GAP-SG-145: mark a claimed queue row `skipped` with a human-readable reason.
+///
+/// Shared by the `Skipped` and `PreservationFailed` arms of both drains, which
+/// each held their own copy of this statement. Distinct from
+/// [`skip_wrong_type`], which additionally clears `claimed_at` because it
+/// rejects a row that was never handed to a handler.
+pub(super) fn mark_skipped(
+    queue_conn: &rusqlite::Connection,
+    queue_id: i64,
+    reason: &str,
+) -> Result<usize, rusqlite::Error> {
+    queue_conn.execute(
+        "UPDATE queue SET status='skipped', error=?1, done_at=datetime('now') WHERE id=?2",
+        rusqlite::params![reason, queue_id],
+    )
+}
+
+/// GAP-SG-145: release a claimed row back to `pending` before a rate-limit
+/// sleep, so another worker (or this one after the backoff) can reclaim it.
+///
+/// The consumed `attempt` is deliberately NOT refunded: the call was really
+/// issued and the provider really rejected it, so refunding would let a
+/// permanently throttled item retry forever past `--max-attempts`.
+pub(super) fn requeue_rate_limited(
+    queue_conn: &rusqlite::Connection,
+    queue_id: i64,
+) -> Result<usize, rusqlite::Error> {
+    queue_conn.execute(
+        "UPDATE queue SET status='pending' WHERE id=?1",
+        rusqlite::params![queue_id],
+    )
+}
+
 /// GAP-CLI-QISO-01: claim the next pending row **for a single operation + namespace**.
 ///
 /// `operation` must match the Debug label used at enqueue (`"EntityDescriptions"`,
@@ -345,6 +449,69 @@ pub(super) fn dequeue_next_pending(
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(DequeueOutcome::Empty),
         Err(e) => Err(AppError::Database(e)),
     }
+}
+
+/// GAP-SG-141 (B1): claim up to `limit` pending rows in ONE statement, for a
+/// single operation + namespace.
+///
+/// Exists solely for `re-embed`, whose handler can embed N texts in a single
+/// REST call: claiming one row per request made the drain issue ~32x more
+/// requests than the payload needed. The 13 chat-backed operations keep using
+/// [`dequeue_next_pending`], which is unchanged — they have no batch handler,
+/// so claiming several rows for them would only widen the blast radius of a
+/// crash.
+///
+/// The `operation` and `namespace` filters are as strict as the single-row
+/// claim's, for the same reason documented there: without them a drain claims
+/// keys belonging to another namespace and every re-embed fails with
+/// `not found in namespace`.
+///
+/// Rows are consumed with `query_map`, NOT `query_row`: `RETURNING` emits one
+/// row per updated record and `query_row` would silently discard every row
+/// past the first, leaving the rest claimed-but-unprocessed until the stale
+/// claim sweep. Multi-row `RETURNING` needs SQLite 3.35+; the bundled
+/// `rusqlite` build embeds the 3.50 series.
+///
+/// Returns the claimed rows in claim order. An empty vector means the backlog
+/// for this operation + namespace is empty.
+pub(super) fn dequeue_batch_pending(
+    queue_conn: &rusqlite::Connection,
+    operation: &str,
+    namespace: &str,
+    backoff_clause: &str,
+    limit: usize,
+) -> Result<Vec<ClaimedRow>, AppError> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let dequeue_sql = format!(
+        "UPDATE queue SET status='processing', attempt=attempt+1, \
+         claimed_at=CAST(strftime('%s','now') AS INTEGER) \
+         WHERE id IN (SELECT id FROM queue WHERE status='pending' \
+                      AND operation = ?1 \
+                      AND namespace = ?2 \
+                      {backoff_clause} \
+                      ORDER BY COALESCE(priority, 0) DESC, id ASC LIMIT ?3) \
+         RETURNING id, item_key, item_type, COALESCE(operation,''), attempt"
+    );
+    let mut stmt = queue_conn.prepare(&dequeue_sql)?;
+    let rows = stmt.query_map(
+        rusqlite::params![operation, namespace, limit as i64],
+        |row| {
+            Ok(ClaimedRow {
+                id: row.get(0)?,
+                item_key: row.get(1)?,
+                item_type: row.get(2)?,
+                operation: row.get(3)?,
+                attempt: row.get(4)?,
+            })
+        },
+    )?;
+    let mut claimed = Vec::with_capacity(limit);
+    for row in rows {
+        claimed.push(row?);
+    }
+    Ok(claimed)
 }
 
 /// CAPA-A (2026-07-30): count pending rows eligible for **this** operation +

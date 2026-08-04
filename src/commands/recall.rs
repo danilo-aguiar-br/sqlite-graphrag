@@ -125,6 +125,7 @@ pub fn run(
     args: RecallArgs,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
+    fail_on_degraded: bool,
 ) -> Result<(), AppError> {
     if args.print_schema {
         return crate::print_schema::emit(crate::print_schema::SchemaId::Recall);
@@ -175,42 +176,34 @@ pub fn run(
         "Calculando embedding da consulta...",
     );
     let conn = open_ro(&paths.db)?;
-    // G58 (v1.0.80): when the live embedding fails (timeout, OAuth contention,
-    // rate limit, missing CLI), fall back to FTS5 BM25 + LIKE prefix and
-    // surface the degradation through `vec_degraded` + `vec_error` + `warning`
-    // on the response envelope. The `--fallback-fts-only` flag forces the
-    // skip without even attempting the embedding subprocess.
-    // v1.0.84 (ADR-0042): tuple de 4 elementos. `backend_invoked` carrega
-    // o discriminador do backend que efetivamente invocou o LLM (ou `None`
-    // when the caller asked for `--fallback-fts-only` and never invoked the subprocess).
-    let (embedding, vec_degraded, vec_error, backend_invoked) = if args.fallback_fts_only {
-        (
-            None,
-            true,
-            Some("fallback_fts_only requested".to_string()),
-            None,
-        )
-    } else {
-        // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
-        // v1.0.84 (ADR-0042): extrai o backend que efetivamente invocou o
-        // LLM to populate `backend_invoked` in the response envelope.
-        // v1.0.85 (G58 / ADR-0043): retry determinístico em OAuthQuota
-        // (codex ↔ claude) e backoff 750ms em SlotExhausted antes de
-        // accept degradation to pure FTS5.
-        match crate::embedder::try_embed_query_with_embedding_choice(
-            &paths.models,
-            &query,
-            embedding_backend,
-            llm_backend,
-        ) {
-            Ok((v, backend)) => (Some(v), false, None, Some(backend.as_str())),
-            Err(reason) => {
-                let msg = reason.to_string();
-                tracing::warn!(target: "recall", fallback_reason = %msg, reason_code = %reason.reason_code(), "live embedding failed; falling back to FTS5");
-                (None, true, Some(msg), None)
-            }
-        }
-    };
+    // G58 (v1.0.80): when the live embedding fails, fall back to FTS5 BM25 +
+    // LIKE prefix and surface the degradation through `vec_degraded` +
+    // `vec_error` + `warning` on the response envelope. Shared with
+    // `hybrid-search` so both commands degrade under identical conditions.
+    let resolved = crate::query_embedding::resolve_query_embedding(
+        args.fallback_fts_only,
+        &paths.models,
+        &query,
+        embedding_backend,
+        llm_backend,
+        "recall",
+    );
+    // `--fail-on-degraded` decide ANTES de qualquer consulta: sem isto a leitura
+    // devolvia só-FTS com exit 0 e a flag era placebo.
+    if let Some(err) = crate::query_embedding::degradation_failure(
+        fail_on_degraded,
+        resolved.degraded,
+        resolved.reason_code,
+    ) {
+        return Err(err);
+    }
+    let crate::query_embedding::QueryEmbedding {
+        embedding,
+        degraded: vec_degraded,
+        error: vec_error,
+        backend_invoked,
+        ..
+    } = resolved;
 
     let memory_type_str = args.r#type.map(|t| t.as_str());
     // When --precise is set, lift the -k cap so every match is returned; the

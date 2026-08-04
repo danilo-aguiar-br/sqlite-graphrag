@@ -1,4 +1,4 @@
-# Checklist multiplataforma (sqlite-graphrag v1.2.1)
+# Checklist multiplataforma (sqlite-graphrag v1.2.5)
 
 Validação apenas local (sem GitHub Actions). A CLI deve rodar em **Linux**, **macOS** e **Windows**.
 
@@ -56,7 +56,21 @@ cargo clippy --all-targets -- -D warnings
 
 > **Nota:** a narrativa multiplataforma legada (notas por release v1.1.06 e anteriores, whitelist Windows, etc.) permanece **abaixo** para profundidade histórica. O checklist canônico da **v1.2.1** é a seção acima (espelha [CROSS_PLATFORM.md](CROSS_PLATFORM.md)); gate offline `scripts/e2e_offline_v120.sh` **20/20** (wrapper histórico `e2e_offline_v118.sh` / 16/16 supersedido). CAPA enrich 1.2.1 multiplataforma: `dequeue_next_pending` = operação+namespace; `--until-empty` isola via `count_eligible_pending`; `--force-redescribe` reabre skipped/done (nunca dead); re-embed por `LENGTH(embedding)=dim*4` (`reconcile_satisfied_reembed_pending`); enqueue remove prefixo `entity:`; chunk valida namespace alvo; CAPA-D marcadores compostos "configuration file" (sem FP bare); suite de fila **38** testes OK. Schema **v16**; crate **1.2.1**.
 >
-> **AVISO v1.2.1:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **NÃO** são lidos no hot path. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs. **DEFAULT_EMBEDDING_DIM=1024**. CAPA enrich: sempre passe `--namespace`; claim via `dequeue_next_pending` = operação+namespace; `--until-empty` conta só op+ns (`count_eligible_pending`); `--force-redescribe` reabre skipped/done uma vez por processo (nunca dead); re-embed elegível por BLOB `LENGTH(embedding)=dim*4` (não só coluna dim) com `reconcile_satisfied_reembed_pending`; enqueue remove prefixo `entity:` no lookup (bare ok; ausente rejeita); chunk enqueue valida namespace alvo (memory não deletada); CAPA-D só marcadores compostos "configuration file" (sem FP bare `%configuration file%`); suite de fila **38** testes OK — regressões `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Schema **v16**; crate **1.2.1**; sem migração do DB principal. Recuperação de fila: `enrich --list-skipped` / `--requeue-skipped`. **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `codex-models`, `completions`) aceitam `--db` como no-op. Inventário completo de comandos CLI: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
+> **AVISO v1.2.1:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **NÃO** são lidos no hot path. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs. **DEFAULT_EMBEDDING_DIM=1024**. CAPA enrich: sempre passe `--namespace`; claim via `dequeue_next_pending` = operação+namespace; `--until-empty` conta só op+ns (`count_eligible_pending`); `--force-redescribe` reabre skipped/done uma vez por processo (nunca dead); re-embed elegível por BLOB `LENGTH(embedding)=dim*4` (não só coluna dim) com `reconcile_satisfied_reembed_pending`; enqueue remove prefixo `entity:` no lookup (bare ok; ausente rejeita); chunk enqueue valida namespace alvo (memory não deletada); CAPA-D só marcadores compostos "configuration file" (sem FP bare `%configuration file%`); suite de fila **38** testes OK — regressões `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Schema **v16**; crate **1.2.1**; sem migração do DB principal. Recuperação de fila: `enrich --list-skipped` / `--requeue-skipped`. **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `completions`) aceitam `--db` como no-op. Inventário completo de comandos CLI: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
+
+## Notas de operador da v1.2.1 (todas as plataformas)
+
+- Config: flag de CLI > XDG `config set` > default. Env de produto `SQLITE_GRAPHRAG_*` não é lida em runtime.
+- **DEFAULT_EMBEDDING_DIM=1024** (flag `--embedding-dim` / XDG `embedding.dim`; bancos existentes mantêm `schema_meta.dim` até o re-embed).
+- **CAPA do enrich (v1.2.1, todas as plataformas):** (1) isolamento de claim via `dequeue_next_pending` = **operação + namespace**; (2) `--until-empty` conta apenas esta op+ns (`count_eligible_pending`); (3) `--force-redescribe` reabre skipped/done uma vez por processo (nunca dead); (4) reconciliação de zumbis de re-embed `reconcile_satisfied_reembed_pending` quando `LENGTH(embedding)=dim*4`; (5) elegibilidade de re-embed por LENGTH do BLOB e não pela coluna dim sozinha (BLOB CORROMPIDO volta a ser elegível); (6) enqueue remove o prefixo `entity:` na busca (sem prefixo ok; ausente rejeita); (7) enqueue de chunk valida o namespace alvo (memória não deletada); (8) marcadores compostos de "configuration file" apenas na CAPA-D (sem falso positivo de `%configuration file%` puro); (9) suíte de fila com **38** testes OK — regressões `enqueue_candidate_accepts_entity_prefixed_reembed_key` e `dequeue_next_pending_isolates_by_namespace`. Schema permanece **v16**; crate **1.2.1**; sem migração do banco principal.
+- Recuperação do enrich: `enrich --list-skipped` / `enrich --requeue-skipped` para linhas de fila `skipped` / `preservation_failed` (sem SQL cru).
+- **GAP-SG-139:** folhas de host/XDG (`config`, `slots`, `cache`, `completions`) aceitam `--db` como **no-op** documentado em toda plataforma — agentes podem sempre passar `--db`.
+- deep-research: `-o` e `--output` usam atomwrite (tempfile no mesmo diretório → fsync → rename) em Linux, macOS e Windows; o fsync do diretório pai vale no Unix.
+- entity-connect: totalmente implementado (persiste relacionamentos); timeout do primeiro scan sai **1** (não singleton **75**).
+- Ordem recomendada para agentes: escrita → entity-descriptions (quente, opcional `--enqueue-enrich`) → entity-connect (frio). Sempre passe `--namespace` nos drains de enrich.
+- O portão offline de referência é host Linux + `scripts/e2e_offline_v120.sh` **20/20** (canônico; o wrapper histórico `e2e_offline_v118.sh` / 16/16 foi substituído). macOS e Windows usam a mesma checklist; não declare validação de harness em três SOs sem evidência de host. Schema permanece **v16** (apenas CAPA no sidecar).
+- Inventário completo de comandos top-level (todos os 50 comandos de produto + famílias aninhadas): [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
+- Inglês: [CROSS_PLATFORM.md](CROSS_PLATFORM.md)
 
 ## Whitelist de Env de Custom Provider no Windows (v1.0.83+)
 - O helper compartilhado de whitelist de env `src/spawn/env_whitelist.rs` expõe um conjunto específico do Windows via `PRESERVED_ENV_VARS_WINDOWS` atrás de `#[cfg(windows)]`: `LOCALAPPDATA`, `APPDATA`, `USERPROFILE`, `SystemRoot`, `COMSPEC`, `PATHEXT`, `HOMEPATH`, `HOMEDRIVE`
@@ -166,8 +180,8 @@ cargo install --path .
 ### Apple Silicon — Performance Nativa em M1 M2 M3 M4
 - Binário aarch64 nativo roda trinta por cento mais rápido que x86_64 via Rosetta
 - macOS Intel está atualmente fora da matriz oficial de release nesta configuração do projeto
-- O subprocesso LLM (`claude` ou `codex`) é o modelo; a binária Rust em si não carrega nenhum modelo
-- A única latência do lado LLM é o spawn de 1-3 s do subprocesso (claude / codex) por `remember` / `recall`
+- O modelo remoto do OpenRouter é o modelo; a binária Rust em si não carrega nenhum modelo
+- A única latência do lado LLM é o round-trip REST ao OpenRouter por `remember` / `recall`
 - Cold start mede vinte e oito milissegundos no M2 graças ao preditor de branches melhorado
 
 
@@ -197,15 +211,16 @@ sqlite-graphrag remember --name "memória-acentuada" --body "caracteres unicode 
 - `cargo install sqlite-graphrag` no Windows quebrou em v1.0.67 com `error[E0308]: mismatched types` em `src/terminal.rs:29:26` porque a comparação `handle != 0 && handle as isize != -1` só era válida para o tipo antigo
 - v1.0.68 substitui a comparação pelo idiom type-safe `!handle.is_null() && handle != INVALID_HANDLE_VALUE`, que funciona para ambas as eras de tipo e também captura o sentinela `INVALID_HANDLE_VALUE` (`(HANDLE)-1`) que é diferente de NULL
 - `windows-sys` está fixado em `=0.59.0` exato em `Cargo.toml:111` para evitar resolução silenciosa para um futuro 0.59.x que possa quebrar o contrato de tipo novamente
-- Novo job de CI `windows-build-check` em `.github/workflows/ci.yml` roda `cargo check --target x86_64-pc-windows-msvc --lib --all-features` em todo push e PR para capturar regressões futuras antes do publish
+- Regressões de cross-compile Windows são capturadas localmente pelo operador com `cargo check --target x86_64-pc-windows-msvc --lib --all-features`; este projeto não tem CI remoto e nenhum deve ser recriado
 - Workaround manual para v1.0.66/v1.0.67 (apenas se você precisa ficar nessas versões): edite `~/.cargo/registry/src/index.crates.io-*/sqlite-graphrag-*/src/terminal.rs`, substitua a linha 29 por `if !handle.is_null() && handle != INVALID_HANDLE_VALUE`, e adicione `INVALID_HANDLE_VALUE` ao `use windows_sys::Win32::Foundation::{...}`.  Depois rode `cargo install --path .` a partir do source corrigido.
 - Referência: `https://docs.rs/windows-sys/0.59.0/windows_sys/Win32/Foundation/type.HANDLE.html` (atual) e `https://docs.rs/windows-sys/0.52.0/windows_sys/Win32/Foundation/type.HANDLE.html` (legado)
 
-### Resiliência de Infra Windows no CI (G53-WINDOWS-INFRA, ADR-0033, v1.0.80)
-- Os jobs da matrix windows-2025 (`clippy` e `test`) ganharam 2 steps novos cada, gateados em `if: matrix.os == 'windows-2025'` (no-op em ubuntu e macos): um step de pre-warm que baixa o toolchain rustup no cache do runner antes do build, e um step de verify que re-checa `rustup show active-toolchain` após install
-- Os 2 modos históricos de falha de infra agora são recuperáveis na primeira re-run em vez de acumularem como CI vermelho: (a) download do rustup com erros transitórios de rede, (b) `E0463 can't find crate for core` quando a stdlib do target está ausente
-- Validação local de cross-compile: `cargo check --target x86_64-pc-windows-msvc --lib --all-features` reproduzido e o `E0463` resolvido via `rustup target add x86_64-pc-windows-msvc --toolchain 1.88`; o build então atinge a fronteira `cc-rs: failed to find tool "lib.exe"`, que é o limite esperado de cross-compile MSVC a partir de host Linux
-- A label explícita `windows-2025` do runner (substituindo `windows-latest` desde a v1.0.73) continua sendo a escolha certa até a data de corte do redirect do VS2026 (2026-06-15); veja ADR-0033 para a justificativa completa e as condições de fronteira
+### Resiliência de Infra Windows (G53-WINDOWS-INFRA, ADR-0033, v1.0.80, histórico)
+
+- APENAS HISTÓRICO. Os dois passos de endurecimento descritos pelo ADR-0033 miravam uma matrix hospedada `windows-2025` que não existe mais: este projeto não tem CI, não tem GitHub Actions, não tem workflows, e nenhum deve ser recriado.
+- Os dois modos históricos de falha de infra eram (a) download do rustup com erros transitórios de rede e (b) `E0463 can't find crate for core` quando a stdlib do target está ausente; ambos se resolvem num host de operador re-executando o passo de install
+- Validação local de cross-compile: `cargo check --target x86_64-pc-windows-msvc --lib --all-features` reproduziu o `E0463` e ele foi resolvido com `rustup target add x86_64-pc-windows-msvc --toolchain 1.88`; o build então atinge a fronteira `cc-rs: failed to find tool "lib.exe"`, que é o limite esperado de cross-compile MSVC a partir de host Linux
+- Veja ADR-0033 para a justificativa completa e as condições de fronteira
 
 
 ## Containers
@@ -301,12 +316,6 @@ export SQLITE_GRAPHRAG_LOG_LEVEL="debug"
 - JetBrains AI Assistant roda sqlite-graphrag ao lado do IntelliJ IDEA nos três desktops suportados
 - OpenRouter camada proxy executa o binário Linux em clusters Kubernetes e hosts Docker
 
-
-### Codex CLI (v1.0.62)
-- Codex CLI (`codex exec`) está disponível em macOS, Linux e Windows
-- Descoberta do binário segue: flag `--codex-binary`, variável de ambiente `SQLITE_GRAPHRAG_CODEX_BINARY`, depois busca no PATH
-- No Windows, busca `codex.exe` no PATH com resolução de extensões via `PATHEXT`
-- Subprocesso usa `env_clear()` com whitelist de variáveis específica por plataforma incluindo vars do Windows via `#[cfg(windows)]`
 
 
 ## Autenticação Somente OAuth em Todas as Plataformas (v1.0.69)

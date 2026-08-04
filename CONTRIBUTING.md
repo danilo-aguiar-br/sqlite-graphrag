@@ -88,7 +88,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Run `cargo test --test terminal_compile_windows` after touching `src/terminal.rs` to confirm the public surface stays callable; the dedicated CI job `windows-build-check` runs the full cross-platform type check
 - Test assertions involving timestamps MUST be timezone-agnostic — parse ISO via `chrono::DateTime::parse_from_rfc3339` and compare `timestamp()` against `DateTime::UNIX_EPOCH` instead of hardcoded `1970-01-01T00:00:00` strings; this rule was added after a `SQLITE_GRAPHRAG_DISPLAY_TZ` leak in v1.0.66/v1.0.67 made three pre-existing tests flaky
 - OpenRouter embedding tests live in `tests/openrouter_embedding.rs` using `wiremock` for HTTP mocking; run with `cargo test --test openrouter_embedding`
-- E2E OpenRouter tests with real API are opt-in: set `OPENROUTER_API_KEY` and `--embedding-model` to run against a live endpoint; these are NOT part of the default `cargo test` suite
+- E2E OpenRouter tests with real API are opt-in: use `config add-key openrouter` (or `--openrouter-api-key`) and `--embedding-model` to run against a live endpoint; product never reads `OPENROUTER_API_KEY`; these are NOT part of the default `cargo test` suite
 - v1.2.1 enrich-queue CAPA regressions: when editing enqueue/dequeue/re-embed predicates, run `cargo test --lib commands::enrich` and confirm `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` stay green (namespace claim isolation / `entity:` strip)
 
 ### v1.0.76 Test Matrix (3 features)
@@ -160,7 +160,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Validation: nextest 1086 passed, 0 failed, 6 skipped; live ordering proof (cosine diagonal 0.9999, off-diagonal max 0.899, argmax 64/64); ADR-0055 (EN+PT).
 ### v1.0.95 - 2026-06-27 — OpenRouter Chat Enrich (ADR-0054)
 - GAP-OR-ENRICH: new opt-in `enrich --mode openrouter` routes the JUDGE step to the OpenRouter `/chat/completions` REST endpoint, removing the requirement for a locally installed `claude`/`codex`/`opencode` CLI; the four enrich modes are now `claude-code`, `codex`, `opencode`, `openrouter`. New module `src/chat_api.rs` (`OpenRouterChatClient`) mirrors `src/embedding_api.rs`; `--openrouter-model` is required with `--mode openrouter`.
-- Validation: SCAN→JUDGE→PERSIST unchanged, 13/13 real models pass, no migration (schema v15); `OPENROUTER_API_KEY` handled via `secrecy`/zeroize, never logged or passed to a subprocess.
+- Validation: SCAN→JUDGE→PERSIST unchanged, 13/13 real models pass, no migration (schema v15); OpenRouter key via flag/`config add-key` (`OPENROUTER_API_KEY` is ignored at runtime), handled via `secrecy`/zeroize, never logged or passed to a subprocess.
 ### v1.0.94 - 2026-06-26 — Four-Gap Remediation (ADR-0053)
 - Fixed GAP-OR-ENTITY-EMBED (entity embedding honours `--embedding-backend`/`--llm-backend`; `remember` with new entities ~119s -> ~0.9s), GAP-EMBED-DIM-64 (default dim 64 -> 384), GAP-EMBED-TIMEOUT-300 (embedding timeout 120s -> 300s), GAP-HEADLESS-DEFAULT (`enrich --mode` now required, clap exit 2 when omitted).
 - Validation: `cargo fmt --check` 0 diffs, `cargo clippy -- -D warnings` 0 warnings, `cargo test` exit 0; ADR-0053 (EN+PT), documentation synced across root, docs/, skill/ and llms.

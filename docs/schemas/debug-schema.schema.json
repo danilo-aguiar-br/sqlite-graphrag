@@ -28,6 +28,9 @@
   "required": ["schema_version", "user_version", "objects", "migrations", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "schema_version": { "type": "integer", "description": "MAX(version) from refinery_schema_history — the last migration actually applied to this database file. Grows by 1 per migration." },
     "user_version":   { "type": "integer", "description": "SQLite PRAGMA user_version — project-signature constant SCHEMA_USER_VERSION (49) baked into the binary. Independent from migration count; serves as an external-tool marker only." },
     "objects":        { "type": "array", "items": { "$ref": "#/$defs/SchemaObject" } },

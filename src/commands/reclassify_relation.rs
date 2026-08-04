@@ -216,9 +216,12 @@ fn run_single(
             |r| r.get(0),
         )
         .map_err(|_| {
-            AppError::NotFound(format!(
-                "source entity '{source_name}' not found in namespace '{namespace}'"
-            ))
+            AppError::NotFound(
+                crate::i18n::validation::source_entity_not_found_in_namespace(
+                    source_name,
+                    &namespace,
+                ),
+            )
         })?;
 
     let target_id: i64 = conn
@@ -228,9 +231,12 @@ fn run_single(
             |r| r.get(0),
         )
         .map_err(|_| {
-            AppError::NotFound(format!(
-                "target entity '{target_name}' not found in namespace '{namespace}'"
-            ))
+            AppError::NotFound(
+                crate::i18n::validation::target_entity_not_found_in_namespace(
+                    target_name,
+                    &namespace,
+                ),
+            )
         })?;
 
     // Verify the edge to rename exists.
@@ -242,10 +248,14 @@ fn run_single(
     )?;
 
     if original_count == 0 {
-        return Err(AppError::NotFound(format!(
-            "edge '{source_name}' --[{}]--> '{target_name}' not found in namespace '{namespace}'",
-            args.effective_from()
-        )));
+        return Err(AppError::NotFound(
+            crate::i18n::validation::edge_not_found_in_namespace(
+                source_name,
+                args.effective_from(),
+                target_name,
+                &namespace,
+            ),
+        ));
     }
 
     if args.dry_run {

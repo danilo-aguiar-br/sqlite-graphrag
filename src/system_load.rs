@@ -57,9 +57,10 @@ fn ensure_fresh() -> Option<Instant> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let now = Instant::now();
-    let should_refresh = guard
-        .as_ref()
-        .is_none_or(|last| now.duration_since(*last) > Duration::from_secs(1));
+    let should_refresh = guard.as_ref().is_none_or(|last| {
+        now.duration_since(*last)
+            > Duration::from_secs(crate::constants::SYSTEM_LOAD_REFRESH_INTERVAL_SECS)
+    });
     let prev = guard.as_ref().copied();
     if should_refresh {
         *guard = Some(now);

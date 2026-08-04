@@ -16,9 +16,11 @@
 // released after the test ends; serializing eliminates filesystem races
 // and makes timings predictable.
 //
-// Scenarios 4 and 5 depend on an external process that holds a slot for
-// a deterministic duration. Marked `#[ignore]` because subprocess timing is
-// flaky in environments with variable load.
+// Scenarios 4 and 5 hold the slots from inside the test process itself, so
+// nothing depends on an external process winning a race: scenario 4 keeps every
+// lock alive across the child invocation, and scenario 5 grants the child a 10s
+// `--wait-lock` window against a 1s hold. They ran as `#[ignore]` for that
+// supposed flakiness and therefore never guarded exit 75 in CI at all.
 
 use assert_cmd::Command;
 use serial_test::serial;
@@ -166,14 +168,11 @@ fn wait_lock_zero_returns_75_when_slots_busy() {
 // ---------------------------------------------------------------------------
 // Scenario 4 — second instance receives exit 75 while slot is busy
 // ---------------------------------------------------------------------------
-// MARKED #[ignore] — subprocess timing is flaky in environments with variable load.
-// Para rodar manualmente:
-//   cargo test -- --ignored slot_bloqueia_segunda_instancia_com_exit_75
+// The locks are held by this process for the whole child invocation, and the
+// child runs with `--wait-lock 0`, so the exit 75 is deterministic.
 
 #[test]
 #[serial]
-// TODO v1.0.89: flaky subprocess timing — avaliar estabilização com mock clock quando CI suportar.
-#[ignore = "flaky — depende de timing de subprocessos — rodar manualmente com: cargo test -- --ignored"]
 fn slot_bloqueia_segunda_instancia_com_exit_75() {
     use fs4::fs_std::FileExt;
     use std::fs::OpenOptions;
@@ -218,14 +217,10 @@ fn slot_bloqueia_segunda_instancia_com_exit_75() {
 // ---------------------------------------------------------------------------
 // Scenario 5 — --wait-lock waits and acquires the slot after release
 // ---------------------------------------------------------------------------
-// MARCADO #[ignore] — adiciona ~1s ao tempo total e depende de timing.
-// Para rodar manualmente:
-//   cargo test -- --ignored wait_lock_espera_e_adquire_slot
+// Costs ~1s: the locks are released after 1s while the child waits up to 10s.
 
 #[test]
-// TODO v1.0.89: flaky subprocess timing — avaliar estabilização com mock clock quando CI suportar.
 #[serial]
-#[ignore = "flaky — depende de timing de subprocessos — rodar manualmente com: cargo test -- --ignored"]
 fn wait_lock_espera_e_adquire_slot() {
     use fs4::fs_std::FileExt;
     use std::fs::OpenOptions;

@@ -121,10 +121,13 @@ pub struct EmbeddingAbandonArgs {
 #[derive(Serialize)]
 struct EmbeddingStatusOutput {
     action: &'static str,
-    /// v1.0.84 (ADR-0042): discriminator of the LLM backend that would be
-    /// invoked to process live embeddings. `"claude" | "codex"
-    /// | "none" | "auto"`. `"auto"` indicates the caller requested Auto and
-    /// the codex→claude→none chain would be iterated at runtime.
+    /// v1.0.84 (ADR-0042): discriminator of the embedding backend that would be
+    /// invoked to process live embeddings. `"openrouter" | "none" | "auto"`.
+    ///
+    /// `"auto"` means the caller requested Auto and the chain is resolved at
+    /// runtime. Since v1.2.0 that chain is only OpenRouter→none: the
+    /// codex→claude→none chain this doc used to describe went away with the
+    /// subprocess backends.
     backend_invoked: &'static str,
     counts: EmbeddingStatusCounts,
     /// GAP-SG-41: real vector coverage in the persisted tables. The `counts`
@@ -293,12 +296,8 @@ pub(crate) fn run_status(
     };
 
     let backend_invoked: &'static str = match llm_backend {
-        LlmBackendChoice::Claude => "claude",
-        LlmBackendChoice::Codex => "codex",
-        LlmBackendChoice::Opencode => "opencode",
         LlmBackendChoice::None => "none",
         LlmBackendChoice::OpenRouter => "openrouter",
-        LlmBackendChoice::Auto => "auto",
     };
 
     // GAP-SG-41: query the actual vector tables so coverage is observable even

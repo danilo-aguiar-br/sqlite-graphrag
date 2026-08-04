@@ -1,4 +1,4 @@
-# HOW TO USE sqlite-graphrag (v1.2.1 — enrich CAPA seal, dim 1024, E2E, schema v16)
+# HOW TO USE sqlite-graphrag (v1.2.5 — agent-native output surface, enrich CAPA seal, dim 1024, E2E, schema v16)
 
 > Ship persistent memory to any AI agent with one local binary, a
 > single SQLite file, and the LLM CLI you already trust.
@@ -6,17 +6,18 @@
 - Versão em português: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md)
 - Voltar ao [README.md](../README.md) para referência de comandos
 
-## Configuration (XDG — v1.2.1)
+## Configuration (XDG — v1.2.5)
 
+- The complete registry of all 63 XDG keys, with value kind and default, lives in [AGENTS.md — Complete XDG key registry](AGENTS.md#required--complete-xdg-key-registry-all-63-keys-v125). It is kept in ONE place on purpose: a table copied into every guide becomes several places to drift.
 - Runtime knobs resolve as **CLI flag > XDG `config set` > named default**
 - Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime (forbidden for product configuration)
 - Secrets: `config add-key --provider openrouter` (stdin) or `--openrouter-api-key` per call
 - Inspect: `config path`, `config list`, `config list --effective`, `config doctor`
 - OpenRouter URLs: `config set network.openrouter.chat_url …` / `network.openrouter.embeddings_url …`
-- Fail-fast offline recall: `config set llm.query_embed_timeout_secs 3` and/or `--llm-backend none`
+- Fail-fast offline recall: `config set llm.probe_timeout_ms 3000` and/or `--llm-backend none`
 - Soft-delete cleanup: `purge --now --yes` for immediate hard-delete; default retention is 90 days and `--yes` alone does **not** wipe recent soft-deletes
 - Allowed OS env only: locale (`LANG`/`LC_*`), `PATH`, `HOME`/`USERPROFILE`, XDG base dirs, `NO_COLOR`, plus subprocess OAuth whitelist (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, …)
-- Offline gate: `bash scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Pin library consumers to `=1.2.1`. Schema stays at **v16** (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**. Enrich CAPA seal (namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue) — see section below.
+- Offline gate: `bash scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Pin library consumers to `=1.2.2`. Schema stays at **v16** (no migrate if already on v16). **DEFAULT_EMBEDDING_DIM=1024**. Enrich CAPA seal (namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue) — see section below.
 
 ```bash
 sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
@@ -67,12 +68,12 @@ sqlite-graphrag enrich --db "$DB" --requeue-skipped --operation entity-descripti
 - Crate **1.2.0**; schema **unchanged** at **v16**. No main-DB migration. Pin library consumers to `=1.2.0`.
 - **DEFAULT_EMBEDDING_DIM=1024** (flag `--embedding-dim` / XDG `embedding.dim` override; existing DBs keep `schema_meta.dim` until re-embed).
 - Help scrub: no product env tables, no Box about on ingest/enrich. Precedence **CLI flag > XDG `config set` > default**.
-- OpenRouter URLs wired from XDG; Auto query embed fail-fast (`llm.query_embed_timeout_secs` default 3s + probe).
+- OpenRouter URLs wired from XDG; Auto query embed fail-fast (`llm.probe_timeout_ms` default 3000 ms + probe).
 - EntityType fold: `"module"` → Concept; `related_to` → `related`.
 - `remember-batch` requires non-empty `description` on create.
 - Aliases: `pending-embeddings status`, `cache stats`; `purge --now`; `config list --effective`.
 - Enrich queue multi-namespace (`namespace` column + unique key); **`--list-skipped` / `--requeue-skipped`** recover preservation/skipped debt without raw SQL.
-- **GAP-SG-139**: host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as documented **no-op**.
+- **GAP-SG-139**: host/XDG leaves (`config`, `slots`, `cache`, `completions`) accept `--db` as documented **no-op**.
 - QISO: enrich queue claim is scoped by `operation` (memory-bindings cannot claim entity/pair rows).
 - entity-descriptions: multi-domain neutral prompt, corpus grounding, `--force-redescribe` for low-quality rewrite.
 - Status honesty: `enrich --status --force-redescribe` reports `scan_backlog_low_quality`, `quality_pct`, `state=blocked_dead` when applicable.
@@ -208,7 +209,7 @@ sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json
 
 ## What Changed in v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
 - The official release name is **v1.1.02**; `Cargo.toml` carries `1.1.2` because SemVer rejects a leading zero in the patch segment. Schema is UNCHANGED at v15 — upgrading does NOT require `migrate`. Binary ~19 MiB. Library consumers pin `=1.1.2`. User-Agent is `sqlite-graphrag/1.1.2`.
-- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now has only `none`, `claude-code`, `codex`, `opencode`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
+- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now has only `none`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
 - **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
 - **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
 - **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes entity-keyed dead-letter rows from `.enrich-queue.sqlite`; unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` + integration test `tests/prune_dead_entity_orphans_integration.rs`.
@@ -257,7 +258,8 @@ sqlite-graphrag health --json | jaq '{memories: .vec_memories_missing, entities:
 
 ```bash
 # Drain the enrich backlog until it converges (no external loop)
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+printf "%s" "sk-or-v1-your-key-here" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# OPENROUTER_API_KEY is not read at runtime (G-T-XDG-04)
 sqlite-graphrag enrich --operation memory-bindings \
   --mode openrouter --openrouter-model "deepseek/deepseek-v4-flash:nitro" \
   --until-empty --rest-concurrency 8 --json
@@ -270,15 +272,16 @@ sqlite-graphrag enrich --status \
 
 ## What Changed in v1.0.95 — OpenRouter Enrich JUDGE (GAP-OR-ENRICH, ADR-0054)
 - **GAP-OR-ENRICH**: `enrich --mode openrouter` routes the JUDGE step to OpenRouter's `/chat/completions` REST endpoint. No local CLI subprocess is spawned. The SCAN→JUDGE→PERSIST pipeline is unchanged; only the JUDGE transport changes.
-- The four enrich modes are now: `claude-code`, `codex`, `opencode`, `openrouter`.
+- The only enrich mode is `openrouter`.
 - `--openrouter-model` is **REQUIRED** with `--mode openrouter` (NO default). Omitting it → exit 1 BEFORE any network call.
-- `--openrouter-api-key` reads from env `OPENROUTER_API_KEY` or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional.
+- `--openrouter-api-key` reads from XDG via `config add-key` (OPENROUTER_API_KEY is not read at runtime) or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional.
 - The request uses `response_format` `json_schema` with `strict: true` and `provider.require_parameters: true`. `reasoning.enabled: false` with a reasoning-mandatory fallback (one retry omitting `reasoning`). `usage.cost` is read from the response (`usage: {include: true}` is deprecated).
-- 13/13 real models pass. Trade-off: OAuth zero-token (local CLI modes) vs tokens billed to the `OPENROUTER_API_KEY` (OpenRouter mode). No migration; schema stays v15. See ADR-0054.
+- 13/13 real models pass. Trade-off: OAuth zero-token (local CLI modes) vs tokens billed to the XDG-stored OpenRouter key (OPENROUTER_API_KEY is not read at runtime) (OpenRouter mode). No migration; schema stays v15. See ADR-0054.
 
 ```bash
 # Enrich JUDGE via OpenRouter REST (no subprocess)
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+printf "%s" "sk-or-v1-your-key-here" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# OPENROUTER_API_KEY is not read at runtime (G-T-XDG-04)
 sqlite-graphrag enrich --operation memory-bindings \
   --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json
 ```
@@ -298,14 +301,15 @@ sqlite-graphrag enrich --operation memory-bindings \
 - `EmbeddingBackendChoice` propagated to ALL 13 embedding paths: `remember`, `remember-batch`, `ingest`, `recall`, `edit`, `restore`, `hybrid-search`, `deep-research`, `enrich`, `init`, `rename-entity`, `ingest` (claude mode), `remember` (chunk embedding)
 - New `--enrich-after` flag for ingest triggers `enrich --operation memory-bindings` after embedding
 - The user MUST specify `--embedding-model` when using `--embedding-backend openrouter` — NO default model
-- Set API key via env var `OPENROUTER_API_KEY` or flag `--openrouter-api-key`
+- Set API key via `config add-key --provider openrouter` (OPENROUTER_API_KEY is not read at runtime) or flag `--openrouter-api-key`
 - 10 models verified E2E: Qwen 4B/8B, NVIDIA Nemotron (free), OpenAI small/large, Perplexity, Mistral, BAAI bge-m3, Google Gemini 001/002
 - All models produce 384-dim vectors via MRL — zero schema change, zero migration
 - **GAP-OR-PROPAGATION** (v1.0.93): 5 additional embedding paths fixed — `enrich --operation re-embed`, `init` (dimension probe), `rename-entity`, `ingest --mode claude-code` (4 call sites), and `remember` (chunk parallel embedding) now all honour `--embedding-backend openrouter`
 - **BUG-OR-EXIT-CODE** (v1.0.93): OpenRouter config errors (missing API key, missing model, invalid key) now return exit code 78 (`EX_CONFIG`) instead of exit 1
 ```bash
 # Setup
-export OPENROUTER_API_KEY="sk-or-v1-your-key-here"
+printf "%s" "sk-or-v1-your-key-here" | sqlite-graphrag config add-key --provider openrouter --from-stdin
+# OPENROUTER_API_KEY is not read at runtime (G-T-XDG-04)
 
 # Remember with OpenRouter
 sqlite-graphrag --embedding-backend openrouter \
@@ -317,7 +321,7 @@ sqlite-graphrag --embedding-backend openrouter \
 sqlite-graphrag --embedding-backend openrouter \
   --embedding-model "qwen/qwen3-embedding-8b" \
   ingest ./docs --pattern "*.md" --recursive \
-  --enrich-after --llm-backend codex --json
+  --enrich-after --llm-backend openrouter --json
 ```
 
 
@@ -350,7 +354,7 @@ Since v1.0.85.2, four releases introduced the LLM-heavy surface, the pre-flight 
 
 - Five new subcommands expose the LLM subprocess pipeline: `pending list`, `pending show`, `pending cleanup`, `embedding status`, `embedding list`, `embedding abandon`, `pending-embeddings list`, `pending-embeddings process`, `slots status`, `slots release`
 - `pending` (V014 — `pending_memories` table) provides a 3-stage checkpoint for the `remember` pipeline. The checkpointer survives a crash; on restart, `pending list` inspects the queue and `pending show <id>` reads one entry
-- `embedding status --filter-status queued|processing|done|failed|skipped` and `--llm-backend codex,claude,none` expose the retry-fallback pipeline
+- `embedding status --status pending|in_progress|done|abandoned` exposes the retry-fallback pipeline
 - `slots status` reports `max_concurrency`, `acquired`, `waiting`, `held_by_pid[]`; `slots release --slot-id N --yes` reaps orphan slots
 - New global flags: `--max-concurrency <N>`, `--wait-lock <SECONDS>`, `--llm-parallelism <N>` (default 4, clamp [1, 32]), `--ingest-parallelism <N>`, `--graceful-shutdown-secs <N>`, `--skip-embedding-on-failure` (only valid with `--llm-backend …,none`)
 - Lock contention handled by `fs4 = 0.9` with `fcntl(F_SETLK)` on Unix and `LockFileEx` on Windows (ADR-0039)
@@ -503,57 +507,44 @@ load).
 
 ## Prerequisites
 
-You need ONE of these CLIs installed and on `PATH`:
+You need an **OpenRouter API key**. No CLI has to be installed and nothing
+has to be on `PATH`: the headless `claude` / `codex` / `opencode` backends
+were REMOVED in v1.2.0, and embedding is a plain REST call.
 
-- `claude` — Claude Code CLI 2.1.0+
-  ([install](https://docs.claude.com/claude-code))
-- `codex` — OpenAI Codex CLI 0.130.0+
-  ([repo](https://github.com/openai/codex))
-- `opencode` — OpenCode CLI (v1.0.90+)
-
-Both `claude` and `codex` must be logged in with the **OAuth flow** (Claude Pro/Max
-or ChatGPT Pro subscription). `opencode` uses its own auth system.
-API keys are NOT supported — see the "OAuth enforcement" section below.
-
-To check:
+Store the key in the XDG config — never in a shell variable, never in argv:
 
 ```bash
-which claude || which codex
-claude --version
-codex --version
+echo "sk-or-v1-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin
+sqlite-graphrag config doctor --json
 ```
 
+`config doctor` reports whether the key resolves before you spend anything.
+`sqlite-graphrag health --json` carries the same signal as the `embedding_key`
+check (named `llm_cli` up to v1.2.4).
 
-## OAuth Enforcement
 
-v1.0.76 inherits the OAuth-only mandate from v1.0.69. If
-`ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is set in the
-environment, the LLM spawn ABORTS with `AppError::Validation`
-and the CLI exits with code 1.
+## Credentials
 
-To unset:
+Keys live in `~/.config/sqlite-graphrag/config.toml` with mode `600`, are
+zeroized on drop and are never logged. Precedence is the flag
+`--openrouter-api-key` first, then the XDG store, then nothing.
 
-```bash
-unset ANTHROPIC_API_KEY
-unset OPENAI_API_KEY
-```
-
-The two API-key env vars are also excluded from the
-env-clear whitelist, so they cannot bypass the check even when
-set in a parent process.
+FORBIDDEN as the configuration mechanism: any product environment variable
+`SQLITE_GRAPHRAG_*`. It is not read on the hot path, so exporting one changes
+nothing and hides the real setting.
 
 
 ## Install
 
 ```bash
-cargo install sqlite-graphrag --version 1.1.2 --force
+cargo install sqlite-graphrag --version 1.2.5 --force
 ```
 
-This installs the LLM-only default build. Verify:
+Verify:
 
 ```bash
 sqlite-graphrag --version
-# sqlite-graphrag 1.1.1
+# sqlite-graphrag 1.2.5
 ```
 
 For the legacy fastembed pipeline (REMOVED in v1.0.79):
@@ -659,17 +650,15 @@ includes the schema and the response is larger).
 - The `enrich` subcommand runs LLM-curated graph-quality operations. Fully implemented (persist): `memory-bindings` (extract entities from orphan memories), `augment-bindings` (extra bindings on already-bound memories; requires `--names`/`--memory-names`/`--names-file`), `entity-descriptions` (fill NULL/empty **or** rewrite low-quality with `--force-redescribe`; multi-domain prompt + grounding; v1.1.8), `body-enrich` (expand short memory bodies), `re-embed` (vectors only), `entity-connect` (fully implemented — **persists** relationships; v1.1.04+ convergent via `entity_connect_seen`; **v1.1.06** O(k) co-occurrence + hub×island; **v1.1.8** adaptive budget/yield/`--anchor-memory`/`preempted_for_gate`), `cross-domain-bridges` (same fully-implemented path), and `body-extract` with `--body-extract-graph-only` (graph only, no body rewrite).
 - Name filters: `--entity-names` for entity-scoped ops (entity-descriptions); `--memory-names` for memory-scoped ops (memory-bindings, augment-bindings); `--names` remains a backward-compatible alias with per-operation semantics.
 - Remaining scan-only operations surface candidate lists without rewriting: `weight-calibrate`, `relation-reclassify`, `entity-type-validate`, `description-enrich`, `domain-classify`, `graph-audit`, `deep-research-synth` (and `body-extract` without `--body-extract-graph-only` when used as advisory).
-- `--mode <claude-code|codex|opencode|openrouter>` selects the JUDGE provider and is **REQUIRED** — there is NO default (the `claude-code` default was removed in v1.0.94). `claude-code`, `codex` and `opencode` are OAuth-only local CLIs; `openrouter` (v1.0.95) calls the `/chat/completions` REST endpoint with no subprocess.
-- With `--mode openrouter` (v1.0.95): `--openrouter-model` is REQUIRED (NO default; omitting it → exit 1 before any network call). `--openrouter-api-key` reads from env `OPENROUTER_API_KEY` or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional. Example: `enrich --operation memory-bindings --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json`.
-- `--preflight-check` issues a 1-turn ping BEFORE scanning the candidate set. On a Claude OAuth rate limit the probe aborts with a clear error (or switches to `--fallback-mode` when supplied). Default off to keep `--dry-run` and CI flows zero-cost.
-- `--fallback-mode <claude-code|codex>` automatically switches provider when the preflight probe or an in-flight call hits a rate limit. Ignored when `--mode` is already `codex`.
+- `--mode openrouter` selects the JUDGE provider and is **REQUIRED** — there is NO default (the `claude-code` default was removed in v1.0.94). `claude-code`, `codex` and `opencode` are OAuth-only local CLIs; `openrouter` (v1.0.95) calls the `/chat/completions` REST endpoint with no subprocess.
+- With `--mode openrouter` (v1.0.95): `--openrouter-model` is REQUIRED (NO default; omitting it → exit 1 before any network call). `--openrouter-api-key` reads from XDG via `config add-key` (OPENROUTER_API_KEY is not read at runtime) or `config add-key --provider openrouter`. `--openrouter-timeout` defaults to 300s. `--openrouter-base-url` is optional. Example: `enrich --operation memory-bindings --mode openrouter --openrouter-model "qwen/qwen3-235b-a22b" --json`.
+- `--preflight-check` confirms the OpenRouter key resolves BEFORE scanning the candidate set. Default off to keep `--dry-run` and CI flows zero-cost.
 - `--rate-limit-buffer <SECONDS>` defaults to 300. When the preflight probe detects that the OAuth rate-limit reset is less than the buffer away, it aborts with a suggestion to wait.
 - `--names <a,b,c>` and `--names-file <PATH>` select a specific subset of memory names instead of scanning all candidates. `--names-file` accepts `#` comments and blank lines. Both flags combine as a union when both are set.
 - `--preserve-threshold <FLOAT>` (default 0.7) controls the Jaccard trigram similarity gate for `body-enrich`. When the LLM rewrite scores below the threshold, the enriched body is REJECTED and emitted as `EnrichItemResult::PreservationFailed`. Protects against LLM invention.
 - `--llm-parallelism <N>` spawns N parallel LLM worker threads (default 1, max 32). Codex tolerates up to 16 in production; Claude warns above 4 because of the OAuth-MCP fan-out. Since v1.0.79 the same flag also exists on `remember` (default 4), `ingest` (default 2) and `edit` (default 4) for the embedding fan-out.
 - `--max-load-check` refuses to start when the 1-minute load average exceeds `2 × ncpus`. Set to false on contended CI runners.
 - `--circuit-breaker-threshold <N>` (default 5) aborts the job after N consecutive `HardFailure` outcomes. Transient rate-limit and timeout errors do not count.
-- `--codex-model-validate` (default true) checks `--codex-model` against the ChatGPT Pro OAuth accepted-model list BEFORE the subprocess is spawned. Use `--codex-model-fallback <MODEL>` to auto-substitute a known-good model instead of aborting.
 - `--dry-run` previews the candidate set without spawning any LLM. Output is NDJSON with one event per memory and a final summary.
 - `--resume` continues a previously interrupted batch from the queue DB. `--retry-failed` retries only the failed items.
 - `--until-empty` (v1.0.96) runs an internal scan→drain loop until the queue holds no eligible items or `--max-runtime <SECONDS>` (default 3600) expires — it replaces the external `while` retry loop. `--max-attempts <N>` (default 8, range 1..=20) is the Transient retry budget; an item turns terminal `dead` after that budget or on the first HardFailure (GAP-ENRICH-BACKLOG-CONVERGE, ADR-0055).
@@ -692,9 +681,6 @@ includes the schema and the response is larger).
 - `vec purge-orphan --yes --json` purges the THREE vec tables (`vec_memories`, `vec_entities`, `vec_chunks`) in a single implicit transaction. The response reports `deleted`, `deleted_entities`, `deleted_chunks`, and `elapsed_ms`.
 - `vec stats --json` exposes `vec_memories_rows`, `vec_entities_rows`, `vec_chunks_rows`, `orphans`, and the last vacuum timestamp. Use it to audit vector-table health after bulk `forget` cycles.
 - The `forget` subcommand now calls `memories::delete_vec` BEFORE the soft-delete, preventing new orphans in the steady state.
-### `codex-models` — Discover ChatGPT Pro OAuth Models (G33)
-- `codex-models --json` returns the accepted-model list, the count, and the default. Currently: `codex-auto-review`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`.
-- `codex-models --suggest <substring> --json` returns the closest match via substring lookup with a Levenshtein fallback. Useful when an operator types `o4-mini` and wants to know the closest accepted alternative.
 ### `optimize` and `backup` Hardening (G36 + G38)
 - `optimize` now pre-checks FTS5 health via `check_fts_functional` BEFORE rebuilding. A healthy index is no longer rebuilt (saves ~10 minutes on a 4.3 GB database). Force a rebuild with `--no-fts-skip-when-functional`.
 - `optimize --fts-dry-run --json` exits 1 if the FTS5 index needs a rebuild, 0 otherwise. CI-friendly.
@@ -723,7 +709,7 @@ For a large corpus, use the canonical one-shot re-embed loop
 (G42/S9, v1.0.79) — each invocation processes a small batch and exits:
 
 ```bash
-sqlite-graphrag enrich --operation re-embed --limit 5 --resume --mode codex --json
+sqlite-graphrag enrich --operation re-embed --limit 5 --resume --mode openrouter --openrouter-model MODEL --json
 ```
 
 Note: the old `edit --description "<same>"` recipe never re-embedded
@@ -731,25 +717,46 @@ anything (description-only edits are a no-op for embeddings); use
 `edit --force-reembed` for a single memory.
 
 
-## CI Test Environment
+## Running the Test Suite
 
-If you want to run the full test suite in CI, you need an LLM
-CLI on `PATH`. The v1.0.76 build does not embed via fastembed in
-the default configuration, so `v1044_features` /
-`signal_handling_integration` / `v2_breaking_integration` will
-fail with `no LLM CLI found on PATH` when neither `claude` nor
-`codex` is installed.
+This project ships no CI. `cargo test` is the release gate, and it runs on
+your machine.
 
-Workarounds:
+No LLM CLI has to be on `PATH`. Through v1.1.x the suite needed `claude` or
+`codex` installed, because embedding went through a subprocess. v1.2.0 removed
+those backends entirely: the only backends left are `openrouter` (REST) and
+`none`, and every test that needs an embedding either uses `none` or a local
+fixture. A CLI on `PATH` changes nothing.
 
-1. Install `claude` in the CI image and authenticate via OAuth
-   (requires storing OAuth tokens in CI secrets).
-2. Use a mock LLM CLI that returns a fixed JSON response for
-   the embedding prompt (used internally for the unit tests in
-   `src/extract/llm_embedding.rs`).
+```bash
+# The release gate. Run it WITHOUT --no-fail-fast at least once: the first
+# binary that exits abnormally stops every binary after it, and that cascade is
+# how v1.2.4 shipped with 61 of 87 suites never launched (GAP-SG-189).
+cargo test --all-features
+
+# Full assertion count once the gate is green.
+cargo test --all-features --no-fail-fast
+
+# Doctests run last, so the cascade above hides them completely.
+cargo test --doc
+
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+v1.2.5 measures 90 test binaries and 1915 assertions, zero failures.
+
+Tests that spend real OpenRouter credits are marked `#[ignore]`, so the command
+above never bills anything. Run them deliberately:
+
+```bash
+cargo test --test openrouter_chat_real -- --ignored --nocapture
+cargo test --test openrouter_live_concurrency -- --ignored --nocapture
+```
+
+See [TESTING.md](TESTING.md) for the per-suite breakdown.
 
 
-## Complete CLI command inventory (v1.2.1)
+## Complete CLI command inventory (v1.2.5)
 
 Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
 
@@ -784,7 +791,6 @@ Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
 - `export` — export memories as NDJSON
 - `fts` — FTS5 index management family
 - `vec` — vector table maintenance family
-- `codex-models` — list ChatGPT Pro OAuth accepted models
 - `prune-relations` — bulk-delete all relationships of a given type
 - `prune-ner` — remove NER bindings from `memory_entities`
 - `slots` — host-wide LLM slot semaphore inspection/cleanup
@@ -863,10 +869,26 @@ Top-level commands (from `sqlite-graphrag --help`) with a one-line purpose:
   - `--operation re-embed --target memories|entities|chunks|all` — BLOB-length eligibility + zombie reconcile
   - `--namespace` — claim, count, and resume are namespace-scoped
   - `--mode openrouter` / `--rest-concurrency` — REST judge/embed fan-out
+- Global output flags added in **v1.2.2** (apply to every subcommand)
+  - `--select <KEYS>` / `--fields` — keep only these keys per result element; dotted paths OK; missing key skipped, never `null`
+  - `--filter <EXPR>` — `key=value`, `key!=value`, `key~substring`; `==` synonym of `=`; repeat to conjoin with AND; malformed exits 2
+  - `--max-items <N>` — cap on emitted elements, applied after filtering; distinct from per-subcommand `--limit` and from `-k`
+  - `--sort <KEY>` — ascending by dotted path; numbers numeric, rest text
+  - `--dedupe-by <KEY>` — drop later elements repeating the value
+  - `--count-only` — payload becomes `{"count": N}`
+  - `--truncate-content <N>` — shorten strings past N characters, never bytes
+  - `--max-output-bytes <N>` — cap the envelope by dropping trailing elements, never by slicing JSON
+  - Failure envelopes (`error: true` / `ok: false`) and `$schema` documents are never reshaped; NDJSON streams bypass the surface
+- Global input flag added in **v1.2.2**
+  - `--no-input` — refuse stdin anywhere in the invocation; every stdin reader fails up front with exit 1; precedence flag > XDG `cli.no_input` > `false`
+- `schema` — machine-readable catalog of all **75** JSON contracts
+  - `schema` — NDJSON listing, one `{"id","invoke"}` per line; `invoke` is the ready-to-copy command
+  - `schema --name <ID>` — emit that contract's JSON Schema document
+  - Unknown `<ID>` exits **4**; `$schema` documents are exempt from the agent-native output surface, so any global flag can be chained safely
 
-> **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `codex-models`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2.
+> **GAP-SG-139:** host/XDG leaves (`config`, `slots`, `cache`, `completions`) accept `--db` as a documented **no-op** so agents that append `--db` everywhere do not get clap exit 2.
 
-> **Top-level inventory (50 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, codex-models, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, completions, config, help.
+> **Top-level inventory (51 + help):** init, remember, remember-batch, ingest, recall, read, list, forget, purge, rename, split-body, edit, history, restore, hybrid-search, health, migrate, namespace-detect, optimize, stats, sync-safe-copy, backup, vacuum, link, unlink, deep-research, related, graph, export, fts, vec, prune-relations, prune-ner, slots, pending, embedding, pending-embeddings, cleanup-orphans, memory-entities, cache, delete-entity, reclassify, rename-entity, merge-entities, enrich, reclassify-relation, normalize-entities, schema, completions, config, help.
 
 ## See Also
 

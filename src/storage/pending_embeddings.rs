@@ -232,7 +232,7 @@ mod tests {
             mid,
             "global",
             "p",
-            "codex,claude,none",
+            "openrouter,none",
             Some("exit 137 SIGKILL"),
             Some(137),
             Some("OOM killed by kernel"),
@@ -243,7 +243,7 @@ mod tests {
             .into_iter()
             .find(|p| p.pending_id == id)
             .expect("pending found");
-        assert_eq!(p.backend_chain, "codex,claude,none");
+        assert_eq!(p.backend_chain, "openrouter,none");
         assert_eq!(p.last_exit_code, Some(137));
         assert_eq!(p.last_stderr_tail.as_deref(), Some("OOM killed by kernel"));
     }
@@ -252,7 +252,7 @@ mod tests {
     fn update_status_increments_attempt_count() {
         let conn = fresh_db();
         let mid = insert_test_memory(&conn, "p");
-        let id = insert(&conn, mid, "global", "p", "codex", None, None, None).unwrap();
+        let id = insert(&conn, mid, "global", "p", "openrouter", None, None, None).unwrap();
         update_status(
             &conn,
             id,
@@ -274,7 +274,7 @@ mod tests {
     fn abandon_sets_status() {
         let conn = fresh_db();
         let mid = insert_test_memory(&conn, "p");
-        let id = insert(&conn, mid, "global", "p", "codex", None, None, None).unwrap();
+        let id = insert(&conn, mid, "global", "p", "openrouter", None, None, None).unwrap();
         abandon(&conn, id).unwrap();
         let abandoned = list_by_status(&conn, PendingEmbeddingStatus::Abandoned, 10).unwrap();
         assert!(abandoned.iter().any(|p| p.pending_id == id));
@@ -284,7 +284,7 @@ mod tests {
     fn delete_removes_row() {
         let conn = fresh_db();
         let mid = insert_test_memory(&conn, "p");
-        let id = insert(&conn, mid, "global", "p", "codex", None, None, None).unwrap();
+        let id = insert(&conn, mid, "global", "p", "openrouter", None, None, None).unwrap();
         delete(&conn, id).unwrap();
         let pending = list_by_status(&conn, PendingEmbeddingStatus::Pending, 10).unwrap();
         assert!(pending.iter().all(|p| p.pending_id != id));

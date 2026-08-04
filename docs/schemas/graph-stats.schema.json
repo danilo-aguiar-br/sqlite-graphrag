@@ -7,6 +7,9 @@
   "required": ["node_count", "edge_count", "avg_degree", "max_degree", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "namespace":  { "type": ["string", "null"], "description": "Namespace filter applied, or null when all namespaces are included." },
     "node_count": { "type": "integer", "minimum": 0, "description": "Total number of entity nodes in the selected scope." },
     "edge_count": { "type": "integer", "minimum": 0, "description": "Total number of relationship edges in the selected scope." },

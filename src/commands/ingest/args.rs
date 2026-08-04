@@ -16,19 +16,6 @@ use std::path::PathBuf;
     sqlite-graphrag ingest ./big-corpus --type reference --enable-ner\n\n  \
     # Preview file-to-name mapping without ingesting\n  \
     sqlite-graphrag ingest ./docs --dry-run\n\n  \
-    # LLM-curated extraction via Claude Code CLI\n  \
-    sqlite-graphrag ingest ./docs --mode claude-code --recursive --json\n\n  \
-    # Resume interrupted claude-code ingest\n  \
-    sqlite-graphrag ingest ./docs --mode claude-code --resume --json\n\n  \
-    # Claude Code with budget cap and custom timeout\n  \
-    sqlite-graphrag ingest ./docs --mode claude-code --max-cost-usd 5.00 --claude-timeout 600 --json\n\n  \
-AUTHENTICATION:\n  \
-    --mode claude-code: Uses existing Claude Code authentication.\n  \
-      OAuth (Pro/Max/Team): works automatically from ~/.claude/.credentials.json\n  \
-      API key: set ANTHROPIC_API_KEY for faster startup (optional)\n\n  \
-    --mode codex: Uses existing Codex CLI authentication.\n  \
-      Device auth: run `codex auth login` first\n  \
-      API key: set OPENAI_API_KEY (optional)\n\n  \
 NOTES:\n  \
     Each file becomes a separate memory. Names derive from file basenames\n  \
     (kebab-case, lowercase, ASCII). Output is NDJSON: one JSON object per file,\n  \
@@ -131,8 +118,8 @@ pub struct IngestArgs {
     /// Equivalent to `--ingest-parallelism 1`, takes precedence over any
     /// explicit value. Recommended for environments with <4 GB available
     /// RAM or container/cgroup constraints. Trade-off: 3-4x longer wall
-    /// time. Also available via XDG `ingest.low_memory=1`
-    /// (CLI flag has higher precedence than the env var).
+    /// time. Also available via XDG `config set ingest.low_memory 1`, which the
+    /// flag overrides. No environment variable supplies this value.
     #[arg(
         long,
         default_value_t = false,
@@ -177,92 +164,13 @@ pub struct IngestArgs {
     )]
     pub name_prefix: Option<String>,
 
-    /// Extraction mode: `none` (body-only, default) or `claude-code`/`codex`/`opencode` (LLM-curated).
+    /// Extraction mode: `none` (body-only, default).
     #[arg(long, value_enum, default_value_t = IngestMode::None)]
     pub mode: IngestMode,
 
-    /// Explicit path to the Claude Code binary (only with --mode claude-code).
-    #[arg(long)]
-    pub claude_binary: Option<std::path::PathBuf>,
-
-    /// Model override for Claude Code extraction (e.g. claude-sonnet-4-6).
-    #[arg(long)]
-    pub claude_model: Option<String>,
-
-    /// Resume a previously interrupted claude-code ingest from the queue DB.
-    #[arg(long, default_value_t = false)]
-    pub resume: bool,
-
-    /// Retry only failed files from a previous claude-code ingest.
-    #[arg(long, default_value_t = false)]
-    pub retry_failed: bool,
-
-    /// Keep the queue DB (.ingest-queue.sqlite) after completion.
-    #[arg(long, default_value_t = false)]
-    pub keep_queue: bool,
-
-    /// Custom path for the ingest queue DB. Default: alongside the --db database.
-    #[arg(long)]
-    pub queue_db: Option<String>,
-
-    /// Initial wait time in seconds when rate-limited (only with --mode claude-code).
-    #[arg(long, default_value_t = 60)]
-    pub rate_limit_wait: u64,
-
-    /// Maximum cumulative cost in USD before aborting (only with --mode claude-code).
+    /// Maximum cumulative cost in USD before aborting.
     #[arg(long)]
     pub max_cost_usd: Option<f64>,
-
-    /// Timeout in seconds for each claude -p invocation (only with --mode claude-code).
-    #[arg(
-        long,
-        default_value_t = 300,
-        help = "Timeout in seconds for each claude -p invocation (default: 300)"
-    )]
-    pub claude_timeout: u64,
-
-    /// Explicit path to the Codex CLI binary (only with --mode codex).
-    #[arg(
-        long,
-        help = "Explicit path to the Codex CLI binary (only with --mode codex)"
-    )]
-    pub codex_binary: Option<PathBuf>,
-
-    /// Model override for Codex extraction (e.g. o4-mini, gpt-5.1-codex).
-    #[arg(
-        long,
-        help = "Model override for Codex extraction (e.g. o4-mini, gpt-5.1-codex)"
-    )]
-    pub codex_model: Option<String>,
-
-    /// Timeout in seconds for each codex exec invocation.
-    #[arg(
-        long,
-        default_value_t = 300,
-        help = "Timeout in seconds for each codex exec invocation (default: 300)"
-    )]
-    pub codex_timeout: u64,
-
-    /// Path to the `opencode` binary (override PATH lookup, only with --mode opencode).
-    #[arg(long, value_name = "PATH")]
-    pub opencode_binary: Option<PathBuf>,
-
-    /// Model override for OpenCode extraction.
-    #[arg(
-        long,
-        value_name = "MODEL",
-        help = "Model override for OpenCode extraction"
-    )]
-    pub opencode_model: Option<String>,
-
-    /// Timeout in seconds for each opencode run invocation.
-    #[arg(
-        long,
-        value_name = "SECONDS",
-        default_value_t = 300,
-        help = "Timeout in seconds for each opencode run invocation (default: 300)"
-    )]
-    pub opencode_timeout: u64,
 
     /// G30: poll for the job singleton every second for up to N seconds
     /// when another invocation holds the lock. Default: 0 (fail fast).
@@ -300,13 +208,6 @@ pub struct IngestArgs {
 pub enum IngestMode {
     /// Body-only ingestion without entity/relationship extraction (default).
     None,
-    /// LLM-curated extraction via locally installed Claude Code CLI.
-    ClaudeCode,
-    /// LLM-curated extraction via locally installed OpenAI Codex CLI.
-    Codex,
-    /// LLM-curated extraction via locally installed OpenCode CLI.
-    #[value(name = "opencode")]
-    Opencode,
 }
 
 /// Returns true when the XDG setting `ingest.low_memory` holds a truthy value

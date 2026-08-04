@@ -92,7 +92,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Execute `cargo test --test terminal_compile_windows` após modificar `src/terminal.rs` para confirmar que a superfície pública continua chamável; o job dedicado de CI `windows-build-check` roda a checagem completa de tipos cross-platform
 - Asserções de teste envolvendo timestamps DEVEM ser timezone-agnostic — parseie ISO via `chrono::DateTime::parse_from_rfc3339` e compare `timestamp()` contra `DateTime::UNIX_EPOCH` em vez de strings hardcoded `1970-01-01T00:00:00`; esta regra foi adicionada depois de um vazamento de `SQLITE_GRAPHRAG_DISPLAY_TZ` em v1.0.66/v1.0.67 que tornou três testes pré-existentes flaky
 - Testes de embedding OpenRouter vivem em `tests/openrouter_embedding.rs` usando `wiremock` para mocking HTTP; execute com `cargo test --test openrouter_embedding`
-- Testes E2E OpenRouter com API real são opt-in: defina `OPENROUTER_API_KEY` e `--embedding-model` para executar contra endpoint ao vivo; estes NÃO fazem parte da suíte padrão `cargo test`
+- Testes E2E OpenRouter com API real são opt-in: use `config add-key openrouter` (ou `--openrouter-api-key`) e `--embedding-model` para endpoint ao vivo; o produto nunca lê `OPENROUTER_API_KEY`; estes NÃO fazem parte da suíte padrão `cargo test`
 - Regressões CAPA da fila enrich v1.2.1: ao editar enqueue/dequeue/predicados de re-embed, rode `cargo test --lib commands::enrich` e confirme que `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` permanecem verdes (isolamento de claim por namespace / strip de `entity:`)
 
 
@@ -156,7 +156,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Validação: nextest 1086 passed, 0 failed, 6 skipped; prova de ordem viva (cosseno diagonal 0.9999, off-diagonal max 0.899, argmax 64/64); ADR-0055 (EN+PT).
 ### v1.0.95 - 2026-06-27 — Enrich via Chat OpenRouter (ADR-0054)
 - GAP-OR-ENRICH: novo modo opt-in `enrich --mode openrouter` roteia a etapa JUDGE ao endpoint REST `/chat/completions` do OpenRouter, removendo a exigência de uma CLI `claude`/`codex`/`opencode` instalada localmente; os quatro modos de enrich agora são `claude-code`, `codex`, `opencode`, `openrouter`. Novo módulo `src/chat_api.rs` (`OpenRouterChatClient`) espelha `src/embedding_api.rs`; `--openrouter-model` é obrigatória com `--mode openrouter`.
-- Validação: SCAN→JUDGE→PERSIST inalterado, 13/13 modelos reais passam, sem migração (schema v15); `OPENROUTER_API_KEY` tratada via `secrecy`/zeroize, jamais logada ou passada a subprocesso.
+- Validação: SCAN→JUDGE→PERSIST inalterado, 13/13 modelos reais passam, sem migração (schema v15); chave OpenRouter via flag/`config add-key` (`OPENROUTER_API_KEY` não é lida em runtime), tratada via `secrecy`/zeroize, jamais logada ou passada a subprocesso.
 ### v1.0.94 - 2026-06-26 — Remediação de Quatro Gaps (ADR-0053)
 - Corrigidos GAP-OR-ENTITY-EMBED (embedding de entidades honra `--embedding-backend`/`--llm-backend`; `remember` com entidades novas ~119s -> ~0,9s), GAP-EMBED-DIM-64 (default de dim 64 -> 384), GAP-EMBED-TIMEOUT-300 (timeout de embedding 120s -> 300s), GAP-HEADLESS-DEFAULT (`enrich --mode` agora obrigatório, clap exit 2 quando omitido).
 - Validação: `cargo fmt --check` 0 diferenças, `cargo clippy -- -D warnings` 0 warnings, `cargo test` exit 0; ADR-0053 (EN+PT), documentação sincronizada em root, docs/, skill/ e llms.

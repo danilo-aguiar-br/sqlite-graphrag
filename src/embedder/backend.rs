@@ -9,12 +9,6 @@ use std::path::Path;
 /// `--llm-fallback` without translation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LlmBackendKind {
-    /// `codex exec` (default for v1.0.76+).
-    Codex,
-    /// `claude -p` (fallback for ChatGPT Pro OAuth unavailability).
-    Claude,
-    /// `opencode run` (v1.0.90).
-    Opencode,
     /// OpenRouter HTTP API (v1.0.93).
     OpenRouter,
     /// No embedding — empty vector returned.
@@ -26,9 +20,6 @@ impl LlmBackendKind {
     /// string values are part of the public contract for `envelope.backend_invoked`.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Codex => "codex",
-            Self::Claude => "claude",
-            Self::Opencode => "opencode",
             Self::OpenRouter => "openrouter",
             Self::None => "none",
         }
@@ -52,45 +43,6 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
                 ))
             }
         }
-        LlmBackendKind::Codex => {
-            let bin = crate::runtime_config::codex_binary().unwrap_or_else(|| "codex".into());
-            if which::which(&bin).is_err() && which::which("codex").is_err() {
-                return Err(AppError::Embedding(
-                    crate::i18n::validation::embedding_codex_probe_binary_not_on_path(),
-                ));
-            }
-            // OAuth material: ~/.codex/auth.json or CODEX_HOME/auth.json
-            let auth = std::env::var_os("CODEX_HOME")
-                .map(std::path::PathBuf::from)
-                .or_else(|| {
-                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".codex"))
-                })
-                .map(|p| p.join("auth.json"));
-            match auth {
-                Some(p) if p.is_file() => Ok(()),
-                _ => Err(AppError::Embedding(
-                    crate::i18n::validation::embedding_codex_probe_auth_missing(),
-                )),
-            }
-        }
-        LlmBackendKind::Claude => {
-            let bin = crate::runtime_config::claude_binary().unwrap_or_else(|| "claude".into());
-            if which::which(&bin).is_err() && which::which("claude").is_err() {
-                return Err(AppError::Embedding(
-                    crate::i18n::validation::embedding_claude_probe_binary_not_on_path(),
-                ));
-            }
-            Ok(())
-        }
-        LlmBackendKind::Opencode => {
-            let bin = crate::runtime_config::opencode_binary().unwrap_or_else(|| "opencode".into());
-            if which::which(&bin).is_err() && which::which("opencode").is_err() {
-                return Err(AppError::Embedding(
-                    crate::i18n::validation::embedding_opencode_probe_binary_not_on_path(),
-                ));
-            }
-            Ok(())
-        }
     }
 }
 
@@ -103,38 +55,20 @@ pub(crate) fn backend_ready_probe(backend: &LlmBackendKind) -> Result<(), AppErr
 ///
 /// BUG-003 / v1.0.85: returns `(Vec<f32>, LlmBackendKind)`. The
 /// second element reports the backend that ACTUALLY executed the
-/// embedding, not the chain position requested by the caller. When
-/// `LlmBackendKind::Codex` is requested but `codex` is absent from
-/// PATH, `LlmEmbedding::detect_available` substitutes claude and the
-/// tuple carries `LlmBackendKind::Claude` so the operator sees the
-/// truth in `envelope.backend_invoked`.
+/// embedding, not the chain position requested by the caller, so
+/// `envelope.backend_invoked` shows the operator the truth.
+///
+/// The tuple mattered more when the chain could substitute one
+/// subprocess backend for another; v1.2.0 reduced [`LlmBackendKind`]
+/// to `OpenRouter` and `None`, so the two now only differ when
+/// OpenRouter is unreachable and the caller falls through to `None`.
 pub fn embed_via_backend(
-    models_dir: &Path,
+    _models_dir: &Path,
     text: &str,
     backend: &LlmBackendKind,
 ) -> Result<(Vec<f32>, LlmBackendKind), AppError> {
     match backend {
         LlmBackendKind::None => Ok((Vec::new(), LlmBackendKind::None)),
-        LlmBackendKind::Codex => embed_passage_local_resolved(models_dir, text),
-        LlmBackendKind::Claude => {
-            // ADR-0042 / GAP-002: route Claude through its own static
-            // embedder instead of re-using the Codex path (which used
-            // to silently pick Codex if PATH ordered it first).
-            tracing::debug!(
-                target: "embedder",
-                backend = "claude",
-                "embed_via_backend: forcing claude (ADR-0042 / GAP-002 fix)"
-            );
-            embed_via_claude_local_resolved(models_dir, text, None, None)
-        }
-        LlmBackendKind::Opencode => {
-            tracing::debug!(
-                target: "embedder",
-                backend = "opencode",
-                "embed_via_backend: forcing opencode (GAP-OPENCODE-001)"
-            );
-            embed_via_opencode_local_resolved(models_dir, text, None, None)
-        }
         LlmBackendKind::OpenRouter => {
             tracing::debug!(
                 target: "embedder",
@@ -205,23 +139,6 @@ pub fn embed_via_backend_strict(
                 })
             }
         }
-        LlmBackendKind::Codex => embed_passage_local_resolved(models_dir, text),
-        LlmBackendKind::Claude => {
-            tracing::debug!(
-                target: "embedder",
-                backend = "claude",
-                "embed_via_backend_strict: forcing claude (ADR-0042 / GAP-002 fix)"
-            );
-            embed_via_claude_local_resolved(models_dir, text, None, None)
-        }
-        LlmBackendKind::Opencode => {
-            tracing::debug!(
-                target: "embedder",
-                backend = "opencode",
-                "embed_via_backend_strict: forcing opencode (GAP-OPENCODE-001)"
-            );
-            embed_via_opencode_local_resolved(models_dir, text, None, None)
-        }
         LlmBackendKind::OpenRouter => embed_via_backend(models_dir, text, backend),
     }
 }
@@ -260,17 +177,4 @@ pub fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
 /// validate LLM responses and to size the in-memory cache.
 pub fn embedding_dim() -> usize {
     crate::constants::embedding_dim()
-}
-
-/// G42/C5: a vector with a divergent dimensionality is an ERROR, never
-/// silently truncated or zero-padded (the pre-v1.0.79 `normalise_dim`
-/// masked malformed LLM responses).
-pub(crate) fn validate_dim(v: Vec<f32>) -> Result<Vec<f32>, AppError> {
-    let dim = crate::constants::embedding_dim();
-    if v.len() != dim {
-        return Err(AppError::Embedding(
-            crate::i18n::validation::embedding_has_dims_expected(v.len(), dim),
-        ));
-    }
-    Ok(v)
 }

@@ -82,9 +82,9 @@ fn lookup_entity_by_id(
         ))
     }) {
         Ok(row) => Ok(row),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(format!(
-            "entity id={id} not found in namespace '{namespace}'"
-        ))),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(AppError::NotFound(
+            crate::i18n::validation::entity_id_not_found_in_namespace(id, namespace),
+        )),
         Err(e) => Err(AppError::Database(e)),
     }
 }

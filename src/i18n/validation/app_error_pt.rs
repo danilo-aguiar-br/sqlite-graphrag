@@ -43,15 +43,61 @@ pub fn not_found(msg: &str) -> String {
     // by the name label, leaving a bilingual hybrid. New patterns
     // must run BEFORE the catch-all `memory` → `memória` to avoid
     // being shadowed.
+    // GAP-SG-143: the chain now covers the whole
+    // `crate::i18n::validation::messages_not_found` catalog. Rules are ordered
+    // from most specific to most generic — a generic rule that runs early
+    // shadows every specific rule after it, which is how the pre-G55 hybrid
+    // was produced.
+    //
+    // Grammatical gender is decided by ONE structural cue: the catalog quotes
+    // the subject's NAME (`memory 'x'`, `entity 'y'`) and leaves ids bare
+    // (`chunk 3`, `entity id=9`). A quoted subject takes the feminine
+    // agreement that `memória`/`entidade` require; a bare id falls to the
+    // masculine default. Plain `str::replace` cannot see the noun across a
+    // varying id, so a bare-id line whose noun is feminine keeps the masculine
+    // form. That is a known agreement imperfection, deliberately preferred
+    // over leaving English in the output.
     let translated = msg
+        // -- endpoint-qualified entities, before the generic `entity` rule
+        .replace("source entity '", "entidade de origem '")
+        .replace("target entity '", "entidade de destino '")
+        // -- multi-word phrases, before any single-word rule
         .replace("memory not found:", "memória não encontrada:")
-        .replace("not found in namespace", "não encontrada no namespace")
+        .replace(
+            "exists but belongs to namespace",
+            "existe mas pertence ao namespace",
+        )
+        .replace("' not found in namespace", "' não encontrada no namespace")
+        .replace("not found in namespace", "não encontrado no namespace")
+        .replace(
+            "not found in pending_memories",
+            "não encontrado em pending_memories",
+        )
         .replace("not found for memory", "não encontrada para memória")
         .replace("does not exist in namespace", "não existe no namespace")
         .replace("memory or entity", "memória ou entidade")
+        .replace("Did you mean:", "Você quis dizer:")
+        .replace(
+            "Re-run with --fuzzy to auto-resolve a clear match, or pass the canonical name.",
+            "Repita com --fuzzy para resolver automaticamente uma correspondência clara, \
+             ou informe o nome canônico.",
+        )
+        .replace(
+            "is not held (no file at",
+            "não está retido (nenhum arquivo em",
+        )
+        .replace("no key with fingerprint", "nenhuma chave com fingerprint")
         .replace("name='", "nome='")
+        // -- nouns
+        .replace("relationship", "relacionamento")
+        .replace("edge '", "aresta '")
         .replace("memory", "memória")
         .replace("entity", "entidade")
+        // -- trailing `not found`, quoted subject first (feminine agreement)
+        .replace("' not found", "' não encontrada")
+        .replace("not found", "não encontrado")
+        // -- residual connectors
+        .replace(", not '", ", e não '")
         .replace(" in namespace '", " no namespace '")
         .replace("version", "versão")
         .replace("soft-deleted", "excluída temporariamente");
@@ -215,13 +261,11 @@ pub fn shutdown(signal: &str) -> String {
     format!("sinal de desligamento recebido: {signal}; operação cancelada pelo usuário (exit 19)")
 }
 
-/// Preflight failed.
-pub fn preflight_failed(detail: &str) -> String {
-    format!(
-        "validação pré-execução falhou (exit 16): {detail}; corrija a condição e tente novamente (config set spawn.skip_preflight=1 desabilita em emergências)"
-    )
-}
-
+// `preflight_failed` lived here until v1.2.3. It localised the exit-16 MCP
+// preflight error for a `src/spawn/` module and an `AppError` variant that no
+// longer exist, and it advertised `config set spawn.skip_preflight=1` — a key
+// that was itself removed in the same change. A message nothing can emit is a
+// translated promise about a code path the product no longer has.
 /// Localized message for `binary_not_found`.
 pub fn binary_not_found(name: &str) -> String {
     format!("binário não encontrado: {name} — instale e adicione ao PATH")

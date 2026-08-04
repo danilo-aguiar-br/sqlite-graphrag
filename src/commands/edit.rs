@@ -90,8 +90,8 @@ struct EditResponse {
     version: i64,
     /// Total execution time in milliseconds from handler start to serialisation.
     elapsed_ms: u64,
-    /// v1.0.84 (ADR-0042): discriminator of the LLM backend that actually
-    /// ran the re-embedding of the edited body. `"claude" | "codex" | "none"`.
+    /// v1.0.84 (ADR-0042): discriminator of the embedding backend that actually
+    /// ran the re-embedding of the edited body. `"openrouter" | "none"`.
     /// Absent on the wire when `None` (kept for happy-path envelope cleanliness,
     /// or when the body did not change and re-embedding was not invoked).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,7 +145,7 @@ pub fn run(
             }
             std::fs::read_to_string(path).map_err(AppError::Io)?
         } else {
-            crate::stdin_helper::read_stdin_with_timeout(60)?
+            crate::stdin_helper::read_stdin()?
         };
         // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings —
         // bytes (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6.

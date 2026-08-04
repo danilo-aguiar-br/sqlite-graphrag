@@ -249,6 +249,155 @@ pub mod errors_msg {
     }
 }
 
+/// GAP-SG-143: operational `AppError` payloads that are bilingual AT
+/// CONSTRUCTION.
+///
+/// # Why not `errors_msg`
+///
+/// `errors_msg` is English-only because its variants (`NotFound`,
+/// `Duplicate`, `Conflict`) are translated at DISPLAY time by the
+/// replace-chains in [`validation::app_error_pt`]. The variants below —
+/// `DbBusy`, `LockBusy`, `NamespaceError`, `Embedding` — reach the operator
+/// through PT helpers that only PREFIX their argument, so an English-only
+/// payload would ship a bilingual hybrid: `banco ocupado: SQLITE_BUSY after 5
+/// retries`.
+///
+/// These builders therefore resolve [`current`] the way
+/// `validation::messages_naming` does, and own both wordings in one place.
+pub mod errors_ops {
+    use super::{current, Language};
+
+    /// SQLite stayed busy after the configured retry budget.
+    pub fn sqlite_busy_after_retries(max_retries: u32) -> String {
+        match current() {
+            Language::English => format!("SQLITE_BUSY after {max_retries} retries"),
+            Language::Portuguese => format!("SQLITE_BUSY após {max_retries} tentativas"),
+        }
+    }
+
+    /// No LLM concurrency slot came free inside the wait window.
+    pub fn llm_slot_acquire_timeout(wait_secs: u64, max_concurrent: u32) -> String {
+        match current() {
+            Language::English => format!(
+                "failed to acquire LLM slot within {wait_secs}s (max={max_concurrent} concurrent)"
+            ),
+            Language::Portuguese => format!(
+                "não foi possível obter um slot de LLM em {wait_secs}s (máx={max_concurrent} concorrentes)"
+            ),
+        }
+    }
+
+    /// A memory row changed between the read and the write of the same
+    /// transaction, so the update matched zero rows.
+    pub fn memory_modified_concurrently(name: &str) -> String {
+        match current() {
+            Language::English => format!("memory '{name}' was modified concurrently; retry"),
+            Language::Portuguese => {
+                format!("memória '{name}' foi modificada concorrentemente; tente novamente")
+            }
+        }
+    }
+
+    /// A rename target is already taken by another ACTIVE memory.
+    pub fn rename_target_occupied(new_name: &str, memory_id: i64) -> String {
+        match current() {
+            Language::English => format!(
+                "target name '{new_name}' is already occupied by active memory id {memory_id}"
+            ),
+            Language::Portuguese => format!(
+                "o nome de destino '{new_name}' já está ocupado pela memória ativa id {memory_id}"
+            ),
+        }
+    }
+
+    /// Creating one more namespace would cross `MAX_NAMESPACES_ACTIVE`.
+    ///
+    /// Shared by `remember` and `ingest`, which used to phrase the same ceiling
+    /// two different ways.
+    pub fn active_namespace_limit_reached(max: u32, namespace: &str) -> String {
+        match current() {
+            Language::English => format!(
+                "active namespace limit of {max} reached while trying to create '{namespace}'"
+            ),
+            Language::Portuguese => {
+                format!("limite de {max} namespaces ativos atingido ao tentar criar '{namespace}'")
+            }
+        }
+    }
+
+    /// `--name-prefix` alone consumes the whole name budget.
+    pub fn name_prefix_exceeds_name_cap(prefix_len: usize, cap: usize) -> String {
+        match current() {
+            Language::English => format!(
+                "--name-prefix is {prefix_len} chars; prefixed names would exceed the \
+                 {cap}-char name cap (MAX_MEMORY_NAME_LEN)"
+            ),
+            Language::Portuguese => format!(
+                "--name-prefix tem {prefix_len} caracteres; nomes prefixados excederiam o \
+                 teto de {cap} caracteres (MAX_MEMORY_NAME_LEN)"
+            ),
+        }
+    }
+
+    /// `try_reserve` refused the ingest plan allocation.
+    ///
+    /// `what` names the collection and comes from the label builders below, so
+    /// the whole sentence stays in one language.
+    pub fn allocation_would_exceed_memory(capacity: usize, what: &str) -> String {
+        match current() {
+            Language::English => {
+                format!("allocation of {capacity} {what} would exceed available memory")
+            }
+            Language::Portuguese => {
+                format!("a alocação de {capacity} {what} excederia a memória disponível")
+            }
+        }
+    }
+
+    /// Allocation label for the ingest slot-metadata vector.
+    pub fn alloc_label_slot_metadata() -> &'static str {
+        super::tr("slot metadata entries", "entradas de metadados de slot")
+    }
+
+    /// Allocation label for the ingest process-item vector.
+    pub fn alloc_label_process_items() -> &'static str {
+        super::tr("process items", "itens de processamento")
+    }
+
+    /// Allocation label for the ingest truncation vector.
+    pub fn alloc_label_truncation_entries() -> &'static str {
+        super::tr("truncation entries", "entradas de truncamento")
+    }
+
+    /// The same body is already stored under a different name (dedup by
+    /// `body_hash`), so ingest skips the file instead of duplicating it.
+    pub fn duplicate_body_hash(hash_id: i64, name: &str) -> String {
+        match current() {
+            Language::English => format!(
+                "identical body already stored as memory id {hash_id} \
+                 (dedup by body_hash); skipping '{name}'"
+            ),
+            Language::Portuguese => format!(
+                "corpo idêntico já armazenado como memória id {hash_id} \
+                 (dedup por body_hash); ignorando '{name}'"
+            ),
+        }
+    }
+
+    /// The embedding backend returned a vector count that does not match the
+    /// batch it was given, so no pairing is safe.
+    pub fn batch_embedding_count_mismatch(vectors: usize, texts: usize) -> String {
+        match current() {
+            Language::English => {
+                format!("batch embedding returned {vectors} vectors for {texts} texts")
+            }
+            Language::Portuguese => {
+                format!("o embedding em lote retornou {vectors} vetores para {texts} textos")
+            }
+        }
+    }
+}
+
 /// Localized validation messages for memory fields.
 pub mod validation;
 

@@ -72,6 +72,11 @@ pub(super) fn persist_memory_bindings(
         }
     }
 
+    // Entities whose edge count changed here, so `degree` can be reconciled once
+    // at the end instead of once per edge.
+    let mut affected_entity_ids: std::collections::BTreeSet<i64> =
+        std::collections::BTreeSet::new();
+
     for rel in &extracted_rels {
         // GAP-SG-48: rewrite non-canonical relations to canonical instead of
         // accepting them raw with only a warning.
@@ -93,7 +98,30 @@ pub(super) fn persist_memory_bindings(
             };
             if entities::upsert_relationship(conn, namespace, sid, tid, &new_rel).is_ok() {
                 rel_count += 1;
+                affected_entity_ids.insert(sid);
+                affected_entity_ids.insert(tid);
             }
+        }
+    }
+
+    // `upsert_relationship` writes the edge and nothing else, so every caller
+    // owns the `degree` cache. `ingest::persist` and `remember::run` already
+    // reconcile it; this path did not, and it is the path that runs most.
+    //
+    // The omission fed back on itself. `enrich --operation entity-connect`
+    // picks hubs with `ORDER BY degree DESC` and islands with `degree = 0`, both
+    // read straight off that cache. Edges written here left it untouched, so the
+    // next scan ranked hubs by an undercount and offered as "islands" the very
+    // entities this pass had just connected. Measured on a live graph: 6 218 of
+    // 15 370 entities carried a stale degree.
+    for &eid in &affected_entity_ids {
+        if let Err(e) = entities::recalculate_degree(conn, eid) {
+            tracing::warn!(
+                target: "enrich",
+                entity_id = eid,
+                error = %e,
+                "degree reconciliation skipped"
+            );
         }
     }
 
@@ -350,6 +378,63 @@ mod tests {
         ))
         .expect("schema creation must succeed");
         conn
+    }
+
+    /// `upsert_relationship` writes the edge and nothing else, so every caller
+    /// owns the `degree` cache. This path did not reconcile it, and it is the
+    /// path that runs most.
+    ///
+    /// The omission fed back on itself: `entity-connect` picks hubs with
+    /// `ORDER BY degree DESC` and islands with `degree = 0`, both read off that
+    /// cache, so a pass would offer as "islands" the entities it had just
+    /// connected. Measured on a live graph, 6 218 of 15 370 entities carried a
+    /// stale degree.
+    #[test]
+    fn persisted_relationships_reconcile_the_degree_cache() {
+        let conn = open_test_db();
+        conn.execute("INSERT INTO memories (name) VALUES ('m')", [])
+            .unwrap();
+        let memory_id: i64 = conn
+            .query_row("SELECT id FROM memories WHERE name='m'", [], |r| r.get(0))
+            .unwrap();
+
+        let entities_json = serde_json::json!([
+            {"name": "hub", "entity_type": "concept"},
+            {"name": "leaf-a", "entity_type": "concept"},
+            {"name": "leaf-b", "entity_type": "concept"},
+        ]);
+        let rels_json = serde_json::json!([
+            {"source": "hub", "target": "leaf-a", "relation": "uses", "strength": 0.8},
+            {"source": "hub", "target": "leaf-b", "relation": "uses", "strength": 0.8},
+        ]);
+
+        let (_ents, rels) =
+            persist_memory_bindings(&conn, "global", memory_id, &entities_json, &rels_json)
+                .unwrap();
+        assert_eq!(
+            rels, 2,
+            "both edges must persist for the check to mean anything"
+        );
+
+        let stored: i64 = conn
+            .query_row("SELECT degree FROM entities WHERE name='hub'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let real: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relationships r \
+                 JOIN entities e ON e.id = r.source_id OR e.id = r.target_id \
+                 WHERE e.name = 'hub'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            stored, real,
+            "the stored degree ({stored}) must match the edges actually written ({real}); \
+             leaving it at zero is what made entity-connect treat connected entities as islands"
+        );
     }
 
     #[test]

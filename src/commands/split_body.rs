@@ -296,9 +296,9 @@ fn split_single(
         params![row.id, metadata_str],
     )?;
     if affected == 0 {
-        return Err(AppError::Conflict(format!(
-            "memory '{name}' was modified concurrently; retry"
-        )));
+        return Err(AppError::Conflict(
+            crate::i18n::errors_ops::memory_modified_concurrently(name),
+        ));
     }
 
     // Record a version snapshot of the metadata annotation.
