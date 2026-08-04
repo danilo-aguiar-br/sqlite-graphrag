@@ -15,7 +15,7 @@ fn exit_code_hints_map() -> &'static HashMap<i32, &'static str> {
         m.insert(2, "incorrect subprocess CLI usage; review flags passed to the binary");
         m.insert(101, "kernel SIGABRT; possible panic inside the subprocess");
         m.insert(126, "binary not executable; run chmod +x on the binary");
-        m.insert(127, "binary not found on PATH; verify which codex / which claude");
+        m.insert(127, "binary not found on PATH");
         m.insert(134, "SIGABRT; internal subprocess abort — report upstream");
         m.insert(137, "SIGKILL from OOM killer or external signal; check dmesg and lower --llm-parallelism");
         m.insert(139, "SIGSEGV; report upstream with preserved stderr");
@@ -162,7 +162,7 @@ impl LlmBackendError {
                 )
             }
             Self::NoBackendsAvailable => "no backends succeeded and no fallback was configured; \
-                 pass --llm-fallback=codex,claude or --skip-embedding-on-failure"
+                 pass --llm-fallback=none or --skip-embedding-on-failure"
                 .to_string(),
         }
     }

@@ -1,8 +1,8 @@
 //! Handler for the `cache` CLI subcommand and its nested operations.
 //!
-//! Manages cached resources such as the multilingual-e5-small ONNX model
-//! downloaded into the XDG cache directory on first `init`. Used to reclaim
-//! disk space or recover from corrupted cache state.
+//! Manages the XDG model cache directory. Since v1.0.79 the build is LLM-only
+//! and `init` downloads no model, so this directory is empty on a fresh
+//! install; the command reclaims space from pre-migration installs.
 
 use crate::cli_db_noop::DbNoopArgs;
 use crate::errors::AppError;
@@ -12,7 +12,7 @@ use serde::Serialize;
 
 #[derive(clap::Args)]
 #[command(after_long_help = "EXAMPLES:\n  \
-    # Remove cached embedding/NER model files (forces re-download on next init)\n  \
+    # Remove any leftover cached model files from before the LLM-only migration\n  \
     sqlite-graphrag cache clear-models\n\n  \
     # Skip the confirmation prompt\n  \
     sqlite-graphrag cache clear-models --yes\n\n  \
@@ -30,7 +30,7 @@ pub struct CacheArgs {
 /// Cache commands.
 #[derive(clap::Subcommand)]
 pub enum CacheCommands {
-    /// Remove cached embedding/NER model files (forces re-download on next `init`).
+    /// Remove any leftover cached model files. Since v1.0.79 `init` downloads nothing, so this reclaims space from pre-migration installs only.
     ClearModels(ClearModelsArgs),
     /// List cached embedding/NER model files with sizes and total disk usage.
     List(CacheListArgs),

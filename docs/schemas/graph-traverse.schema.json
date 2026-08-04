@@ -21,6 +21,9 @@
   "required": ["from", "namespace", "depth", "hops", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "from":       { "type": "string",  "description": "Canonical name of the starting entity. Equals the `--from` argument on exact match; with `--fuzzy` (v1.1.05) this is the resolved canonical name and may differ from the CLI argument." },
     "namespace":  { "type": "string",  "description": "Namespace used for the traversal." },
     "depth":      { "type": "integer", "minimum": 1, "description": "Maximum BFS depth requested via --depth." },

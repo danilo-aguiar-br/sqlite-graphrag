@@ -13,6 +13,8 @@
     "elapsed_ms"
   ],
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "action": { "const": "embedding_list" },
     "filter_status": {
       "type": "string",

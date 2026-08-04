@@ -1,7 +1,7 @@
 //! Shared no-op `--db` flag for host/XDG CLI surfaces (GAP-SG-139).
 //!
 //! Graph-scoped subcommands resolve storage via `--db`. Host/XDG surfaces
-//! (`config`, `slots`, `cache`, `completions`, `codex-models`) never open the
+//! (`config`, `slots`, `cache`, `completions`) never open the
 //! graph database, but agents that append `--db` to every one-shot invocation
 //! must not receive clap exit 2. This module provides a single help string and
 //! an optional [`DbNoopArgs`](crate::cli_db_noop::DbNoopArgs) group for

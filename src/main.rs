@@ -1,24 +1,25 @@
 //! Process entry point: signal handling, language/timezone init, dispatch.
 
-// v1.0.74: gate the mimalloc global allocator behind a cfg so the
-// Miri Unsafe Validation job (which passes
-// `RUSTFLAGS="--cfg sqlite_graphrag_miri"`) can run the unsafe
-// `f32_to_bytes` and `controlled_batch_plan` tests. mimalloc's
-// `mi_malloc_aligned` is a foreign function that Miri cannot model
-// (`error: unsupported operation: can't call foreign function
-// 'mi_malloc_aligned' on OS 'linux'`). The default Linux allocator is
-// used during Miri runs; production binaries still get mimalloc.
-#[cfg(not(sqlite_graphrag_miri))]
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+// The process uses the system allocator.
+//
+// `mimalloc` was the `#[global_allocator]` until v1.2.2. It is a C library, and
+// this project is meant to ship as a self-contained rust-native binary; an
+// allocator is an optimisation, not a requirement, so it was the removable half
+// of the C toolchain. Measured over the real binary on a 200-memory corpus, the
+// swap is inside run-to-run noise for a one-shot CLI whose wall time is
+// dominated by process spawn and SQLite I/O — the allocator never gets a
+// long-lived heap to amortise against.
+//
+// It also carried `#[cfg(not(sqlite_graphrag_miri))]`, because Miri cannot model
+// the foreign `mi_malloc_aligned`. That cfg existed for nothing else and is gone
+// with it, so the Miri job no longer needs `RUSTFLAGS` to run the unsafe tests.
 
 use clap::Parser;
 use sqlite_graphrag::{
     cli::Cli,
     commands,
     constants::{
-        CLI_LOCK_DEFAULT_WAIT_SECS, LLM_WORKER_RSS_MB, MAX_CONCURRENT_CLI_INSTANCES,
-        MIN_AVAILABLE_MEMORY_MB,
+        CLI_LOCK_DEFAULT_WAIT_SECS, MAX_CONCURRENT_CLI_INSTANCES, MIN_AVAILABLE_MEMORY_MB,
     },
     lock::acquire_cli_slot,
     memory_guard::{available_memory_mb, calculate_safe_concurrency, check_available_memory},
@@ -38,9 +39,9 @@ fn main() -> std::process::ExitCode {
     // success-path before returning.
     // v1.0.80 (A1/G1): the main thread is intentionally 100% synchronous.
     // The default LLM-only build (v1.0.76+) does not own a tokio runtime
-    // here: every remember, ingest, and enrich spawns a headless claude
-    // or codex subprocess via std::process::Command and waits on its exit.
-    // The per-subprocess concurrency cap is enforced by the
+    // here: every remember, ingest, and enrich drives the OpenRouter REST
+    // API through a short-lived runtime and waits on its completion.
+    // The per-call concurrency cap is enforced by the
     // acquire_cli_slot counting semaphore and the MAX_CONCURRENT_CLI_*
     // constants; cross-process sync happens via SQLite WAL and flock.
     // The pre-tokio design is a deliberate policy choice: no async
@@ -63,8 +64,8 @@ fn main() -> std::process::ExitCode {
 
     // v1.0.79: ONNX Runtime removed from the default LLM-only build. The
     // fastembed/ort/onnxruntime crates are no longer in the dependency tree;
-    // embeddings and NER delegate to headless claude/codex subprocesses
-    // (OAuth-only, no MCP, no hooks). The global Rayon pool below stays
+    // embeddings and NER delegate to the OpenRouter REST API. The global
+    // Rayon pool below stays
     // relevant for parallel similarity and batch ops on that path.
     //
     // GAP-SG-92: this used to write `RAYON_NUM_THREADS` into the process
@@ -152,7 +153,9 @@ fn main() -> std::process::ExitCode {
     #[cfg(feature = "deadlock-detection")]
     {
         std::thread::spawn(|| loop {
-            std::thread::sleep(std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_secs(
+                sqlite_graphrag::constants::DEADLOCK_CHECK_INTERVAL_SECS,
+            ));
             let deadlocks = parking_lot::deadlock::check_deadlock();
             if !deadlocks.is_empty() {
                 tracing::error!(target: "deadlock_detection", count = deadlocks.len(), "deadlocks detected");
@@ -222,19 +225,17 @@ fn main() -> std::process::ExitCode {
     // G-T-XDG-04: install CLI overrides into runtime_config (no product env).
     sqlite_graphrag::runtime_config::init(sqlite_graphrag::runtime_config::RuntimeOverrides {
         embedding_dim: cli.embedding_dim.and_then(|d| u32::try_from(d).ok()),
-        claude_binary: cli.claude_binary.as_ref().map(|p| p.display().to_string()),
-        codex_binary: cli.codex_binary.as_ref().map(|p| p.display().to_string()),
-        opencode_binary: cli
-            .opencode_binary
-            .as_ref()
-            .map(|p| p.display().to_string()),
         llm_model: cli.llm_model.clone(),
-        llm_fallback: Some(cli.llm_fallback.clone()),
+        llm_fallback: cli.llm_fallback.clone(),
         skip_embedding_on_failure: cli.skip_embedding_on_failure,
         llm_max_host_concurrency: cli.llm_max_host_concurrency.map(|n| n as usize),
         llm_slot_wait_secs: cli.llm_slot_wait_secs,
         llm_slot_no_wait: cli.llm_slot_no_wait,
-        strict_env_clear: cli.strict_env_clear,
+        // ORDERING IS LOAD-BEARING: this runs before the OpenRouter client is
+        // built below, and that client is a `OnceLock` that FREEZES its timeout
+        // on first construction. Installing the override later would leave the
+        // client on the compiled default for the whole process.
+        openrouter_timeout: cli.openrouter_timeout,
         log_level: None,
         log_format: None,
         lang: None, // set via i18n::init(cli.lang)
@@ -245,16 +246,18 @@ fn main() -> std::process::ExitCode {
     // Initialize display timezone (flag --tz > XDG display.tz > UTC).
     if let Err(e) = sqlite_graphrag::tz::init(cli.tz) {
         sqlite_graphrag::output::emit_error(&e.localized_message());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        let _ = std::io::Write::flush(&mut std::io::stderr());
+        if let Some(code) = flush_std_streams() {
+            return code;
+        }
         return std::process::ExitCode::from(e.exit_code() as u8);
     }
 
     // Validate flags before any heavy initialization.
     if let Err(msg) = cli.validate_flags() {
         sqlite_graphrag::output::emit_error(&msg);
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        let _ = std::io::Write::flush(&mut std::io::stderr());
+        if let Some(code) = flush_std_streams() {
+            return code;
+        }
         return std::process::ExitCode::from(2);
     }
 
@@ -267,8 +270,9 @@ fn main() -> std::process::ExitCode {
                 Ok(available_mb) => available_mb,
                 Err(e) => {
                     sqlite_graphrag::output::emit_error(&e.localized_message());
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                    if let Some(code) = flush_std_streams() {
+                        return code;
+                    }
                     return std::process::ExitCode::from(e.exit_code() as u8);
                 }
             }
@@ -295,17 +299,20 @@ fn main() -> std::process::ExitCode {
                     "embedding-heavy command must measure available RAM",
                     &sqlite_graphrag::i18n::validation::runtime_pt::embedding_heavy_must_measure_ram(),
                 );
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
+                if let Some(code) = flush_std_streams() {
+                    return code;
+                }
                 return std::process::ExitCode::from(20);
             }
         };
         // v1.0.79: every build is LLM-only; the per-worker budget is the
-        // claude/codex subprocess RSS, not the old 1100 MB ONNX model load.
+        // REST client footprint, not the old 1100 MB ONNX model load. The
+        // budget is an ESTIMATE, never a measurement, so it is read through the
+        // XDG-aware resolver rather than from the bare constant.
         let safe_concurrency = calculate_safe_concurrency(
             available_mb,
             cpu_count,
-            LLM_WORKER_RSS_MB,
+            sqlite_graphrag::constants::llm_worker_rss_mb(),
             MAX_CONCURRENT_CLI_INSTANCES,
         );
         let effective_concurrency = requested_concurrency.min(safe_concurrency);
@@ -336,6 +343,17 @@ fn main() -> std::process::ExitCode {
     } else {
         requested_concurrency.min(MAX_CONCURRENT_CLI_INSTANCES)
     };
+
+    // Joint cap. `--max-concurrency` is validated against `2 × nCPUs` and
+    // `--llm-parallelism` against 32, but nothing bounded their PRODUCT: on a
+    // 16-core host the two ceilings together authorised 1024 in-flight workers.
+    // Publishing the per-process fan-out share here is the only place that knows
+    // the resolved concurrency; `embedder::batch` reads it back when it turns a
+    // requested parallelism into actual permits.
+    sqlite_graphrag::constants::set_joint_parallelism_ceiling(
+        sqlite_graphrag::constants::joint_parallelism_ceiling_for(max_concurrency),
+    );
+
     let wait_secs = cli.wait_lock.unwrap_or(CLI_LOCK_DEFAULT_WAIT_SECS);
     if wait_secs > 5 {
         tracing::info!(
@@ -351,8 +369,9 @@ fn main() -> std::process::ExitCode {
             Ok(pair) => pair,
             Err(e) => {
                 sqlite_graphrag::output::emit_error(&e.localized_message());
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
+                if let Some(code) = flush_std_streams() {
+                    return code;
+                }
                 return std::process::ExitCode::from(e.exit_code() as u8);
             }
         })
@@ -364,11 +383,28 @@ fn main() -> std::process::ExitCode {
 
     // v1.1.8 G-T-XDG-04: product env bridge removed; runtime_config holds CLI overrides.
 
+    // The flag documented XDG `embedding.model` as its fallback from the day it
+    // shipped, but nothing resolved the key, so `config set embedding.model`
+    // was stored and then ignored. Resolving once, in function scope, keeps the
+    // preflight below and the `init` handler on the same documented precedence.
+    let embedding_model =
+        sqlite_graphrag::runtime_config::embedding_model(cli.embedding_model.as_deref());
+
+    // Same defect on the two backend selectors: both `--help` texts promised an
+    // XDG fallback (`embedding.backend`, `llm.backend`) that no registry entry
+    // declared, so the documented `config set` answered exit 1. Resolving here,
+    // once, is what keeps every call site below on one precedence chain —
+    // flag > XDG > compiled default — instead of reading a clap default that
+    // would make the XDG layer unreachable.
+    let embedding_backend =
+        sqlite_graphrag::runtime_config::embedding_backend(cli.embedding_backend);
+    let llm_backend = sqlite_graphrag::runtime_config::llm_backend(cli.llm_backend);
+
     // v1.0.93: initialise OpenRouter embedding client when configured.
     {
         use sqlite_graphrag::cli::EmbeddingBackendChoice;
         let wants_openrouter = matches!(
-            cli.embedding_backend,
+            embedding_backend,
             EmbeddingBackendChoice::Auto | EmbeddingBackendChoice::Openrouter
         );
         // RC-7 fix (v1.0.98): read-only / no-embedding subcommands (`init`, the
@@ -380,17 +416,28 @@ fn main() -> std::process::ExitCode {
             .as_ref()
             .is_some_and(|c| c.tolerates_missing_embedding_key());
         if wants_openrouter {
-            if matches!(cli.embedding_backend, EmbeddingBackendChoice::Openrouter)
-                && cli.embedding_model.is_none()
+            // `tolerates_no_key` also guards the model preflight, not only the
+            // key one below. Without it, `config set embedding.backend
+            // openrouter` with no model stored is a one-way door: every later
+            // invocation dies at this check, INCLUDING the `config unset` that
+            // would undo it, so the operator has no CLI path back and has to
+            // hand-edit the TOML. A knob whose wrong value disables the command
+            // that fixes it is not a knob.
+            if matches!(embedding_backend, EmbeddingBackendChoice::Openrouter)
+                && embedding_model.is_none()
+                && !tolerates_no_key
             {
-                let msg = "--embedding-backend openrouter requires --embedding-model (e.g. qwen/qwen3-embedding-8b)";
+                let msg = "--embedding-backend openrouter requires --embedding-model \
+                           or XDG `config set embedding.model` \
+                           (e.g. qwen/qwen3-embedding-8b)";
                 sqlite_graphrag::output::emit_error_json(78, msg);
                 sqlite_graphrag::output::emit_error(msg);
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
+                if let Some(code) = flush_std_streams() {
+                    return code;
+                }
                 return std::process::ExitCode::from(78_u8);
             }
-            if let Some(model) = cli.embedding_model.as_deref() {
+            if let Some(model) = embedding_model.as_deref() {
                 if let Some(resolved) = sqlite_graphrag::config::resolve_api_key(
                     "openrouter",
                     cli.openrouter_api_key.as_deref(),
@@ -400,81 +447,71 @@ fn main() -> std::process::ExitCode {
                         resolved.value,
                         model,
                         dim,
+                        // Global flag, read straight off `Cli`: the value no
+                        // longer has to be dug out of one enum variant, which
+                        // is what limited it to `enrich`.
+                        sqlite_graphrag::runtime_config::openrouter_timeout_override(),
                     ) {
                         tracing::warn!(error = %e, "failed to initialise OpenRouter embedding client");
-                        if matches!(cli.embedding_backend, EmbeddingBackendChoice::Openrouter)
+                        if matches!(embedding_backend, EmbeddingBackendChoice::Openrouter)
                             && !tolerates_no_key
                         {
                             sqlite_graphrag::output::emit_error_json(78, &e.to_string());
                             sqlite_graphrag::output::emit_error(&e.to_string());
-                            let _ = std::io::Write::flush(&mut std::io::stdout());
-                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                            if let Some(code) = flush_std_streams() {
+                                return code;
+                            }
                             return std::process::ExitCode::from(78_u8);
                         }
                     }
-                } else if matches!(cli.embedding_backend, EmbeddingBackendChoice::Openrouter)
+                } else if matches!(embedding_backend, EmbeddingBackendChoice::Openrouter)
                     && !tolerates_no_key
                 {
-                    let msg = "--embedding-backend openrouter requires OPENROUTER_API_KEY env var, config.toml key, or --openrouter-api-key flag";
+                    let msg = "--embedding-backend openrouter needs a key: store one with `config add-key --provider openrouter --from-stdin` or pass --openrouter-api-key";
                     sqlite_graphrag::output::emit_error_json(78, msg);
                     sqlite_graphrag::output::emit_error(msg);
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
-                    let _ = std::io::Write::flush(&mut std::io::stderr());
+                    if let Some(code) = flush_std_streams() {
+                        return code;
+                    }
                     return std::process::ExitCode::from(78_u8);
                 }
             }
         }
     }
 
-    // v1.0.84 (ADR-0042 / GAP-002): early-exit branch for `--dry-run-backend`.
-    // Resolves the LLM backend that WOULD be invoked for embedding,
-    // prints a compact JSON envelope, and exits 0 without spawning any
-    // subprocess. Sits BEFORE the subcommand match so it works even when
-    // no positional command is provided (sanity-check flag).
-    if cli.dry_run_backend {
-        match commands::dry_run_backend::emit_dry_run_backend(&cli) {
-            Ok(()) => {
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
-                return std::process::ExitCode::SUCCESS;
-            }
-            Err(e) => {
-                sqlite_graphrag::output::emit_error_json(e.exit_code(), &e.localized_message());
-                sqlite_graphrag::output::emit_error(&e.localized_message());
-                let _ = std::io::Write::flush(&mut std::io::stdout());
-                let _ = std::io::Write::flush(&mut std::io::stderr());
-                return std::process::ExitCode::from(e.exit_code() as u8);
-            }
-        }
-    }
-
     let result = match cli.command {
         Some(cmd) => match cmd {
-            sqlite_graphrag::cli::Commands::Init(args) => {
-                commands::init::run(args, cli.llm_backend, cli.embedding_backend)
-            }
+            sqlite_graphrag::cli::Commands::Init(args) => commands::init::run(
+                args,
+                llm_backend,
+                embedding_backend,
+                embedding_model.as_deref(),
+            ),
             sqlite_graphrag::cli::Commands::Remember(args) => {
-                commands::remember::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::remember::run(args, llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::RememberBatch(args) => {
-                commands::remember_batch::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::remember_batch::run(args, llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::Ingest(args) => {
-                commands::ingest::run(*args, cli.llm_backend, cli.embedding_backend)
+                commands::ingest::run(*args, llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::Recall(args) => {
-                commands::recall::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::recall::run(args, llm_backend, embedding_backend, cli.fail_on_degraded)
             }
             sqlite_graphrag::cli::Commands::Edit(args) => {
-                commands::edit::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::edit::run(args, llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::History(args) => commands::history::run(args),
             sqlite_graphrag::cli::Commands::Restore(args) => {
-                commands::restore::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::restore::run(args, llm_backend, embedding_backend)
             }
-            sqlite_graphrag::cli::Commands::HybridSearch(args) => {
-                commands::hybrid_search::run(args, cli.llm_backend, cli.embedding_backend)
-            }
+            sqlite_graphrag::cli::Commands::HybridSearch(args) => commands::hybrid_search::run(
+                args,
+                llm_backend,
+                embedding_backend,
+                cli.fail_on_degraded,
+            ),
             sqlite_graphrag::cli::Commands::Read(args) => commands::read::run(args),
             sqlite_graphrag::cli::Commands::List(args) => commands::list::run(args),
             sqlite_graphrag::cli::Commands::Forget(args) => commands::forget::run(args),
@@ -495,27 +532,17 @@ fn main() -> std::process::ExitCode {
             sqlite_graphrag::cli::Commands::Vacuum(args) => commands::vacuum::run(args),
             sqlite_graphrag::cli::Commands::Link(args) => commands::link::run(args),
             sqlite_graphrag::cli::Commands::Unlink(args) => commands::unlink::run(args),
-            sqlite_graphrag::cli::Commands::DeepResearch(args) => {
-                commands::deep_research::run(args, cli.llm_backend, cli.embedding_backend)
-            }
+            sqlite_graphrag::cli::Commands::DeepResearch(args) => commands::deep_research::run(
+                args,
+                llm_backend,
+                embedding_backend,
+                cli.fail_on_degraded,
+            ),
             sqlite_graphrag::cli::Commands::Related(args) => commands::related::run(args),
             sqlite_graphrag::cli::Commands::Graph(args) => commands::graph_export::run(args),
             sqlite_graphrag::cli::Commands::Export(args) => commands::export::run(args),
             sqlite_graphrag::cli::Commands::Fts(args) => commands::fts::run(args),
             sqlite_graphrag::cli::Commands::Vec(args) => commands::vec::run(args),
-            sqlite_graphrag::cli::Commands::CodexModels(_args) => {
-                // GAP-E2E-010 (v1.0.89): `_args.json` is accepted as a no-op
-                // so pipelines appending `--json` do not fail with "unexpected
-                // argument". The output is always JSON.
-                let models = commands::codex_spawn::list_codex_models();
-                let payload = serde_json::json!({
-                    "action": "codex_models",
-                    "count": models.len(),
-                    "models": models,
-                    "default": "gpt-5.5",
-                });
-                sqlite_graphrag::output::emit_json_compact(&payload).and(Ok(()))
-            }
             sqlite_graphrag::cli::Commands::PruneRelations(args) => {
                 commands::prune_relations::run(args)
             }
@@ -532,13 +559,13 @@ fn main() -> std::process::ExitCode {
             }
             sqlite_graphrag::cli::Commands::Reclassify(args) => commands::reclassify::run(args),
             sqlite_graphrag::cli::Commands::RenameEntity(args) => {
-                commands::rename_entity::run(args, cli.llm_backend, cli.embedding_backend)
+                commands::rename_entity::run(args, llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::MergeEntities(args) => {
                 commands::merge_entities::run(args)
             }
             sqlite_graphrag::cli::Commands::Enrich(args) => {
-                commands::enrich::run(args.as_ref(), cli.llm_backend, cli.embedding_backend)
+                commands::enrich::run(args.as_ref(), llm_backend, embedding_backend)
             }
             sqlite_graphrag::cli::Commands::ReclassifyRelation(args) => {
                 commands::reclassify_relation::run(args)
@@ -547,11 +574,14 @@ fn main() -> std::process::ExitCode {
                 commands::normalize_entities::run(args)
             }
             sqlite_graphrag::cli::Commands::Completions(args) => commands::completions::run(args),
+            sqlite_graphrag::cli::Commands::Schema(args) => {
+                sqlite_graphrag::print_schema::run(args)
+            }
             sqlite_graphrag::cli::Commands::DebugSchema(args) => commands::debug_schema::run(args),
             sqlite_graphrag::cli::Commands::Slots(args) => commands::slots::run(args),
             sqlite_graphrag::cli::Commands::Pending(args) => commands::pending::run(args),
             sqlite_graphrag::cli::Commands::Embedding(args) => {
-                commands::embedding::run(args, cli.llm_backend)
+                commands::embedding::run(args, llm_backend)
             }
             sqlite_graphrag::cli::Commands::PendingEmbeddings(args) => {
                 commands::pending_embeddings::run(args)
@@ -563,25 +593,39 @@ fn main() -> std::process::ExitCode {
 
     if let Err(e) = result {
         // GAP-SG-39: emit an actionable error envelope (cause + remediation) so a
-        // non-zero exit from any write path is never silent on stdout.
+        // non-zero exit from any write path is never silent on stdout. The retry
+        // verdict travels with it, so an agent decides from the envelope rather
+        // than from a table of exit codes it has to know by heart.
         sqlite_graphrag::output::emit_error_json_with_suggestion(
             e.exit_code(),
             &e.localized_message(),
+            e.error_class(),
+            e.is_retryable(),
             e.suggestion(),
         );
         sqlite_graphrag::output::emit_error(&e.localized_message());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        let _ = std::io::Write::flush(&mut std::io::stderr());
+        // A closed stdout pipe outranks the command's own code, but it must NOT
+        // skip the teardown: returning early here would drop the last
+        // diagnostics and leak the spawn directory.
+        let broken_pipe = flush_std_streams();
         sqlite_graphrag::tracing_init::flush_tracing();
         cleanup_spawn_dir();
-        return std::process::ExitCode::from(e.exit_code() as u8);
+        return broken_pipe.unwrap_or_else(|| std::process::ExitCode::from(e.exit_code() as u8));
     }
 
-    let _ = std::io::Write::flush(&mut std::io::stdout());
-    let _ = std::io::Write::flush(&mut std::io::stderr());
+    let broken_pipe = flush_std_streams();
     // GAP-SG-99/130: drop non-blocking file appender worker so buffers flush
     // before process exit (docsrs WorkerGuard contract).
     sqlite_graphrag::tracing_init::flush_tracing();
+
+    // A consumer that closed the pipe early (`| head`, `| jaq`) outranks the
+    // success code: on Unix the default SIGPIPE disposition would already have
+    // killed the process, and this keeps Windows — which has no SIGPIPE — on the
+    // same 141 contract.
+    if let Some(code) = broken_pipe {
+        cleanup_spawn_dir();
+        return code;
+    }
 
     if sqlite_graphrag::shutdown_requested() {
         cleanup_spawn_dir();
@@ -590,6 +634,35 @@ fn main() -> std::process::ExitCode {
 
     cleanup_spawn_dir();
     std::process::ExitCode::SUCCESS
+}
+
+/// Flushes stdout then stderr, reporting a CLOSED stdout pipe as exit 141.
+///
+/// Returns `Some(141)` when the stdout flush failed with
+/// [`std::io::ErrorKind::BrokenPipe`], and `None` in every other case —
+/// including any other I/O error, which is swallowed exactly as before because
+/// a failing flush must never mask the real exit code.
+///
+/// # Why this exists on Windows
+///
+/// On Unix `main` resets `SIGPIPE` to its default disposition, so a consumer
+/// that exits early (`| head`, `| jaq`) kills the process with the conventional
+/// `128 + 13 = 141` before this code is reached. Windows has NO `SIGPIPE`: the
+/// closed pipe surfaces only as a write error, and without this classification
+/// the same pipeline would exit 0 there. One helper on every exit path keeps the
+/// exit-code contract identical on Linux, macOS and Windows.
+fn flush_std_streams() -> Option<std::process::ExitCode> {
+    use std::io::Write;
+    let stdout_broken = std::io::stdout()
+        .flush()
+        .is_err_and(|e| e.kind() == std::io::ErrorKind::BrokenPipe);
+    let _ = std::io::stderr().flush();
+    if stdout_broken {
+        return Some(std::process::ExitCode::from(
+            sqlite_graphrag::constants::BROKEN_PIPE_EXIT_CODE,
+        ));
+    }
+    None
 }
 
 fn cleanup_spawn_dir() {

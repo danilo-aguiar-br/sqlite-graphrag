@@ -199,9 +199,9 @@ pub fn run(args: RenameArgs) -> Result<(), AppError> {
             )?;
             ghost_purged = Some(true);
         } else if ghost_id != memory_id {
-            return Err(AppError::Duplicate(format!(
-                "target name '{normalized_new_name}' is already occupied by active memory id {ghost_id}"
-            )));
+            return Err(AppError::Duplicate(
+                crate::i18n::errors_ops::rename_target_occupied(&normalized_new_name, ghost_id),
+            ));
         }
     }
 

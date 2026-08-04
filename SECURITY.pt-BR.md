@@ -11,10 +11,17 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 | Versão  | Status        | Correções de Segurança     |
 | ------- | ------------- | -------------------------- |
-| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.1 / crate 1.2.1) |
+| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.2 / crate 1.2.2) |
 | 1.1.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 1.0.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
+
+### Notas de segurança relevantes da v1.2.2
+- **Envelope de falha nunca é filtrado.** A superfície de saída agent-native (`--filter`, `--select`, `--max-items`, …) remodela apenas linhas de resultado; um envelope com `error: true` ou `ok: false` chega ao chamador literalmente. O chamador nunca pode ser induzido a ler uma falha como conjunto de resultados vazio e bem-sucedido
+- **Truncagem nunca é silenciosa.** `--truncate-content` e `--max-output-bytes` registram o que removeram em `agent_surface` e levantam a flag `truncated` de topo; `--max-output-bytes` descarta elementos do fim em vez de fatiar o texto JSON, então um envelope limitado ainda faz parse
+- **`--no-input` recusa stdin de forma declarativa.** Todo leitor de stdin falha de antemão com exit 65 em vez de bloquear, então uma invocação desassistida não trava esperando entrada que nunca chegará. Precedência: flag > XDG `cli.no_input` > `false`
+- Um `--filter` malformado sai com exit 2 em vez de devolver zero linhas, então um typo nunca é confundido com resultado vazio legítimo
+- Schema permanece em **v16** (sem migração do DB principal); a superfície é aditiva e opt-in
 
 ### Notas de segurança relevantes da v1.2.1
 - **Isolamento de claim por namespace** na fila sidecar do enrich: `dequeue_next_pending` / `count_eligible_pending` / resume exigem `operation` **e** `namespace`, de modo que um drain em um namespace não pode reivindicar ou processar trabalho pending de outro (reduz risco de processamento cross-namespace e efeito de circuit-breaker)
@@ -23,7 +30,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 ### Notas de segurança relevantes da v1.2.0
 - Sem product env (`SQLITE_GRAPHRAG_*`) no hot path; config de runtime é flag > XDG `config set` > default
 - `DEFAULT_EMBEDDING_DIM=1024` (sobrescrita via `--embedding-dim` / XDG `embedding.dim`; DBs existentes mantêm `schema_meta.dim`)
-- GAP-SG-139: superfícies host aceitam `--db` como no-op documentado (`config`, `slots`, `cache`, `codex-models`, `completions`); superfícies de grafo inalteradas
+- GAP-SG-139: superfícies host aceitam `--db` como no-op documentado (`config`, `slots`, `cache`, `completions`); superfícies de grafo inalteradas
 - Gate de qualidade offline: `scripts/e2e_offline_v120.sh`
 
 
@@ -115,13 +122,13 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 ## v1.0.93 Tratamento de Chave API OpenRouter (ADR-0052)
 - v1.0.93 introduz `--embedding-backend openrouter` que usa uma chave de API real (NÃO OAuth) para chamadas REST diretas ao OpenRouter
-- A chave é fornecida via flag `--openrouter-api-key` ou variável `OPENROUTER_API_KEY`
+- A chave é fornecida via flag `--openrouter-api-key` ou XDG `config add-key openrouter` (`OPENROUTER_API_KEY` não é lida em runtime; G-T-XDG-04)
 - A chave é encapsulada em `secrecy::SecretString` e zeroizada no drop — JAMAIS mantida como String plana na memória após inicialização
 - A chave JAMAIS é logada no stderr mesmo em nível `RUST_LOG=trace`
 - A chave JAMAIS é persistida no `graphrag.sqlite` ou em qualquer arquivo de cache
 - A chave JAMAIS é encaminhada para subprocessos LLM (claude, codex, opencode) — flui apenas para chamadas HTTPS `reqwest` para `api.openrouter.ai`
 - Isto é SEMANTICAMENTE DISTINTO do enforço OAuth-only nos backends LLM: `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` continuam ABORTANDO com exit 1
-- A variável `OPENROUTER_API_KEY` NÃO está na whitelist de env-clear — permanece apenas no processo pai
+- Nota histórica: `OPENROUTER_API_KEY` nunca esteve na whitelist de env-clear; o produto nunca lê essa env agora — use flag ou `config add-key` apenas
 - Operadores em hosts compartilhados DEVEM preferir a flag `--openrouter-api-key` ao invés da variável para minimizar janela de exposição
 - Veja `docs/decisions/adr-0052-openrouter-embedding-backend.md` para a decisão arquitetural completa
 
@@ -143,7 +150,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - JAMAIS ignore warnings do `cargo audit` sem abrir um advisory de segurança rastreado
 - JAMAIS defina `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no ambiente; o spawn abortará com exit 1
 - JAMAIS dependa do encaminhamento de `ANTHROPIC_AUTH_TOKEN` quando o host é compartilhado com processos não confiáveis; prefira `--strict-env-clear` para que credenciais permaneçam apenas no processo pai
-- JAMAIS faça commit de valores `OPENROUTER_API_KEY` no repositório ou em forks derivados
+- JAMAIS faça commit de chaves OpenRouter (nem valores de `OPENROUTER_API_KEY`, que o produto ignora) no repositório ou em forks derivados
 - SEMPRE use a flag `--openrouter-api-key` em vez da variável de ambiente em hosts compartilhados
 - v1.1.06: o wall-clock do primeiro scan de `enrich --operation entity-connect` / `cross-domain-bridges` usa `InterruptHandle` e devolve Timeout exit **1** (não exit **75** de singleton). Orquestradores não devem tratar timeout de scan como contenção de lock. Veja ADR-0066 e `docs/HEADLESS_INVOCATION.pt-BR.md`.
 
@@ -157,14 +164,14 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 ## v1.0.95 Tratamento de Chave de Chat OpenRouter (ADR-0054)
 - A v1.0.95 adiciona `enrich --mode openrouter`, que roteia a etapa JUDGE ao `/chat/completions` do OpenRouter via HTTPS (`src/chat_api.rs`) em vez de spawnar uma CLI local.
-- Ele reutiliza a MESMA `OPENROUTER_API_KEY` já documentada para o backend de embedding, com o MESMO tratamento: envolvida em `secrecy::SecretBox`, zeroizada no drop, JAMAIS logada, JAMAIS passada a qualquer subprocesso.
+- Ele reutiliza a MESMA credencial OpenRouter já documentada para o backend de embedding (flag / `config add-key`; `OPENROUTER_API_KEY` não é lida em runtime), com o MESMO tratamento: envolvida em `secrecy::SecretBox`, zeroizada no drop, JAMAIS logada, JAMAIS passada a qualquer subprocesso.
 - A chave flui apenas para o cliente HTTPS `reqwest` que aponta para `openrouter.ai`; não está na whitelist de env-clear e permanece apenas no processo pai.
 - Nenhuma nova superfície de credencial é introduzida além da já documentada para o backend de embedding OpenRouter.
 
 
 ## v1.0.96 Fan-out REST Bounded e Convergência por Dead-letter (ADR-0055)
 - A v1.0.96 adiciona concorrência bounded ao path REST de embedding OpenRouter (`embed_passages_parallel_with_embedding_choice`); as requisições in-flight são clampadas em 1..=16 (padrão 8, faixa Cloudflare-safe) via `tokio::task::JoinSet`, SEM nova dependência.
-- O fan-out apenas paraleliza leituras HTTPS de saída para `openrouter.ai`; NÃO amplia a superfície de credencial ou de rede, e o MESMO tratamento de `OPENROUTER_API_KEY` (secrecy/zeroize, jamais logada, jamais passada a subprocesso) permanece inalterado.
+- O fan-out apenas paraleliza leituras HTTPS de saída para `openrouter.ai`; NÃO amplia a superfície de credencial ou de rede, e o MESMO tratamento da chave OpenRouter (flag/`config add-key`, secrecy/zeroize, jamais logada, jamais passada a subprocesso; env de produto ignorada) permanece inalterado.
 - Escritas SQLite permanecem serializadas via WAL mais claim atômico — o banco continua single-writer; a fila dead-letter (`error_class`, `next_retry_at`, terminal `dead`) apenas agenda retries e jamais contorna o lock de escrita.
 - `enrich --status` é read-only: inspeciona a fila sem chamada de LLM e sem adquirir o singleton, portanto é seguro integrar a hooks e timers.
 - Nenhum novo exit code e nenhuma nova superfície de credencial são introduzidos.

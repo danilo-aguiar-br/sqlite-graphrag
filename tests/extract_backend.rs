@@ -10,9 +10,9 @@ use std::sync::Arc;
 async fn llm_backend_kind_and_model() {
     let backend = LlmBackend::new(LlmExtractorConfig::default());
     assert_eq!(backend.kind(), BackendKind::Llm);
-    // v1.0.89: default resolves dynamically; accept any known backend
+    // The heuristic backend carries a fixed label; no provider is probed.
     let model = backend.model_name();
-    assert!(model.contains("codex") || model.contains("claude") || model.contains("none"));
+    assert_eq!(model, "llm-headless");
 }
 
 #[tokio::test]

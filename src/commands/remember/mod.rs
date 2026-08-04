@@ -4,6 +4,8 @@ mod args;
 mod embed_phase;
 mod finish;
 mod graph_input;
+mod input;
+mod name;
 mod run;
 
 pub use args::RememberArgs;

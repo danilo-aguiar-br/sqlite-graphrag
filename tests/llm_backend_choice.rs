@@ -38,102 +38,129 @@ fn cmd_base(tmp: &TempDir) -> Command {
     common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.env("XDG_CACHE_HOME", tmp.path().join("cache"));
     c.arg("--skip-memory-guard");
+    // `--embedding-backend auto` prepends OpenRouter whenever a client is
+    // live, so the `none` chain can only terminate on `none` in a KEYLESS
+    // sandbox. That is the precondition this suite has always assumed.
+    common::write_sandbox_config_without_key(&tmp.path().join("config"), None);
     c
 }
 
-/// BUG-11 (v1.0.88, ADR-0046) contract: a fallback chain of only
-/// `[None]` without `skip_on_failure` MUST abort rather than persist a
-/// memory with an invisible zero-dimensional embedding. So `remember
-/// --llm-backend none` with no embedding backend available fails with
-/// exit 11 and "no LLM backends available; fallback chain exhausted".
-/// This supersedes the pre-BUG-11 GAP-003 (v1.0.82) contract, which
-/// expected a silent empty-embedding success.
+/// GAP-CLI-EMBED-NONE (v1.1.8) contract, superseding BUG-11 (v1.0.88,
+/// ADR-0046) for an INTENTIONAL `none`-only chain.
+///
+/// BUG-11 made a fallback chain of only `[None]` abort with exit 11 and
+/// "no LLM backends available; fallback chain exhausted", so that a memory
+/// could never be persisted carrying an invisible zero-dimensional embedding.
+/// `src/embedder/backend.rs::embed_via_backend_strict` now splits the two
+/// cases: reaching `None` AFTER a real backend failed still propagates the
+/// prior error (BUG-11 intact), but an explicit `--llm-backend none` — with
+/// `last_err.is_none()` — returns an empty vector and the write succeeds while
+/// `run_embed_phase` maps that empty vector to "no embedding at all".
+///
+/// The question under test is unchanged: does `--llm-backend none` avoid
+/// persisting a bogus embedding? Only the mechanism changed, from "abort" to
+/// "persist the memory with NO embedding row", so the assertion moved from
+/// exit 11 to exit 0 plus `backend_invoked = none` plus a `health` report
+/// showing the memory has no vector.
 #[test]
 #[serial]
-fn llm_backend_none_without_embedding_aborts_exit11() {
+fn llm_backend_none_persists_without_embedding() {
     let tmp = TempDir::new().expect("tempdir");
-    let assert = cmd_base(&tmp)
+    let out = cmd_base(&tmp)
         .arg("remember")
         .arg("--name")
         .arg("smoke-none")
         .arg("--type")
         .arg("note")
         .arg("--description")
-        .arg("BUG-11 none backend")
+        .arg("GAP-CLI-EMBED-NONE none backend")
         .arg("--body")
         .arg("body without LLM call")
         .arg("--llm-backend")
         .arg("none")
         .arg("--json")
         .assert()
-        .failure()
-        .code(11);
-    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
-    assert!(
-        stderr.contains("no LLM backends available"),
-        "expected the BUG-11 fallback-exhausted guard, got stderr: {stderr}"
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: Value = serde_json::from_slice(&out).expect("remember stdout must be valid JSON");
+    assert_eq!(
+        json["backend_invoked"], "none",
+        "the envelope must report the none backend, got: {json}"
+    );
+
+    let health = cmd_base(&tmp)
+        .arg("health")
+        .arg("--json")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let health: Value = serde_json::from_slice(&health).expect("health stdout must be valid JSON");
+    assert_eq!(
+        health["vec_memories_missing"], 1,
+        "the memory must be persisted WITHOUT an embedding row, got: {health}"
+    );
+    assert_eq!(
+        health["vec_memories_coverage_pct"], 0.0,
+        "no zero-dimensional vector may be persisted, got: {health}"
     );
 }
 
-/// GAP-003 acceptance: `--llm-backend=codex` is accepted on the CLI
-/// surface and the value round-trips through the `LlmBackendChoice`
-/// parser. The actual fallback chain is exercised by the unit tests
-/// in `src/embedder.rs`; the integration test only confirms the flag
-/// is wired into the command and the response JSON parses.
+/// Same GAP-CLI-EMBED-NONE (v1.1.8) contract reached through the GLOBAL
+/// position of the flag, `sqlite-graphrag --llm-backend none remember ...`,
+/// rather than the per-subcommand position used by the sibling test.
+///
+/// The test was named `..._via_env_var_aborts` and its docblock claimed
+/// `SQLITE_GRAPHRAG_LLM_BACKEND=none` as the channel, but the body never set
+/// that variable — it always passed the global flag. GAP-SG-101 / G-T-XDG-04
+/// (v1.2.0) then retired every product `SQLITE_GRAPHRAG_*` binding, so the
+/// documented channel no longer exists at all. Name and docblock now describe
+/// what the body actually exercises. The question under test is unchanged:
+/// does the choice reach the embedding phase from the global flag position,
+/// with the same outcome as the subcommand position?
 #[test]
 #[serial]
-fn llm_backend_codex_is_accepted_on_command_line() {
+fn llm_backend_none_via_global_flag_persists_without_embedding() {
     let tmp = TempDir::new().expect("tempdir");
     let out = cmd_base(&tmp)
-        .arg("remember")
-        .arg("--name")
-        .arg("smoke-codex")
-        .arg("--type")
-        .arg("note")
-        .arg("--description")
-        .arg("GAP-003 codex backend")
-        .arg("--body")
-        .arg("body via mock codex")
-        .arg("--llm-backend")
-        .arg("codex")
-        .arg("--json")
-        .output()
-        .expect("invoke");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let parsed: Result<Value, _> = serde_json::from_str(&stdout);
-    assert!(parsed.is_ok(), "stdout must be valid JSON, got: {stdout}");
-}
-
-/// BUG-11 (v1.0.88, ADR-0046) contract via env var: the
-/// `SQLITE_GRAPHRAG_LLM_BACKEND=none` precedence still routes to the
-/// `None` backend, which — with no embedding backend available — aborts
-/// with exit 11 instead of persisting a zero-dimensional embedding.
-/// Confirms the precedence (CLI flag > env var > default `auto`) reaches
-/// the same BUG-11 guard as the explicit flag.
-#[test]
-#[serial]
-fn llm_backend_none_via_env_var_aborts() {
-    let tmp = TempDir::new().expect("tempdir");
-    let assert = cmd_base(&tmp)
         .arg("--llm-backend")
         .arg("none")
         .arg("remember")
         .arg("--name")
-        .arg("smoke-env-none")
+        .arg("smoke-global-none")
         .arg("--type")
         .arg("note")
         .arg("--description")
-        .arg("BUG-11 env override")
+        .arg("GAP-CLI-EMBED-NONE global flag")
         .arg("--body")
-        .arg("body via env var")
+        .arg("body via global flag")
         .arg("--json")
         .assert()
-        .failure()
-        .code(11);
-    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
-    assert!(
-        stderr.contains("no LLM backends available"),
-        "expected the BUG-11 fallback-exhausted guard, got stderr: {stderr}"
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: Value = serde_json::from_slice(&out).expect("remember stdout must be valid JSON");
+    assert_eq!(
+        json["backend_invoked"], "none",
+        "the global flag must reach the embedding phase, got: {json}"
+    );
+
+    let health = cmd_base(&tmp)
+        .arg("health")
+        .arg("--json")
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let health: Value = serde_json::from_slice(&health).expect("health stdout must be valid JSON");
+    assert_eq!(
+        health["vec_memories_missing"], 1,
+        "the memory must be persisted WITHOUT an embedding row, got: {health}"
     );
 }
 

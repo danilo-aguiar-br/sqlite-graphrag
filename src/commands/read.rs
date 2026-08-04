@@ -142,10 +142,13 @@ pub fn run(args: ReadArgs) -> Result<(), AppError> {
         let r = memories::read_full(&conn, id)?;
         if let Some(ref row) = r {
             if row.namespace != namespace {
-                return Err(AppError::NotFound(format!(
-                    "memory id {id} exists but belongs to namespace '{}', not '{namespace}'",
-                    row.namespace
-                )));
+                return Err(AppError::NotFound(
+                    crate::i18n::validation::memory_id_in_other_namespace(
+                        id,
+                        &row.namespace,
+                        &namespace,
+                    ),
+                ));
             }
         }
         if r.is_none() {

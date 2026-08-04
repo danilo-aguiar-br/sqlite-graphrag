@@ -4,23 +4,19 @@ use crate::constants::{
     DEFAULT_K_RECALL, DEFAULT_MAX_HOPS, DEFAULT_MIN_WEIGHT, TEXT_DESCRIPTION_PREVIEW_LEN,
 };
 use crate::errors::AppError;
+use crate::graph::{GraphWalk, SqlNeighbors};
 use crate::i18n::errors_msg;
 use crate::output::{self, OutputFormat};
 use crate::paths::AppPaths;
 use crate::storage::connection::open_ro;
 use rusqlite::{params, Connection};
 use serde::Serialize;
-use std::collections::{HashSet, VecDeque};
 
 /// Identifies whether the seed resolved to a memory or a bare entity.
 enum SeedKind {
     Memory(i64),
     Entity(i64),
 }
-
-/// Tuple returned by the adjacency fetch: (neighbour_entity_id, source_name,
-/// target_name, relation, weight).
-type Neighbour = (i64, String, String, String, f64);
 
 #[derive(clap::Args)]
 #[command(after_long_help = "EXAMPLES:\n  \
@@ -256,38 +252,30 @@ fn traverse_related(
         return Ok(Vec::new());
     }
 
-    // BFS over entities keeping track of hop distance and the (source, target, relation, weight)
-    // of the edge that first reached each entity.
-    let mut visited: HashSet<i64> = seed_entity_ids.iter().copied().collect();
-    let mut entity_hop: crate::hash::AHashMap<i64, u32> =
-        crate::hash::AHashMap::with_capacity_and_hasher(max_hops as usize * 10, Default::default());
-    for &e in seed_entity_ids {
-        entity_hop.insert(e, 0);
-    }
-    // Per-entity edge info: source_name, target_name, relation, weight (captures the FIRST edge
-    // that reached this entity — equivalent to BFS shortest path recall edge).
-    let mut entity_edge: crate::hash::AHashMap<i64, (String, String, String, f64)> =
-        crate::hash::AHashMap::with_capacity_and_hasher(max_hops as usize * 10, Default::default());
+    // Bidirectional BFS: users reason about "related" without caring which end of
+    // the edge their memory sits on. The walk records the edge that FIRST reached
+    // each entity, which under FIFO order is the shortest-path edge.
+    let walk = GraphWalk::bidirectional(min_weight, max_hops)
+        .with_relation_filter(relation_filter.map(str::to_string));
+    let outcome = walk.run(&SqlNeighbors::with_names(conn, namespace), seed_entity_ids)?;
 
-    let mut queue: VecDeque<i64> = seed_entity_ids.iter().copied().collect();
-
-    while let Some(current_entity) = queue.pop_front() {
-        let current_hop = *entity_hop.get(&current_entity).unwrap_or(&0);
-        if current_hop >= max_hops {
-            continue;
-        }
-
-        let neighbours =
-            fetch_neighbours(conn, current_entity, namespace, min_weight, relation_filter)?;
-
-        for (neighbour_id, source_name, target_name, relation, weight) in neighbours {
-            if visited.insert(neighbour_id) {
-                entity_hop.insert(neighbour_id, current_hop + 1);
-                entity_edge.insert(neighbour_id, (source_name, target_name, relation, weight));
-                queue.push_back(neighbour_id);
-            }
-        }
-    }
+    let entity_hop = outcome.depth;
+    // Per-entity edge info: source_name, target_name, relation, weight.
+    let entity_edge: crate::hash::AHashMap<i64, (String, String, String, f64)> = outcome
+        .arrival
+        .into_iter()
+        .map(|(id, edge)| {
+            (
+                id,
+                (
+                    edge.source_name.unwrap_or_default(),
+                    edge.target_name.unwrap_or_default(),
+                    edge.relation,
+                    edge.weight,
+                ),
+            )
+        })
+        .collect();
 
     // For each discovered entity (hop >= 1) find its memories, skipping the seed memory.
     let mut out: Vec<RelatedMemory> = Vec::with_capacity(limit);
@@ -357,95 +345,6 @@ fn traverse_related(
         }
     }
     Ok(out)
-}
-
-fn fetch_neighbours(
-    conn: &Connection,
-    entity_id: i64,
-    namespace: &str,
-    min_weight: f64,
-    relation_filter: Option<&str>,
-) -> Result<Vec<Neighbour>, AppError> {
-    // Follow edges in both directions: source -> target and target -> source so traversal is
-    // undirected, which is how users typically reason about "related" memories.
-    let base_sql = "\
-        SELECT r.target_id, se.name, te.name, r.relation, r.weight
-        FROM relationships r
-        JOIN entities se ON se.id = r.source_id
-        JOIN entities te ON te.id = r.target_id
-        WHERE r.source_id = ?1 AND r.weight >= ?2 AND r.namespace = ?3";
-
-    let reverse_sql = "\
-        SELECT r.source_id, se.name, te.name, r.relation, r.weight
-        FROM relationships r
-        JOIN entities se ON se.id = r.source_id
-        JOIN entities te ON te.id = r.target_id
-        WHERE r.target_id = ?1 AND r.weight >= ?2 AND r.namespace = ?3";
-
-    let mut results: Vec<Neighbour> = Vec::with_capacity(16);
-
-    let forward_sql = match relation_filter {
-        Some(_) => format!("{base_sql} AND r.relation = ?4"),
-        None => base_sql.to_string(),
-    };
-    let rev_sql = match relation_filter {
-        Some(_) => format!("{reverse_sql} AND r.relation = ?4"),
-        None => reverse_sql.to_string(),
-    };
-
-    let mut stmt = conn.prepare_cached(&forward_sql)?;
-    let rows: Vec<_> = if let Some(rel) = relation_filter {
-        stmt.query_map(params![entity_id, min_weight, namespace, rel], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, f64>(4)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    } else {
-        stmt.query_map(params![entity_id, min_weight, namespace], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, f64>(4)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
-    results.extend(rows);
-
-    let mut stmt = conn.prepare_cached(&rev_sql)?;
-    let rows: Vec<_> = if let Some(rel) = relation_filter {
-        stmt.query_map(params![entity_id, min_weight, namespace, rel], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, f64>(4)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    } else {
-        stmt.query_map(params![entity_id, min_weight, namespace], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, f64>(4)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?
-    };
-    results.extend(rows);
-
-    Ok(results)
 }
 
 #[cfg(test)]

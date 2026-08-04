@@ -356,27 +356,42 @@ fn product_env_llm_backend_is_ignored_when_flag_sets_none() {
     // SQLITE_GRAPHRAG_LLM_BACKEND is retired. When the operator passes
     // `--llm-backend none`, that flag must win even if the product env
     // claims a live backend (claude/codex).
+    // `--dry-run-backend` was REMOVED with the subprocess backends, so the
+    // resolved backend is now observed where it is actually reported: the
+    // `backend_invoked` field of a real write envelope. The subject is
+    // unchanged — the flag must beat the retired product env.
     let env = common::isolated_env();
+    // Keyless sandbox: with no OpenRouter client the chain can actually
+    // terminate on `none`, which is what `--llm-backend none` selects.
+    common::write_sandbox_config_without_key(&env.config(), None);
     let out = env
-        .cmd()
+        .sgr("remember")
         .env("SQLITE_GRAPHRAG_LLM_BACKEND", "claude")
         .args([
             "--skip-memory-guard",
             "--llm-backend",
             "none",
-            "--dry-run-backend",
+            "--skip-embedding-on-failure",
+            "--name",
+            "env-vs-flag",
+            "--type",
+            "note",
+            "--description",
+            "flag must win",
+            "--body",
+            "body",
+            "--json",
         ])
         .output()
-        .expect("dry-run-backend");
+        .expect("remember");
     assert!(
         out.status.success(),
-        "dry-run-backend must succeed; stderr={}",
+        "remember must succeed; stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let json: serde_json::Value =
-        serde_json::from_slice(&out.stdout).expect("dry-run-backend JSON");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("remember JSON");
     assert_eq!(
-        json["backend"], "none",
+        json["backend_invoked"], "none",
         "flag --llm-backend none must win over SQLITE_GRAPHRAG_LLM_BACKEND; got {json}"
     );
 

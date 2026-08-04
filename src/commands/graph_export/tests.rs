@@ -1,7 +1,8 @@
 use super::args::*;
 use super::formats::*;
-use super::handlers::{build_order_by, recompute_degrees, RecomputeDegreeSummary};
+use super::handlers::{build_order_by, recompute_degrees, traverse_hops, RecomputeDegreeSummary};
 use crate::cli::{Cli, Commands};
+use crate::graph::MemoryEdge;
 use clap::Parser;
 
 fn make_node(kind: &str) -> NodeOut {
@@ -376,6 +377,58 @@ fn insert_edge(conn: &rusqlite::Connection, ns: &str, source: i64, target: i64) 
     .expect("insert edge");
 }
 
+/// `graph stats` counts nodes and edges live and derives `avg_degree` from
+/// them, so `max_degree` must be measured the same way. It used to read
+/// `MAX(entities.degree)`, a cache refreshed only by `merge-entities`,
+/// `normalize-entities` and `recompute-degree` — never by an ordinary write.
+/// One envelope then mixed a live count with a stale snapshot: measured 856
+/// here against 1 452 for the same graph in `health`.
+///
+/// The stored `degree` values below are deliberately wrong. A reader of the
+/// cache would answer 999; a reader of the graph answers 2.
+#[test]
+fn max_degree_measures_the_graph_and_ignores_the_stale_cache() {
+    let (_tmp, conn) = setup_migrated_db();
+    let hub = insert_entity_with_degree(&conn, "global", "hub", 999);
+    let leaf_a = insert_entity_with_degree(&conn, "global", "leaf-a", 999);
+    let leaf_b = insert_entity_with_degree(&conn, "global", "leaf-b", 0);
+    insert_edge(&conn, "global", hub, leaf_a);
+    insert_edge(&conn, "global", hub, leaf_b);
+
+    let measured = super::handlers::measure_max_degree(&conn, None).expect("measure");
+    assert_eq!(
+        measured, 2,
+        "max_degree must count the two real edges on `hub`, not read the \
+         stored 999 that no ordinary write maintains"
+    );
+}
+
+/// A maximum can never fall below the mean of the same set. Reading the cache
+/// broke that outright: a graph whose stored degrees have drifted to zero would
+/// report `max_degree: 0` beside a positive `avg_degree`, an envelope
+/// contradicting itself in arithmetic that needs no knowledge of the data.
+#[test]
+fn max_degree_never_falls_below_the_average_it_ships_beside() {
+    let (_tmp, conn) = setup_migrated_db();
+    // Every stored degree is zero, the state the cache drifts toward.
+    let hub = insert_entity_with_degree(&conn, "global", "hub", 0);
+    let a = insert_entity_with_degree(&conn, "global", "a", 0);
+    let b = insert_entity_with_degree(&conn, "global", "b", 0);
+    insert_edge(&conn, "global", hub, a);
+    insert_edge(&conn, "global", hub, b);
+
+    let node_count: f64 = 3.0;
+    let edge_count: f64 = 2.0;
+    let avg_degree = 2.0 * edge_count / node_count;
+    let max_degree = super::handlers::measure_max_degree(&conn, None).expect("measure") as f64;
+
+    assert!(
+        max_degree >= avg_degree,
+        "graph stats would ship max_degree={max_degree} beside avg_degree={avg_degree}, \
+         which is arithmetically impossible for the same set"
+    );
+}
+
 #[test]
 fn recompute_degrees_reconciles_updated_zeroed_and_unchanged() {
     let (_tmp, mut conn) = setup_migrated_db();
@@ -472,4 +525,93 @@ fn graph_recompute_degree_cli_parses_flags() {
         },
         _ => unreachable!("unexpected command"),
     }
+}
+
+// --- graph traverse: `depth` é distância mínima (BFS), não ordem de pilha (DFS) ---
+
+fn edge(source_id: i64, target_id: i64) -> MemoryEdge {
+    MemoryEdge {
+        source_id,
+        target_id,
+        relation: "related".to_string(),
+        weight: 1.0,
+    }
+}
+
+fn traverse_fixture() -> (Vec<MemoryEdge>, std::collections::HashMap<i64, String>) {
+    // A -> B em 1 salto, e também A -> C -> D -> B em 3 saltos.
+    // E pendura em B (2 saltos) e em D (3 saltos): sob um frontier LIFO, D
+    // expande antes de B e E é descoberto a 3, não a 2.
+    let edges = vec![
+        edge(1, 2),
+        edge(1, 3),
+        edge(3, 4),
+        edge(4, 2),
+        edge(2, 5),
+        edge(4, 5),
+    ];
+    let id_to_name = [
+        (1i64, "a".to_string()),
+        (2, "b".to_string()),
+        (3, "c".to_string()),
+        (4, "d".to_string()),
+        (5, "e".to_string()),
+    ]
+    .into_iter()
+    .collect();
+    (edges, id_to_name)
+}
+
+#[test]
+fn traverse_reports_minimum_distance_not_dfs_order() {
+    let (edges, id_to_name) = traverse_fixture();
+    let hops = traverse_hops(&edges, &id_to_name, 1, 4).expect("traversal must succeed");
+
+    let first_b = hops
+        .iter()
+        .find(|h| h.entity == "b")
+        .expect("b must be reached");
+    assert_eq!(
+        first_b.depth, 1,
+        "b está a 1 salto de a; um frontier LIFO reportaria 3"
+    );
+
+    // E fica a 2 saltos via B e a 3 via D. Um frontier LIFO expande D antes de B
+    // e reporta E a 3; a fila FIFO reporta a distância mínima.
+    let first_e = hops
+        .iter()
+        .find(|h| h.entity == "e")
+        .expect("e must be reached");
+    assert_eq!(
+        first_e.depth, 2,
+        "e está a 2 saltos de a; um frontier LIFO reportaria 3"
+    );
+}
+
+#[test]
+fn traverse_emits_hops_in_non_decreasing_depth() {
+    let (edges, id_to_name) = traverse_fixture();
+    let hops = traverse_hops(&edges, &id_to_name, 1, 4).expect("traversal must succeed");
+
+    let depths: Vec<u32> = hops.iter().map(|h| h.depth).collect();
+    assert!(
+        depths.windows(2).all(|w| w[0] <= w[1]),
+        "BFS emite saltos em profundidade não decrescente, obtido: {depths:?}"
+    );
+}
+
+#[test]
+fn traverse_respects_depth_limit() {
+    let (edges, id_to_name) = traverse_fixture();
+    let hops = traverse_hops(&edges, &id_to_name, 1, 1).expect("traversal must succeed");
+
+    assert!(hops.iter().all(|h| h.depth == 1));
+    assert!(
+        hops.iter().any(|h| h.entity == "b"),
+        "vizinho direto deve aparecer"
+    );
+    assert!(
+        !hops.iter().any(|h| h.entity == "d"),
+        "d está a 2 saltos e não pode aparecer com --depth 1"
+    );
 }

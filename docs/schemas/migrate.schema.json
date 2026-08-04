@@ -13,6 +13,18 @@
         "name":       { "type": "string",  "description": "Migration file name." },
         "applied_on": { "type": ["string", "null"], "description": "ISO 8601 timestamp when applied, or null." }
       }
+    },
+    "ChecksumMismatch": {
+      "description": "Mirrors `RehashEntry` in src/commands/migrate.rs: a migration whose recorded checksum no longer matches the file content.",
+      "type": "object",
+      "required": ["version", "name", "old_checksum", "new_checksum"],
+      "additionalProperties": false,
+      "properties": {
+        "version":      { "type": "integer", "description": "Migration version number." },
+        "name":         { "type": "string",  "description": "Migration file name." },
+        "old_checksum": { "type": "string",  "description": "Checksum recorded in refinery_schema_history." },
+        "new_checksum": { "type": "string",  "description": "Checksum derived from the current migration file." }
+      }
     }
   },
   "oneOf": [
@@ -39,6 +51,22 @@
         "db_path":             { "type": "string" },
         "schema_version":      { "type": "integer", "minimum": 0, "description": "MAX(version) from refinery_schema_history. Emitted as JSON number since v1.0.35." },
         "applied_migrations":  { "type": "array", "items": { "$ref": "#/$defs/MigrationEntry" }, "description": "List of migrations already applied to this database." },
+        "elapsed_ms":          { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
+      }
+    },
+    {
+      "title": "MigrateDryRunResponse",
+      "description": "Emitted when `sqlite-graphrag migrate --dry-run` is called (v1.0.89, GAP-E2E-009). Mirrors `DryRunReport` in src/commands/migrate.rs. Documented since v1.0.89 as a separate `migrate-dry-run.schema.json`, which was never materialized; v1.2.5 folds it into this `oneOf` so the live envelope validates against a published contract.",
+      "type": "object",
+      "required": ["db_path", "schema_version", "pending_migrations", "pending_count", "checksum_mismatches", "status", "elapsed_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "db_path":             { "type": "string" },
+        "schema_version":      { "type": "integer", "minimum": 0, "description": "Latest applied migration number at the time of the probe." },
+        "pending_migrations":  { "type": "array", "items": { "$ref": "#/$defs/MigrationEntry" }, "description": "Migrations that would be applied. Empty when the database is already at the latest schema." },
+        "pending_count":       { "type": "integer", "minimum": 0, "description": "Length of `pending_migrations`." },
+        "checksum_mismatches": { "type": "array", "items": { "$ref": "#/$defs/ChecksumMismatch" }, "description": "One row per migration whose recorded checksum diverges from the file-derived checksum. Empty when everything is in sync." },
+        "status":              { "type": "string", "enum": ["ok_no_pending", "ok_pending", "ok_checksum_drift"], "description": "`ok_no_pending` when nothing would be applied, `ok_pending` when migrations are queued, `ok_checksum_drift` when nothing is pending but recorded checksums are stale." },
         "elapsed_ms":          { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
       }
     }

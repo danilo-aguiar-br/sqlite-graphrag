@@ -119,11 +119,13 @@ pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGu
         }
         // All slots busy — polling
         if start.elapsed() >= timeout {
-            return Err(AppError::LockBusy(format!(
-                "failed to acquire LLM slot within {wait_secs}s (max={max_concurrent} concurrent)"
-            )));
+            return Err(AppError::LockBusy(
+                crate::i18n::errors_ops::llm_slot_acquire_timeout(wait_secs, max_concurrent),
+            ));
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(
+            crate::constants::LLM_SLOT_POLL_INTERVAL_MS,
+        ));
     }
 }
 
@@ -250,13 +252,14 @@ pub fn default_max_concurrency() -> u32 {
     let cpus = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
         .unwrap_or(4);
-    // Without `sysinfo` at hand here, we use a conservative memory
-    // estimate: 4 GiB available on most hosts. The CLI semaphore in
-    // `lock::calculate_safe_concurrency` is the source of truth when
-    // exact memory data is available; this fallback just keeps the
-    // LLM slot default in the same order of magnitude.
-    let assumed_available_mb: u32 = 4096;
-    let per_worker = crate::constants::LLM_WORKER_RSS_MB as u32;
+    // Without `sysinfo` at hand here, fall back to a conservative estimate.
+    // `lock::calculate_safe_concurrency` is the source of truth when exact
+    // memory data is available; this only keeps the LLM slot default in the
+    // same order of magnitude.
+    let assumed_available_mb = crate::constants::LLM_SLOT_ASSUMED_AVAILABLE_MB;
+    // Estimate, not a measurement — read through the XDG-aware resolver so an
+    // operator who profiled the real footprint is not stuck with the default.
+    let per_worker = u32::try_from(crate::constants::llm_worker_rss_mb()).unwrap_or(u32::MAX);
     let safe = assumed_available_mb / per_worker.max(1);
     let capped = safe.min(crate::constants::MAX_CONCURRENT_CLI_INSTANCES as u32);
     cpus.min(capped).max(1)

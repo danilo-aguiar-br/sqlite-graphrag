@@ -7,6 +7,8 @@
   "required": ["action", "from_relation", "to_relation", "count", "merged_duplicates", "namespace", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "action":            { "type": "string",  "enum": ["reclassified", "dry_run"], "description": "'reclassified' when changes were applied, 'dry_run' when previewed only." },
     "from_relation":     { "type": "string",  "description": "Original relation type that was renamed." },
     "to_relation":       { "type": "string",  "description": "New relation type assigned to the edges." },

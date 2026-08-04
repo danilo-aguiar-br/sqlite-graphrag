@@ -117,6 +117,13 @@ pub fn run(
     crate::storage::connection::ensure_db_ready(&paths)?;
     let mut conn = open_rw(&paths.db)?;
 
+    // Declarative refusal (`--no-input`): fail before touching stdin, even when
+    // a pipe is attached and would have supplied NDJSON.
+    if crate::stdin_helper::no_input() {
+        return Err(AppError::Validation(
+            crate::i18n::validation::no_input_blocks_stdin(),
+        ));
+    }
     let stdin = std::io::stdin();
     let lines: Vec<String> = stdin
         .lock()
@@ -342,9 +349,11 @@ fn process_line(
 
     let (memory_id, batch_action) = if let Some((existing_id, _updated_at, _version)) = existing {
         if !force_merge {
-            return Err(AppError::Duplicate(format!(
-                "memory '{normalized_name}' already exists; use --force-merge to update"
-            )));
+            // DRY: the other three duplicate call sites already route through
+            // this builder; this one had drifted to its own wording.
+            return Err(AppError::Duplicate(
+                crate::i18n::errors_msg::duplicate_memory(&normalized_name, namespace),
+            ));
         }
         let snippet: String = input.body.chars().take(200).collect();
         // Capture old FTS values BEFORE the UPDATE for sync_fts_after_update

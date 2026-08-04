@@ -66,6 +66,9 @@
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag related` on stdout as a single JSON line. Exit codes: 0 success, 1 runtime error, 2 CLI usage error, 4 not found.",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "elapsed_ms": {
       "description": "Wall-clock time in milliseconds.",
       "minimum": 0,
@@ -81,6 +84,7 @@
       "type": "string"
     },
     "related_memories": {
+      "description": "Alias for results (v1.0.66). LLM-friendly field name. Identical content. GAP-SG-142: dropped, and listed under `agent_surface.aliases_removed`, whenever the agent-native surface reshapes `results`.",
       "type": "array",
       "items": {
         "type": "object"

@@ -2,8 +2,9 @@
 //!
 //! Walks a directory tree (optionally recursive), filters basenames against a
 //! simple glob pattern, and derives collision-safe kebab-case memory names from
-//! file stems. Shared by the local ingest path and the LLM-mode ingest frontends
-//! (`ingest_claude`, `ingest_codex`, `ingest_opencode`).
+//! file stems. It was shared by the local ingest path and the LLM-mode ingest
+//! frontends (`ingest_claude`, `ingest_codex`, `ingest_opencode`) until v1.2.0
+//! removed those; the local path is now the only caller.
 
 use crate::errors::AppError;
 use std::collections::BTreeSet;
@@ -83,10 +84,9 @@ pub(crate) fn validate_name_prefix(
     }
     let cap = crate::constants::MAX_MEMORY_NAME_LEN;
     if prefix.len() >= cap {
-        return Err(AppError::LimitExceeded(format!(
-            "--name-prefix is {} chars; prefixed names would exceed the {cap}-char              name cap (MAX_MEMORY_NAME_LEN)",
-            prefix.len()
-        )));
+        return Err(AppError::LimitExceeded(
+            crate::i18n::errors_ops::name_prefix_exceeds_name_cap(prefix.len(), cap),
+        ));
     }
     Ok(max_name_length.min(cap - prefix.len()))
 }

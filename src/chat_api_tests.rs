@@ -1,4 +1,8 @@
+use super::completion::grow_max_tokens;
+use super::wire::*;
 use super::*;
+use crate::constants::DEFAULT_OPENROUTER_CHAT_URL;
+use crate::retry::AttemptOutcome;
 use serde_json::json;
 use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

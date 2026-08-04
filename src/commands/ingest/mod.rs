@@ -31,21 +31,27 @@
 //! before Phase B (and any DB writes) could begin. With this pipeline, the
 //! first file is committed within seconds of starting.
 
-// Submodules (R-SRP-01): scan_fs = walk/name derivation; report = NDJSON types;
-// args/stage/persist/validate/run = ingest pipeline stages.
+// Submodules (R-SRP-01), split by responsibility rather than by size.
+// Pipeline stages, in execution order: validate (flag checks) -> scan_fs
+// (walk) -> plan (name resolution) -> dry_run (preview) -> stage_producer
+// (Phase A) -> stage (per-file work) -> persist_loop (Phase B) -> persist
+// (per-file write) -> enrich_after (optional binding pass). `run` orchestrates
+// them; `args` and `report` carry the CLI surface and the NDJSON types.
 mod args;
+mod dry_run;
+mod enrich_after;
 mod persist;
+mod persist_loop;
+mod plan;
 mod report;
 mod run;
 mod scan_fs;
 mod stage;
+mod stage_producer;
 mod validate;
 
 pub use args::{IngestArgs, IngestMode};
 pub use run::run;
-
-// Used by LLM-mode ingest frontends (`ingest_claude` / `ingest_codex` / `ingest_opencode`).
-pub(crate) use scan_fs::{collect_files, derive_kebab_name};
 
 #[cfg(test)]
 #[path = "../ingest_tests.rs"]

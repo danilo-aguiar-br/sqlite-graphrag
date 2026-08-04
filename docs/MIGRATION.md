@@ -1,7 +1,64 @@
-# MIGRATING TO v1.2.1 (No Schema Migration — Sidecar CAPA Only)
+# MIGRATING TO v1.2.5 (No Schema Migration — Contract Corrections)
 
 - Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
 - Back to [README.md](../README.md)
+
+> This guide covers upgrading from **v1.2.2**, **v1.2.3** or **v1.2.4** to **v1.2.5**. **No numbered main-DB migration** — `CURRENT_SCHEMA_VERSION` stays at **16** for every hop. Crate `version = "1.2.5"`. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.5`. Earlier upgrade paths remain below, newest first.
+
+## Operator action (1.2.2 / 1.2.3 / 1.2.4 → 1.2.5)
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect `1.2.5`).
+- Library API pin: change to `=1.2.5`.
+- **No migrate step.** `migrate` is a no-op for this upgrade; schema stays at **v16**.
+- Nothing to re-embed. No vector, table or index changed.
+
+## Behaviour notes (→ 1.2.5)
+
+These are corrections to contracts that were previously documented one way and implemented another. If your automation branched on the documented behaviour, it was already not matching the binary; if it branched on the observed behaviour, read the two starred items.
+
+- **`--no-input` returns exit 1, not 65** (GAP-SG-190). No `AppError` arm ever returned 65, so an agent branching on 65 never matched this case. The flag help and eleven documents were corrected to state **exit 1** (`AppError::Validation`). Nothing changed in the binary; the documentation stopped being wrong.
+- **`--max-items` now caps secondary arrays too** (GAP-SG-191). Before, `graph --format json --select id --max-items 2` returned 4 771 393 bytes: `nodes` honoured the ceiling and `edges` came out whole with 59 066 elements. It now returns 355 bytes. The envelope gained **`secondary_capped`**, listing which secondary keys were truncated. `--select` deliberately still projects only the primary array; the asymmetry is documented in `docs/schemas/agent-surface.schema.json`.
+- **`init` reports the embedding model in `model`** (GAP-SG-192). It previously filled that field with the crate version, so `init --json` answered `"model":"1.2.4"` while `init.schema.json` described it as the embedding model name. It now answers the resolved model, or `"none"` when no embedding backend is active.
+- **XDG `embedding.model` is now read** (GAP-SG-192). The key was documented since v1.2.0 and silently ignored. If you had it set, it takes effect from this version on, below `--embedding-model` in precedence. Check the effective value with `config list --effective --json` before upgrading a pipeline that relied on the flag alone.
+- **`--max-output-bytes` stub reports the requested ceiling** (GAP-SG-172 family). With `--max-output-bytes 400`, the collapsed envelope now carries `"max_output_bytes":400` instead of the internally discounted figure.
+- **Help and envelopes stopped naming removed backends** (GAP-SG-193). The first `enrich --help` example was `--mode codex --codex-model gpt-5.4-mini`, which clap rejects — `EnrichMode` has only `openrouter`. The `health` check formerly named `llm_cli` is now **`embedding_key`**, and its remediation points at `config add-key --provider openrouter` instead of asking you to install `claude` or `codex`. **If you parse `health --json` by check name, update `llm_cli` to `embedding_key`.**
+
+## Performance notes (→ 1.2.5)
+
+- `--max-output-bytes` no longer clones the whole envelope once per binary-search probe (GAP-SG-194). On a 7,6 MiB envelope that was roughly sixteen full copies per invocation.
+- `entity-descriptions` now streams keyset pages instead of materialising the full candidate list (GAP-SG-194). Page width is `enrich.scan_page_size`, default **512**, range 1..=4096.
+
+## Known limitation carried into 1.2.5
+
+- **Toolchain C via SQLite** (GAP-SG-196, open). The rust-native mandate is incompatible with SQLite today: `rusqlite` with the `bundled` feature compiles SQLite in C through `cc`. `sqlx` depends on the same `libsqlite3-sys`, and the only rust-native implementation is alpha. FTS5, `load_extension`, `backup` and `functions` are all in use and have no stable rust-native equivalent. Recorded as a declared exception rather than pretended solved.
+
+## Historical: MIGRATING TO v1.2.2 (No Schema Migration — Additive Agent-Native Surface)
+
+> This guide covers upgrading from **v1.2.1** (or any install already on schema **v16**) to **v1.2.2**. **No numbered main-DB migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.2.2"`. Changes are **purely additive**: a new global output surface and a new global input flag. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.2`. The v1.2.1 upgrade path remains immediately below.
+
+## Operator action (1.2.1 → 1.2.2)
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect `1.2.2`).
+- Library API pin: change to `=1.2.2`.
+- **No migrate step.** `migrate` is a no-op for this upgrade; schema stays at **v16**.
+
+## Breaking / behaviour notes (1.2.1 → 1.2.2)
+
+| Contract | v1.2.1 | v1.2.2 |
+| --- | --- | --- |
+| JSON envelope with no new flag | full envelope | **identical, byte for byte** — the surface is opt-in |
+| Trimming output | caller pipes into `jaq` | `--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes` |
+| Failure envelope under a filter | n/a | **never filtered** — `error: true` / `ok: false` always reaches the caller |
+| `$schema` document under a filter | n/a | passes through untouched |
+| NDJSON stream under a filter | n/a | bypasses the surface; one record per line |
+| Malformed filter expression | n/a | **exit 2**, never an empty result set |
+| Silent data loss from a cap | n/a | impossible — recorded under `agent_surface`, raises top-level `truncated` |
+| stdin when unattended | fails only when the read is attempted | `--no-input` fails up front with **exit 1** |
+
+- Nothing to roll back at the data layer: no table, column, index or vector is touched.
+- Downgrading to v1.2.1 is safe — a database written by v1.2.2 is unchanged in shape.
 
 > This guide covers upgrading from **v1.2.0** (or any install already on schema **v16**) to **v1.2.1**. **No numbered main-DB migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.2.1"`. Changes are **enrich sidecar queue behaviour only**. Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.1`. Offline gate: [`scripts/e2e_offline_v120.sh`](../scripts/e2e_offline_v120.sh) (historical wrapper `e2e_offline_v118.sh` superseded). The v1.2.0 upgrade path remains immediately below.
 
@@ -72,13 +129,15 @@ sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
 
 > This guide covers upgrading from v1.1.8 / v1.1.07 (or any install already on schema **v16**) to **v1.2.0**. **No numbered database migration** — `CURRENT_SCHEMA_VERSION` stays at **16**. Crate `version = "1.2.0"`. **DEFAULT_EMBEDDING_DIM=1024** (existing DBs keep `schema_meta.dim` until re-embed). Binary ~19 MiB. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.0`. Offline gate: [`scripts/e2e_offline_v120.sh`](../scripts/e2e_offline_v120.sh) (historical wrapper `e2e_offline_v118.sh` superseded). Earlier upgrade paths remain as historical sections below.
 
-## What changed (behaviour + contract — no schema)
+## v1.2.0 — DEFAULT_EMBEDDING_DIM=1024 + XDG seal (No Migration)
+
+### What changed (behaviour + contract — no schema)
 
 - **QISO (P0)** — enrich queue claim is scoped by `operation`; memory-bindings drain cannot claim entity-descriptions / entity-connect rows; status may report `state=blocked_dead`.
 - **Help scrub** — public help no longer documents product `SQLITE_GRAPHRAG_*` env tables or Clippy Box about text on ingest/enrich.
 - **Config is XDG-only for product knobs** — precedence **CLI flag > XDG `config set` > named default**. Product env `SQLITE_GRAPHRAG_*` is **not** read at runtime.
 - **OpenRouter URLs from XDG** — `network.openrouter.chat_url` / `network.openrouter.embeddings_url` (aliases `network.chat_url`, `network.embed_url`) wire into the production HTTP clients.
-- **Query embed fail-fast** — `llm.query_embed_timeout_secs` default **3s** plus credential probe so offline/FTS paths do not hang on dead OAuth.
+- **Query embed fail-fast** — `llm.probe_timeout_ms` default **3000 ms** plus credential probe so offline/FTS paths do not hang on dead OAuth.
 - **EntityType fold** — `map_to_canonical` maps free labels such as `"module"` → **Concept** on parse/serde.
 - **remember-batch description** — create requires non-empty `description` (parity with `remember`).
 - **UX aliases** — `pending-embeddings status` (alias of `embedding status`); `cache stats` (alias of `cache list`).
@@ -87,14 +146,14 @@ sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
 - **related_to → related** — non-canonical relation folds to canonical `related`.
 - **Enrich quality** — entity-descriptions multi-domain prompt + grounding; `--force-redescribe`; status `quality_pct` / `scan_backlog_low_quality`; entity-connect help is fully implemented (persists relations, not scan-only); deep-research short `-o`; `memory-entities` forward includes `description`; `remember --enqueue-enrich` + envelope `entities_created` / `enrich_recommended`.
 - **Skipped-sink recovery (GAP-SG-96 / G-PR-3/4)** — `enrich --list-skipped` / `enrich --requeue-skipped` recover `status=skipped` / `preservation_failed` without raw SQL (skipped-sink counterpart of `--list-dead` / `--requeue-dead`).
-- **GAP-SG-139** — host/XDG leaves accept `--db` as a documented **no-op**: `config` (×9), `slots` (×3), `cache` (×3), `codex-models`, `completions`. Helper `src/cli_db_noop.rs`; regression `tests/cli_db_noop_host_surfaces_regression.rs`. Example: `config doctor --db /tmp/x.sqlite` does **not** open that path.
+- **GAP-SG-139** — host/XDG leaves accept `--db` as a documented **no-op**: `config` (×9), `slots` (×3), `cache` (×3), `completions`. Helper `src/cli_db_noop.rs`; regression `tests/cli_db_noop_host_surfaces_regression.rs`. Example: `config doctor --db /tmp/x.sqlite` does **not** open that path.
 - **DEFAULT_EMBEDDING_DIM=1024** — new databases and effective default when no `--embedding-dim` / XDG `embedding.dim` / `schema_meta.dim` apply; existing DBs keep recorded dim until re-embed.
 - **Names** — `--entity-names` / `--memory-names` (alias `--names` with per-operation semantics).
 - **EC scale** — `--anchor-memory`, adaptive limits, yield, summary fields `budget_exhausted` / `pairs_remaining_estimate` / `preempted_for_gate`.
 - **telemetry lib alias removed** — no product telemetry surface.
 - **Residual honest** — monólitos >800 LOC partial; live low-quality entity-description backfill is an **operator campaign** (`--force-redescribe` + LLM; not auto-run by the harness).
 
-## Operator action
+### Operator action
 
 - Reinstall: `cargo install sqlite-graphrag --locked --force`.
 - Confirm version: `sqlite-graphrag --version` (expect `1.2.0`).
@@ -103,7 +162,7 @@ sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
 - Migrate any shell recipes that exported `SQLITE_GRAPHRAG_*` product knobs to flags + `config set` / `config add-key`.
 - Smoke XDG config and aliases:
   ```bash
-  sqlite-graphrag config set llm.query_embed_timeout_secs 3
+  sqlite-graphrag config set llm.probe_timeout_ms 3000
   sqlite-graphrag config set network.openrouter.embeddings_url "https://openrouter.ai/api/v1/embeddings"
   sqlite-graphrag config list --effective --json
   sqlite-graphrag pending-embeddings status --json
@@ -119,7 +178,7 @@ sqlite-graphrag enrich --db "$DB" --operation entity-descriptions \
 - Optional live quality (LLM cost): `enrich --operation entity-descriptions --force-redescribe …` on production graphs.
 - After curated remember: parse `enrich_recommended` / use `--enqueue-enrich`; audit with `memory-entities --name … | jaq '.entities[] | {name, description}'`.
 
-## Breaking contract notes
+### Breaking contract notes
 
 | Contract | Pre-v1.1.8 (historical) | v1.2.0 |
 | --- | --- | --- |
@@ -282,7 +341,7 @@ Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regressi
 ## v1.1.02 — GLiNER Removal, TooManyTokens Typed, Re-Embed Regression, Entity Orphan Prune (ADR-0062)
 
 ### What Changed
-- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`, `claude-code`, `codex`, `opencode`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
+- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser — clap rejects `--gliner-variant` with exit 2 (precedent: `--max-entity-degree` of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`); `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored.
 - **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
 - **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
 - **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes entity-keyed dead-letter rows from `.enrich-queue.sqlite`; new unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` + integration test `tests/prune_dead_entity_orphans_integration.rs`.
@@ -470,17 +529,17 @@ sqlite-graphrag enrich --operation memory-bindings --mode openrouter \
 
 **Before (v1.0.93 — fails in v1.0.94 with exit 2):**
 ```bash
-sqlite-graphrag enrich --operation memory-bindings --mode codex --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --json
 ```
 
 **After (v1.0.94):**
 ```bash
 # Choose the mode matching your --llm-backend
-sqlite-graphrag enrich --operation memory-bindings --mode codex --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --json
 # or
-sqlite-graphrag enrich --operation memory-bindings --mode claude-code --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --json
 # or
-sqlite-graphrag enrich --operation memory-bindings --mode opencode --json
+sqlite-graphrag enrich --operation memory-bindings --mode openrouter --openrouter-model MODEL --json
 ```
 
 **Canonical pairing:**
@@ -523,7 +582,7 @@ sqlite-graphrag stats --json | jaq '.schema_meta'
 - `EmbeddingBackendChoice` propagated to all 13 embedding paths
 - **GAP-OR-PROPAGATION**: 5 additional embedding paths fixed in v1.0.93 — `enrich --operation re-embed`, `init` (dimension probe), `rename-entity`, `ingest --mode claude-code` (4 call sites), and `remember` (chunk parallel embedding)
 - **BUG-OR-EXIT-CODE**: OpenRouter config errors now return exit code 78 (`EX_CONFIG`) instead of exit 1
-- Exit code 78 covers: missing `OPENROUTER_API_KEY`, missing `--embedding-model`, invalid API key
+- Exit code 78 covers: missing OpenRouter key in XDG (`config add-key`; OPENROUTER_API_KEY is not read at runtime), missing `--embedding-model`, invalid API key
 - New `--enrich-after` flag for ingest
 - New modules: `embedding_api.rs`, `config.rs`, `config_cmd.rs`
 ### Who Is Affected
@@ -532,7 +591,7 @@ sqlite-graphrag stats --json | jaq '.schema_meta'
 ### How to Upgrade
 - No migration needed — zero schema change, zero ALTER TABLE
 - Existing databases work unchanged with `--embedding-backend llm` (default behavior)
-- To use OpenRouter: set `OPENROUTER_API_KEY` and add `--embedding-backend openrouter --embedding-model MODEL`
+- To use OpenRouter: run `config add-key --provider openrouter` and add `--embedding-backend openrouter --embedding-model MODEL`
 ### What Breaks
 - Nothing — fully backward compatible
 - `--embedding-backend auto` (default) falls back to LLM subprocess if OpenRouter not configured
@@ -1238,7 +1297,7 @@ EXITS, so the job survives any external supervisor window:
 ```bash
 # Re-embed memories without a vector row, 5 per invocation.
 # Repeat (external loop) until the summary reports 0 completed items.
-sqlite-graphrag enrich --operation re-embed --limit 5 --resume --mode codex --json
+sqlite-graphrag enrich --operation re-embed --limit 5 --resume --mode openrouter --openrouter-model MODEL --json
 ```
 
 To force ONE memory to re-embed without touching its body, use

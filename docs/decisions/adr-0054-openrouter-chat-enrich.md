@@ -78,7 +78,7 @@ completion and returns `(serde_json::Value, cost_usd, is_oauth)`.
 
 `EnrichMode` gains an `OpenRouter` variant (Display `"openrouter"`).
 New flags: `--openrouter-model` (REQUIRED for this mode),
-`--openrouter-api-key` (env `OPENROUTER_API_KEY`), `--openrouter-timeout`,
+`--openrouter-api-key` (XDG via `config add-key` (OPENROUTER_API_KEY is not read at runtime)), `--openrouter-timeout`,
 `--openrouter-base-url`. `validate_mode_flags` rejects cross-mode flags
 (claude/codex/opencode flags under `--mode openrouter`). The preflight
 probe validates only the API key for this mode — no subprocess spawn.

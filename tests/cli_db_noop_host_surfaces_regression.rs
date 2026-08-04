@@ -1,7 +1,7 @@
 //! GAP-SG-139: host/XDG leaves must accept `--db <PATH>` as a no-op.
 //!
 //! Agents that append `--db` to every one-shot invocation must not receive
-//! clap exit 2 on `config`, `slots`, `cache`, `codex-models`, or `completions`.
+//! clap exit 2 on `config`, `slots`, `cache`, or `completions`.
 //! These surfaces never open the graph path: the sentinel file must not be
 //! created after a successful parse/run.
 //!
@@ -102,7 +102,6 @@ fn host_surfaces_accept_db_noop_without_creating_path() {
     );
     assert_db_noop("cache list", &["cache", "list", "--db", s], &sentinel);
     assert_db_noop("cache stats", &["cache", "stats", "--db", s], &sentinel);
-    assert_db_noop("codex-models", &["codex-models", "--db", s], &sentinel);
     assert_db_noop(
         "completions bash",
         &["completions", "bash", "--db", s],

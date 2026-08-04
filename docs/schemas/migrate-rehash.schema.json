@@ -1,12 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://docs.rs/sqlite-graphrag/schemas/migrate-rehash.schema.json",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/migrate-rehash.schema.json",
   "title": "sqlite-graphrag migrate --rehash response",
   "description": "JSON contract for the `migrate --rehash --json` subcommand added in v1.0.76, updated in v1.0.77 with null_rows_fixed (G40 sanitization), updated in v1.0.78 with v013_tables_created (G41 phantom registration repair). Rewrites recorded migration checksums in refinery_schema_history to match the current migration file content using SipHasher13. Required for v1.0.74 databases upgrading to v1.0.76 because V002 was intentionally emptied to a no-op.",
   "type": "object",
   "additionalProperties": false,
   "required": ["action", "rewritten", "skipped", "errors", "v013_tables_created", "elapsed_ms"],
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action": {
       "type": "string",
       "const": "rehashed"

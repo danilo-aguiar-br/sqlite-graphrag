@@ -2,21 +2,163 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/ingest-claude-file-event.schema.json",
   "title": "IngestClaudeFileEvent",
-  "description": "Per-file NDJSON line emitted by `ingest --mode claude-code`. Status is `done` (success), `failed` (error), or `preview` (dry-run). Includes `entities` count, `rels` count, and `cost_usd` per file.",
+  "description": "DEPRECATED ALIAS. Since v1.2.3 (GAP-SG-150) every `ingest` mode emits ONE per-file contract; the canonical definition is ingest-file-event.schema.json and this file is a verbatim copy of it, kept only for consumers pinned to this $id. `required` and `properties` are asserted identical to the canonical schema by tests/ingest_ndjson_contract.rs. Validate `--mode claude-code` against ingest-file-event.schema.json.",
   "type": "object",
-  "required": ["file", "name", "status", "index", "total"],
+  "required": [
+    "file",
+    "name",
+    "status",
+    "truncated",
+    "body_length"
+  ],
   "additionalProperties": false,
   "properties": {
-    "file":       { "type": "string",            "description": "Filesystem path of the ingested file." },
-    "name":       { "type": "string",            "description": "Derived kebab-case memory name." },
-    "status":     { "type": "string",            "enum": ["done", "failed", "preview"], "description": "Outcome: done (success), failed (error), or preview (dry-run)." },
-    "memory_id":  { "type": ["integer", "null"], "description": "Row ID of the created or updated memory. Present when status is done." },
-    "entities":   { "type": ["integer", "null"], "minimum": 0, "description": "Number of entities extracted from the file. Present when status is done or preview." },
-    "rels":       { "type": ["integer", "null"], "minimum": 0, "description": "Number of relationships extracted from the file. Present when status is done or preview." },
-    "cost_usd":   { "type": ["number", "null"],  "minimum": 0, "description": "LLM cost in USD for processing this file. Present when status is done or preview." },
-    "elapsed_ms": { "type": ["integer", "null"], "minimum": 0, "description": "Wall-clock time in milliseconds for this file. Present when status is done." },
-    "error":      { "type": ["string", "null"],  "description": "Error message. Present when status is failed." },
-    "index":      { "type": "integer",           "minimum": 0, "description": "Zero-based index of this file in the batch." },
-    "total":      { "type": "integer",           "minimum": 1, "description": "Total number of files in the batch." }
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
+    "file": {
+      "type": "string",
+      "description": "Filesystem path of the ingested file."
+    },
+    "name": {
+      "type": "string",
+      "description": "Memory name: derived from the file basename in `--mode none`, taken from the model's extracted name in the LLM modes. Empty string on events emitted before a name was resolved."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "indexed",
+        "failed",
+        "skipped",
+        "preview",
+        "skip"
+      ],
+      "description": "Outcome: indexed (memory written), failed (processing or persistence error), skipped (not attempted; duplicate name, invalid derivation or oversized body), preview (dry-run). `skip` is a legacy alias of `skipped` still emitted by the dry-run path of `--mode none` (src/commands/ingest/dry_run.rs); consumers MUST treat it as `skipped`."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when the derived name was truncated to fit the 60-character limit. Always false in the LLM modes, which derive from the model's own short name."
+    },
+    "body_length": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Byte length of the persisted body; 0 on every non-indexed status."
+    },
+    "original_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Original derived name before truncation. Present only when truncated is true; never emitted by the LLM modes."
+    },
+    "original_filename": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Original file basename before kebab-case normalization. Emitted by `--mode none`; never emitted by the LLM modes."
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Error or skip reason. Present when status is failed or skipped."
+    },
+    "memory_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Row ID of the written memory. Present when status is indexed."
+    },
+    "action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "created",
+        "updated",
+        null
+      ],
+      "description": "Whether the file created a new memory or refreshed an existing one. Present when status is indexed in `--mode none` and `--mode claude-code`; `--mode codex` does not report it."
+    },
+    "backend_invoked": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "v1.0.84 (ADR-0042): discriminator of the LLM backend that ran the live embedding for this file. Emitted by `--mode none`; never emitted by the LLM modes."
+    },
+    "entities": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Number of entities extracted from the file. Emitted by the LLM modes when status is indexed."
+    },
+    "rels": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Number of relationships extracted from the file. Emitted by the LLM modes when status is indexed."
+    },
+    "cost_usd": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "LLM cost in USD for this file. Absent on an OAuth subscription, where the cost is unknown, and always absent in `--mode codex`, whose responses carry no cost figure."
+    },
+    "elapsed_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Wall-clock time in milliseconds for this file."
+    },
+    "index": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Zero-based count of files already resolved before this one."
+    },
+    "total": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "Total number of files in the batch."
+    },
+    "input_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "GAP-SG-150: prompt tokens billed for this file. Emitted only by `--mode codex`, the one backend whose CLI reports usage per turn."
+    },
+    "output_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "GAP-SG-150: completion tokens billed for this file. Emitted only by `--mode codex`."
+    }
   }
 }

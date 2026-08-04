@@ -12,8 +12,8 @@
 //!
 //! ## Job-type singleton (G28-B, v1.0.68)
 //!
-//! Heavy long-running jobs (`enrich`, `ingest --mode claude-code`,
-//! `ingest --mode codex`) also acquire a *singleton* lock per `(job_type,
+//! Heavy long-running jobs (`enrich`) also acquire a *singleton* lock
+//! per `(job_type,
 //! namespace)` via `acquire_job_singleton`.  This guarantees at most one
 //! heavy job per namespace runs at any time, which was the root cause
 //! of the 2026-06-03 process-proliferation incident (4 parallel `enrich`
@@ -42,10 +42,6 @@ use crate::errors::AppError;
 pub enum JobType {
     /// `enrich` command (LLM-driven entity/relation/body enrichment).
     Enrich,
-    /// `ingest --mode claude-code` (LLM-curated ingestion).
-    IngestClaudeCode,
-    /// `ingest --mode codex` (OpenAI Codex CLI ingestion).
-    IngestCodex,
 }
 
 impl JobType {
@@ -53,8 +49,6 @@ impl JobType {
     fn tag(self) -> &'static str {
         match self {
             JobType::Enrich => "enrich",
-            JobType::IngestClaudeCode => "ingest-claude-code",
-            JobType::IngestCodex => "ingest-codex",
         }
     }
 }
@@ -258,8 +252,8 @@ pub fn acquire_cli_slot(
 
 /// Acquires a process-wide singleton lock for a heavy job type and namespace.
 ///
-/// G28-B (v1.0.68): ensures at most one `enrich`, `ingest --mode
-/// claude-code`, or `ingest --mode codex` runs at a time per namespace.
+/// G28-B (v1.0.68): ensures at most one `enrich` runs at a time per
+/// namespace.
 /// A second invocation in the same namespace either:
 ///
 /// - Returns immediately with `AppError::JobSingletonLocked { job_type,
@@ -373,8 +367,7 @@ fn embedding_singleton_path(namespace: &str, db_hash: &str) -> Result<PathBuf, A
 /// [`acquire_job_singleton`]). Two CLI invocations writing to the same
 /// database while both are calling the LLM on entity names will now
 /// serialise: the second one receives [`AppError::EmbeddingSingletonLocked`]
-/// (exit 75) instead of double-spawning `claude -p` / `codex exec`
-/// subprocesses.
+/// (exit 75) instead of issuing duplicate embedding calls.
 ///
 /// Behaviour:
 /// - `wait_seconds = Some(0)` or `None` → fail immediately if held.
@@ -519,9 +512,9 @@ mod tests {
         let ns_b = unique_ns();
         let db_a = std::env::temp_dir().join(format!("test-a-{}.sqlite", unique_ns()));
         let db_b = std::env::temp_dir().join(format!("test-b-{}.sqlite", unique_ns()));
-        let first = acquire_job_singleton(JobType::IngestClaudeCode, &ns_a, &db_a, Some(0), false)
+        let first = acquire_job_singleton(JobType::Enrich, &ns_a, &db_a, Some(0), false)
             .expect("ns_a should acquire");
-        let second = acquire_job_singleton(JobType::IngestClaudeCode, &ns_b, &db_b, Some(0), false)
+        let second = acquire_job_singleton(JobType::Enrich, &ns_b, &db_b, Some(0), false)
             .expect("ns_b should acquire in parallel");
         drop(first);
         drop(second);

@@ -39,7 +39,18 @@ pub(crate) struct GraphSnapshot {
     pub(crate) elapsed_ms: u64,
 }
 
+/// Renders the single-envelope JSON snapshot as pretty-printed text.
+///
+/// Applies the agent-native surface (`--select`, `--filter`, `--max-items`, …)
+/// exactly like `output::emit_json` does, so the `--output PATH` destination and
+/// stdout never diverge. With no shaping flag installed the value is serialized
+/// straight from its own `Serialize` impl and the output is byte-identical to
+/// what it was before the surface existed.
 pub(crate) fn render_json(snapshot: &GraphSnapshot) -> Result<String, AppError> {
+    if crate::agent_surface::active() {
+        let shaped = crate::agent_surface::apply_global(serde_json::to_value(snapshot)?);
+        return Ok(serde_json::to_string_pretty(&shaped)?);
+    }
     Ok(serde_json::to_string_pretty(snapshot)?)
 }
 

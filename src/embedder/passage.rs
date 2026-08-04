@@ -2,50 +2,7 @@
 
 use super::*;
 use crate::errors::AppError;
-use crate::extract::llm_embedding::LlmEmbedding;
-use parking_lot::Mutex;
 use std::path::Path;
-
-/// Embeds a single passage for storage. Delegates to the configured LLM
-/// headless (claude code / codex). Returns a vector of the active
-/// dimensionality.
-pub fn embed_passage(embedder: &Mutex<LlmEmbedding>, text: &str) -> Result<Vec<f32>, AppError> {
-    let client = apply_query_timeout_if_needed(clone_client(embedder));
-    let result = client.embed_passage(text)?;
-    validate_dim(result)
-}
-
-/// Embeds a single query for similarity search. Same model and dim as
-/// `embed_passage`; the only difference is the LLM-side prompt prefix
-/// that the headless invocation uses to disambiguate.
-pub fn embed_query(embedder: &Mutex<LlmEmbedding>, text: &str) -> Result<Vec<f32>, AppError> {
-    let client = apply_query_timeout_if_needed(clone_client(embedder));
-    let result = client.embed_query(text)?;
-    validate_dim(result)
-}
-
-/// Embeds a batch of passages with token-count-aware batching.
-///
-/// Kept for API compatibility; since v1.0.79 it routes through the
-/// bounded parallel fan-out with conservative defaults.
-pub fn embed_passages_controlled(
-    embedder: &Mutex<LlmEmbedding>,
-    texts: &[&str],
-    _token_counts: &[usize],
-) -> Result<Vec<Vec<f32>>, AppError> {
-    if texts.is_empty() {
-        return Ok(Vec::new());
-    }
-    let owned: Vec<String> = texts.iter().map(|t| t.to_string()).collect();
-    embed_texts_parallel(embedder, &owned, 1, chunk_embed_batch_size())
-}
-
-/// Embed passage local.
-pub fn embed_passage_local(models_dir: &Path, text: &str) -> Result<Vec<f32>, AppError> {
-    let _slot_guard = acquire_llm_slot_for_embedding()?;
-    let embedder = get_embedder(models_dir)?;
-    embed_passage(embedder, text)
-}
 
 /// v1.0.89 (BUG-SKIP-EMBED): reads `--skip-embedding-on-failure` / runtime_config
 /// (flag > XDG; product env is not read).
@@ -82,33 +39,6 @@ pub fn embed_passage_or_skip(
     }
 }
 
-/// BUG-003 / v1.0.85: split of `embed_passage_local` that reports the
-/// resolved [`LlmBackendKind`] based on the ACTUAL
-/// [`LlmEmbedding::flavour`] of the embedder constructed. When
-/// `LlmEmbedding::detect_available` substitutes claude for a missing
-/// codex, the operator sees the truth in `envelope.backend_invoked`.
-pub fn embed_passage_local_resolved(
-    models_dir: &Path,
-    text: &str,
-) -> Result<(Vec<f32>, LlmBackendKind), AppError> {
-    let _slot_guard = acquire_llm_slot_for_embedding()?;
-    let embedder = get_embedder(models_dir)?;
-    let v = embed_passage(embedder, text)?;
-    let kind = match embedder.lock().flavour() {
-        crate::extract::llm_embedding::EmbeddingFlavour::Codex => LlmBackendKind::Codex,
-        crate::extract::llm_embedding::EmbeddingFlavour::Claude => LlmBackendKind::Claude,
-        crate::extract::llm_embedding::EmbeddingFlavour::Opencode => LlmBackendKind::Opencode,
-    };
-    Ok((v, kind))
-}
-
-/// Embed query local.
-pub fn embed_query_local(models_dir: &Path, text: &str) -> Result<Vec<f32>, AppError> {
-    let _slot_guard = acquire_llm_slot_for_embedding()?;
-    let embedder = get_embedder(models_dir)?;
-    embed_query(embedder, text)
-}
-
 // =============================================================================
 // v1.0.82 (GAP-003): wrappers que aceitam a escolha do CLI
 // (`crate::cli::LlmBackendChoice`) e a traduzem em uma chain para
@@ -122,27 +52,20 @@ pub fn embed_query_local(models_dir: &Path, text: &str) -> Result<Vec<f32>, AppE
 /// through to the next backend in the chain before giving up.
 ///
 /// When `choice` is `None` (e.g. a sub-command that does not yet
-/// expose the flag), behaviour matches `embed_passage_local` — the
-/// active embedder from `LlmEmbedding::detect_available` decides the
-/// backend.
+/// expose the flag), the default `OpenRouter` chain is used.
 pub fn embed_passage_with_choice(
     models_dir: &Path,
     text: &str,
     choice: Option<crate::cli::LlmBackendChoice>,
 ) -> Result<(Vec<f32>, LlmBackendKind), AppError> {
     let _slot_guard = acquire_llm_slot_for_embedding()?;
-    match choice {
-        None => {
-            let embedder = get_embedder(models_dir)?;
-            embed_passage(embedder, text).map(|v| (v, LlmBackendKind::None))
-        }
-        Some(choice) => embed_with_fallback(models_dir, text, &choice.to_chain(), false),
-    }
+    let chain = choice
+        .unwrap_or(crate::cli::LlmBackendChoice::OpenRouter)
+        .to_chain();
+    embed_with_fallback(models_dir, text, &chain, false)
 }
 
-/// v1.0.93: embedding with `EmbeddingBackendChoice` awareness. When the
-/// embedding backend is `Openrouter` or `Auto` with a live client, the
-/// chain prepends `OpenRouter` before the LLM subprocess backends.
+/// v1.0.93: embedding with `EmbeddingBackendChoice` awareness.
 pub fn embed_passage_with_embedding_choice(
     models_dir: &Path,
     text: &str,
@@ -164,18 +87,18 @@ pub fn try_embed_query_with_choice(
     text: &str,
     choice: Option<crate::cli::LlmBackendChoice>,
 ) -> Result<(Vec<f32>, LlmBackendKind), FallbackReason> {
-    match with_query_embed_fast(|| embed_passage_with_choice(models_dir, text, choice)) {
+    match embed_passage_with_choice(models_dir, text, choice) {
         // GAP-004 / v1.0.85.1: when the chain terminates on
-        //  (i.e. user passed
-        // or every preceding backend failed),  returns
-        //  instead of an error. Without this guard the
-        // empty vector would propagate to  which
-        // aborts with exit 11 ("embedding has 0 dims, expected 64").
-        // The caller's contract is to surface a typed
-        // so  and  can route to FTS5-puro via
-        // the existing  /  envelope.
+        // `LlmBackendKind::None` (i.e. the user passed `--llm-backend none`,
+        // or every preceding backend failed), `embed_with_fallback` returns
+        // `Ok((vec![], LlmBackendKind::None))` instead of an error. Without
+        // this guard the empty vector would propagate to the dimension check,
+        // which aborts with exit 11 ("embedding has 0 dims, expected 64").
+        // The caller's contract here is to surface a typed `FallbackReason`
+        // instead, so `recall` and `hybrid-search` can route to FTS5-puro via
+        // the existing `vec_degraded` / `vec_degraded_reason` envelope.
         // Intercept the empty-vector success path and surface it as
-        //  (introduced at v1.0.85 / ADR-0043
+        // `FallbackReason::DimZero` (introduced at v1.0.85 / ADR-0043
         // for the symmetric LLM-returned-zero-dim case).
         Ok((v, _backend)) if v.is_empty() => Err(FallbackReason::DimZero),
         Ok((v, backend)) => Ok((v, backend)),
@@ -192,9 +115,7 @@ pub fn try_embed_query_with_embedding_choice(
     embedding_backend: crate::cli::EmbeddingBackendChoice,
     llm_backend: crate::cli::LlmBackendChoice,
 ) -> Result<(Vec<f32>, LlmBackendKind), FallbackReason> {
-    match with_query_embed_fast(|| {
-        embed_passage_with_embedding_choice(models_dir, text, embedding_backend, llm_backend)
-    }) {
+    match embed_passage_with_embedding_choice(models_dir, text, embedding_backend, llm_backend) {
         Ok((v, _backend)) if v.is_empty() => Err(FallbackReason::DimZero),
         Ok((v, backend)) => Ok((v, backend)),
         Err(e) => Err(classify_embedding_error(e)),

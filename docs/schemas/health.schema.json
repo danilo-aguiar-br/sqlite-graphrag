@@ -4,6 +4,7 @@
   "definitions": {
     "HealthCheck": {
       "additionalProperties": true,
+      "description": "Health check.",
       "properties": {
         "detail": {
           "type": [
@@ -26,6 +27,7 @@
     },
     "HealthCounts": {
       "additionalProperties": true,
+      "description": "Health counts.",
       "properties": {
         "entities": {
           "format": "int64",
@@ -59,6 +61,7 @@
       "type": "object"
     }
   },
+  "description": "Health response.",
   "properties": {
     "applies_to_ratio": {
       "description": "Fraction of relationships that use the `applies_to` relation type (0.0–1.0). Omitted when there are no relationships or when `applies_to` is absent.",

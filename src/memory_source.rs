@@ -20,7 +20,14 @@
 //! assert_eq!(parsed, MemorySource::User);
 //!
 //! let err = MemorySource::try_from("enrich").unwrap_err();
-//! assert!(format!("{err}").contains("invalid memory source"));
+//! // Locale-safe, mirroring `rejects_unknown_source` below: the message comes
+//! // from the `crate::i18n::validation` catalog and follows the host locale,
+//! // so asserting only the English wording fails on a `pt-BR` machine.
+//! let msg = format!("{err}");
+//! assert!(
+//!     msg.contains("invalid memory source") || msg.contains("fonte de memória inválida"),
+//!     "unexpected message: {msg}"
+//! );
 //! ```
 
 use crate::errors::AppError;
@@ -43,7 +50,8 @@ pub enum MemorySource {
     User,
     /// Mutated by an internal migration or system job.
     System,
-    /// Inserted by bulk import (ingest, ingest --mode claude-code, ingest --mode codex).
+    /// Inserted by bulk import (`ingest`). Rows written before v1.2.0 may also
+    /// come from the retired `--mode claude-code` / `--mode codex` frontends.
     Import,
     /// Inserted by an external sync job.
     Sync,

@@ -153,6 +153,9 @@
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag hybrid-search` on stdout as a single JSON line. backend_invoked and vec_degraded_reason added in v1.0.84 by ADR-0042.",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "elapsed_ms": {
       "minimum": 0,
       "type": "integer"
@@ -182,6 +185,11 @@
       "minimum": 1,
       "type": "integer"
     },
+    "max_graph_results": {
+      "description": "v1.2.2: ceiling applied to graph_matches. Active by default (50, overridable via --max-graph-results or XDG search.hybrid.max_graph_results); null when the cap is disabled with 0. Echoed so a truncated graph_matches is distinguishable from a small neighbourhood.",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
     "query": {
       "type": "string"
     },
@@ -200,9 +208,9 @@
       "$ref": "#/$defs/Weights"
     },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding for this query (claude, codex, or none). Omitted when embedding was skipped or the response fell back fully to FTS5.",
+      "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding for this query (openrouter or none). Omitted when embedding was skipped or the response fell back fully to FTS5.",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     },
     "vec_degraded_reason": {
       "description": "v1.0.84 (ADR-0042) / v1.0.85 (ADR-0043): structured reason why live embedding degraded. Seven-variant enum discriminates embedding_failed, slot_exhausted (GAP-003), oauth_quota (G58, G45-CR5), backend_mismatch, dim_zero, cancelled, timeout. Omitted when live embedding succeeded. Null when no degradation path was triggered.",
@@ -217,6 +225,7 @@
     "weights",
     "results",
     "graph_matches",
+    "max_graph_results",
     "elapsed_ms"
   ],
   "title": "HybridSearchResponse",

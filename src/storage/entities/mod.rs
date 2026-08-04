@@ -254,19 +254,21 @@ pub fn entity_not_found_with_suggestions(
 ) -> AppError {
     let suggestions = suggest_entity_names(conn, namespace, name, 5, 0.70).unwrap_or_default();
     if suggestions.is_empty() {
-        return AppError::NotFound(format!(
-            "entity '{name}' not found in namespace '{namespace}'"
-        ));
+        return AppError::NotFound(
+            crate::i18n::validation::entity_named_not_found_in_namespace(name, namespace),
+        );
     }
     let list: Vec<String> = suggestions
         .iter()
         .map(|s| format!("{} (score={:.2})", s.name, s.score))
         .collect();
-    AppError::NotFound(format!(
-        "entity '{name}' not found in namespace '{namespace}'. Did you mean: {}? \
-         Re-run with --fuzzy to auto-resolve a clear match, or pass the canonical name.",
-        list.join(", ")
-    ))
+    AppError::NotFound(
+        crate::i18n::validation::entity_named_not_found_with_suggestions(
+            name,
+            namespace,
+            &list.join(", "),
+        ),
+    )
 }
 
 /// Upserts an entity and returns its primary key.
@@ -557,7 +559,20 @@ pub fn knn_search(
     Ok(scored)
 }
 
+// GAP-SG-146: test modules named for what they exercise. `test_fixtures`
+// holds the schema bootstrap both halves used to duplicate.
 #[cfg(test)]
-mod tests_a;
+#[path = "entity_crud_tests.rs"]
+mod crud_tests;
 #[cfg(test)]
-mod tests_b;
+#[path = "entity_name_validation_tests.rs"]
+mod name_validation_tests;
+#[cfg(test)]
+#[path = "entity_relationship_tests.rs"]
+mod relationship_tests;
+#[cfg(test)]
+#[path = "entity_test_fixtures.rs"]
+mod test_fixtures;
+#[cfg(test)]
+#[path = "entity_vector_tests.rs"]
+mod vector_tests;

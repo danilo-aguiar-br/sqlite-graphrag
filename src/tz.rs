@@ -37,11 +37,37 @@ fn resolve_tz_from_xdg() -> Result<Tz, AppError> {
 /// If `explicit` is `None`, tries XDG `display.tz`, then UTC.
 ///
 /// Subsequent calls are silently ignored (OnceLock semantics).
-/// Returns an error only if `explicit` is `None` and the XDG value is invalid.
+///
+/// # Never fails on a bad XDG value
+///
+/// GAP-SG-200: this used to propagate the validation error, and `main` runs it
+/// before dispatching ANY subcommand. So `config set display.tz 0` — which the
+/// registry accepted with exit 0 — bricked every later invocation of the
+/// binary, including the `config unset display.tz` that would have undone it.
+/// The operator was left with no way back through the CLI at all.
+///
+/// Every other XDG reader in the crate already degrades: `retry.rs`,
+/// `tracing_init.rs`, `paths.rs`, `lock.rs`, `i18n/mod.rs` and the rest use
+/// `if let Ok(Some(v))` or `unwrap_or`. [`current_tz`] in this very file does
+/// `unwrap_or(Tz::UTC)`. This function was the lone exception, and being the
+/// exception is what made it a brick.
+///
+/// The flag path keeps its guarantees: clap parses `--tz` into a `Tz` before
+/// this is called, so an invalid flag is still rejected at argument time.
 pub fn init(explicit: Option<Tz>) -> Result<(), AppError> {
     let fuso = match explicit {
         Some(tz) => tz,
-        None => resolve_tz_from_xdg()?,
+        None => resolve_tz_from_xdg().unwrap_or_else(|e| {
+            tracing::warn!(
+                target: "config",
+                key = "display.tz",
+                error = %e.localized_message(),
+                "invalid XDG timezone; falling back to UTC. \
+                 Fix with `config set display.tz <IANA>` or clear it with \
+                 `config unset display.tz`"
+            );
+            Tz::UTC
+        }),
     };
     let _ = GLOBAL_TZ.set(fuso);
     Ok(())

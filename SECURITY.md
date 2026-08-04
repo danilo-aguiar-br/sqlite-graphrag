@@ -11,10 +11,17 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.1 / crate 1.2.1) |
+| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.2 / crate 1.2.2) |
 | 1.1.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 0.x     | Unsupported | No patches provided      |
+
+### v1.2.2 security-relevant notes
+- **Failure envelopes are never filtered.** The agent-native output surface (`--filter`, `--select`, `--max-items`, …) reshapes result rows only; an envelope carrying `error: true` or `ok: false` reaches the caller verbatim. A caller can therefore never be led to read a failure as an empty-but-successful result set
+- **Truncation is never silent.** `--truncate-content` and `--max-output-bytes` record what they removed under `agent_surface` and raise the top-level `truncated` flag; `--max-output-bytes` drops trailing elements rather than slicing JSON text, so a capped envelope still parses
+- **`--no-input` refuses stdin declaratively.** Every stdin reader fails up front with exit 65 instead of blocking, so an unattended invocation cannot hang waiting for input that will never arrive. Precedence: flag > XDG `cli.no_input` > `false`
+- A malformed `--filter` exits 2 rather than returning zero rows, so a typo is never mistaken for a legitimate empty result
+- Schema stays at **v16** (no main-DB migration); the surface is additive and opt-in
 
 ### v1.2.1 security-relevant notes
 - **Namespace claim isolation** on the enrich sidecar: `dequeue_next_pending` / `count_eligible_pending` / resume require `operation` **and** `namespace`, so a drain in one namespace cannot claim or process pending work from another (reduces cross-namespace processing risk and circuit-breaker fallout)
@@ -23,8 +30,18 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 ### v1.2.0 security-relevant notes
 - No product env (`SQLITE_GRAPHRAG_*`) on the hot path; runtime config is flag > XDG `config set` > default
 - `DEFAULT_EMBEDDING_DIM=1024` (override via `--embedding-dim` / XDG `embedding.dim`; existing DBs keep `schema_meta.dim`)
-- GAP-SG-139: host surfaces accept `--db` as a documented no-op (`config`, `slots`, `cache`, `codex-models`, `completions`); graph surfaces unchanged
+- GAP-SG-139: host surfaces accept `--db` as a documented no-op (`config`, `slots`, `cache`, `completions`); graph surfaces unchanged
 - Offline quality gate: `scripts/e2e_offline_v120.sh`
+
+
+## v1.1.05 Integrity Note — Atomic Envelope and Graph Writes (`--output`, merge, link)
+- v1.1.05 introduces `deep-research --output PATH`, which writes the full JSON envelope through the atomwrite algorithm (tempfile → fsync → rename) and emits a short ack on stdout carrying a `blake3` checksum
+- The I/O contract holds: JSON on stdout, logs on stderr. Never redirect both into the same file with `&>` — that contaminates the JSON parse
+- The global `--quiet`/`-q` flag suppresses non-error tracing on stderr, cutting noise in agent pipelines without altering the envelope
+- Prefer `link --from-id`/`--to-id` when the identity is a numeric entity ID; purely numeric names are rejected by `validate_entity_name` (v1.1.05) so `--create-missing` cannot create phantom entities
+- Self-referential merges in `merge-entities` (target ID/name also listed as a source) are rejected BEFORE any database work (v1.1.05), protecting graph integrity against shell word-splitting
+- The shared helpers in `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) are unit-tested; the `tests/v1105_danilo_bugs_regression.rs` suite covers the CLI path
+- Output-file integrity: check the `blake3` checksum from the stdout ack against the written content when the pipeline needs end-to-end verification
 
 
 ## Reporting a Vulnerability
@@ -105,14 +122,14 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 ## v1.0.93 OpenRouter API Key Handling (ADR-0052)
 - v1.0.93 introduces `--embedding-backend openrouter` which uses a real API key (NOT OAuth) for direct REST API calls to OpenRouter
-- The API key is provided via `--openrouter-api-key` flag or `OPENROUTER_API_KEY` env var
+- The API key is provided via `--openrouter-api-key` flag or XDG `config add-key openrouter` (`OPENROUTER_API_KEY` is ignored at runtime; G-T-XDG-04)
 - The key is wrapped in `secrecy::SecretString` and zeroized on drop — NEVER held as plain String in memory after initialization
 - The key is NEVER logged to stderr even at `RUST_LOG=trace` level
 - The key is NEVER persisted in `graphrag.sqlite` or any cache file
 - The key is NEVER forwarded to LLM subprocesses (claude, codex, opencode) — it flows only to `reqwest` HTTPS calls to `api.openrouter.ai`
 - This is SEMANTICALLY DISTINCT from the OAuth-only enforcement on LLM backends: `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` still ABORT with exit 1
-- The `OPENROUTER_API_KEY` env var is NOT in the env-clear whitelist — it stays in the parent process only
-- Operators on shared hosts SHOULD prefer `--openrouter-api-key` flag over env var to minimize exposure window
+- Historical note: `OPENROUTER_API_KEY` was never in the env-clear whitelist; the product never reads that env var now — use flag or `config add-key` only
+- Operators on shared hosts SHOULD prefer `config add-key` (file mode 0600) or the CLI flag; product env is not a supported channel
 - See `docs/decisions/adr-0052-openrouter-embedding-backend.md` for the full architectural decision
 
 ## Hall of Fame
@@ -147,14 +164,14 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 ## v1.0.95 OpenRouter Chat Key Handling (ADR-0054)
 - v1.0.95 adds `enrich --mode openrouter`, which routes the JUDGE step to OpenRouter `/chat/completions` over HTTPS (`src/chat_api.rs`) instead of spawning a local CLI.
-- It reuses the SAME `OPENROUTER_API_KEY` already documented for the embedding backend, with the SAME handling: wrapped in `secrecy::SecretBox`, zeroized on drop, NEVER logged, NEVER passed to any subprocess.
+- It reuses the SAME OpenRouter credential already documented for the embedding backend (flag / `config add-key`; `OPENROUTER_API_KEY` is ignored at runtime), with the SAME handling: wrapped in `secrecy::SecretBox`, zeroized on drop, NEVER logged, NEVER passed to any subprocess.
 - The key flows only into the `reqwest` HTTPS client targeting `openrouter.ai`; it is not in the env-clear whitelist and stays in the parent process only.
 - No new credential surface is introduced beyond what is already documented for the OpenRouter embedding backend.
 
 
 ## v1.0.96 Bounded REST Fan-out and Dead-letter Convergence (ADR-0055)
 - v1.0.96 adds bounded concurrency to the OpenRouter embedding REST path (`embed_passages_parallel_with_embedding_choice`); in-flight requests are clamped to 1..=16 (default 8, a Cloudflare-safe range) via a `tokio::task::JoinSet`, with NO new dependency.
-- The fan-out only parallelizes outbound HTTPS reads to `openrouter.ai`; it does NOT widen the credential or network surface, and the SAME `OPENROUTER_API_KEY` handling (secrecy/zeroize, never logged, never passed to a subprocess) applies unchanged.
+- The fan-out only parallelizes outbound HTTPS reads to `openrouter.ai`; it does NOT widen the credential or network surface, and the SAME OpenRouter key handling (flag/`config add-key`, secrecy/zeroize, never logged, never passed to a subprocess; product env ignored) applies unchanged.
 - SQLite writes stay serialized via WAL plus atomic claim — the database remains single-writer; the dead-letter queue (`error_class`, `next_retry_at`, terminal `dead`) only schedules retries and never bypasses the writer lock.
 - `enrich --status` is read-only: it inspects the queue without an LLM call and without acquiring the singleton, so it is safe to wire into hooks and timers.
 - No new exit code and no new credential surface are introduced.

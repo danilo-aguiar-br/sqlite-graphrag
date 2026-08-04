@@ -22,18 +22,82 @@
 # The prompt may arrive as an argv argument (claude -p) or on stdin;
 # `python3 -c` keeps stdin free so both channels are inspected.
 #
-# Tests that need entity extraction JSON should mock at a higher level or
-# call the library API directly; this script is dedicated to the
-# embedding path.
+# ## Extraction mode (GAP-SG-148 item 3a)
+#
+# `ingest --mode claude-code` is NOT the embedding path: it spawns
+# `claude -p <EXTRACTION_PROMPT>` and parses the Claude Code envelope
+# (`[{"type":"system",...},{"type":"result","structured_output":{...}}]`)
+# into `ExtractionResult`. This script used to answer that call with the
+# embedding shape, so the mode had no hermetic coverage at all and the
+# extraction-name collision it guards against could not be reproduced.
+#
+# The mode is selected by the extraction prompt itself, which is
+# unmistakable, so the embedding branch below is reached exactly as before
+# for every other caller. What the extraction reply contains is driven by
+# directives read from the DOCUMENT BODY on stdin, which is what makes two
+# distinct files able to return the SAME name:
+#
+#   MOCK_EXTRACTION_NAME: <kebab-name>          (default: mock-extraction)
+#   MOCK_EXTRACTION_DESCRIPTION: <free text>    (default: fixed sentence)
+#   MOCK_EXTRACTION_ENTITY: <name>:<entity_type>  (repeatable; default: none)
+#
+# Relationships are always emitted as an empty array: nothing under test
+# needs them yet, and a fabricated edge would show up in graph assertions.
+#
+# `--version` answers with a version string instead of JSON. The version
+# gate in `ingest_claude::binary` only enforces a minimum when the output
+# parses as a semver, so the old JSON reply passed by accident; answering
+# properly makes the gate actually exercised rather than skipped.
 
 set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  echo "2.1.0 (Claude Code mock)"
+  exit 0
+fi
 
 ARGS="$*" python3 -c "
 import json, os, re, sys
 
-text = os.environ['ARGS']
+args = os.environ['ARGS']
+body = ''
 if not sys.stdin.isatty():
-    text += ' ' + sys.stdin.read()
+    body = sys.stdin.read()
+text = args + ' ' + body
+
+# Extraction path: reply with the Claude Code envelope, not a vector.
+if 'knowledge graph entity extractor' in args:
+    name = 'mock-extraction'
+    nm = re.search(r'MOCK_EXTRACTION_NAME:\s*(\S+)', body)
+    if nm:
+        name = nm.group(1)
+    description = 'mock extraction emitted by tests/mock-llm/claude'
+    dm = re.search(r'MOCK_EXTRACTION_DESCRIPTION:\s*(.+)', body)
+    if dm:
+        description = dm.group(1).strip()
+    entities = [
+        {'name': ent, 'entity_type': kind}
+        for ent, kind in re.findall(
+            r'MOCK_EXTRACTION_ENTITY:\s*([^\s:]+)\s*:\s*(\S+)', body
+        )
+    ]
+    envelope = [
+        {'type': 'system', 'subtype': 'init', 'apiKeySource': 'none'},
+        {
+            'type': 'result',
+            'is_error': False,
+            'total_cost_usd': 0.0,
+            'structured_output': {
+                'name': name,
+                'description': description,
+                'entities': entities,
+                'relationships': [],
+            },
+        },
+    ]
+    sys.stdout.write(json.dumps(envelope) + '\n')
+    sys.exit(0)
+
 # G51: honour the requested dimensionality instead of hardcoding 64.
 # Batch prompts state it inline; the single path only carries it as the
 # schema's minItems, which may be a file path OR the schema itself.

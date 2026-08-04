@@ -2,13 +2,29 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/error-envelope.schema.json",
   "title": "ErrorEnvelope",
-  "description": "Structured error envelope emitted to stdout by any sqlite-graphrag subcommand when --json is active and a handled error occurs. The process exits with a non-zero code matching the 'code' field. Since v1.0.68 the `code: 75` envelope can also be emitted by the new `AppError::JobSingletonLocked { job_type, namespace }` variant (G28-B); the `message` field embeds the `job_type` and `namespace` values as quoted strings so agents can parse them with a simple regex (`job '(\\w+)'.*namespace '(\\w+)'`). For full programmatic access to variant fields, agents should branch on `code` and call the corresponding subcommand with `--dry-run` or inspect the namespace before retrying.",
+  "description": "Structured error envelope emitted to stdout by any sqlite-graphrag subcommand when a handled error occurs. The process exits with a non-zero code matching the 'code' field. An agent decides whether to retry from 'error_class' and 'retryable', which are always present, instead of from a table of exit codes it has to know by heart. The 'code: 75' envelope is emitted both by concurrency-slot saturation and by 'AppError::JobSingletonLocked { job_type, namespace }'; that message embeds job_type and namespace as quoted strings so agents can parse them with a simple regex (`job '(\\w+)'.*namespace '(\\w+)'`).",
   "type": "object",
-  "required": ["error", "code", "message"],
+  "required": ["error", "code", "message", "error_class", "retryable"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "error":   { "type": "boolean", "const": true, "description": "Always true; signals to consumers that this line is an error envelope, not a success response." },
-    "code":    { "type": "integer", "description": "Exit code that the process will return, matching the sqlite-graphrag exit code table (e.g. 4 = not found, 9 = duplicate, 10 = database error, 75 = all concurrency slots occupied OR job singleton locked since v1.0.68)." },
-    "message": { "type": "string", "description": "Human-readable English description of the error. For `code: 75` since v1.0.68 the message follows the template 'job <job_type> for namespace \\'<namespace>\\' is already running (exit 75); wait for it to finish or pass --wait-job-singleton <SECONDS>' when emitted by `enrich`, `ingest --mode claude-code`, or `ingest --mode codex`; the slot-saturation template 'all <max> concurrency slots occupied after waiting <waited_secs>s (exit 75)' is the legacy shape and still emitted for commands that do NOT have a job singleton." }
+    "code":    { "type": "integer", "description": "Exit code that the process will return, matching the sqlite-graphrag exit code table (e.g. 4 = not found, 9 = duplicate, 10 = database error, 11 = embedding, 75 = all concurrency slots occupied OR job singleton locked, 78 = configuration)." },
+    "message": { "type": "string", "description": "Description of the error in the active language, selected by --lang or XDG 'i18n.lang'. English is the default and pt-BR is fully translated, including the 'suggestion' beside it. For 'code: 75' the singleton template is 'job <job_type> for namespace <namespace> is already running (exit 75); wait for it to finish or pass --wait-job-singleton <SECONDS>', while slot saturation keeps the shape 'all <max> concurrency slots occupied after waiting <waited_secs>s (exit 75)'." },
+    "error_class": {
+      "type": "string",
+      "enum": ["transient", "permanent", "ambiguous"],
+      "description": "Retry classification derived from the error variant, sharing its vocabulary with the 'error_class' column the enrich sidecar queue already persists. 'transient' means the same call can succeed later with the same input (busy lock, occupied slot, rate limit, timeout, entity not yet materialized). 'permanent' means it never will until the input changes (validation, duplicate, not found, namespace, size and token caps, provider rejection). 'ambiguous' covers the variants the product deliberately refuses to classify — database, I/O and internal — where the caller decides from context."
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "True exactly when error_class is 'transient'. Always emitted, never skipped when false, so a consumer never has to distinguish 'not retryable' from 'this build does not report it'."
+    },
+    "suggestion": {
+      "type": "string",
+      "description": "Actionable remediation hint (GAP-SG-39), localized in the same language as 'message'. Absent for variants whose own message is already self-remediating; never an empty string."
+    }
   }
 }

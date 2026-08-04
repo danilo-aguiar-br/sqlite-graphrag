@@ -156,30 +156,6 @@ pub fn embedding_tokio_runtime_unavailable() -> String {
     }
 }
 
-/// Default embedder singleton missing after set.
-pub fn embedding_embedder_unavailable() -> String {
-    match current() {
-        Language::English => "embedder unavailable after initialisation".to_string(),
-        Language::Portuguese => "embedder indisponível após inicialização".to_string(),
-    }
-}
-
-/// Claude embedder singleton missing after set.
-pub fn embedding_claude_embedder_unavailable() -> String {
-    match current() {
-        Language::English => "claude embedder unavailable after initialisation".to_string(),
-        Language::Portuguese => "embedder claude indisponível após inicialização".to_string(),
-    }
-}
-
-/// OpenCode embedder singleton missing after set.
-pub fn embedding_opencode_embedder_unavailable() -> String {
-    match current() {
-        Language::English => "opencode embedder unavailable after initialisation".to_string(),
-        Language::Portuguese => "embedder opencode indisponível após inicialização".to_string(),
-    }
-}
-
 /// OpenRouter embed client singleton missing after set.
 pub fn embedding_openrouter_client_unavailable() -> String {
     match current() {
@@ -208,42 +184,6 @@ pub fn embedding_openrouter_probe_not_initialised() -> String {
     }
 }
 
-/// Codex probe: binary missing from PATH.
-pub fn embedding_codex_probe_binary_not_on_path() -> String {
-    match current() {
-        Language::English => "codex probe: binary not on PATH (skip)".to_string(),
-        Language::Portuguese => "probe codex: binário não está no PATH (skip)".to_string(),
-    }
-}
-
-/// Codex probe: auth.json missing.
-pub fn embedding_codex_probe_auth_missing() -> String {
-    match current() {
-        Language::English => {
-            "codex probe: auth.json missing (skip; use --llm-backend none or login)".to_string()
-        }
-        Language::Portuguese => {
-            "probe codex: auth.json ausente (skip; use --llm-backend none ou login)".to_string()
-        }
-    }
-}
-
-/// Claude probe: binary missing from PATH.
-pub fn embedding_claude_probe_binary_not_on_path() -> String {
-    match current() {
-        Language::English => "claude probe: binary not on PATH (skip)".to_string(),
-        Language::Portuguese => "probe claude: binário não está no PATH (skip)".to_string(),
-    }
-}
-
-/// OpenCode probe: binary missing from PATH.
-pub fn embedding_opencode_probe_binary_not_on_path() -> String {
-    match current() {
-        Language::English => "opencode probe: binary not on PATH (skip)".to_string(),
-        Language::Portuguese => "probe opencode: binário não está no PATH (skip)".to_string(),
-    }
-}
-
 /// OpenRouter client not initialised for embed path.
 pub fn embedding_openrouter_client_not_initialised() -> String {
     match current() {
@@ -258,34 +198,6 @@ pub fn embedding_openrouter_client_not_initialised() -> String {
 }
 
 // ── dimension / validation ───────────────────────────────────────────────────
-
-/// Vector length diverges from configured embedding dim (G42/C5).
-pub fn embedding_has_dims_expected(got: usize, expected: usize) -> String {
-    match current() {
-        Language::English => format!(
-            "embedding has {got} dims, expected {expected}; \
-             refusing to truncate or pad silently (G42/C5)"
-        ),
-        Language::Portuguese => format!(
-            "embedding tem {got} dims, esperado {expected}; \
-             recusando truncar ou preencher silenciosamente (G42/C5)"
-        ),
-    }
-}
-
-/// LLM returned wrong dim for a specific fan-out item.
-pub fn embedding_llm_item_dims(got: usize, idx: usize, expected: usize) -> String {
-    match current() {
-        Language::English => format!(
-            "LLM returned {got} dims for item {idx}, expected {expected}; \
-             refusing to truncate or pad silently (G42/C5)"
-        ),
-        Language::Portuguese => format!(
-            "LLM retornou {got} dims para item {idx}, esperado {expected}; \
-             recusando truncar ou preencher silenciosamente (G42/C5)"
-        ),
-    }
-}
 
 /// KNN search dim mismatch (memories / entities).
 pub fn embedding_knn_search_dim_mismatch(got: usize, expected: usize) -> String {
@@ -340,308 +252,21 @@ pub fn embedding_entity_cache_null() -> String {
     }
 }
 
-/// Fan-out lost an item index.
-pub fn embedding_fanout_lost_index(idx: usize) -> String {
-    match current() {
-        Language::English => format!("embedding fan-out lost item index {idx}"),
-        Language::Portuguese => {
-            format!("fan-out de embedding perdeu índice do item {idx}")
-        }
-    }
-}
-
-/// Semaphore closed mid fan-out.
-pub fn embedding_semaphore_closed() -> String {
-    match current() {
-        Language::English => "semaphore closed".to_string(),
-        Language::Portuguese => "semáforo fechado".to_string(),
-    }
-}
-
-/// Embedding cancelled by shutdown signal (keep "cancelled" for batch matcher).
-pub fn embedding_cancelled_by_shutdown() -> String {
-    match current() {
-        Language::English => "embedding cancelled by shutdown signal".to_string(),
-        // Keep English "cancelled" so batch collector still matches.
-        Language::Portuguese => "embedding cancelled por sinal de shutdown".to_string(),
-    }
-}
-
-/// Embedding JoinSet task panicked.
-pub fn embedding_task_panicked(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("embedding task panicked: {err}"),
-        Language::Portuguese => format!("tarefa de embedding entrou em pânico: {err}"),
-    }
-}
-
 // ── LLM subprocess embedding ─────────────────────────────────────────────────
-
-/// No codex/claude/opencode on PATH.
-pub fn embedding_no_llm_cli_on_path() -> String {
-    match current() {
-        Language::English => {
-            "no LLM CLI found on PATH: install `codex` (0.130+), `claude` (Claude Code 2.1+), or `opencode` (1.17+)"
-                .to_string()
-        }
-        Language::Portuguese => {
-            "nenhum CLI de LLM encontrado no PATH: instale `codex` (0.130+), `claude` (Claude Code 2.1+) ou `opencode` (1.17+)"
-                .to_string()
-        }
-    }
-}
-
-/// Named binary not found on PATH.
-pub fn embedding_binary_not_found_on_path(which_name: &str) -> String {
-    match current() {
-        Language::English => format!("`{which_name}` not found on PATH"),
-        Language::Portuguese => format!("`{which_name}` não encontrado no PATH"),
-    }
-}
-
-/// LLM batch embedding JSON parse failed.
-pub fn embedding_llm_batch_parse_failed(err: impl Display, raw: &str) -> String {
-    match current() {
-        Language::English => {
-            format!("LLM batch embedding response parse failed: {err}; raw={raw}")
-        }
-        Language::Portuguese => {
-            format!("falha ao analisar resposta de embedding em lote LLM: {err}; raw={raw}")
-        }
-    }
-}
-
-/// LLM batch returned wrong item count.
-pub fn embedding_llm_batch_item_count(got: usize, expected: usize) -> String {
-    match current() {
-        Language::English => {
-            format!("LLM batch returned {got} items, expected {expected} (G42/S2 coverage check)")
-        }
-        Language::Portuguese => format!(
-            "lote LLM retornou {got} itens, esperados {expected} (verificação de cobertura G42/S2)"
-        ),
-    }
-}
-
-/// LLM batch item index out of range.
-pub fn embedding_llm_batch_index_out_of_range(i: usize, max: usize) -> String {
-    match current() {
-        Language::English => {
-            format!("LLM batch item index {i} out of range 1..={max}")
-        }
-        Language::Portuguese => {
-            format!("índice de item do lote LLM {i} fora do intervalo 1..={max}")
-        }
-    }
-}
-
-/// LLM batch item dimension mismatch (G42/C5).
-pub fn embedding_llm_batch_item_dims(i: usize, got: usize, expected: usize) -> String {
-    match current() {
-        Language::English => format!(
-            "LLM batch item {i} returned {got} dims, expected {expected}; \
-             refusing to truncate or pad silently (G42/C5)"
-        ),
-        Language::Portuguese => format!(
-            "item {i} do lote LLM retornou {got} dims, esperado {expected}; \
-             recusando truncar ou preencher silenciosamente (G42/C5)"
-        ),
-    }
-}
-
-/// LLM batch response missing an item index.
-pub fn embedding_llm_batch_missing_item(index: usize) -> String {
-    match current() {
-        Language::English => {
-            format!("LLM batch response is missing item index {index} (G42/S2 coverage check)")
-        }
-        Language::Portuguese => format!(
-            "resposta do lote LLM sem índice de item {index} (verificação de cobertura G42/S2)"
-        ),
-    }
-}
-
-/// Single LLM embedding JSON parse failed.
-pub fn embedding_llm_parse_failed(err: impl Display, raw: &str) -> String {
-    match current() {
-        Language::English => {
-            format!("LLM embedding response parse failed: {err}; raw={raw}")
-        }
-        Language::Portuguese => {
-            format!("falha ao analisar resposta de embedding LLM: {err}; raw={raw}")
-        }
-    }
-}
-
-/// Single LLM embedding dimension mismatch (G42/C5).
-pub fn embedding_llm_returned_dims(got: usize, expected: usize) -> String {
-    match current() {
-        Language::English => format!(
-            "LLM returned {got} dims, expected {expected}; \
-             refusing to truncate or pad silently (G42/C5)"
-        ),
-        Language::Portuguese => format!(
-            "LLM retornou {got} dims, esperado {expected}; \
-             recusando truncar ou preencher silenciosamente (G42/C5)"
-        ),
-    }
-}
-
-/// Schema tempfile create failed.
-pub fn embedding_schema_tempfile_create_failed(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("schema tempfile create failed: {err}"),
-        Language::Portuguese => {
-            format!("falha ao criar tempfile de schema: {err}")
-        }
-    }
-}
-
-/// Schema tempfile write failed.
-pub fn embedding_schema_tempfile_write_failed(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("schema tempfile write failed: {err}"),
-        Language::Portuguese => {
-            format!("falha ao escrever tempfile de schema: {err}")
-        }
-    }
-}
-
-/// Claude OAuth usage quota exhausted (markers: `OAuth`, `quota`).
-pub fn embedding_oauth_usage_quota_exhausted_claude(snippet: &str) -> String {
-    match current() {
-        // Keep English "OAuth" + "quota" markers for EmbeddingErrorKind::classify.
-        Language::English => {
-            format!("OAuth usage quota exhausted: claude rate_limit detected in stdout: {snippet}")
-        }
-        Language::Portuguese => format!(
-            "OAuth usage quota exhausted: rate_limit do claude detectado no stdout: {snippet}"
-        ),
-    }
-}
-
-/// Codex stdin write failed.
-pub fn embedding_codex_stdin_write_failed(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("codex stdin write failed: {err}"),
-        Language::Portuguese => format!("falha ao escrever no stdin do codex: {err}"),
-    }
-}
 
 // ── dry-run backend guards ───────────────────────────────────────────────────
 
-/// `--llm-backend codex` but codex missing (claude detected).
-pub fn embedding_dry_run_codex_not_on_path() -> String {
-    match current() {
-        Language::English => "`--llm-backend codex` requested but `codex` was not found on PATH \
-             (a `claude` binary was detected; refusing silent fallback per ADR-0042). \
-             Install `codex` (>= 0.130) or pass `--llm-backend claude` explicitly."
-            .to_string(),
-        Language::Portuguese => {
-            "`--llm-backend codex` solicitado mas `codex` não encontrado no PATH \
-             (binário `claude` detectado; recusando fallback silencioso por ADR-0042). \
-             Instale `codex` (>= 0.130) ou passe `--llm-backend claude` explicitamente."
-                .to_string()
-        }
-    }
-}
-
-/// `--llm-backend claude` but claude missing (codex detected).
-pub fn embedding_dry_run_claude_not_on_path() -> String {
-    match current() {
-        Language::English => "`--llm-backend claude` requested but `claude` was not found on PATH \
-             (a `codex` binary was detected; refusing silent fallback per ADR-0042). \
-             Install `claude` (Claude Code >= 2.1) or pass `--llm-backend codex` explicitly."
-            .to_string(),
-        Language::Portuguese => {
-            "`--llm-backend claude` solicitado mas `claude` não encontrado no PATH \
-             (binário `codex` detectado; recusando fallback silencioso por ADR-0042). \
-             Instale `claude` (Claude Code >= 2.1) ou passe `--llm-backend codex` explicitamente."
-                .to_string()
-        }
-    }
-}
-
-/// `--llm-backend opencode` but auto-detect resolved another flavour.
-pub fn embedding_dry_run_opencode_resolved_other(flavour: &str) -> String {
-    match current() {
-        Language::English => format!(
-            "`--llm-backend opencode` requested but auto-detect resolved `{flavour}` \
-             (opencode has lower priority than codex/claude in detect_available). \
-             Pass `--llm-backend auto`, `--opencode-binary <path>`, or \
-             `config set llm.opencode_binary <path>`."
-        ),
-        Language::Portuguese => format!(
-            "`--llm-backend opencode` solicitado mas auto-detect resolveu `{flavour}` \
-             (opencode tem prioridade menor que codex/claude em detect_available). \
-             Passe `--llm-backend auto`, `--opencode-binary <path>`, ou \
-             `config set llm.opencode_binary <path>`."
-        ),
-    }
-}
-
-/// `--llm-backend opencode` but opencode not on PATH.
-pub fn embedding_dry_run_opencode_not_on_path() -> String {
-    match current() {
-        Language::English => {
-            "`--llm-backend opencode` requested but `opencode` was not found on PATH. \
-             Install `opencode` (>= 1.17) or pass `--llm-backend auto` to auto-detect."
-                .to_string()
-        }
-        Language::Portuguese => {
-            "`--llm-backend opencode` solicitado mas `opencode` não encontrado no PATH. \
-             Instale `opencode` (>= 1.17) ou passe `--llm-backend auto` para auto-detect."
-                .to_string()
-        }
-    }
-}
-
 // ── opencode runner ──────────────────────────────────────────────────────────
 
-/// OpenCode NDJSON had no text events.
-pub fn embedding_opencode_no_text_events() -> String {
+/// The legacy ONNX-backed embedding extraction backend was removed in
+/// v1.0.79; `extract` on it is unreachable and reports why.
+pub fn legacy_embedding_backend_removed(model_name: &str) -> String {
     match current() {
-        Language::English => "opencode returned no text events in NDJSON output".to_string(),
-        Language::Portuguese => {
-            "opencode não retornou eventos de texto na saída NDJSON".to_string()
-        }
-    }
-}
-
-/// OpenCode timed out.
-pub fn embedding_opencode_timed_out(timeout_secs: u64) -> String {
-    match current() {
-        Language::English => format!("opencode timed out after {timeout_secs}s"),
-        Language::Portuguese => {
-            format!("opencode expirou (timeout) após {timeout_secs}s")
-        }
-    }
-}
-
-/// Failed to spawn opencode.
-pub fn embedding_failed_to_spawn_opencode(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("failed to spawn opencode: {err}"),
-        Language::Portuguese => format!("falha ao iniciar opencode: {err}"),
-    }
-}
-
-/// OpenCode non-zero exit with tails.
-pub fn embedding_opencode_exited(status: impl Display, stderr: &str, stdout: &str) -> String {
-    match current() {
-        Language::English => {
-            format!("opencode exited with {status}: stderr={stderr}, stdout={stdout}")
-        }
-        Language::Portuguese => {
-            format!("opencode saiu com {status}: stderr={stderr}, stdout={stdout}")
-        }
-    }
-}
-
-/// OpenCode JSON parse failed.
-pub fn embedding_opencode_json_parse_failed(err: impl Display) -> String {
-    match current() {
-        Language::English => format!("opencode JSON parse failed: {err}"),
-        Language::Portuguese => format!("falha ao analisar JSON do opencode: {err}"),
+        Language::English => format!(
+            "legacy embedding backend ({model_name}) was removed in v1.0.79; use the llm backend"
+        ),
+        Language::Portuguese => format!(
+            "o backend de embedding legado ({model_name}) foi removido na v1.0.79; use o backend llm"
+        ),
     }
 }

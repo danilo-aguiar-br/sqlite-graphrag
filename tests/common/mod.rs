@@ -15,6 +15,12 @@ use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+pub mod openrouter_mock;
+#[allow(unused_imports)]
+pub use openrouter_mock::{
+    global_stub, write_sandbox_config, write_sandbox_config_without_key, OpenRouterStub,
+};
+
 /// Copies the bundled `claude` and `codex` mock scripts into a fresh
 /// temp directory and makes them executable. Returns the directory.
 ///
@@ -90,7 +96,11 @@ pub struct IsolatedEnv {
 }
 
 /// Builds an [`IsolatedEnv`] with every directory redirected into a fresh
-/// `TempDir`.
+/// `TempDir`, and an offline OpenRouter stub already wired into its config.
+///
+/// The stub replaces the retired `tests/mock-llm/` shell scripts: since the
+/// headless backends were removed, HTTP is the only transport left, so the
+/// offline seam moved from `PATH` to `network.openrouter.*`.
 #[allow(dead_code)]
 pub fn isolated_env() -> IsolatedEnv {
     let root = TempDir::new().expect("isolated_env: TempDir must be creatable");
@@ -99,11 +109,13 @@ pub fn isolated_env() -> IsolatedEnv {
             .unwrap_or_else(|e| panic!("isolated_env: mkdir {sub} failed: {e}"));
     }
     let db = root.path().join("db").join("test.sqlite");
-    IsolatedEnv {
+    let env = IsolatedEnv {
         mock_llm: mock_llm_path(),
         db,
         root,
-    }
+    };
+    write_sandbox_config(&env.config(), None);
+    env
 }
 
 #[allow(dead_code)]
@@ -149,8 +161,23 @@ impl IsolatedEnv {
             .arg("--config-dir")
             .arg(self.config())
             .arg("--cache-dir")
-            .arg(self.cache());
+            .arg(self.cache())
+            // The OpenRouter client is only constructed when a model is named
+            // (`main.rs`), so without this the sandbox would still fall through
+            // to "client not initialised" and exit 11.
+            .arg("--embedding-model")
+            .arg(openrouter_mock::STUB_MODEL);
         c
+    }
+
+    /// Endpoint the stub answers embeddings on, for tests that assert on it.
+    pub fn embeddings_url(&self) -> &str {
+        global_stub().embeddings_url()
+    }
+
+    /// Endpoint the stub answers chat completions on.
+    pub fn chat_url(&self) -> &str {
+        global_stub().chat_url()
     }
 
     /// [`IsolatedEnv::cmd`] plus `<subcommand> --db <sandbox db>`, in that order.
@@ -170,14 +197,10 @@ impl IsolatedEnv {
 /// subcommand.
 #[allow(dead_code)]
 pub fn plant_db_path(config_dir: &std::path::Path, db: &std::path::Path) {
-    fs::create_dir_all(config_dir).expect("plant_db_path: mkdir config");
-    let db_str = db
-        .display()
-        .to_string()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    let cfg = format!("schema_version = 1\n\n[settings]\n\"db.path\" = \"{db_str}\"\n");
-    fs::write(config_dir.join("config.toml"), cfg).expect("plant_db_path: write config.toml");
+    // Also plants the offline OpenRouter endpoints and a test key: since the
+    // headless backends were removed, a sandbox without them reaches the real
+    // api.openrouter.ai and dies with exit 11.
+    write_sandbox_config(config_dir, Some(db));
 }
 
 /// Wires an `assert_cmd::Command` for a legacy `TempDir`-based test.
@@ -199,7 +222,9 @@ pub fn wire_assert_cmd(tmp: &TempDir, c: &mut assert_cmd::Command, db_name: &str
         .arg("--config-dir")
         .arg(&config_dir)
         .arg("--cache-dir")
-        .arg(&cache_dir);
+        .arg(&cache_dir)
+        .arg("--embedding-model")
+        .arg(openrouter_mock::STUB_MODEL);
 }
 
 /// Same isolation as [`wire_assert_cmd`] for raw `std::process::Command`
@@ -217,5 +242,122 @@ pub fn wire_std_cmd(root: &std::path::Path, c: &mut std::process::Command, db: &
         .arg("--config-dir")
         .arg(&config_dir)
         .arg("--cache-dir")
-        .arg(&cache_dir);
+        .arg(&cache_dir)
+        .arg("--embedding-model")
+        .arg(openrouter_mock::STUB_MODEL);
+}
+
+// ---------------------------------------------------------------------------
+// Integration-suite command builders (v1.2.5)
+// ---------------------------------------------------------------------------
+//
+// These lived at the top of `tests/integration.rs` until that 2 485-line file
+// was split into `integration_bootstrap`, `integration_memory_crud` and
+// `integration_graph`. Three copies of the same five helpers would have been
+// the alternative, so they moved here — which is what this module is for.
+
+/// Builds a fresh `Command` with the mock LLM PATH prepended.
+///
+/// The bundled mocks under `tests/mock-llm/` stand in for the subprocess
+/// backends the pre-v1.2.0 binary spawned on every write. The mock directory is
+/// leaked (no `TempDir` cleanup) so the spawned subprocess always finds it.
+#[allow(dead_code)]
+pub fn sgr_cmd() -> assert_cmd::Command {
+    let mock_dir = mock_llm_path();
+    let mut c = assert_cmd::Command::cargo_bin("sqlite-graphrag")
+        .expect("sqlite-graphrag binary not found");
+    c.env("PATH", prepend_path(&mock_dir));
+    c
+}
+
+/// Isolated `Command` with a per-test `TempDir` database and shared model cache.
+#[allow(dead_code)]
+pub fn cmd(tmp: &TempDir) -> assert_cmd::Command {
+    // GAP-SG-101: product env is not read (G-T-XDG-04).
+    let mut c = sgr_cmd();
+    wire_assert_cmd(tmp, &mut c, "test.sqlite");
+    c
+}
+
+/// Runs `init` against the per-test database.
+#[allow(dead_code)]
+pub fn init_db(tmp: &TempDir) {
+    cmd(tmp).arg("init").assert().success();
+}
+
+/// Isolated command pinned to a per-directory `graphrag.sqlite`.
+///
+/// GAP-SG-101 / G-T-XDG-04 (v1.2.0): the invocation directory stopped being an
+/// authority for database resolution. The order became `--db` > XDG `db.path` >
+/// XDG data dir, so a helper that only redirects `XDG_*` now sends every write
+/// to `XDG_DATA_HOME/sqlite-graphrag/graphrag.sqlite` instead of `dir`. The
+/// question the callers ask — "does each directory get its OWN database, and
+/// does CRUD round-trip against that file?" — is unchanged; only the channel
+/// that pins the file moved from the cwd to `db.path`.
+#[allow(dead_code)]
+pub fn isolated_cmd_in(dir: &std::path::Path) -> assert_cmd::Command {
+    let mut c = sgr_cmd();
+    c.current_dir(dir);
+    c.env("HOME", dir.join("home"));
+    c.env("XDG_CACHE_HOME", dir.join("cache"));
+    c.env("XDG_CONFIG_HOME", dir.join("config_home"));
+    c.env("XDG_DATA_HOME", dir.join("data"));
+    plant_db_path(&dir.join("config"), &dir.join("graphrag.sqlite"));
+    c.arg("--config-dir").arg(dir.join("config"));
+    c.arg("--cache-dir").arg(dir.join("cache"));
+    // Offline OpenRouter stub: the client is only built when a model is named.
+    c.arg("--embedding-model").arg(openrouter_mock::STUB_MODEL);
+    c
+}
+
+/// Isolated helper that lets database resolution fall back to `HOME`.
+///
+/// Uses `env_clear` so CI environment variables cannot leak into the case.
+#[allow(dead_code)]
+pub fn home_isolated_cmd(cwd: &std::path::Path) -> assert_cmd::Command {
+    let mock_dir = mock_llm_path();
+    let mut c = assert_cmd::Command::cargo_bin("sqlite-graphrag").expect("bin");
+    c.env_clear();
+    // PATH must carry the mock dir AFTER env_clear.
+    c.env("PATH", prepend_path(&mock_dir));
+    if let Ok(home_var) = std::env::var("HOME") {
+        c.env("HOME", home_var);
+    }
+    c.current_dir(cwd);
+    c.env("XDG_CACHE_HOME", cwd.join("cache"));
+    c
+}
+
+// ---------------------------------------------------------------------------
+// Helpers para testes de grafo (link, unlink, related, graph, cleanup-orphans)
+// ---------------------------------------------------------------------------
+
+/// Creates a memory with entities attached via entities-file to populate the graph.
+#[allow(dead_code)]
+pub fn seed_memory_with_entities(
+    tmp: &TempDir,
+    memory_name: &str,
+    entities_json: &str,
+) -> std::path::PathBuf {
+    let entities_path = tmp.path().join(format!("entities-{memory_name}.json"));
+    std::fs::write(&entities_path, entities_json).unwrap();
+
+    cmd(tmp)
+        .args([
+            "remember",
+            "--name",
+            memory_name,
+            "--type",
+            "project",
+            "--description",
+            "seed memory for graph tests",
+            "--body",
+            "body",
+            "--entities-file",
+            entities_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    entities_path
 }

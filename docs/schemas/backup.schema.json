@@ -4,6 +4,9 @@
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag backup --json` on stdout as a single JSON line.",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action": {
       "const": "backed_up",
       "description": "Always 'backed_up' on success.",

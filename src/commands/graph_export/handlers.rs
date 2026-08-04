@@ -7,6 +7,7 @@ use super::formats::{
 };
 use crate::cli::GraphExportFormat;
 use crate::errors::AppError;
+use crate::graph::{GraphWalk, InMemoryNeighbors, MemoryEdge, WalkDirection};
 use crate::output;
 use crate::paths::AppPaths;
 use crate::storage::connection::open_ro;
@@ -253,18 +254,34 @@ pub(crate) fn run_entities_snapshot(
         return Ok(());
     }
 
-    let rendered = match effective_format {
-        GraphExportFormat::Json => {
-            let entities = nodes.clone();
-            render_json(&GraphSnapshot {
-                nodes,
-                entities,
-                edges,
-                elapsed_ms: inicio.elapsed().as_millis() as u64,
-            })?
+    // The single-envelope JSON snapshot goes through `output::emit_json` so the
+    // agent-native surface (`--select`, `--filter`, …) is applied to it; it used
+    // to reach stdout as pre-serialized text and bypassed that layer entirely.
+    // The file destination keeps `fs::write`, but serializes via `render_json`,
+    // which applies the same surface, so both destinations stay in sync.
+    // `dot`, `mermaid` and the NDJSON stream are not single JSON envelopes and
+    // deliberately keep their unshaped text paths.
+    if effective_format == GraphExportFormat::Json {
+        let entities = nodes.clone();
+        let snapshot = GraphSnapshot {
+            nodes,
+            entities,
+            edges,
+            elapsed_ms: inicio.elapsed().as_millis() as u64,
+        };
+        if let Some(path) = output_path.filter(|_| !json) {
+            fs::write(path, render_json(&snapshot)?)?;
+            output::emit_progress(&format!("wrote {}", path.display()));
+        } else {
+            output::emit_json(&snapshot)?;
         }
+        return Ok(());
+    }
+
+    let rendered = match effective_format {
         GraphExportFormat::Dot => render_dot(&nodes, &edges),
         GraphExportFormat::Mermaid => render_mermaid(&nodes, &edges),
+        GraphExportFormat::Json => unreachable!("json handled above"),
         GraphExportFormat::Ndjson => unreachable!("ndjson handled above"),
     };
 
@@ -276,6 +293,54 @@ pub(crate) fn run_entities_snapshot(
     }
 
     Ok(())
+}
+
+/// Expands `from_id` outward over `edges`, emitting one hop per edge examined.
+///
+/// Bidirectional and unfiltered by weight: `graph traverse` shows the whole
+/// neighbourhood of an entity, in both directions, exactly as stored.
+///
+/// The walk is breadth-first, so `depth` is the *minimum* distance from the
+/// seed. It used to run on a LIFO frontier, which made it a depth-first search
+/// and let an entity one hop away be reported at depth 3 — a number the
+/// `--depth` flag promises is a distance.
+///
+/// # Errors
+///
+/// Propagates [`AppError::Database`] (exit 10); the in-memory source never fails today.
+pub(super) fn traverse_hops(
+    edges: &[MemoryEdge],
+    id_to_name: &HashMap<i64, String>,
+    from_id: i64,
+    depth: u32,
+) -> Result<Vec<TraverseHop>, AppError> {
+    let mut hops: Vec<TraverseHop> = Vec::with_capacity(16);
+    let walk = GraphWalk {
+        direction: WalkDirection::Bidirectional,
+        weight_floor: None,
+        max_hops: depth,
+        max_neighbors_per_hop: None,
+        relation_filter: None,
+    };
+    walk.run_observed(
+        &InMemoryNeighbors::new(edges, id_to_name),
+        &[from_id],
+        |edge, hop_depth| {
+            let (entity, direction) = if edge.inbound {
+                (edge.source_name.clone(), "inbound")
+            } else {
+                (edge.target_name.clone(), "outbound")
+            };
+            hops.push(TraverseHop {
+                entity: entity.unwrap_or_default(),
+                relation: edge.relation.clone(),
+                direction: direction.to_string(),
+                weight: edge.weight,
+                depth: hop_depth,
+            });
+        },
+    )?;
+    Ok(hops)
 }
 
 pub(crate) fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
@@ -317,43 +382,17 @@ pub(crate) fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
         .map(|e| (e.id, e.name.clone()))
         .collect();
 
-    let mut hops: Vec<TraverseHop> = Vec::with_capacity(16);
-    let mut visited: std::collections::HashSet<i64> =
-        std::collections::HashSet::with_capacity(args.depth as usize * 10);
-    let mut frontier: Vec<(i64, u32)> = vec![(from_id, 0)];
+    let edges: Vec<MemoryEdge> = all_rels
+        .iter()
+        .map(|rel| MemoryEdge {
+            source_id: rel.source_id,
+            target_id: rel.target_id,
+            relation: rel.relation.clone(),
+            weight: rel.weight,
+        })
+        .collect();
 
-    while let Some((current_id, current_depth)) = frontier.pop() {
-        if current_depth >= args.depth || visited.contains(&current_id) {
-            continue;
-        }
-        visited.insert(current_id);
-
-        for rel in &all_rels {
-            if rel.source_id == current_id {
-                if let Some(target_name) = id_to_name.get(&rel.target_id) {
-                    hops.push(TraverseHop {
-                        entity: target_name.clone(),
-                        relation: rel.relation.clone(),
-                        direction: "outbound".to_string(),
-                        weight: rel.weight,
-                        depth: current_depth + 1,
-                    });
-                    frontier.push((rel.target_id, current_depth + 1));
-                }
-            } else if rel.target_id == current_id {
-                if let Some(source_name) = id_to_name.get(&rel.source_id) {
-                    hops.push(TraverseHop {
-                        entity: source_name.clone(),
-                        relation: rel.relation.clone(),
-                        direction: "inbound".to_string(),
-                        weight: rel.weight,
-                        depth: current_depth + 1,
-                    });
-                    frontier.push((rel.source_id, current_depth + 1));
-                }
-            }
-        }
-    }
+    let hops = traverse_hops(&edges, &id_to_name, from_id, args.depth)?;
 
     output::emit_json(&GraphTraverseResponse {
         from: resolved_name,
@@ -364,6 +403,46 @@ pub(crate) fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
     })?;
 
     Ok(())
+}
+
+/// Highest edge count held by any entity, measured over the edges themselves.
+///
+/// Deliberately NOT `MAX(entities.degree)`. That column is a cache refreshed
+/// only by `merge-entities`, `normalize-entities` and `graph recompute-degree`,
+/// never by an ordinary write. Reading it made one field of the stats envelope
+/// describe a stale snapshot while `node_count`, `edge_count` and the
+/// `avg_degree` derived from them described the live graph — measured at 856
+/// against 1 452 for the same graph in `health`, which counts live.
+///
+/// The envelope also carries an arithmetic invariant: a maximum cannot fall
+/// below the mean of the same set. A cache drifting toward zero breaks that
+/// outright, making the envelope contradict itself.
+pub(crate) fn measure_max_degree(
+    conn: &rusqlite::Connection,
+    ns: Option<&str>,
+) -> Result<i64, AppError> {
+    let degree = match ns {
+        Some(n) => conn.query_row(
+            "SELECT COALESCE(MAX(deg), 0) FROM ( \
+               SELECT COUNT(r.id) AS deg FROM entities e \
+               LEFT JOIN relationships r ON e.id = r.source_id OR e.id = r.target_id \
+               WHERE e.namespace = ?1 \
+               GROUP BY e.id \
+             )",
+            rusqlite::params![n],
+            |r| r.get(0),
+        )?,
+        None => conn.query_row(
+            "SELECT COALESCE(MAX(deg), 0) FROM ( \
+               SELECT COUNT(r.id) AS deg FROM entities e \
+               LEFT JOIN relationships r ON e.id = r.source_id OR e.id = r.target_id \
+               GROUP BY e.id \
+             )",
+            [],
+            |r| r.get(0),
+        )?,
+    };
+    Ok(degree)
 }
 
 pub(crate) fn run_stats(args: GraphStatsArgs) -> Result<(), AppError> {
@@ -397,17 +476,7 @@ pub(crate) fn run_stats(args: GraphStatsArgs) -> Result<(), AppError> {
         conn.query_row("SELECT COUNT(*) FROM relationships", [], |r| r.get(0))?
     };
 
-    let max_degree: i64 = if let Some(n) = ns {
-        conn.query_row(
-            "SELECT COALESCE(MAX(degree), 0) FROM entities WHERE namespace = ?1",
-            rusqlite::params![n],
-            |r| r.get(0),
-        )?
-    } else {
-        conn.query_row("SELECT COALESCE(MAX(degree), 0) FROM entities", [], |r| {
-            r.get(0)
-        })?
-    };
+    let max_degree = measure_max_degree(&conn, ns)?;
 
     // avg_degree = 2 * edge_count / node_count (each edge contributes 2 to total degree sum).
     let avg_degree = if node_count > 0 {

@@ -148,7 +148,9 @@ pub fn run(args: BackupArgs) -> Result<(), AppError> {
                 Ok(_) => {
                     // Transient (Busy / Locked on newer rusqlite or any
                     // future non-exhaustive variant): retry after backoff.
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        crate::constants::BACKUP_BUSY_RETRY_DELAY_MS,
+                    ));
                 }
                 Err(e) => return Err(AppError::Database(e)),
             }

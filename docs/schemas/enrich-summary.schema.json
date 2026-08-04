@@ -4,6 +4,9 @@
   "additionalProperties": false,
   "description": "Final summary NDJSON line emitted by `sqlite-graphrag enrich`. Always the last line. The 'summary' sentinel field distinguishes it from per-item events. backend_invoked added in v1.0.84 by ADR-0042.",
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "completed": {
       "description": "Items successfully processed.",
       "minimum": 0,
@@ -61,9 +64,9 @@
       "description": "Sentinel field; always true. Distinguishes this line from per-item events."
     },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding across this enrich run (claude, codex, or none). Omitted when enrich ran without embedding.",
+      "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding across this enrich run (openrouter or none). Omitted when enrich ran without embedding.",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     },
     "budget_exhausted": {
       "type": ["boolean", "null"],

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json",
+  "title": "AgentSurface",
+  "description": "GAP-SG-142: shared definitions for the agent-native reshaping layer. Every response envelope may carry an `agent_surface` record once a shaping knob (--select/--fields, --filter, --sort, --dedupe-by, --max-items, --count-only, --truncate-content, --max-output-bytes) is set. Response schemas reference `#/$defs/AgentSurfaceMeta` instead of redeclaring the block, because their root sets `additionalProperties: false` and JSON Schema draft 2020-12 offers no way to admit an undeclared member from outside the document.",
+  "$defs": {
+    "AgentSurfaceMeta": {
+      "type": "object",
+      "description": "Record of what the reshaping layer did to this envelope. Present only when at least one knob was set; absent means the envelope is byte-identical to the unshaped contract.",
+      "required": ["input_count", "output_count"],
+      "additionalProperties": false,
+      "properties": {
+        "input_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Elements in the result array before shaping. `1` when the envelope carries no result array and was projected as a single object."
+        },
+        "output_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Elements emitted after filter, sort, dedupe, limit and projection."
+        },
+        "select": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keys kept by --select/--fields, in the requested order. Absent keys are skipped rather than emitted as null."
+        },
+        "filters": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of --filter predicates applied, conjoined with AND."
+        },
+        "sort": { "type": "string", "description": "Key given to --sort." },
+        "dedupe_by": { "type": "string", "description": "Key given to --dedupe-by." },
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cap requested by --max-items. Applies to EVERY array in the envelope since v1.2.5, not only the primary one; --select, --filter, --sort and --dedupe-by stay on the primary array because they act on element fields, which a secondary collection does not share."
+        },
+        "secondary_capped": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Members other than the primary result array that --max-items shortened (for example `edges` beside `nodes`). Emitted only when at least one was shortened."
+        },
+        "count_only": {
+          "type": "boolean",
+          "description": "True when --count-only replaced the payload with a count. See #/$defs/CountOnlyEnvelope."
+        },
+        "content_truncated": {
+          "type": "boolean",
+          "description": "True when --truncate-content shortened at least one string."
+        },
+        "truncate_content": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Character ceiling requested by --truncate-content. Present only alongside content_truncated."
+        },
+        "output_truncated": {
+          "type": "boolean",
+          "description": "True when --max-output-bytes forced result elements out of the envelope."
+        },
+        "dropped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Result elements removed to satisfy --max-output-bytes. Present only alongside output_truncated."
+        },
+        "max_output_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Byte ceiling requested by --max-output-bytes. Present only alongside output_truncated."
+        },
+        "aliases_removed": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Derived arrays dropped because they merely restated the reshaped one (`memories` for `items`, `entities` for `nodes`, and `direct_matches`, `graph_matches` and `related_memories` for `results`). A canonical key serves several subcommands, so no single envelope carries every declared member; only the ones actually present are removed and listed. Emitted only when at least one was present; the members stay in place whenever no knob is set."
+        }
+      }
+    },
+    "CountOnlyEnvelope": {
+      "type": "object",
+      "description": "Payload emitted under --count-only. The command envelope is replaced wholesale, so it validates against this definition rather than against the command schema.",
+      "required": ["count", "agent_surface"],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Result elements surviving filter, dedupe and limit. `1` for an envelope with no result array."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "Raised when the byte or content ceiling also fired."
+        },
+        "truncated_reason": {
+          "type": "string",
+          "enum": ["max_output_bytes"],
+          "description": "Present only on the parseable stub emitted when even the empty envelope exceeds --max-output-bytes."
+        },
+        "max_output_bytes": { "type": "integer", "minimum": 1 },
+        "agent_surface": { "$ref": "#/$defs/AgentSurfaceMeta" }
+      }
+    }
+  },
+  "$ref": "#/$defs/AgentSurfaceMeta"
+}

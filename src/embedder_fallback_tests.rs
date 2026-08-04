@@ -19,44 +19,38 @@ fn none_backend_returns_empty_vector_without_calling_llm() {
 }
 
 #[test]
-fn empty_chain_defaults_to_codex_claude_none() {
-    // Internal invariant: the default chain order is the v1.0.81
-    // implicit order (codex first, then claude, then None as
-    // graceful-degradation fallback).
-    let defaults = [
-        LlmBackendKind::Codex,
-        LlmBackendKind::Claude,
-        LlmBackendKind::None,
-    ];
+fn empty_chain_defaults_to_openrouter_none() {
+    // Internal invariant: the default chain is OpenRouter first, then
+    // `None` as the graceful-degradation fallback.
+    let defaults = [LlmBackendKind::OpenRouter, LlmBackendKind::None];
+    assert_eq!(defaults.len(), 2);
+}
 
-    // ---------------------------------------------------------------
-    // ADR-0042: as_str + reason_code unit tests
-    // ---------------------------------------------------------------
+// ---------------------------------------------------------------
+// ADR-0042: as_str + reason_code unit tests
+// ---------------------------------------------------------------
 
-    #[allow(dead_code)]
-    fn llm_backend_kind_as_str_is_stable() {
-        assert_eq!(LlmBackendKind::Codex.as_str(), "codex");
-        assert_eq!(LlmBackendKind::Claude.as_str(), "claude");
-        assert_eq!(LlmBackendKind::None.as_str(), "none");
-    }
+#[test]
+fn llm_backend_kind_as_str_is_stable() {
+    assert_eq!(LlmBackendKind::OpenRouter.as_str(), "openrouter");
+    assert_eq!(LlmBackendKind::None.as_str(), "none");
+}
 
-    #[allow(dead_code)]
-    fn fallback_reason_reason_code_is_stable() {
-        assert_eq!(
-            FallbackReason::EmbeddingFailed("any".into()).reason_code(),
-            "embedding_failed"
-        );
-        assert_eq!(FallbackReason::Cancelled.reason_code(), "cancelled");
-        assert_eq!(
-            FallbackReason::Timeout {
-                operation: "embed_query".into(),
-                duration_secs: 30
-            }
-            .reason_code(),
-            "timeout"
-        );
-    }
-    assert_eq!(defaults.len(), 3);
+#[test]
+fn fallback_reason_reason_code_is_stable() {
+    assert_eq!(
+        FallbackReason::EmbeddingFailed("any".into()).reason_code(),
+        "embedding_failed"
+    );
+    assert_eq!(FallbackReason::Cancelled.reason_code(), "cancelled");
+    assert_eq!(
+        FallbackReason::Timeout {
+            operation: "embed_query".into(),
+            duration_secs: 30
+        }
+        .reason_code(),
+        "timeout"
+    );
 }
 
 #[test]
@@ -94,14 +88,12 @@ fn embed_with_fallback_skip_on_failure_with_only_none_returns_empty() {
     assert!(v.0.is_empty(), "vector must be empty");
     assert_eq!(v.1, LlmBackendKind::None);
 }
-#[allow(dead_code)]
-fn llm_backend_error_no_backends_default_message() {
-    // The fallback chain exhaustion error must mention
-    // in its hint so the operator knows the remediation.
-    let e = LlmBackendError::NoBackendsAvailable;
-    let h = e.hint();
-    assert!(h.contains("--llm-fallback"));
-}
+// `llm_backend_error_no_backends_default_message` lived here without `#[test]`,
+// so it never ran and never showed up as ignored. Its body — that
+// `LlmBackendError::NoBackendsAvailable.hint()` mentions `--llm-fallback` — is
+// asserted verbatim by the live `no_backends_hint_mentions_fallback` in
+// `src/llm/exit_code_hints.rs`, next to the hint it guards. Removed rather than
+// annotated, to avoid two copies drifting apart.
 
 #[test]
 fn llm_backend_error_nonzero_exit_carries_stderr_tail() {

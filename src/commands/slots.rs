@@ -157,9 +157,10 @@ fn run_status(args: SlotsStatusArgs) -> Result<(), AppError> {
     };
 
     if matches!(args.format, OutputFormat::Json) {
-        let json = serde_json::to_string_pretty(&output).map_err(AppError::Json)?;
-        // JSON output stays on stdout (this IS the data payload, not a log line).
-        println!("{json}");
+        // GAP-SG-142: the payload goes through `output` like every other
+        // envelope, so it inherits BrokenPipe tolerance and the agent-native
+        // reshaping surface instead of bypassing both via `println!`.
+        crate::output::emit_json(&output)?;
     } else {
         // GAP-007 (v1.0.88): text-mode output now flows through the
         // `tracing` pipeline (target: "slots") instead of `println!` so
@@ -190,9 +191,9 @@ fn run_status(args: SlotsStatusArgs) -> Result<(), AppError> {
 fn run_release(slot_id: u32, yes: bool) -> Result<(), AppError> {
     let path = slot_path(slot_id);
     if !path.is_file() {
-        return Err(AppError::NotFound(format!(
-            "slot {slot_id} is not held (no file at {})",
-            path.display()
+        return Err(AppError::NotFound(crate::i18n::validation::slot_not_held(
+            slot_id,
+            &path.display().to_string(),
         )));
     }
     if !yes {

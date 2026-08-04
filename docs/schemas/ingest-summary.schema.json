@@ -2,24 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/ingest-summary.schema.json",
   "title": "IngestSummary",
-  "description": "Final summary NDJSON line emitted by `sqlite-graphrag ingest` after all per-file events. Always the last line on stdout. backend_invoked added in v1.0.84 by ADR-0042.",
+  "description": "Final summary NDJSON line emitted by `sqlite-graphrag ingest` after all per-file events. Always the last line on stdout. Since v1.2.3 (GAP-SG-150) this is the SINGLE contract for EVERY mode: `--mode none`, `--mode claude-code` and `--mode codex` all serialise this object. Counters a given mode does not produce are omitted rather than emitted as null. BREAKING for `--mode codex`: `completed`/`failed`/`skipped` are now `files_succeeded`/`files_failed`/`files_skipped`, and `dir`/`pattern`/`recursive` are reported. backend_invoked added in v1.0.84 by ADR-0042.",
   "type": "object",
   "required": ["summary", "dir", "pattern", "recursive", "files_total", "files_succeeded", "files_failed", "files_skipped", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "summary":         { "const": true,    "description": "Sentinel field; always true. Distinguishes this line from per-file events." },
     "dir":             { "type": "string",  "description": "Directory path passed to ingest." },
     "pattern":         { "type": "string",  "description": "Glob pattern used to match files." },
     "recursive":       { "type": "boolean", "description": "Whether subdirectories were traversed." },
     "files_total":     { "type": "integer", "minimum": 0, "description": "Total files matched by the pattern." },
-    "files_succeeded": { "type": "integer", "minimum": 0, "description": "Files successfully indexed." },
+    "files_succeeded": { "type": "integer", "minimum": 0, "description": "Files that produced a memory." },
     "files_failed":    { "type": "integer", "minimum": 0, "description": "Files that failed processing or persistence." },
-    "files_skipped":   { "type": "integer", "minimum": 0, "description": "Files skipped (duplicates, invalid names, empty bodies)." },
+    "files_skipped":   { "type": "integer", "minimum": 0, "description": "Files skipped (duplicates, invalid names, empty or oversized bodies), plus rows already completed by an earlier run." },
     "elapsed_ms":      { "type": "integer", "minimum": 0, "description": "Total wall-clock time in milliseconds." },
+    "entities_total":  { "type": ["integer", "null"], "minimum": 0, "description": "Total entities written across the run. Emitted by the LLM modes; `--mode none` extracts no graph and omits it." },
+    "rels_total":      { "type": ["integer", "null"], "minimum": 0, "description": "Total relationships written across the run. Emitted by the LLM modes; `--mode none` omits it." },
+    "cost_usd":        { "type": ["number", "null"],  "minimum": 0, "description": "Cumulative LLM cost in USD; stays 0 on an OAuth subscription. Emitted by `--mode claude-code`; `--mode codex` responses carry no cost figure and `--mode none` pays none." },
+    "input_tokens_total":  { "type": ["integer", "null"], "minimum": 0, "description": "GAP-SG-150: prompt tokens billed across the run. Emitted only by `--mode codex`." },
+    "output_tokens_total": { "type": ["integer", "null"], "minimum": 0, "description": "GAP-SG-150: completion tokens billed across the run. Emitted only by `--mode codex`." },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM that ran the live embedding across this ingest run (claude, codex, or none). Omitted when ingest ran without embedding (--skip-embedding-on-failure or backend none).",
+      "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding across this ingest run (openrouter or none). Omitted when ingest ran without embedding (--skip-embedding-on-failure or backend none).",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     }
   }
 }

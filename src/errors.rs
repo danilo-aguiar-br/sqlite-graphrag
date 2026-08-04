@@ -6,7 +6,6 @@
 //! failure. See the README for the full exit code contract.
 
 use crate::i18n::{current, Language};
-use crate::spawn::preflight::PreFlightError;
 use thiserror::Error;
 
 /// Unified error type for all CLI and library operations.
@@ -259,7 +258,8 @@ pub enum AppError {
     /// CLI semaphore).
     ///
     /// G28-B (v1.0.68): ensures at most one `enrich`, `ingest --mode
-    /// claude-code`, or `ingest --mode codex` runs at a time per namespace.
+    /// or `ingest` runs at a time per namespace. The guard predates v1.2.0 and
+    /// once also covered `ingest --mode claude-code` / `--mode codex`.
     /// Use `--wait-job-singleton <SECONDS>` (per-command) to poll until the
     /// other invocation finishes.
     #[error(
@@ -319,28 +319,6 @@ pub enum AppError {
         signal: String,
     },
 
-    /// v1.0.87 (GAP-META-005, ADR-0045): pre-flight validation gate
-    /// rejected the spawn before fork. Maps to exit code `16`.
-    ///
-    /// The `source` field carries the structured [`PreFlightError`]
-    /// variant so callers and operators can route on the specific
-    /// failure class (BinaryNotFound, ArgvExceedsArgMax,
-    /// McpConfigInlineJsonRejected, McpConfigPathMissing,
-    /// McpConfigPathInvalidJson, WalkUpMcpJsonInvalid,
-    /// OutputBufferTooSmall, ClaudeConfigDirNotEmpty) instead of
-    /// parsing the legacy `detail: String` representation.
-    ///
-    /// This variant is **permanent** — retrying the same argv will fail
-    /// identically. Operators must fix the underlying condition (install
-    /// the binary, shorten the body, override `CLAUDE_CONFIG_DIR`,
-    /// substitute the inline `--mcp-config '{}'` for a tempfile path,
-    /// etc.) before retrying.
-    #[error("preflight validation failed: {source}")]
-    PreFlightFailed {
-        /// Underlying preflight error.
-        source: Box<PreFlightError>,
-    },
-
     /// v1.0.97 (GAP-SG-01/03): the OpenRouter provider returned a structured
     /// error object (an `error` field carrying `code` and `message`), often
     /// inside an HTTP 200 body (e.g. token/context-length overflow). Maps to
@@ -363,20 +341,6 @@ pub enum AppError {
         /// Provider error message.
         message: String,
     },
-}
-
-/// Bridges the structured [`PreFlightError`] produced by the
-/// pre-flight validation gate (v1.0.87, ADR-0045) into the unified
-/// [`AppError`] envelope. Lets spawners use the `?` operator instead
-/// of hand-rolling `AppError::PreFlightFailed { source: ... }` at every
-/// call site, and keeps the variant alive as the canonical exit code 16
-/// path rather than the dead code it was at v1.0.87.
-impl From<PreFlightError> for AppError {
-    fn from(source: PreFlightError) -> Self {
-        AppError::PreFlightFailed {
-            source: Box::new(source),
-        }
-    }
 }
 
 impl AppError {
@@ -439,7 +403,6 @@ impl AppError {
             Self::EmbeddingSingletonLocked { .. } => crate::constants::CLI_LOCK_EXIT_CODE,
             Self::LowMemory { .. } => crate::constants::LOW_MEMORY_EXIT_CODE,
             Self::Shutdown { .. } => crate::constants::SHUTDOWN_EXIT_CODE,
-            Self::PreFlightFailed { .. } => 16,
             Self::ProviderError { .. } => 1,
         }
     }
@@ -525,9 +488,45 @@ impl AppError {
                 | Self::TooManyChunks { .. }
                 | Self::TooManyTokens { .. }
                 | Self::VecExtension(_)
-                | Self::PreFlightFailed { .. }
                 | Self::ProviderError { .. }
         )
+    }
+
+    /// Stable retry classification carried by the stdout error envelope as
+    /// `error_class`.
+    ///
+    /// An agent that reads only `code` cannot tell a busy lock from a malformed
+    /// name, so it either retries what will never succeed or gives up on what
+    /// would. This field answers that question without the agent knowing a
+    /// single exit code by heart.
+    ///
+    /// The vocabulary matches the one the enrich queue already persists in
+    /// `queue.error_class`, plus `ambiguous` for the third state
+    /// [`Self::is_permanent`] documents: errors classified by neither predicate,
+    /// where the caller decides from context.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_graphrag::errors::AppError;
+    ///
+    /// assert_eq!(AppError::DbBusy("busy".into()).error_class(), "transient");
+    /// assert_eq!(AppError::Validation("bad".into()).error_class(), "permanent");
+    /// assert_eq!(
+    ///     AppError::Internal(anyhow::anyhow!("x")).error_class(),
+    ///     "ambiguous"
+    /// );
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn error_class(&self) -> &'static str {
+        if self.is_retryable() {
+            "transient"
+        } else if self.is_permanent() {
+            "permanent"
+        } else {
+            "ambiguous"
+        }
     }
 
     /// GAP-SG-39: returns an actionable remediation hint for the error, surfaced
@@ -536,51 +535,106 @@ impl AppError {
     /// this is what makes a write rejection (e.g. a malformed name) observable and
     /// fixable. Returns `None` for variants whose own message is already
     /// self-remediating.
+    ///
+    /// Localized through [`Self::suggestion_for`], so a `pt-BR` operator never
+    /// receives a Portuguese `message` beside an English `suggestion` in the same
+    /// envelope.
     #[must_use]
     pub fn suggestion(&self) -> Option<&'static str> {
+        self.suggestion_for(current())
+    }
+
+    /// Returns the remediation hint in the explicitly provided language.
+    ///
+    /// Mirrors [`Self::localized_message_for`] so tests can assert both languages
+    /// without depending on the global `OnceLock`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sqlite_graphrag::errors::AppError;
+    /// use sqlite_graphrag::i18n::Language;
+    ///
+    /// let err = AppError::Duplicate("mem-xyz".into());
+    /// assert!(err.suggestion_for(Language::English).unwrap().contains("pass"));
+    /// assert!(err.suggestion_for(Language::Portuguese).unwrap().contains("passe"));
+    /// ```
+    #[must_use]
+    pub fn suggestion_for(&self, lang: Language) -> Option<&'static str> {
+        self.suggestion_pair().map(|(en, pt)| match lang {
+            Language::English => en,
+            Language::Portuguese => pt,
+        })
+    }
+
+    /// Both renderings of the hint, side by side.
+    ///
+    /// Keeping the pair in one arm is what makes a missing translation
+    /// impossible to introduce: adding a variant without its Portuguese text
+    /// does not compile.
+    fn suggestion_pair(&self) -> Option<(&'static str, &'static str)> {
         match self {
-            Self::Validation(_) => Some(
+            Self::Validation(_) => Some((
                 "review the input against the command's --help; names must be kebab-case (lowercase letters, digits, hyphens) and bodies non-empty",
-            ),
-            Self::Duplicate(_) => {
-                Some("pass --force-merge to update the existing memory instead of failing")
-            }
-            Self::Conflict(_) => Some(
+                "revise a entrada contra o --help do comando; nomes devem ser kebab-case (minúsculas, dígitos, hifens) e corpos não podem ser vazios",
+            )),
+            Self::Duplicate(_) => Some((
+                "pass --force-merge to update the existing memory instead of failing",
+                "passe --force-merge para atualizar a memória existente em vez de falhar",
+            )),
+            Self::Conflict(_) => Some((
                 "another writer changed the row; re-read with `read --name <n> --json` and retry with a fresh --expected-updated-at",
-            ),
-            Self::NotFound(_) | Self::MemoryNotFound { .. } | Self::MemoryNotFoundById { .. } => {
-                Some("verify the name/id and namespace with `list --json` or `read --name <n> --json`")
-            }
-            Self::NamespaceError(_) => {
+                "outro escritor alterou a linha; releia com `read --name <n> --json` e repita com um --expected-updated-at novo",
+            )),
+            Self::NotFound(_) | Self::MemoryNotFound { .. } | Self::MemoryNotFoundById { .. } => Some((
+                "verify the name/id and namespace with `list --json` or `read --name <n> --json`",
+                "verifique o nome/id e o namespace com `list --json` ou `read --name <n> --json`",
+            )),
+            Self::NamespaceError(_) => Some((
                 // GAP-SG-103: product env is not read (G-T-XDG-04). Point operators
                 // at the real channels: CLI flag and XDG `namespace.default`.
-                Some("set --namespace or `config set namespace.default <name>`; inspect with `namespace-detect --json`")
-            }
-            Self::LimitExceeded(_) => {
-                Some("split the input into smaller memories or raise the documented cap before retrying")
-            }
-            Self::BodyTooLarge { .. } => {
-                Some("the body-bytes cap (MAX_MEMORY_BODY_LEN) fired; split the content into multiple memories or use --body-file")
-            }
-            Self::TooManyChunks { .. } => {
-                Some("the chunk-count cap (REMEMBER_MAX_SAFE_MULTI_CHUNKS) fired; split the document into smaller memories before writing")
-            }
-            Self::TooManyTokens { .. } => {
-                Some("the token cap (EMBEDDING_REQUEST_MAX_TOKENS) fired; split the content into multiple memories, keeping each under ~25000 tokens")
-            }
-            Self::Embedding(_) => Some(
-                "verify the embedding backend and OPENROUTER_API_KEY; re-run `enrich --operation re-embed` once resolved",
-            ),
-            Self::Database(_) | Self::DbBusy(_) => {
-                Some("run `health --json` then `vacuum --json`; widen --wait-lock if the database is busy")
-            }
-            Self::Io(_) => Some("check the path exists and is writable, then retry"),
-            Self::RateLimited { .. } => {
-                Some("wait for the reported retry-after window, then retry")
-            }
-            Self::LockBusy(_) | Self::AllSlotsFull { .. } | Self::JobSingletonLocked { .. } => {
-                Some("wait for the other invocation to finish or pass --wait-lock / --wait-job-singleton")
-            }
+                "set --namespace or `config set namespace.default <name>`; inspect with `namespace-detect --json`",
+                "defina --namespace ou `config set namespace.default <nome>`; inspecione com `namespace-detect --json`",
+            )),
+            Self::LimitExceeded(_) => Some((
+                "split the input into smaller memories or raise the documented cap before retrying",
+                "divida a entrada em memórias menores ou eleve o teto documentado antes de repetir",
+            )),
+            Self::BodyTooLarge { .. } => Some((
+                "the body-bytes cap (MAX_MEMORY_BODY_LEN) fired; split the content into multiple memories or use --body-file",
+                "o teto de bytes do corpo (MAX_MEMORY_BODY_LEN) disparou; divida o conteúdo em várias memórias ou use --body-file",
+            )),
+            Self::TooManyChunks { .. } => Some((
+                "the chunk-count cap (REMEMBER_MAX_SAFE_MULTI_CHUNKS) fired; split the document into smaller memories before writing",
+                "o teto de chunks (REMEMBER_MAX_SAFE_MULTI_CHUNKS) disparou; divida o documento em memórias menores antes de gravar",
+            )),
+            Self::TooManyTokens { .. } => Some((
+                "the token cap (EMBEDDING_REQUEST_MAX_TOKENS) fired; split the content into multiple memories, keeping each under ~25000 tokens",
+                "o teto de tokens (EMBEDDING_REQUEST_MAX_TOKENS) disparou; divida o conteúdo em várias memórias, cada uma abaixo de ~25000 tokens",
+            )),
+            Self::Embedding(_) => Some((
+                // The product never reads an API key from the environment
+                // (G-T-XDG-04), so naming one here would send the operator down a
+                // channel that cannot work.
+                "store the key with `config add-key --provider openrouter --from-stdin` or pass --openrouter-api-key; re-run `enrich --operation re-embed` once resolved",
+                "grave a chave com `config add-key --provider openrouter --from-stdin` ou passe --openrouter-api-key; re-execute `enrich --operation re-embed` depois de resolver",
+            )),
+            Self::Database(_) | Self::DbBusy(_) => Some((
+                "run `health --json` then `vacuum --json`; widen --wait-lock if the database is busy",
+                "rode `health --json` e depois `vacuum --json`; amplie --wait-lock se o banco estiver ocupado",
+            )),
+            Self::Io(_) => Some((
+                "check the path exists and is writable, then retry",
+                "confira se o caminho existe e é gravável, depois repita",
+            )),
+            Self::RateLimited { .. } => Some((
+                "wait for the reported retry-after window, then retry",
+                "aguarde a janela de retry-after informada, depois repita",
+            )),
+            Self::LockBusy(_) | Self::AllSlotsFull { .. } | Self::JobSingletonLocked { .. } => Some((
+                "wait for the other invocation to finish or pass --wait-lock / --wait-job-singleton",
+                "aguarde a outra invocação terminar ou passe --wait-lock / --wait-job-singleton",
+            )),
             _ => None,
         }
     }
@@ -664,7 +718,6 @@ impl AppError {
                 required_mb,
             } => pt::low_memory(*available_mb, *required_mb),
             Self::Shutdown { signal } => pt::shutdown(signal),
-            Self::PreFlightFailed { source } => pt::preflight_failed(&source.to_string()),
             Self::ProviderError { code, message } => pt::provider_error(code, message),
         }
     }

@@ -260,9 +260,8 @@ fn run_show(args: PendingShowArgs) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let (_paths, conn) = open_conn(args.db.as_deref())?;
     let entry = pending_memories::find_by_id(&conn, args.pending_id)?.ok_or_else(|| {
-        AppError::NotFound(format!(
-            "pending_id {} not found in pending_memories",
-            args.pending_id
+        AppError::NotFound(crate::i18n::validation::pending_id_not_found(
+            args.pending_id,
         ))
     })?;
     let output = PendingShowOutput {

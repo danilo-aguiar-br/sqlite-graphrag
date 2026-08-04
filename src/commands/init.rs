@@ -59,6 +59,13 @@ struct InitResponse {
     /// Latest applied migration number from `refinery_schema_history`.
     /// Emitted as a JSON number for cross-command consistency with `health` and `stats` (since v1.0.35).
     schema_version: u32,
+    /// Embedding model bound to this invocation, or `"none"` when none was
+    /// resolved.
+    ///
+    /// Until v1.2.4 this carried `SQLITE_GRAPHRAG_VERSION`, so a field named
+    /// `model` answered "1.2.4" while `init.schema.json` documented it as the
+    /// embedding model name. The version still reaches the database through
+    /// `schema_meta.sqlite-graphrag_version`, which is where it belongs.
     model: String,
     dim: usize,
     /// Active namespace resolved during initialisation, aligned with the bilingual docs.
@@ -69,10 +76,16 @@ struct InitResponse {
 }
 
 /// Run.
+///
+/// `embedding_model` is the model already resolved by the CLI bootstrap on the
+/// documented precedence (`--embedding-model` > XDG `embedding.model` > none);
+/// it is reported verbatim in the envelope so the caller sees what this
+/// invocation would actually embed with.
 pub fn run(
     args: InitArgs,
     llm_backend: crate::cli::LlmBackendChoice,
     embedding_backend: crate::cli::EmbeddingBackendChoice,
+    embedding_model: Option<&str>,
 ) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -158,7 +171,7 @@ pub fn run(
     output::emit_json(&InitResponse {
         db_path: paths.db.display().to_string(),
         schema_version,
-        model: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
+        model: embedding_model.unwrap_or("none").to_string(),
         dim,
         namespace,
         status: status.to_string(),
@@ -189,7 +202,7 @@ mod tests {
         let resp = InitResponse {
             db_path: "/tmp/test.sqlite".to_string(),
             schema_version: 6,
-            model: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
+            model: "qwen/qwen3-embedding-8b".to_string(),
             dim: crate::constants::DEFAULT_EMBEDDING_DIM,
             namespace: "global".to_string(),
             status: "ok".to_string(),
@@ -198,7 +211,11 @@ mod tests {
         let json = serde_json::to_value(&resp).expect("serialization failed");
         assert_eq!(json["db_path"], "/tmp/test.sqlite");
         assert_eq!(json["schema_version"], 6);
-        assert_eq!(json["model"], crate::constants::SQLITE_GRAPHRAG_VERSION);
+        // Until v1.2.4 this asserted `SQLITE_GRAPHRAG_VERSION`, freezing the
+        // very divergence `init.schema.json` documented against: a field named
+        // `model` must carry the embedding model, never the CLI version.
+        assert_eq!(json["model"], "qwen/qwen3-embedding-8b");
+        assert_ne!(json["model"], crate::constants::SQLITE_GRAPHRAG_VERSION);
         assert_eq!(json["dim"], crate::constants::DEFAULT_EMBEDDING_DIM);
         assert_eq!(json["namespace"], "global");
         assert_eq!(json["status"], "ok");
@@ -267,7 +284,7 @@ mod tests {
         let resp = InitResponse {
             db_path: "/tmp/x.sqlite".to_string(),
             schema_version: 6,
-            model: crate::constants::SQLITE_GRAPHRAG_VERSION.to_string(),
+            model: "none".to_string(),
             dim: crate::constants::DEFAULT_EMBEDDING_DIM,
             namespace: "my-project".to_string(),
             status: "ok".to_string(),

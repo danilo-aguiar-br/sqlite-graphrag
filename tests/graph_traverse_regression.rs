@@ -34,6 +34,9 @@ mod common;
 /// only.
 fn cmd_base(tmp: &TempDir) -> Command {
     let mut c = sgr_cmd();
+    common::write_sandbox_config(&tmp.path().join("config"), None);
+    c.arg("--embedding-model")
+        .arg(common::openrouter_mock::STUB_MODEL);
     c.arg("--config-dir").arg(tmp.path().join("config"));
     c.arg("--cache-dir").arg(tmp.path().join("cache"));
     c.arg("--skip-memory-guard");

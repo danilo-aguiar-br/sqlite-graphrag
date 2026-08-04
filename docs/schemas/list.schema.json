@@ -7,11 +7,12 @@
   "required": ["items", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "items": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "memory_id", "name", "namespace", "type", "memory_type", "description", "snippet", "updated_at", "updated_at_iso"],
         "additionalProperties": false,
         "properties": {
           "id":             { "type": "integer" },
@@ -38,5 +39,25 @@
     "total_count": { "type": "integer", "minimum": 0, "description": "Total memories matching filters before pagination" },
     "truncated":   { "type": "boolean", "description": "True when returned items are fewer than total_count due to limit" },
     "elapsed_ms":  { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
-  }
+  },
+  "allOf": [
+    {
+      "description": "GAP-SG-142: the full row contract is asserted only for an unshaped envelope. `--select`/`--fields` projects rows down to the requested keys, so the per-row `required` list cannot hold once the agent-native surface has run; its presence is signalled by the `agent_surface` record. Callers that do not pass a shaping knob keep the v1.0.66 contract unchanged.",
+      "if": { "not": { "required": ["agent_surface"] } },
+      "then": {
+        "properties": {
+          "items": {
+            "items": {
+              "required": ["id", "memory_id", "name", "namespace", "type", "memory_type", "description", "snippet", "updated_at", "updated_at_iso"]
+            }
+          },
+          "memories": {
+            "items": {
+              "required": ["id", "memory_id", "name", "namespace", "type", "memory_type", "description", "snippet", "updated_at", "updated_at_iso"]
+            }
+          }
+        }
+      }
+    }
+  ]
 }

@@ -69,7 +69,9 @@ pub fn resolve_yield_every_n(cli: Option<usize>) -> usize {
 pub fn cooperative_yield() {
     std::thread::yield_now();
     // Tiny sleep reduces busy-spin when the OS scheduler ignores yield.
-    std::thread::sleep(std::time::Duration::from_millis(1));
+    std::thread::sleep(std::time::Duration::from_millis(
+        crate::constants::COOPERATIVE_YIELD_SLEEP_MS,
+    ));
 }
 
 /// Whether a long-running EC drain should pause to let HOT ED work proceed.

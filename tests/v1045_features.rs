@@ -1,6 +1,13 @@
 //! Integration tests for v1.0.45 features:
 //! - A1: FTS5 query preprocessing handles compound terms with separators
-//! - S5: `--enable-ner` flag and `SQLITE_GRAPHRAG_ENABLE_NER` env var
+//!
+//! The S5 section covered `--enable-ner` and the `SQLITE_GRAPHRAG_ENABLE_NER`
+//! product env. Both tests asserted that `--enable-ner --skip-extraction`
+//! SUCCEEDS, which the CLI rejects as mutually exclusive, so they could only
+//! ever have passed against a v1.0.45 binary; they were `#[ignore]`d through
+//! five minor versions after v1.0.76 deleted NER (ADR-0025). Removed rather
+//! than repaired: the extraction pipeline they drove no longer exists, and the
+//! product env they were named for is forbidden.
 
 use assert_cmd::Command;
 use serial_test::serial;
@@ -40,6 +47,11 @@ fn cmd(temp: &TempDir) -> Command {
         }
     }
     c.env("PATH", common::prepend_path(&mock_dir));
+    // Offline OpenRouter stub: `env_clear` leaves HOME as the only config
+    // channel, so the sandbox config lands under $HOME/.config.
+    common::write_sandbox_config(&temp.path().join(".config").join("sqlite-graphrag"), None);
+    c.arg("--embedding-model")
+        .arg(common::openrouter_mock::STUB_MODEL);
     c
 }
 
@@ -131,66 +143,4 @@ fn hybrid_search_finds_dotted_version() {
         names.contains(&"fts-dot-test"),
         "should find memory by dotted version; got {names:?}"
     );
-}
-
-// ---------------------------------------------------------------------------
-// S5: SQLITE_GRAPHRAG_ENABLE_NER env var accepts 1/true
-// ---------------------------------------------------------------------------
-// v1.0.76 removed GLiNER and NER. The flag is still accepted (it parses
-// without error) but no entity extraction is performed because the
-// pipeline that consumes the flag was deleted. These tests now exercise
-// the validation path: the flag MUST coexist with the absence of
-// --skip-extraction or the CLI refuses. We mark them `#[ignore]` until
-// the v1.0.77 cleanup either restores NER or deletes the flag.
-
-#[test]
-#[serial]
-// TODO v1.0.89: aguardando decisão arquitetural — NER removido em v1.0.76 (ADR-0025); avaliar se deve ser restaurado via glue de subprocesso LLM (similar ao embedding G42).
-#[ignore = "NER removed in v1.0.76; see ADR-0025"]
-fn enable_ner_env_var_accepts_1() {
-    let tmp = TempDir::new().unwrap();
-    init_db(&tmp);
-
-    cmd(&tmp)
-        .arg("--enable-ner")
-        .args([
-            "remember",
-            "--name",
-            "ner-env-1",
-            "--type",
-            "note",
-            "--description",
-            "env var test with value 1",
-            "--body",
-            "Microsoft announced a deal",
-            "--skip-extraction",
-        ])
-        .assert()
-        .success();
-}
-
-#[test]
-// TODO v1.0.89: aguardando decisão arquitetural — NER removido em v1.0.76 (ADR-0025); avaliar se deve ser restaurado via glue de subprocesso LLM (similar ao embedding G42).
-#[serial]
-#[ignore = "NER removed in v1.0.76; see ADR-0025"]
-fn enable_ner_env_var_accepts_true() {
-    let tmp = TempDir::new().unwrap();
-    init_db(&tmp);
-
-    cmd(&tmp)
-        .arg("--enable-ner")
-        .args([
-            "remember",
-            "--name",
-            "ner-env-true",
-            "--type",
-            "note",
-            "--description",
-            "env var test with value true",
-            "--body",
-            "Google acquired DeepMind",
-            "--skip-extraction",
-        ])
-        .assert()
-        .success();
 }

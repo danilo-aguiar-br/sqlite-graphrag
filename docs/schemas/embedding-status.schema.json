@@ -7,11 +7,14 @@
   "additionalProperties": false,
   "required": ["action", "counts", "coverage", "elapsed_ms"],
   "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action": { "const": "embedding_status" },
     "backend_invoked": {
-      "description": "v1.0.84 (ADR-0042): backend LLM resolved for this embedding pass. One of claude, codex, or none. Omitted when no backend has been resolved yet.",
+      "description": "v1.0.84 (ADR-0042): embedding backend resolved for this pass. One of openrouter or none. Omitted when no backend has been resolved yet.",
       "type": "string",
-      "enum": ["claude", "codex", "opencode", "openrouter", "none", "auto"]
+      "enum": ["openrouter", "none"]
     },
     "counts": {
       "type": "object",

@@ -64,6 +64,10 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[test]
 #[ignore = "hits live OpenRouter REST; run with --ignored and a valid key"]
+// GAP-SG-163: this test exists to exercise the deprecated shim itself, so the
+// warning is expected here and only here. Removing the allow would push the
+// suite to call the replacement, and the shim would go back to being untested.
+#[allow(deprecated)]
 fn fanout_aligns_with_serial_on_live_network() {
     let dim = 384usize;
     let key = match sqlite_graphrag::config::resolve_api_key("openrouter", None) {
@@ -73,7 +77,7 @@ fn fanout_aligns_with_serial_on_live_network() {
             return;
         }
     };
-    sqlite_graphrag::embedder::get_openrouter_embedder(key, "qwen/qwen3-embedding-8b", dim)
+    sqlite_graphrag::embedder::get_openrouter_embedder(key, "qwen/qwen3-embedding-8b", dim, None)
         .expect("initialise OpenRouter embedding client");
 
     let texts = docs_markdown_lines(64);

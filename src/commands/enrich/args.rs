@@ -6,6 +6,13 @@ use std::path::PathBuf;
 
 use super::DEFAULT_BODY_ENRICH_MAX_CHARS;
 use super::DEFAULT_BODY_ENRICH_MIN_CHARS;
+use super::DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD;
+use super::DEFAULT_ENRICH_GROUNDING_THRESHOLD;
+use super::DEFAULT_ENRICH_MAX_ATTEMPTS;
+use super::DEFAULT_ENRICH_PRESERVE_THRESHOLD;
+use super::DEFAULT_ENRICH_RATE_LIMIT_BUFFER_SECS;
+use super::DEFAULT_ENRICH_STALE_CLAIM_SECS;
+use crate::constants::{DEFAULT_ENRICH_REST_CONCURRENCY, DEFAULT_OPENROUTER_CHAT_TIMEOUT_SECS};
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -77,13 +84,6 @@ pub enum ReEmbedTarget {
 /// LLM provider for enrichment.
 #[derive(Debug, Clone, PartialEq, Eq, clap::ValueEnum)]
 pub enum EnrichMode {
-    /// Use locally installed Claude Code CLI (OAuth-first).
-    ClaudeCode,
-    /// Use locally installed OpenAI Codex CLI.
-    Codex,
-    /// Use locally installed OpenCode CLI.
-    #[value(name = "opencode")]
-    Opencode,
     /// Use the OpenRouter chat-completions REST API (no local CLI; v1.0.95).
     #[value(name = "openrouter")]
     OpenRouter,
@@ -92,9 +92,6 @@ pub enum EnrichMode {
 impl std::fmt::Display for EnrichMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EnrichMode::ClaudeCode => write!(f, "claude-code"),
-            EnrichMode::Codex => write!(f, "codex"),
-            EnrichMode::Opencode => write!(f, "opencode"),
             EnrichMode::OpenRouter => write!(f, "openrouter"),
         }
     }
@@ -106,7 +103,8 @@ impl std::fmt::Display for EnrichMode {
     about = "Enrich graph memories and entities using an LLM provider",
     after_long_help = "EXAMPLES:\n  \
     # Add missing entity bindings to all unbound memories\n  \
-    sqlite-graphrag enrich --operation memory-bindings --mode codex --codex-model gpt-5.4-mini\n\n  \
+    sqlite-graphrag enrich --operation memory-bindings --mode openrouter \\\n    \
+      --openrouter-model deepseek/deepseek-v4-flash:nitro\n\n  \
     # Fill entity descriptions (dry-run preview, no tokens spent)\n  \
     sqlite-graphrag enrich --operation entity-descriptions --dry-run --json\n\n  \
     # Expand short memory bodies (GAP-18)\n  \
@@ -169,6 +167,10 @@ pub struct EnrichArgs {
     /// call the LLM (GAP-SG-31).
     ///
     /// GAP-CLI-DRY-01 (v1.1.8): also optional for `--dry-run` (preview only).
+    ///
+    /// When omitted on a path that allows it, the resolved provider is
+    /// `openrouter`. That default is deliberate: it is a REST call and never
+    /// spawns a headless CLI (GAP-HEADLESS-DEFAULT).
     #[arg(
         long,
         value_enum,
@@ -179,6 +181,16 @@ pub struct EnrichArgs {
     /// Maximum number of items to process in this run. Omit for all.
     #[arg(long, value_name = "N")]
     pub limit: Option<usize>,
+
+    /// GAP-SG-185 / v1.2.4: keyset page size for the enrich SCAN phase.
+    ///
+    /// SQL row buffers and in-process candidate pages are this wide; production
+    /// enqueue walks pages without retaining the full eligible key list. The
+    /// sidecar queue still stores one row per eligible item. Precedence: this
+    /// flag > XDG `enrich.scan_page_size` > 512. Accepted range: 1..=4096
+    /// (clamped).
+    #[arg(long, value_name = "N")]
+    pub scan_page_size: Option<usize>,
 
     /// v1.1.1 (P2): embedding table backfilled by `--operation re-embed`.
     /// `memories` (default) preserves the historical behaviour; `entities`
@@ -198,52 +210,15 @@ pub struct EnrichArgs {
     #[arg(long)]
     pub namespace: Option<String>,
 
-    // -- Provider flags (Claude) --
-    /// Path to the Claude Code binary. Default: auto-detect from PATH.
-    #[arg(long, value_name = "PATH")]
-    pub claude_binary: Option<PathBuf>,
-
-    /// Claude model to use (e.g. claude-sonnet-4-6).
-    #[arg(long, value_name = "MODEL")]
-    pub claude_model: Option<String>,
-
-    /// Timeout per item in seconds when using Claude Code. Default: 300.
-    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
-    pub claude_timeout: u64,
-
-    // -- Provider flags (Codex) --
-    /// Path to the Codex CLI binary. Default: auto-detect from PATH.
-    #[arg(long, value_name = "PATH")]
-    pub codex_binary: Option<PathBuf>,
-
-    /// Codex model to use (e.g. o4-mini).
-    #[arg(long, value_name = "MODEL")]
-    pub codex_model: Option<String>,
-
-    /// Timeout per item in seconds when using Codex. Default: 300.
-    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
-    pub codex_timeout: u64,
-
-    // -- Provider flags (OpenCode) --
-    /// Path to the OpenCode binary. Default: auto-detect from PATH.
-    #[arg(long, value_name = "PATH")]
-    pub opencode_binary: Option<PathBuf>,
-
-    /// OpenCode model to use.
-    #[arg(long, value_name = "MODEL")]
-    pub opencode_model: Option<String>,
-
-    /// Timeout per item in seconds when using OpenCode. Default: 300.
-    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
-    pub opencode_timeout: u64,
-
     // -- Provider flags (OpenRouter, v1.0.95) --
     /// OpenRouter text model to use (REQUIRED with --mode openrouter; no default).
     #[arg(long, value_name = "MODEL")]
     pub openrouter_model: Option<String>,
 
-    /// OpenRouter API key. Falls back to OPENROUTER_API_KEY env or stored config.
-    #[arg(long, value_name = "KEY", hide_env_values = true)]
+    /// OpenRouter API key. Prefer `config add-key --provider openrouter --from-stdin`,
+    /// which stores it at rest under XDG; this flag overrides that store for a
+    /// single invocation and is visible in the process table.
+    #[arg(long, value_name = "KEY")]
     pub openrouter_api_key: Option<String>,
 
     /// Timeout per item in seconds when using OpenRouter. Default: 600.
@@ -252,9 +227,13 @@ pub struct EnrichArgs {
     /// ~32K-token context ceiling of the configured model) routinely take
     /// longer than five minutes to generate via `deepseek-v4-flash:nitro`.
     /// Raise it further for very large corpora; lower it for short snippets.
-    #[arg(long, value_name = "SECONDS", default_value_t = 600)]
-    pub openrouter_timeout: u64,
-
+    ///
+    // `--openrouter-timeout` USED to be declared here. It is now a GLOBAL
+    // argument on `Cli` (v1.2.3), so redeclaring it on this struct would give
+    // clap two arguments with the same id and abort at startup. The flag still
+    // accepts being written at the subcommand position — `enrich
+    // --openrouter-timeout 600` is unchanged — and the value is read through
+    // `openrouter_chat_timeout_secs()` below.
     /// Optional OpenRouter base URL override (reserved; defaults to the public API).
     #[arg(long, value_name = "URL")]
     pub openrouter_base_url: Option<String>,
@@ -281,7 +260,7 @@ pub struct EnrichArgs {
 
     /// v1.1.2 (Bug 4): age threshold (seconds) for `--reset-stale-claims` and
     /// the run-startup stale sweep. Default 1800 (30 min).
-    #[arg(long, value_name = "SECONDS", default_value_t = 1800)]
+    #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_ENRICH_STALE_CLAIM_SECS)]
     pub stale_claim_secs: u64,
 
     /// GAP-ENRICH-BACKLOG-CONVERGE: loop scan→drain internally until the queue
@@ -306,7 +285,7 @@ pub struct EnrichArgs {
     /// attempts give the backlog room to converge before an item is parked in
     /// the dead-letter sink. Permanent faults (ProviderError, NotFound) still
     /// dead-letter on the first attempt regardless of this value.
-    #[arg(long, value_name = "N", default_value_t = 8, value_parser = clap::value_parser!(u32).range(1..=20))]
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_ENRICH_MAX_ATTEMPTS, value_parser = clap::value_parser!(u32).range(1..=20))]
     pub max_attempts: u32,
 
     /// GAP-ENRICH-BACKLOG-CONVERGE: read-only mode — report queue and backlog
@@ -389,10 +368,16 @@ pub struct EnrichArgs {
     #[arg(long)]
     pub body_extract_graph_only: bool,
 
-    /// GAP-ENRICH-BACKLOG-CONVERGE: REST concurrency for --mode openrouter
-    /// (clamp 1..=16, default 8). Distinct from the legacy --llm-parallelism.
-    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=16))]
-    pub rest_concurrency: Option<u32>,
+    /// GAP-ENRICH-BACKLOG-CONVERGE: REST concurrency for `--mode openrouter`
+    /// (clamp 1..=16). This is the ONLY flag that controls drain fan-out in
+    /// OpenRouter mode; `--llm-parallelism` is inert there.
+    #[arg(
+        long,
+        value_name = "N",
+        default_value_t = DEFAULT_ENRICH_REST_CONCURRENCY,
+        value_parser = clap::value_parser!(u32).range(1..=16)
+    )]
+    pub rest_concurrency: u32,
 
     // -- body-enrich specific flags (GAP-18) --
     /// Minimum output character count for body-enrich. Default: 500.
@@ -411,11 +396,23 @@ pub struct EnrichArgs {
     #[arg(long, value_name = "PATH")]
     pub prompt_template: Option<PathBuf>,
 
-    /// Number of parallel LLM workers (default 1 = serial).
-    /// Each worker claims items atomically from the queue DB via UPDATE...RETURNING.
-    /// Range: 1–32. For 2321 entities, --llm-parallelism 4 reduces wall time ~4×.
-    #[arg(long, default_value_t = 1, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=32))]
-    pub llm_parallelism: u32,
+    // GAP-SG-204. The help text used to end with "It applies only to the
+    // subprocess modes", which reads as a live capability sitting behind a mode
+    // the operator merely has to select. v1.2.0 deleted those backends and
+    // `EnrichMode` has had a single variant ever since, so no such selection
+    // exists. A flag that does nothing is a smaller problem than a flag that
+    // documents a way to make it work.
+    //
+    // The rationale lives in `//` and not in `///` on purpose: everything above
+    // the `#[arg]` is rendered into `--help`, and an operator reading the flag
+    // needs the rule, not the history. Release archaeology belongs in
+    // `gaps.md` and the CHANGELOG.
+    /// ALWAYS INERT; accepted only so existing scripts keep parsing.
+    ///
+    /// Use `--rest-concurrency` to size the drain fan-out. Passing this emits a
+    /// warning and changes nothing.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=32))]
+    pub llm_parallelism: Option<u32>,
 
     // -- Output / infra --
     /// Emit NDJSON output. Always true; flag accepted for compatibility.
@@ -465,26 +462,24 @@ pub struct EnrichArgs {
     #[arg(long, default_value_t = false)]
     pub preflight_check: bool,
 
-    /// G35: if a preflight probe or in-flight call hits the Claude rate
-    /// limit, fall back to `--fallback-mode` (typically `codex`) instead
-    /// of failing the batch. Ignored when `--mode` is already `codex`.
-    #[arg(long, value_enum)]
-    pub fallback_mode: Option<EnrichMode>,
-
     /// G35: number of seconds before the OAuth rate-limit reset at which
     /// the preflight probe should refuse to start. Default 300 (5 min).
-    #[arg(long, value_name = "SECONDS", default_value_t = 300)]
+    #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_ENRICH_RATE_LIMIT_BUFFER_SECS)]
     pub rate_limit_buffer: u64,
 
     /// G28-D: refuse to start when the 1-minute load average exceeds
-    /// `2 × ncpus` (or XDG `enrich.max_load_per_ncpu` if set).
-    /// Set to false to skip the check on contended CI runners.
+    /// `2 × ncpus` (or XDG `system.max_load_per_ncpu` if set).
+    /// Set to false to skip the check on contended runners.
+    ///
+    /// The key is `system.` and not `enrich.`: this help named a key that the
+    /// registry never declared, so the documented `config set` answered exit 1
+    /// with a did-you-mean pointing at the real one.
     #[arg(long, default_value_t = true)]
     pub max_load_check: bool,
 
     /// G28-D: when the system is saturated, abort the job after this
     /// many consecutive HardFailure outcomes. Default 5.
-    #[arg(long, value_name = "N", default_value_t = 5)]
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD)]
     pub circuit_breaker_threshold: u32,
 
     /// G29 Step 4: minimum trigram-Jaccard similarity between the
@@ -493,7 +488,7 @@ pub struct EnrichArgs {
     /// `EnrichItemResult::PreservationFailed`. Default 0.7 (per the G29
     /// gap specification). Ignored when `--operation` is not
     /// `body-enrich`.
-    #[arg(long, value_name = "FLOAT", default_value_t = 0.7)]
+    #[arg(long, value_name = "FLOAT", default_value_t = DEFAULT_ENRICH_PRESERVE_THRESHOLD)]
     pub preserve_threshold: f64,
 
     /// GAP-CLI-ED-03: minimum grounding coverage of an entity description
@@ -501,7 +496,7 @@ pub struct EnrichArgs {
     /// not symmetric Jaccard, because descriptions are short. Default 0.12.
     /// Set to 0 to use the compiled default. Only applies to
     /// `entity-descriptions`.
-    #[arg(long, value_name = "FLOAT", default_value_t = 0.12)]
+    #[arg(long, value_name = "FLOAT", default_value_t = DEFAULT_ENRICH_GROUNDING_THRESHOLD)]
     pub entity_description_grounding_threshold: f64,
 
     /// GAP-CLI-ED-06 / CAPA-B: re-scan entities whose description is empty OR
@@ -554,20 +549,6 @@ pub struct EnrichArgs {
     #[arg(long, default_value_t = false)]
     pub ops_gate: bool,
 
-    /// G33 Step 3: when set, validate `--codex-model` against the
-    /// ChatGPT Pro OAuth accepted-model list and abort with a
-    /// suggestion when the value is unknown. Default true (fail fast
-    /// to avoid burning OAuth turns). Set to false to opt out.
-    #[arg(long, default_value_t = true)]
-    pub codex_model_validate: bool,
-
-    /// G33 Step 3: when set together with an invalid `--codex-model`,
-    /// automatically substitute the supplied default (e.g. `gpt-5.5`)
-    /// instead of aborting. The substitution is recorded in the NDJSON
-    /// stream as `provider_substituted: true` for traceability.
-    #[arg(long, value_name = "MODEL")]
-    pub codex_model_fallback: Option<String>,
-
     /// Emit the JSON Schema for `enrich --status` stdout and exit 0 without
     /// opening the database or calling the LLM (agent-native R-AN-01).
     #[arg(
@@ -592,11 +573,43 @@ impl EnrichArgs {
             .unwrap_or(EnrichOperation::MemoryBindings)
     }
 
-    /// GAP-SG-31: resolved LLM provider. `mode` is `Option` for the read-only
-    /// inspectors that never call the LLM; write paths always carry a value
-    /// (enforced by `required_unless_present_any`). The fallback is only ever
-    /// observed by read-only code that does not actually invoke the provider.
+    /// GAP-SG-31: resolved LLM provider.
+    ///
+    /// `mode` is `Option` because clap does not require it for the read-only
+    /// inspectors, nor for `--dry-run` since GAP-CLI-DRY-01 (v1.1.8). Every
+    /// WRITE path still carries a value, enforced by `required_unless_present_any`
+    /// at parse time — omitting `--mode` on a write run exits 2.
+    ///
+    /// The fallback is [`EnrichMode::OpenRouter`], and that choice is load-bearing
+    /// rather than arbitrary: GAP-HEADLESS-DEFAULT requires that an omitted
+    /// `--mode` never reach a provider that spawns a headless CLI, and OpenRouter
+    /// is a REST call that spawns nothing. Do not change it to a subprocess mode.
+    ///
+    /// Note this doc previously claimed the fallback was "only ever observed by
+    /// read-only code". That stopped being true in v1.1.8 when `--dry-run` joined
+    /// the exemption list; dry-run observes it too, and is safe for a different
+    /// reason — binary resolution is skipped before the mode is inspected.
     pub(crate) fn mode(&self) -> EnrichMode {
         self.mode.clone().unwrap_or(EnrichMode::OpenRouter)
+    }
+
+    /// Effective chat-completion budget, in the documented precedence:
+    /// `--openrouter-timeout` > XDG `llm.openrouter_timeout_secs` >
+    /// [`DEFAULT_OPENROUTER_CHAT_TIMEOUT_SECS`].
+    ///
+    /// Reads through `runtime_config` rather than off this struct because the
+    /// flag is GLOBAL since v1.2.3 and therefore no longer lives here. The
+    /// middle layer is the part that used to be unreachable: with the value
+    /// read straight off the enum variant, the XDG key could never win, so an
+    /// operator who set it saw no effect and no diagnostic.
+    pub(crate) fn openrouter_chat_timeout_secs(&self) -> u64 {
+        crate::runtime_config::openrouter_chat_timeout_secs(DEFAULT_OPENROUTER_CHAT_TIMEOUT_SECS)
+    }
+
+    /// GAP-SG-185: resolved keyset page size for the SCAN phase.
+    ///
+    /// Precedence: `--scan-page-size` > XDG `enrich.scan_page_size` > default 512.
+    pub(crate) fn scan_page_size(&self) -> usize {
+        crate::runtime_config::enrich_scan_page_size(self.scan_page_size)
     }
 }
