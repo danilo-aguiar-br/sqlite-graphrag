@@ -107,6 +107,28 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation an
 - KNOW truncation raises the top-level `truncated` flag and is NEVER silent
 - KNOW the result array is located by `results`, `items`, `entities`, `memories`, `hits`, `rows`, `matches`, `data`, in that order
 - KNOW `$schema` documents pass through untouched and NDJSON streams bypass the surface entirely
+- KNOW `count_scope` says whether the count is `matched` or was reduced to `emitted` by `--max-items`
+- KNOW `result_array_source` says `declared` when the CLI named the array and `fallback` when the surface elected it
+- TREAT `fallback` as a warning that your predicate may have been pointed at a collection you never named
+- READ `key_suggestions` as DATA when a projection resolves partially; NEVER parse the prose of a message
+- KNOW `vocabulary_partial` qualifies the ADVICE and never the verdict, since key resolution always scans every element
+
+
+## Explicit Target Designation
+- KNOW every envelope of a process that resolved a database reports the target, with NO flag required
+- READ `db_path_source` inside the `agent_surface` block as `argv`, `xdg` or `default`
+- READ `db_path_resolved` beside it as the absolute path this process opened
+- KNOW only `argv` is an explicit designation; `xdg` and `default` are ambient authority
+- KNOW the block is ABSENT only when the process touched no database, as in `config`, `completions` and `locale`
+- NEVER read an absent block as "resolved but not reported"; that reading is the defect this contract removes
+- ALWAYS pass `--db` on a subcommand that changes durable state
+- KNOW the refusal fires ONLY when NOTHING named the target: no `--db` and no `db.path` in config
+- KNOW an `xdg` target is permitted, because `config set db.path` IS a designation, just not a per-invocation one
+- PASS `--use-active` to accept the compiled default on purpose; the envelope records `db_path_dispensation`
+- KNOW `init` is exempt because creating the XDG database without `--db` is its purpose
+- KNOW the host leaves `config`, `cache`, `slots` and `completions` are exempt because they touch no database
+- KNOW a read verb never needs `--db`, because reading inherits no authority it could misuse
+- READ `discarded_flags` on a failure envelope to learn which of YOUR flags the binary could not apply
 
 
 ## Full Command Catalog

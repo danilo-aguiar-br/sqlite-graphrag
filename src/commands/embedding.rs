@@ -70,7 +70,7 @@ pub struct EmbeddingListArgs {
     #[arg(long, value_enum, default_value_t = EmbeddingStatusFilter::Pending)]
     pub status: EmbeddingStatusFilter,
     /// Maximum number of entries to return. Default: 100.
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 100, value_parser = crate::parsers::parse_list_limit_range)]
     pub limit: usize,
     /// JSON output (always on; accepted for CLI consistency).
     #[arg(long, hide = true)]

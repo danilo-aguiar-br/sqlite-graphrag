@@ -107,6 +107,28 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - SAIBA que a truncagem levanta a flag `truncated` de topo e NUNCA é silenciosa
 - SAIBA que o array de resultados é localizado por `results`, `items`, `entities`, `memories`, `hits`, `rows`, `matches`, `data`, nesta ordem
 - SAIBA que documentos `$schema` passam intactos e que streams NDJSON contornam a superfície por completo
+- SAIBA que `count_scope` diz se a contagem é `matched` ou foi reduzida a `emitted` por `--max-items`
+- SAIBA que `result_array_source` diz `declared` quando a CLI nomeou o array e `fallback` quando a superfície o elegeu
+- TRATE `fallback` como aviso de que seu predicado pode ter sido apontado para coleção que você nunca nomeou
+- LEIA `key_suggestions` como DADO quando a projeção resolve parcialmente; NUNCA parseie a prosa da mensagem
+- SAIBA que `vocabulary_partial` qualifica o CONSELHO e nunca o veredito, pois a resolução varre todos os elementos
+
+
+## Designação Explícita do Alvo
+- SAIBA que todo envelope de um processo que resolveu banco reporta o alvo, SEM exigir flag alguma
+- LEIA `db_path_source` dentro do bloco `agent_surface` como `argv`, `xdg` ou `default`
+- LEIA `db_path_resolved` ao lado como o caminho absoluto que este processo abriu
+- SAIBA que só `argv` é designação explícita; `xdg` e `default` são autoridade ambiente
+- SAIBA que o bloco só é AUSENTE quando o processo não tocou banco algum, como em `config`, `completions` e `locale`
+- NUNCA leia bloco ausente como "resolveu mas não reportou"; essa leitura é o defeito que este contrato remove
+- SEMPRE passe `--db` em subcomando que altera estado durável
+- SAIBA que a recusa só dispara quando NADA nomeou o alvo: sem `--db` e sem `db.path` na config
+- SAIBA que alvo `xdg` é permitido, porque `config set db.path` É designação, só não a cada invocação
+- PASSE `--use-active` para aceitar o padrão compilado de propósito; o envelope registra `db_path_dispensation`
+- SAIBA que `init` é isento porque criar o banco XDG sem `--db` é a função dele
+- SAIBA que as folhas host `config`, `cache`, `slots` e `completions` são isentas por não tocarem banco
+- SAIBA que verbo de leitura nunca precisa de `--db`, porque leitura não herda autoridade que possa usar mal
+- LEIA `discarded_flags` no envelope de falha para saber quais das SUAS flags o binário não pôde aplicar
 
 
 ## Catálogo Completo de Comandos

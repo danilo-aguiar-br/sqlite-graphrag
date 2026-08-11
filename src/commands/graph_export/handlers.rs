@@ -630,6 +630,28 @@ pub(crate) fn run_entities(args: GraphEntitiesArgs) -> Result<(), AppError> {
         }
     };
 
+    // GAP-SG-201: `--limit` here defaults to 50, so a caller that mentioned no
+    // limit at all still got a page — which is how the defect fired without
+    // anyone doing anything wrong: `--filter entity_type=person graph entities`
+    // judged 50 of 15 615 entities.
+    //
+    // The source is best-effort: clap collapses "the caller typed 50" and "the
+    // default supplied 50" into the same `usize`, and distinguishing them would
+    // mean threading `ArgMatches` here. Nothing branches on it — the refusal
+    // turns on whether the ceiling CUT, which is a fact — so the attribution
+    // only ever colours the message.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: args.limit,
+        offset: args.offset,
+        source: if args.limit == crate::constants::K_GRAPH_ENTITIES_DEFAULT_LIMIT {
+            crate::agent_surface::universe::CeilingSource::Default
+        } else {
+            crate::agent_surface::universe::CeilingSource::Flag
+        },
+        kind: crate::agent_surface::universe::CeilingKind::Pagination,
+        universe_total: usize::try_from(total_count).ok(),
+    });
+
     output::emit_json(&GraphEntitiesResponse {
         entities: items,
         total_count,

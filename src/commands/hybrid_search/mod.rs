@@ -1,9 +1,9 @@
 //! Handler for the `hybrid-search` CLI subcommand.
 //!
-//! The pipeline runs in stages, one per submodule: [`args`] parses and
-//! validates the flags, [`retrieval`] produces the vector and FTS5 candidate
-//! lists, [`fusion`] combines them via RRF, [`graph_expansion`] widens the
-//! answer through the entity graph, and [`envelope`] describes the JSON shape
+//! The pipeline runs in stages, one per submodule: `args` parses and
+//! validates the flags, `retrieval` produces the vector and FTS5 candidate
+//! lists, `fusion` combines them via RRF, `graph_expansion` widens the
+//! answer through the entity graph, and `envelope` describes the JSON shape
 //! that goes back to the caller.
 
 use crate::errors::AppError;
@@ -31,6 +31,15 @@ pub fn run(
     let start = std::time::Instant::now();
     let _ = args.format;
     tracing::debug!(target: "hybrid_search", query = %args.query, k = args.k, "fusing results");
+    // GAP-SG-201: reported, never refused. Reciprocal-rank fusion returns the k
+    // best matches, so k defines the answer instead of truncating a universe.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: args.k,
+        offset: 0,
+        source: crate::agent_surface::universe::CeilingSource::Flag,
+        kind: crate::agent_surface::universe::CeilingKind::TopK,
+        universe_total: None,
+    });
 
     args.validate_graph_flags()?;
 
@@ -45,9 +54,10 @@ pub fn run(
     let conn = open_ro(&paths.db)?;
     let resolved =
         retrieval::resolve_query_embedding(&args, &paths.models, embedding_backend, llm_backend);
-    // `--fail-on-degraded` decide ANTES de qualquer consulta: sem isto a leitura
-    // devolvia só-FTS com exit 0 e a flag era placebo. `degradation_failure` isenta
-    // `--fallback-fts-only`, que é degradação PEDIDA pelo operador.
+    // `--fail-on-degraded` decides BEFORE any query runs: without this the read
+    // answered FTS-only with exit 0 and the flag was a placebo.
+    // `degradation_failure` exempts `--fallback-fts-only`, which is degradation
+    // the operator ASKED for.
     if let Some(err) = crate::query_embedding::degradation_failure(
         fail_on_degraded,
         resolved.degraded,

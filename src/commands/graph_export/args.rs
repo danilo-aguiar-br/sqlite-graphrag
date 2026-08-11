@@ -92,7 +92,7 @@ pub struct GraphTraverseArgs {
     #[arg(long)]
     pub from: String,
     /// Maximum traversal depth.
-    #[arg(long, default_value_t = 2u32)]
+    #[arg(long, default_value_t = 2u32, value_parser = crate::parsers::parse_hops_range_u32)]
     pub depth: u32,
     /// When exact name match fails, auto-resolve a clear fuzzy match
     /// (prefix / first-token / Jaro-Winkler). Without this flag, NotFound
@@ -187,7 +187,7 @@ pub struct GraphEntitiesArgs {
     #[arg(long, value_enum)]
     pub entity_type: Option<EntityType>,
     /// Maximum number of results to return.
-    #[arg(long, default_value_t = crate::constants::K_GRAPH_ENTITIES_DEFAULT_LIMIT)]
+    #[arg(long, default_value_t = crate::constants::K_GRAPH_ENTITIES_DEFAULT_LIMIT, value_parser = crate::parsers::parse_k_range)]
     pub limit: usize,
     /// Number of results to skip for pagination.
     #[arg(long, default_value_t = 0usize)]

@@ -40,6 +40,7 @@ pub struct DeepResearchArgs {
         short,
         aliases = ["limit", "top-k"],
         default_value_t = 20,
+        value_parser = crate::parsers::parse_k_range,
         help = "Results per sub-query (Recall@20 captures 95%+ relevant hits)"
     )]
     pub k: usize,
@@ -47,6 +48,7 @@ pub struct DeepResearchArgs {
     #[arg(
         long,
         default_value_t = 7,
+        value_parser = crate::parsers::parse_sub_queries_range,
         help = "Maximum sub-queries (covers complex multi-hop queries)"
     )]
     pub max_sub_queries: usize,
@@ -54,6 +56,7 @@ pub struct DeepResearchArgs {
     #[arg(
         long,
         default_value_t = 3,
+        value_parser = crate::parsers::parse_hops_range_usize,
         help = "Multi-hop graph traversal depth (sweet spot: 2-3 hops)"
     )]
     pub max_hops: usize,
@@ -81,6 +84,7 @@ pub struct DeepResearchArgs {
     #[arg(
         long,
         default_value_t = 50,
+        value_parser = crate::parsers::parse_k_range,
         help = "Maximum results after deduplication"
     )]
     pub max_results: usize,

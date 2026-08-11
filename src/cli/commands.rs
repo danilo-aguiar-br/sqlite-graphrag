@@ -195,6 +195,110 @@ impl Commands {
         }
     }
 
+    /// `true` when this subcommand can change durable state.
+    ///
+    /// GAP-SG-205 reads it to decide whether the target database may be
+    /// inherited from ambient configuration; [`crate::agent_surface::gate`]
+    /// reads it to decide whether a refusal is still safe.
+    ///
+    /// The refusal question is the sharper one. The agent-native surface runs at
+    /// OUTPUT time, after the handler has already done its work, so refusing
+    /// there would hand the caller a non-zero exit for an operation that
+    /// succeeded — and a caller that retries a succeeded `remember` writes the
+    /// memory twice. The gate therefore stays silent on anything this reports as
+    /// mutating.
+    ///
+    /// Read-only variants are listed EXPLICITLY and everything else answers
+    /// `true`. The default has to be the conservative one: a subcommand added
+    /// later and forgotten here loses a refusal it might have wanted, which
+    /// costs a diagnostic, while the opposite default would let the gate fire
+    /// after an unlisted write, which costs data.
+    pub fn mutates(&self) -> bool {
+        match self {
+            Self::Recall(_)
+            | Self::Read(_)
+            | Self::List(_)
+            | Self::History(_)
+            | Self::HybridSearch(_)
+            | Self::Health(_)
+            | Self::NamespaceDetect(_)
+            | Self::Stats(_)
+            | Self::DeepResearch(_)
+            | Self::Related(_)
+            | Self::Export(_)
+            | Self::MemoryEntities(_)
+            | Self::Schema(_)
+            | Self::DebugSchema(_)
+            | Self::Completions(_) => false,
+            // `graph` is read-only in three of its four forms; `recompute-degree`
+            // rewrites the cached degree column.
+            Self::Graph(args) => matches!(
+                args.subcommand,
+                Some(crate::commands::graph_export::GraphSubcommand::RecomputeDegree(_))
+            ),
+            _ => true,
+        }
+    }
+
+    /// Whether this subcommand may resolve its target from ambient configuration.
+    ///
+    /// GAP-SG-207. [`Self::mutates`] answers "does this change durable state";
+    /// this answers "is naming the target nonetheless optional for THIS
+    /// invocation". The two differ, and reusing `mutates` alone would have been
+    /// a defect: it lists the read-only variants explicitly and answers `true`
+    /// for everything else, which is the right conservative default for the
+    /// output-time refusal fence and the WRONG one here. For the fence a
+    /// mistaken `true` costs a diagnostic; here it would cost a false refusal on
+    /// a command that has no side effect to protect — `fts check`, `vec stats`,
+    /// `pending list` and `embedding status` all read and write nothing.
+    ///
+    /// So the families whose subcommands split between reading and writing are
+    /// classified at the SUBCOMMAND level. The Explicit Target Designation rule
+    /// governs side effects, and a read inherits no authority it could misuse.
+    ///
+    /// Enforcement lives in [`crate::paths::AppPaths::resolve`]. That placement
+    /// keeps this list short: a subcommand that never resolves a database —
+    /// `config`, `completions`, `locale`, `slots`, `cache` — is exempt by
+    /// construction and needs no entry here at all.
+    pub fn may_inherit_target(&self) -> bool {
+        use crate::commands::embedding::EmbeddingCmd;
+        use crate::commands::fts::FtsSubcommand;
+        use crate::commands::pending::PendingCmd;
+        use crate::commands::pending_embeddings::PendingEmbeddingsCmd;
+        use crate::commands::vec::VecSubcommand;
+
+        match self {
+            // Creating the XDG database when no `--db` is given IS the command,
+            // so requiring the flag would invert `init` rather than protect it.
+            Self::Init(_) => true,
+            // Host leaves. GAP-SG-139 fixed these to accept `--db` as a no-op
+            // precisely because they touch no database — but they still call
+            // `AppPaths::resolve` to locate the MODELS directory, which shares
+            // that resolver. Without this arm the target policy fired on
+            // `cache list`, a command that reads a cache and nothing else.
+            Self::Config(_) | Self::Cache(_) | Self::Slots(_) | Self::Completions(_) => true,
+            Self::Fts(args) => matches!(
+                args.command,
+                FtsSubcommand::Check(_) | FtsSubcommand::Stats(_)
+            ),
+            Self::Vec(args) => matches!(
+                args.command,
+                VecSubcommand::OrphanList(_) | VecSubcommand::Stats(_)
+            ),
+            Self::Pending(args) => {
+                matches!(args.cmd, PendingCmd::List(_) | PendingCmd::Show(_))
+            }
+            Self::Embedding(args) => {
+                matches!(args.cmd, EmbeddingCmd::List(_) | EmbeddingCmd::Status(_))
+            }
+            Self::PendingEmbeddings(args) => matches!(
+                args.cmd,
+                PendingEmbeddingsCmd::List(_) | PendingEmbeddingsCmd::Status(_)
+            ),
+            _ => false,
+        }
+    }
+
     /// Returns true for subcommands that load the ONNX model locally.
     pub fn is_embedding_heavy(&self) -> bool {
         matches!(

@@ -20,6 +20,7 @@ use support::{
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_20_link() {
     let env = Env::new();
     env.init();
@@ -55,6 +56,7 @@ fn smoke_20_link() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_21_unlink() {
     let env = Env::new();
     env.init();
@@ -103,6 +105,7 @@ fn smoke_21_unlink() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_22_related() {
     let env = Env::new();
     env.init();
@@ -121,6 +124,7 @@ fn smoke_22_related() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_23_graph() {
     let env = Env::new();
     env.init();
@@ -137,6 +141,7 @@ fn smoke_23_graph() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_24_cleanup_orphans() {
     let env = Env::new();
     env.init();
@@ -157,6 +162,7 @@ fn smoke_24_cleanup_orphans() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_25_debug_schema() {
     let env = Env::new();
     env.init();
@@ -216,6 +222,7 @@ fn smoke_25_debug_schema() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_26_default_db_in_current_dir() {
     let env = Env::new();
     // GAP-SG-101 / G-T-XDG-04 (v1.2.0): the default database is resolved

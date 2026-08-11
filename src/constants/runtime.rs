@@ -64,7 +64,7 @@ pub const JOB_SINGLETON_POLL_INTERVAL_MS: u64 = 1000;
 ///
 /// If `sysinfo::System::available_memory() / 1_048_576` falls below this value,
 /// the invocation is aborted with [`crate::errors::AppError::LowMemory`]
-/// (exit code [`LOW_MEMORY_EXIT_CODE`]).
+/// (exit code [`crate::constants::LOW_MEMORY_EXIT_CODE`]).
 pub const MIN_AVAILABLE_MEMORY_MB: u64 = 2_048;
 
 /// Maximum process RSS in MiB before aborting embedding operations.
@@ -75,7 +75,7 @@ pub const DEFAULT_MAX_RSS_MB: u64 = 8_192;
 ///
 /// Passed as the default for `--max-wait-secs` in the CLI. After exhausting this limit,
 /// the invocation returns [`crate::errors::AppError::AllSlotsFull`] with exit code
-/// [`CLI_LOCK_EXIT_CODE`] (75).
+/// [`crate::constants::CLI_LOCK_EXIT_CODE`] (75).
 pub const CLI_LOCK_DEFAULT_WAIT_SECS: u64 = 300;
 
 /// DEFAULT expected RSS, in MiB, budgeted for one LLM/REST worker.

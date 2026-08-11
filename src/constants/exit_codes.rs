@@ -23,7 +23,7 @@ pub const CLI_LOCK_EXIT_CODE: i32 = 75;
 /// Linux, macOS and Windows.
 pub const BROKEN_PIPE_EXIT_CODE: u8 = 141;
 
-/// Process exit code returned when available memory is below [`MIN_AVAILABLE_MEMORY_MB`].
+/// Process exit code returned when available memory is below [`crate::constants::MIN_AVAILABLE_MEMORY_MB`].
 ///
 /// Value `77` is `EX_NOPERM` in glibc sysexits, reused here to indicate
 /// "insufficient system resource to proceed".
@@ -35,6 +35,23 @@ pub const LOW_MEMORY_EXIT_CODE: i32 = 77;
 /// with the PRD exit code contract. Shell callers and LLM agents must use `9` from
 /// this version onwards.
 pub const DUPLICATE_EXIT_CODE: i32 = 9;
+
+/// Process exit code returned when the argv is a valid parse but an invalid
+/// combination (`EX_USAGE` in spirit, `2` by this project's contract).
+///
+/// GAP-SG-201 / GAP-SG-202 / GAP-SG-203 / GAP-SG-204: the agent-native surface
+/// can only discover some usage errors once it sees the envelope — a `--filter`
+/// key that exists nowhere in the result elements, or a predicate evaluated over
+/// a page the query already truncated. Refusing those needs an error that maps
+/// to the code clap already returns for a bad command line, so an agent branches
+/// on one number for "you asked for something impossible" regardless of whether
+/// the parser or the surface caught it.
+///
+/// `2` rather than `EX_USAGE` (64): [`DUPLICATE_EXIT_CODE`] above was moved off
+/// `2` in v1.0.52 precisely to free it, `src/main.rs` already returns it for a
+/// rejected flag, and introducing 64 now would give this binary two codes for
+/// one meaning — which the exit-code rules forbid.
+pub const USAGE_EXIT_CODE: i32 = 2;
 
 /// Process exit code returned when shutdown is requested via SIGINT/SIGTERM/SIGHUP
 /// (v1.0.82, GAP-002 final).

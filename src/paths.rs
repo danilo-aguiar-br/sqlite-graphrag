@@ -23,8 +23,123 @@ pub struct AppPaths {
     pub models: PathBuf,
 }
 
+/// Which layer of configuration supplied the target database.
+///
+/// GAP-SG-205. Ordered from explicit to ambient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetSource {
+    /// The command line named it with `--db`.
+    Argv,
+    /// The XDG key `db.path` named it.
+    Xdg,
+    /// Nothing named it and the compiled default was used.
+    Default,
+}
+
+impl TargetSource {
+    /// Wire spelling for the output record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Argv => "argv",
+            Self::Xdg => "xdg",
+            Self::Default => "default",
+        }
+    }
+}
+
+/// Whether this process is allowed to inherit its target from the environment.
+///
+/// GAP-SG-207. The Explicit Target Designation rule asks a verb with a side
+/// effect to name its target in the argv, and to fail closed when it does not.
+/// This is the record of that decision, taken once from the parsed command line.
+#[derive(Debug, Clone, Copy)]
+pub struct WritePolicy {
+    /// The subcommand changes durable state and does not create its own target.
+    pub requires_explicit_target: bool,
+    /// `--use-active` was passed, dispensing the requirement on purpose.
+    pub use_active: bool,
+}
+
+/// The policy this process runs under, installed before any subcommand runs.
+static WRITE_POLICY: std::sync::OnceLock<WritePolicy> = std::sync::OnceLock::new();
+
+/// Installs the target policy for this process. Idempotent, first call wins.
+///
+/// Called from `crate::cli::GlobalArgs` during flag validation, which is the
+/// one hook that runs after the command line is parsed and before any handler
+/// executes. Absent — the library used directly, or a unit test — resolution
+/// stays permissive, because the rule governs the CLI contract and not the API.
+pub fn install_write_policy(policy: WritePolicy) {
+    let _ = WRITE_POLICY.set(policy);
+}
+
+/// Refuses a target NOBODY named, for a verb that changes durable state.
+///
+/// # Which layer earns a refusal, and why not all of them
+///
+/// The Explicit Target Designation rule asks a destructive verb to prove its
+/// target came from the argv. Read literally against three layers, that would
+/// also reject [`TargetSource::Xdg`] — and that reading is wrong here, for a
+/// reason specific to this product: `db.path` is a first-class key in the
+/// configuration registry, set through `config set`. An operator who ran that
+/// command DID choose the database; they simply chose it once instead of on
+/// every invocation. Refusing it would make the product's own configuration
+/// surface unusable, which no rule intends.
+///
+/// [`TargetSource::Default`] is the case the rule is actually about. Nothing
+/// named the database — not the argv, not the configuration — and the write
+/// lands in a compiled fallback the caller never mentioned anywhere. That is
+/// the confused deputy, and it is the one that fails closed.
+///
+/// Either way the resolved target reaches the envelope, so an `xdg` write is
+/// permitted AND visible rather than permitted and silent.
+///
+/// # Errors
+/// Returns [`AppError::Usage`] — exit `2` — when a mutating subcommand resolved
+/// the compiled default with no argv target and no explicit dispensation.
+fn enforce_explicit_target(source: TargetSource) -> Result<(), AppError> {
+    let Some(policy) = WRITE_POLICY.get() else {
+        return Ok(());
+    };
+    if source == TargetSource::Default && policy.requires_explicit_target && !policy.use_active {
+        return Err(AppError::Usage {
+            message: validation::target_not_designated(),
+            // Nothing the caller typed was discarded here: the refusal is about
+            // an argument that is MISSING, not one that was ignored.
+            discarded_flags: Vec::new(),
+        });
+    }
+    Ok(())
+}
+
+/// The target this one-shot process resolved. First resolution wins.
+static RESOLVED_TARGET: std::sync::OnceLock<(PathBuf, TargetSource)> = std::sync::OnceLock::new();
+
+/// Records the resolved target so the output layer can report it.
+fn record_target(db: &std::path::Path, source: TargetSource) {
+    let _ = RESOLVED_TARGET.set((db.to_path_buf(), source));
+}
+
 impl AppPaths {
-    /// Resolve.
+    /// Which layer supplied the database this process is about to touch.
+    ///
+    /// Only [`TargetSource::Argv`] is an explicit designation. The other two are
+    /// ambient authority: legitimate for an idempotent read, and the shape of a
+    /// confused deputy for a write.
+    pub fn target_source() -> Option<TargetSource> {
+        RESOLVED_TARGET.get().map(|(_, source)| *source)
+    }
+
+    /// The database path this process resolved, once it has resolved one.
+    pub fn resolved_target() -> Option<&'static std::path::Path> {
+        RESOLVED_TARGET.get().map(|(path, _)| path.as_path())
+    }
+
+    /// Resolves the database and cache paths for this invocation.
+    ///
+    /// # Errors
+    /// Returns [`AppError::Io`] when the home directory cannot be determined,
+    /// and a validation error when a supplied path is rejected.
     pub fn resolve(db_override: Option<&str>) -> Result<Self, AppError> {
         let proj = ProjectDirs::from("", "", "sqlite-graphrag").ok_or_else(|| {
             AppError::Io(std::io::Error::other("could not determine home directory"))
@@ -34,19 +149,33 @@ impl AppPaths {
         // `llm_slots`, so a host can never end up with two cache directories.
         let cache_root = cache_dir()?;
 
-        let db = if let Some(p) = db_override {
+        // GAP-SG-205: the target is resolved from three layers, and only the
+        // first is the argv. A write verb that reaches this function without
+        // `--db` mutates a database the command line never named — the confused
+        // deputy the Explicit Target Designation rule describes. Recording WHICH
+        // layer won is what makes that detectable at all: until v1.2.6 no
+        // envelope reported the resolved target, so the wrong database could be
+        // written with no trace in the output.
+        let (db, source) = if let Some(p) = db_override {
             validate_path(p)?;
-            PathBuf::from(p)
-        } else if let Ok(Some(cfg_path)) = config::get_setting("db.path") {
-            if !cfg_path.is_empty() {
-                validate_path(&cfg_path)?;
-                PathBuf::from(cfg_path)
-            } else {
-                default_db_path(&proj)?
-            }
+            (PathBuf::from(p), TargetSource::Argv)
         } else {
-            default_db_path(&proj)?
+            match config::get_setting("db.path") {
+                // An empty setting is not a designation, so it falls through to
+                // the compiled default exactly as a missing one does.
+                Ok(Some(cfg_path)) if !cfg_path.is_empty() => {
+                    validate_path(&cfg_path)?;
+                    (PathBuf::from(cfg_path), TargetSource::Xdg)
+                }
+                _ => (default_db_path(&proj)?, TargetSource::Default),
+            }
         };
+        // GAP-SG-207, checked AFTER resolution because the verdict depends on
+        // WHICH layer won, and only resolution knows that. Placed here rather
+        // than on each argument struct because this is the single funnel: 47
+        // structs declare `--db` and all of them converge on this function.
+        enforce_explicit_target(source)?;
+        record_target(&db, source);
 
         Ok(Self {
             db,

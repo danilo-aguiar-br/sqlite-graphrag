@@ -38,9 +38,19 @@ fn prune_dead_entity_orphans_emits_envelope() {
         .assert()
         .success();
 
+    // GAP-SG-207: `enrich` changes durable state, so it names its target. The
+    // `init` above created the XDG default inside this sandbox, and relying on
+    // that default is exactly the inheritance the rule refuses — naming it here
+    // also makes the test say WHICH database it is asserting about.
+    let db = tmp
+        .path()
+        .join(".local/share/sqlite-graphrag/graphrag.sqlite");
+    let db_arg = db.to_str().expect("sandbox path is utf-8").to_string();
     let output = cmd(&tmp)
         .args([
             "enrich",
+            "--db",
+            &db_arg,
             "--operation",
             "re-embed",
             "--prune-dead-entity-orphans",

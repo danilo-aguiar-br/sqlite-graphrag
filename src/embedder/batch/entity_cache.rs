@@ -138,7 +138,7 @@ pub(crate) fn entity_cache_key(model: &str, text: &str) -> u64 {
 /// the same order as `texts`.
 ///
 /// Designed for entity-name batches (short texts). For chunk embeds use
-/// [`super::embed_passages_parallel_local`] directly — chunks are unique per
+/// `super::embed_passages_parallel_local` directly — chunks are unique per
 /// memory and cache hit rate is negligible.
 pub fn embed_entity_texts_cached(
     models_dir: &Path,

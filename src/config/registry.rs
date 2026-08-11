@@ -8,13 +8,13 @@ use super::{SettingKey, ValueKind};
 
 /// Canonical registry of operational setting keys accepted by `config set`.
 ///
-/// Single source of truth shared by [`set_setting`] validation and the
+/// Single source of truth shared by `set_setting` validation and the
 /// `config doctor` knob listing. Keeping exactly one list prevents the
 /// divergence class recorded as `GAP-SG-79`, where help text advertised
 /// `db.default_path` while [`crate::paths::AppPaths::resolve`] has always
 /// read `db.path`.
 ///
-/// Every entry MUST have a matching [`get_setting`] reader somewhere in the
+/// Every entry MUST have a matching `get_setting` reader somewhere in the
 /// crate. Adding a key here without a reader recreates the silent no-op this
 /// registry exists to prevent; `GAP-SG-90` adds the test that enforces it.
 ///
@@ -387,7 +387,7 @@ pub fn setting_key_names() -> impl Iterator<Item = &'static str> {
 /// [`load_config`] can warn instead of ignoring the value in silence, which
 /// is the failure mode `GAP-SG-79` documents.
 ///
-/// These keys are rejected by [`set_setting`]; the warning covers configs
+/// These keys are rejected by `set_setting`; the warning covers configs
 /// written before the validation existed.
 // GAP-SG-79 / GAP-SG-122: legacy aliases map to the single canonical key.
 // `db.default_path` never took effect (paths always read `db.path`).

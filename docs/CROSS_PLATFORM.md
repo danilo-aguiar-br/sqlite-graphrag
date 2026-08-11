@@ -48,7 +48,7 @@ cargo clippy --all-targets -- -D warnings
 
 | Platform | Build | Unit tests | Offline E2E harness |
 |----------|-------|------------|---------------------|
-| Linux x86_64 | host CI of record | host | `scripts/e2e_offline_v120.sh` |
+| Linux x86_64 | operator local host of record | host | `scripts/e2e_offline_v120.sh` |
 | macOS | operator checklist | operator checklist | same script (bash) |
 | Windows | operator checklist | operator checklist | adapt paths; use Git Bash or run checks manually |
 

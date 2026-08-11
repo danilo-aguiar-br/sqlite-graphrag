@@ -1,6 +1,6 @@
 //! Cooperative shutdown wiring, stated per platform.
 //!
-//! Every platform reaches the SAME [`handle_first_signal`] body, so the
+//! Every platform reaches the SAME `handle_first_signal` body, so the
 //! observable contract — `SHUTDOWN` flag, cancellation token, stderr notice,
 //! JSON envelope with `code: 19`, forced exit 130 on the second event — does not
 //! vary. What varies is which OS events can reach it:
@@ -124,7 +124,7 @@ pub fn register_shutdown_handler() {
 /// `SetConsoleCtrlHandler` is the only mechanism Windows offers for cooperative
 /// termination: there is no `SIGTERM` (`TerminateProcess` is unconditional and
 /// runs no user code) and no `SIGHUP`. The five control events map onto the same
-/// [`handle_first_signal`] body the Unix paths use, so the shutdown contract is
+/// `handle_first_signal` body the Unix paths use, so the shutdown contract is
 /// identical across platforms.
 ///
 /// The handler returns `TRUE` for every event it recognises, which claims the

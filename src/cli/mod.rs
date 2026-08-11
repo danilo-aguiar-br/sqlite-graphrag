@@ -2,9 +2,9 @@
 //!
 //! Defines `Cli` and all subcommand enums; contains no business logic.
 //!
-//! Split by surface: [`globals`] holds the root parser and its flags,
-//! [`commands`] the subcommand enum and its classification, and
-//! [`value_enums`] the `ValueEnum` types shared across argument structs.
+//! Split by surface: `globals` holds the root parser and its flags,
+//! `commands` the subcommand enum and its classification, and
+//! `value_enums` the `ValueEnum` types shared across argument structs.
 //! Every public item is re-exported here, so `crate::cli::X` keeps resolving
 //! exactly as before for every caller.
 

@@ -18,6 +18,7 @@ use support::{assert_json_or_not_found, assert_json_stdout, Env};
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_13_hybrid_search() {
     let env = Env::new();
     env.init();
@@ -38,6 +39,7 @@ fn smoke_13_hybrid_search() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_14_stats() {
     let env = Env::new();
     env.init();
@@ -55,6 +57,7 @@ fn smoke_14_stats() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_15_migrate() {
     let env = Env::new();
     env.init();
@@ -72,6 +75,7 @@ fn smoke_15_migrate() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_16_namespace_detect() {
     let env = Env::new();
     env.init();
@@ -93,6 +97,7 @@ fn smoke_16_namespace_detect() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_17_optimize() {
     let env = Env::new();
     env.init();
@@ -105,6 +110,7 @@ fn smoke_17_optimize() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_18_sync_safe_copy() {
     let env = Env::new();
     env.init();
@@ -123,6 +129,7 @@ fn smoke_18_sync_safe_copy() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_19_vacuum() {
     let env = Env::new();
     env.init();

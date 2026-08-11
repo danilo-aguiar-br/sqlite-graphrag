@@ -44,12 +44,46 @@ pub fn is_sqlite_busy(err: &AppError) -> bool {
 ///
 /// After all retries are exhausted the last `SQLITE_BUSY` error is converted
 /// to [`AppError::DbBusy`] so callers can route on exit-code `15`.
+///
+/// # Errors
+/// Returns [`AppError::DbBusy`] once the resolved budget is exhausted, and
+/// propagates any non-busy error from `op` unchanged.
 pub fn with_busy_retry<T, F>(op: F) -> Result<T, AppError>
 where
     F: Fn() -> Result<T, AppError>,
 {
-    let max_retries = resolved_busy_retries();
-    let base_delay_ms = resolved_busy_base_delay_ms();
+    with_busy_retry_policy(resolved_busy_retries(), resolved_busy_base_delay_ms(), op)
+}
+
+/// [`with_busy_retry`] with the schedule supplied instead of resolved.
+///
+/// The ambient resolution is correct for the binary and wrong for a test. The
+/// schedule is exponential, so its total duration is governed by whatever the
+/// DEVELOPER happens to have in XDG: at the compiled defaults of 5 retries and
+/// 300 ms a contention test costs about nine seconds, while a machine carrying
+/// `db.busy_retries = 12` and `db.busy_base_delay_ms = 600` pays roughly THIRTY
+/// MINUTES for the same test. Measured, not theorised — it is why the suite
+/// appeared to hang for four consecutive sessions on this workstation, and the
+/// two tests involved were reported as "running for over 60 seconds" while they
+/// were in fact working exactly as written.
+///
+/// A test that reads ambient configuration is the same confused-deputy shape
+/// GAP-SG-205 describes: behaviour governed by state nobody declared. So the
+/// contention tests state their own schedule and the binary keeps resolving its.
+///
+/// # Errors
+/// Returns [`AppError::DbBusy`] once `max_retries` attempts are exhausted, and
+/// propagates any non-busy error unchanged.
+pub fn with_busy_retry_policy<T, F>(
+    max_retries: u32,
+    base_delay_ms: u64,
+    op: F,
+) -> Result<T, AppError>
+where
+    F: Fn() -> Result<T, AppError>,
+{
+    let max_retries = max_retries.max(1);
+    let base_delay_ms = base_delay_ms.max(1);
     for attempt in 0..max_retries {
         match op() {
             Ok(v) => return Ok(v),
@@ -60,7 +94,11 @@ where
                 }
                 // Saturating shift: attempt is bounded by max_retries (u32, small).
                 let shift = attempt.min(63);
-                let base_ms = base_delay_ms.saturating_mul(1u64 << shift);
+                // Capped BEFORE the jitter is drawn, so the half-jitter window
+                // stays inside the ceiling instead of straddling it.
+                let base_ms = base_delay_ms
+                    .saturating_mul(1u64 << shift)
+                    .min(crate::constants::SQLITE_BUSY_MAX_DELAY_MS);
                 let half = base_ms / 2;
                 let jitter = if half == 0 { 0 } else { fastrand::u64(0..half) };
                 let delay_ms = half + jitter;
@@ -184,19 +222,24 @@ mod tests {
 
     #[test]
     fn with_busy_retry_returns_db_busy_after_all_retries() {
+        // Declared, not resolved: this test exhausts the whole budget, so under
+        // an operator schedule of 12 attempts at 600 ms it would sleep for about
+        // half an hour to assert a bound it can prove in milliseconds.
+        const ATTEMPTS: u32 = 5;
+        const BASE_DELAY_MS: u64 = 1;
+
         let calls = Arc::new(AtomicU32::new(0));
         let calls_clone = Arc::clone(&calls);
 
-        let result: Result<(), AppError> = with_busy_retry(|| {
+        let result: Result<(), AppError> = with_busy_retry_policy(ATTEMPTS, BASE_DELAY_MS, || {
             calls_clone.fetch_add(1, Ordering::SeqCst);
             Err(make_busy_error())
         });
 
-        let expected = resolved_busy_retries();
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            expected,
-            "must attempt exactly the resolved busy-retry budget"
+            ATTEMPTS,
+            "must attempt exactly the declared busy-retry budget"
         );
         assert!(
             matches!(result, Err(AppError::DbBusy(_))),

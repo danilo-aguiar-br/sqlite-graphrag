@@ -13,6 +13,21 @@ pub const MAX_SQLITE_BUSY_RETRIES: u32 = 5;
 /// 300 ms → 600 ms → 1200 ms → 2400 ms → 4800 ms (≈ 9.3 s total).
 pub const SQLITE_BUSY_BASE_DELAY_MS: u64 = 300;
 
+/// Ceiling on ONE busy-retry sleep, in milliseconds.
+///
+/// Doubling without a ceiling turns two configuration knobs into an unbounded
+/// wait, and both are operator-settable: `db.busy_retries` and
+/// `db.busy_base_delay_ms`. Measured on a workstation carrying `12` and `600`,
+/// the twelfth attempt alone sleeps past twenty minutes and the full schedule
+/// costs roughly half an hour — for a single contended statement. That is not a
+/// tuning choice anyone made; it is what exponential growth does to a knob whose
+/// range nobody bounded.
+///
+/// Five seconds matches [`BUSY_TIMEOUT_MILLIS`], so the longest a retry waits is
+/// the same order as the lock timeout SQLite itself applies. Attempts are still
+/// capped by `db.busy_retries`; only the growth of each sleep stops here.
+pub const SQLITE_BUSY_MAX_DELAY_MS: u64 = 5_000;
+
 /// Query timeout applied to statements in milliseconds.
 pub const QUERY_TIMEOUT_MILLIS: u64 = 5_000;
 

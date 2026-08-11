@@ -29,7 +29,7 @@ type EmbedChunkResult = (usize, Result<Vec<Vec<f32>>, AppError>);
 /// This entry point takes a BORROWED slice, which cannot be handed to the
 /// `'static` fan-out tasks, so it clones the entire corpus on every call — a
 /// 36k-passage backfill copies every string before a single request is sent.
-/// [`embed_passages_parallel_shared`] takes an `Arc<[String]>` instead and is
+/// `embed_passages_parallel_shared` takes an `Arc<[String]>` instead and is
 /// the real implementation this delegates to; migrating costs one
 /// `Arc::from(vec)` at the call site and removes the copy.
 #[deprecated(

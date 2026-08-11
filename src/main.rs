@@ -602,6 +602,7 @@ fn main() -> std::process::ExitCode {
             e.error_class(),
             e.is_retryable(),
             e.suggestion(),
+            e.discarded_flags(),
         );
         sqlite_graphrag::output::emit_error(&e.localized_message());
         // A closed stdout pipe outranks the command's own code, but it must NOT

@@ -48,7 +48,7 @@ pub(crate) struct GraphSnapshot {
 /// what it was before the surface existed.
 pub(crate) fn render_json(snapshot: &GraphSnapshot) -> Result<String, AppError> {
     if crate::agent_surface::active() {
-        let shaped = crate::agent_surface::apply_global(serde_json::to_value(snapshot)?);
+        let shaped = crate::agent_surface::apply_global(serde_json::to_value(snapshot)?)?;
         return Ok(serde_json::to_string_pretty(&shaped)?);
     }
     Ok(serde_json::to_string_pretty(snapshot)?)

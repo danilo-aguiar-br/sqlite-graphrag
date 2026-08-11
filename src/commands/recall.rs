@@ -68,7 +68,7 @@ pub struct RecallArgs {
     #[arg(long)]
     pub precise: bool,
     /// Max hops.
-    #[arg(long, default_value = "2")]
+    #[arg(long, default_value = "2", value_parser = crate::parsers::parse_hops_range_u32)]
     pub max_hops: u32,
     /// Min weight.
     #[arg(long, default_value = "0.3")]
@@ -188,8 +188,8 @@ pub fn run(
         llm_backend,
         "recall",
     );
-    // `--fail-on-degraded` decide ANTES de qualquer consulta: sem isto a leitura
-    // devolvia só-FTS com exit 0 e a flag era placebo.
+    // `--fail-on-degraded` decides BEFORE any query runs: without this the read
+    // answered FTS-only with exit 0 and the flag was a placebo.
     if let Some(err) = crate::query_embedding::degradation_failure(
         fail_on_degraded,
         resolved.degraded,
@@ -209,6 +209,16 @@ pub fn run(
     // When --precise is set, lift the -k cap so every match is returned; the
     // max_distance filter below will trim irrelevant results instead.
     let effective_k = if args.precise { 100_000 } else { args.k };
+    // GAP-SG-201: reported, never refused. `-k` bounds a ranking rather than
+    // paging a table, so the top-k IS the answer the caller asked for; the
+    // record exists so its narrowness stops being invisible.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: effective_k,
+        offset: 0,
+        source: crate::agent_surface::universe::CeilingSource::Flag,
+        kind: crate::agent_surface::universe::CeilingKind::TopK,
+        universe_total: None,
+    });
 
     // G58: if the embedding is unavailable, route the entire direct path
     // through FTS5 BM25 + LIKE prefix. Graph traversal is suppressed because

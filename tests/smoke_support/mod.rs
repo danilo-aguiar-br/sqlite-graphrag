@@ -40,24 +40,28 @@ pub fn installed_bin() -> Option<PathBuf> {
     }
 }
 
-/// Resolves the installed binary or exits the whole test binary with 0.
+/// Resolves the installed binary, or fails loudly when there is none.
 ///
-/// Skipping rather than failing is deliberate: a machine that never ran
-/// `cargo install` has nothing to smoke-test, and turning that into a red
-/// suite would train everyone to ignore this file.
-pub fn skip_if_not_installed() -> PathBuf {
-    // Harness-only opt-out — NOT product config (G-T-XDG-04).
-    if std::env::var("SGR_TEST_SKIP_INSTALLED_SMOKE").as_deref() == Ok("1") {
-        eprintln!("Suite 10: skipped via SGR_TEST_SKIP_INSTALLED_SMOKE=1");
-        std::process::exit(0);
-    }
-    match installed_bin() {
-        Some(p) => p,
-        None => {
-            eprintln!("Suite 10: sqlite-graphrag não encontrado em ~/.cargo/bin — skipping");
-            std::process::exit(0);
-        }
-    }
+/// Until v1.2.7 this exited the whole test binary with 0 whenever the binary
+/// was missing. That looked like a skip and reported like a pass: libtest
+/// captures per-test output, and a bare `std::process::exit` never flushes the
+/// capture, so the message was printed to nobody while the suite claimed
+/// success without running a single assertion. `src/commands/optimize.rs`
+/// already forbids bare `process::exit` for that reason (GAP-SG-125); the rule
+/// had simply never been extended to `tests/`.
+///
+/// The skip now lives where libtest can report it — `#[ignore]` on every test
+/// in the three suites, which the summary prints as an ignored count. Reaching
+/// this function therefore means the operator asked for the installed-binary
+/// suite explicitly with `--ignored`, and asking for it without an installed
+/// binary deserves a red test rather than a silent zero. That also retires
+/// `SGR_TEST_SKIP_INSTALLED_SMOKE`, whose only job `#[ignore]` now does.
+pub fn resolve_installed_bin() -> PathBuf {
+    installed_bin().unwrap_or_else(|| {
+        panic!(
+            "Suite 10: no sqlite-graphrag in ~/.cargo/bin. These suites validate the INSTALLED binary, so run `cargo install --path . --locked --force` first, then re-run with `-- --ignored`."
+        )
+    })
 }
 
 /// Returns the installed binary version as a string, e.g. "1.2.3".
@@ -112,7 +116,7 @@ pub struct Env {
 
 impl Env {
     pub fn new() -> Self {
-        let bin = skip_if_not_installed();
+        let bin = resolve_installed_bin();
         assert_expected_installed_version(&bin);
         let tmp = TempDir::new().expect("TempDir failed");
         Self { bin, tmp }

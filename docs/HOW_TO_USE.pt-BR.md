@@ -575,6 +575,43 @@ sqlite-graphrag recall "design auth jwt" --k 5 --no-graph --json
 Para o tamanho padrão de namespace (10k memórias ou menos), o refinamento por cosseno sobre o BLOB de embedding é rápido o suficiente (ms de dígito único). Para namespaces maiores, prefira `hybrid-search` para que o FTS5 faça a filtragem grossa.
 
 
+## Faixas de Argumentos Numéricos (v1.2.7)
+
+Desde a v1.2.7, treze argumentos numéricos da superfície de leitura
+carregam um validador de faixa do clap. O valor é conferido em tempo de
+parse, então um número inválido é recusado **antes** de o banco ser
+aberto e antes de qualquer alocação ser dimensionada a partir dele.
+
+| Faixa | Argumentos |
+| --- | --- |
+| `1..=4096` (top-k) | `recall -k`, `hybrid-search -k`, `related --limit`, `graph entities --limit`, `deep-research --k`, `deep-research --max-results` |
+| `1..=1000000` (limite de listagem) | `export --limit`, `pending --limit`, `pending-embeddings --limit`, `embedding --limit` |
+| `1..=64` (saltos) | `related --max-hops` (alias `--hops`), `recall --max-hops`, `graph traverse --depth`, `deep-research --max-hops` |
+| `1..=64` (sub-consultas) | `deep-research --max-sub-queries` |
+
+Um valor fora da faixa sai com **código 2** e mensagem de faixa do clap
+no stderr. Não há envelope JSON para essa falha: o argumento nunca
+chega ao comando, então nada estruturado foi produzido ainda. Trate o
+exit 2 aqui como erro do chamador, não como condição retentável.
+
+```bash
+# Recusado em tempo de parse — exit 2, banco intocado
+sqlite-graphrag related --db ./graphrag.sqlite jwt --limit 999999999
+
+# Aceito
+sqlite-graphrag related --db ./graphrag.sqlite jwt --limit 50 --json
+```
+
+Antes da v1.2.7 um `related --limit` gigante era repassado a
+`Vec::with_capacity`, e o processo abortava na alocação sem envelope
+algum. O validador de faixa substitui esse abort por uma recusão
+determinística em tempo de parse.
+
+Os tetos têm fonte única em `src/constants/search.rs` como
+`K_QUERY_RANGE_MAX`, `K_LIST_LIMIT_MAX`, `K_MAX_HOPS_CEILING` e
+`K_MAX_SUB_QUERIES_CEILING`.
+
+
 ## Extrair Entidades via LLM
 
 O `remember` padrão faz apenas extração de URL. Para NER completo (entidades + relacionamentos tipados), use o backend LLM:

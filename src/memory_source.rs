@@ -6,7 +6,7 @@
 //!
 //! This enum eliminates the silent footgun of `pub source: String` by forcing
 //! every call-site to pick a typed variant that maps deterministically to one
-//! of the five allowed CHECK values via [`MemorySource::as_str`].
+//! of the five allowed CHECK values via [`crate::memory_source::MemorySource::as_str`].
 //!
 //! # Examples
 //!

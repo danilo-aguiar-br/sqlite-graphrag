@@ -4,9 +4,9 @@
 //! `memory_embeddings` and the FTS5 `fts_memories` shadow table. Callers receive
 //! typed [`MemoryRow`] or [`NewMemory`] values and never build SQL strings.
 //!
-//! One submodule per storage surface: [`rows`] holds the typed shapes, [`crud`]
-//! the single-row lookups and mutations, [`listing`] the paginated reads,
-//! [`vectors`] the `memory_embeddings` companion and its KNN query, [`fts`] the
+//! One submodule per storage surface: `rows` holds the typed shapes, `crud`
+//! the single-row lookups and mutations, `listing` the paginated reads,
+//! `vectors` the `memory_embeddings` companion and its KNN query, `fts` the
 //! FTS5 shadow table, and [`soft_delete`] the tombstone lifecycle.
 
 mod crud;

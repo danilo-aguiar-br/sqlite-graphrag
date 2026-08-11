@@ -305,8 +305,16 @@ fn validate_claim_rejects_wrong_type_and_key_shape() {
 /// second connection holds an exclusive write lock for the whole test;
 /// the queue connection under test has `busy_timeout=0` so SQLite
 /// reports `SQLITE_BUSY` immediately instead of blocking internally,
-/// isolating `with_busy_retry`'s own bounded backoff (5 attempts) as the
-/// only source of delay.
+/// isolating the bounded backoff as the only source of delay.
+///
+/// The schedule is DECLARED here rather than resolved from XDG, and the
+/// difference is not cosmetic. `with_busy_retry` reads `db.busy_retries` and
+/// `db.busy_base_delay_ms`, so this test used to assert against the compiled
+/// constant while the code under test used the operator's value: on a
+/// workstation carrying `12` and `600 ms` it attempted twelve times, asserted
+/// five, and spent roughly half an hour of exponential backoff before saying so.
+/// A test whose verdict AND duration depend on the developer's configuration
+/// proves nothing about the code.
 #[test]
 fn with_busy_retry_bounds_dequeue_under_sustained_contention() {
     let (conn, path) = open_temp_queue();
@@ -324,10 +332,16 @@ fn with_busy_retry_bounds_dequeue_under_sustained_contention() {
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
     let calls_clone = std::sync::Arc::clone(&calls);
-    let result: Result<DequeueOutcome, AppError> = crate::storage::utils::with_busy_retry(|| {
-        calls_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        dequeue_next_pending(&conn, "MemoryBindings", "", "")
-    });
+    /// Attempts this test declares, independent of any XDG setting.
+    const ATTEMPTS: u32 = 5;
+    /// One millisecond of base delay: the subject is the BOUND, not the wait.
+    const BASE_DELAY_MS: u64 = 1;
+
+    let result: Result<DequeueOutcome, AppError> =
+        crate::storage::utils::with_busy_retry_policy(ATTEMPTS, BASE_DELAY_MS, || {
+            calls_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            dequeue_next_pending(&conn, "MemoryBindings", "", "")
+        });
 
     assert!(
         matches!(result, Err(AppError::DbBusy(_))),
@@ -335,8 +349,8 @@ fn with_busy_retry_bounds_dequeue_under_sustained_contention() {
     );
     assert_eq!(
         calls.load(std::sync::atomic::Ordering::SeqCst),
-        crate::constants::MAX_SQLITE_BUSY_RETRIES,
-        "must attempt exactly MAX_SQLITE_BUSY_RETRIES times, never retry unbounded"
+        ATTEMPTS,
+        "must attempt exactly the declared budget, never retry unbounded"
     );
 
     blocker

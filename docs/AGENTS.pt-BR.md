@@ -8,7 +8,7 @@
 > requisição REST ao OpenRouter para o seu embedding; nada local guarda modelo.
 > Não há daemon, não há runtime ONNX, não há servidor MCP e não há hook.
 > Os backends headless `claude` / `codex` / `opencode` foram REMOVIDOS na v1.2.0.
-> **Release atual v1.2.5.** Contrato permanente em toda a linha 1.2.x: schema
+> **Release atual v1.2.7.** Contrato permanente em toda a linha 1.2.x: schema
 > **v16**, `DEFAULT_EMBEDDING_DIM=1024`, precedência **flag CLI > XDG
 > `config set` > default** (a env de produto `SQLITE_GRAPHRAG_*` **não** é lida
 > no hot path). O que cada release mudou está em
@@ -99,6 +99,20 @@ sqlite-graphrag deep-research "como funciona o claim da fila enrich" --k 20 --tr
 - **OBRIGATÓRIO precedência** — flag > XDG `cli.no_input` > `false`.
 - **PROIBIDO `--no-input=false`** para desligar um opt-in XDG. Remova a chave: a grafia `=false` leria como "entrada é permitida aqui" enquanto a automação ao redor assume o contrário.
 - O objetivo é falhar rápido, não remover capacidade: um agente que trava esperando um humano que não está lá é pior que um que sai com exit 1 e diz o motivo.
+
+## Proveniência do Banco Alvo — `db_path_source` e `db_path_resolved` (v1.2.7)
+
+Todo envelope de um processo que resolveu um banco reporta qual camada forneceu o alvo e qual caminho absoluto foi de fato aberto, dentro do bloco `agent_surface`, **sem exigir flag alguma**.
+
+- **OBRIGATÓRIO `db_path_source`** — existem exatamente três valores: `argv` (o `--db` nomeou o alvo), `xdg` (a chave de configuração `db.path` o nomeou), `default` (nada o nomeou e o fallback XDG compilado foi usado).
+- **OBRIGATÓRIO `db_path_resolved`** — o caminho absoluto que este processo realmente resolveu, reportado ao lado da camada que o forneceu.
+- **OBRIGATÓRIA conduta** — FAÇA parse dos dois antes de confiar em qualquer escrita, e antes de confiar numa leitura cuja resposta vai guiar uma decisão. `argv` é a única designação explícita; `xdg` e `default` são autoridade ambiente — legítima numa leitura idempotente e a forma do deputado confuso numa escrita.
+- **OBRIGATÓRIO diante de surpresa** — um `db_path_resolved` que não é o banco que você pretendia significa também que toda chamada anterior desta sessão caiu ali. Reexecute com `--db <CAMINHO>` **depois do verbo** e confirme com `read --name <NOME> --json` em vez de assumir que o dado está onde você queria.
+- **OBRIGATÓRIO `db_path_dispensation`** — o único valor `use-active`, presente somente quando `--use-active` deixou um subcomando mutante aceitar um alvo ambiente de propósito. Ele nunca aparece ao lado de `argv`, onde a flag jamais foi consultada, então a AUSÊNCIA dele ao lado de uma fonte não-`argv` num verbo mutante é por si só o sinal de que nada explícito autorizou a herança.
+- Membros ausentes significam que o processo não resolveu banco algum (`config`, `completions`, `locale`); nunca significam "resolveu porém não reportou".
+- Um subcomando mutante que resolve `default` — sem `--db` e sem `db.path` — **sai com exit 2 sem tocar em nada**. `xdg` é permitido, porque `config set db.path` é designação feita uma vez em vez de a cada invocação.
+- **PROIBIDO** — ler exit `0` como prova de que a escrita caiu no banco pretendido; omitir `--db` e presumir o diretório atual, já que o fallback é o alvo XDG e não o diretório de trabalho; colocar `--db` antes do verbo, o que sai com exit 2.
+
 
 ## Novidades na v1.2.0 — dim 1024 + Contrato de Config XDG (Sem Migração, Schema v16)
 

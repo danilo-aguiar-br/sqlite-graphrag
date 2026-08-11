@@ -252,9 +252,9 @@ pub(crate) fn stage_one_body(
 
     let mut chunk_embeddings_opt: Option<Vec<Vec<f32>>> = None;
     let skip_embed = crate::embedder::should_skip_embedding_on_failure();
-    // v1.0.84 (ADR-0042): tuple (Vec<f32>, LlmBackendKind) — extrai o
-    // backend that actually ran — populate `backend_invoked` in the
-    // envelope NDJSON por arquivo.
+    // v1.0.84 (ADR-0042): the tuple (Vec<f32>, LlmBackendKind) carries the
+    // backend that actually ran, which populates `backend_invoked` in the
+    // per-file NDJSON envelope.
     let (embedding, backend_invoked): (Option<Vec<f32>>, Option<&'static str>) = if chunks_info
         .len()
         == 1

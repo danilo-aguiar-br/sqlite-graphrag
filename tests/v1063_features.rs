@@ -43,6 +43,11 @@ fn cmd(temp: &TempDir) -> Command {
         .env("XDG_CACHE_HOME", &cache)
         .arg("--lang")
         .arg("en")
+        // GAP-SG-207: this sandbox isolates HOME precisely so the XDG default
+        // IS the intended target, which is a deliberate choice rather than an
+        // inherited one. Declaring it keeps the mutating verbs below running
+        // without pinning `--db` on every single invocation.
+        .arg("--use-active")
         .current_dir(temp.path());
     for var in &["LOCALAPPDATA", "APPDATA", "USERPROFILE", "SystemRoot"] {
         if let Ok(v) = std::env::var(var) {

@@ -4,8 +4,8 @@
 //! The workload is I/O-bound (SQLite WAL reads), so tokio is used instead of
 //! rayon. Each sub-query opens its own read-only connection.
 //!
-//! [`args`] holds the CLI surface and [`envelope`] the serialisation shapes;
-//! [`pipeline`] decomposes the query and executes each sub-query. The fan-out
+//! `args` holds the CLI surface and `envelope` the serialisation shapes;
+//! `pipeline` decomposes the query and executes each sub-query. The fan-out
 //! orchestration itself stays here.
 
 use crate::errors::AppError;
@@ -60,10 +60,10 @@ pub fn run(
     let sub_query_texts: Vec<String> = sub_query_plan.iter().map(|s| s.text.clone()).collect();
     let (sub_embeddings, vec_degraded, degraded_reason_code) =
         compute_sub_embeddings(&paths, &sub_query_texts, embedding_backend, llm_backend);
-    // Decide ANTES de construir o runtime e de gastar o fan-out inteiro: sem isto a
-    // pesquisa devolvia só-FTS com exit 0 e a flag era placebo. Falhar aqui também
-    // evita pagar as chamadas de rede de uma pesquisa que o operador já declarou
-    // não querer em modo degradado.
+    // Decided BEFORE the runtime is built and the whole fan-out is spent:
+    // without this the search answered FTS-only with exit 0 and the flag was a
+    // placebo. Failing here also avoids paying for the network calls of a search
+    // the operator already declared they do not want in degraded mode.
     if let Some(err) = crate::query_embedding::degradation_failure(
         fail_on_degraded,
         vec_degraded,
@@ -268,6 +268,20 @@ async fn run_async(
         b.1 .0
             .partial_cmp(&a.1 .0)
             .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    // GAP-SG-201: reported, never refused, and declared at the exact line that
+    // applies the ceiling. `--max-results` bounds a fused ranking rather than
+    // paging a countable table, so the top-k IS the answer the caller asked for;
+    // there is no universe to compare it against, which is why `universe_total`
+    // is `None` and no refusal can follow. Sixth and last of the read commands
+    // to declare its ceiling — until now `deep-research` was the one whose
+    // narrowness stayed invisible.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: args.max_results,
+        offset: 0,
+        source: crate::agent_surface::universe::CeilingSource::Flag,
+        kind: crate::agent_surface::universe::CeilingKind::TopK,
+        universe_total: None,
     });
     ranked.truncate(args.max_results);
 

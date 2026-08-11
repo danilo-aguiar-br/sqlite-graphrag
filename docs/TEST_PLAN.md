@@ -89,6 +89,8 @@
 - Command: same nextest invocation; files live in `tests/`
 - Prerequisite: `export PATH="$PWD/tests/mock-llm:$PATH"` (dim-aware mocks since G51)
 - Pass criterion: ZERO failures
+- Structural gates live in this layer because `cargo test` is the only automatic gate this repository has: `tests/fmt_gate.rs` runs `cargo fmt --all --check` from inside the suite, so Gate 1 below can no longer be skipped by forgetting the pre-publish script (GAP-SG-211)
+- `tests/numeric_bounds_gate.rs` scans `src/commands/` and fails when a numeric clap argument that bounds a result set, a page or a walk declares no `value_parser` (GAP-SG-213)
 ### Layer 3 — Doctests (per commit, MANDATORY locally)
 - Command: `/usr/bin/timeout 300 cargo test --doc`
 - nextest DOES NOT execute doctests; skipping this layer locally is how G50 cause A shipped broken for 10 releases

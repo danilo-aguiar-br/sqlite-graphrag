@@ -625,6 +625,43 @@ cosine refinement over the embedding BLOB is fast enough
 `hybrid-search` so FTS5 does the coarse filtering.
 
 
+## Numeric Argument Ranges (v1.2.7)
+
+Since v1.2.7, thirteen numeric arguments of the read surface carry a
+clap range validator. The value is checked at parse time, so a bad
+number is refused **before** the database is opened and before any
+allocation is sized from it.
+
+| Range | Arguments |
+| --- | --- |
+| `1..=4096` (top-k) | `recall -k`, `hybrid-search -k`, `related --limit`, `graph entities --limit`, `deep-research --k`, `deep-research --max-results` |
+| `1..=1000000` (listing limit) | `export --limit`, `pending --limit`, `pending-embeddings --limit`, `embedding --limit` |
+| `1..=64` (hops) | `related --max-hops` (alias `--hops`), `recall --max-hops`, `graph traverse --depth`, `deep-research --max-hops` |
+| `1..=64` (sub-queries) | `deep-research --max-sub-queries` |
+
+An out-of-range value exits with **code 2** and a clap range message on
+stderr. There is no JSON envelope for this failure: the argument never
+reaches the command, so nothing structured has been produced yet.
+Treat exit 2 here as a caller bug, not as a retryable condition.
+
+```bash
+# Refused at parse time — exit 2, database untouched
+sqlite-graphrag related --db ./graphrag.sqlite jwt --limit 999999999
+
+# Accepted
+sqlite-graphrag related --db ./graphrag.sqlite jwt --limit 50 --json
+```
+
+Before v1.2.7 an oversized `related --limit` was forwarded to
+`Vec::with_capacity`, and the process aborted on the allocation with no
+envelope at all. The range validator replaces that abort with a
+deterministic parse-time refusal.
+
+The ceilings are single-sourced in `src/constants/search.rs` as
+`K_QUERY_RANGE_MAX`, `K_LIST_LIMIT_MAX`, `K_MAX_HOPS_CEILING` and
+`K_MAX_SUB_QUERIES_CEILING`.
+
+
 ## Extract Entities via the LLM
 
 The default `remember` does URL extraction only. For full NER

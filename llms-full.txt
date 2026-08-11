@@ -1,9 +1,9 @@
-# sqlite-graphrag (v1.2.5 LLM-Only One-Shot)
+# sqlite-graphrag (v1.2.7 LLM-Only One-Shot)
 
 
 > Persistent memory for 27 AI agents in a single ~19 MiB Rust binary (LLM-only, one-shot)
 
-27 AI agents. One ~19 MiB binary. Zero model download. **v1.2.2** (crate `1.2.2`, schema **v16**, no main-DB migration; agent-native output surface plus `--no-input`; inherits enrich-queue **CAPA seal**: namespace claim isolation; `--until-empty` op+ns count; `--force-redescribe` reopens skipped/done; re-embed BLOB `LENGTH(embedding)=dim*4` + zombie reconcile; `entity:` enqueue strip; chunk ns validate; CAPA-D compound configuration-file markers; inherits **DEFAULT_EMBEDDING_DIM=1024**) gives every AI coding assistant a local, private memory layer backed by a single SQLite file. Config: **CLI flag > XDG `config set` > default** — product `SQLITE_GRAPHRAG_*` is **not** the config path. E2E seal: help scrub, OpenRouter URLs via XDG, one embedding budget via XDG `embedding.timeout_secs` (default 30s), EntityType fold, remember-batch description required, `pending-embeddings status` / `cache stats`, `purge --now`, `config list --effective`, `related_to`→`related`, telemetry alias removed, `enrich --list-skipped` / `--requeue-skipped`, GAP-SG-139 `--db` no-op on host leaves, `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` superseded). Residual honest: residual monólitos optional. Embedding generation is the OpenRouter REST API only (~100-500ms via `--embedding-backend openrouter`); the headless `claude` / `codex` / `opencode` subprocess backends were removed, so `--llm-backend` accepts `openrouter` or `none`. No subprocess, no daemon, no ONNX, no model download. Graph-native retrieval. Deterministic JSON for pipeline orchestration.
+27 AI agents. One ~19 MiB binary. Zero model download. **v1.2.7** (crate `1.2.7`, schema **v16**, no main-DB migration since v16; every side-effecting verb publishes target provenance as `db_path_source` / `db_path_resolved`; thirteen numeric read arguments carry a parse-time range; rustdoc lints denied through `[lints.rustdoc]`; inherits the v1.2.6 agent-native output-surface corrections and the v1.2.2 output surface plus `--no-input`; inherits enrich-queue **CAPA seal**: namespace claim isolation; `--until-empty` op+ns count; `--force-redescribe` reopens skipped/done; re-embed BLOB `LENGTH(embedding)=dim*4` + zombie reconcile; `entity:` enqueue strip; chunk ns validate; CAPA-D compound configuration-file markers; inherits **DEFAULT_EMBEDDING_DIM=1024**) gives every AI coding assistant a local, private memory layer backed by a single SQLite file. Config: **CLI flag > XDG `config set` > default** — product `SQLITE_GRAPHRAG_*` is **not** the config path. E2E seal: help scrub, OpenRouter URLs via XDG, one embedding budget via XDG `embedding.timeout_secs` (default 30s), EntityType fold, remember-batch description required, `pending-embeddings status` / `cache stats`, `purge --now`, `config list --effective`, `related_to`→`related`, telemetry alias removed, `enrich --list-skipped` / `--requeue-skipped`, GAP-SG-139 `--db` no-op on host leaves, `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` superseded). Residual honest: residual monólitos optional. Embedding generation is the OpenRouter REST API only (~100-500ms via `--embedding-backend openrouter`); the headless `claude` / `codex` / `opencode` subprocess backends were removed, so `--llm-backend` accepts `openrouter` or `none`. No subprocess, no daemon, no ONNX, no model download. Graph-native retrieval. Deterministic JSON for pipeline orchestration.
 
 - Portuguese version available at [README.pt-BR.md](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/README.pt-BR.md)
 - Compact summary in [llms.txt](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/llms.txt); Portuguese variant in [llms.pt-BR.txt](https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/llms.pt-BR.txt)
@@ -40,6 +40,25 @@ cargo install --locked sqlite-graphrag
 - Schema version stays at v15 throughout v1.0.86-91. No database migrations run in this 6-release cycle
 - v1.0.90 OpenCode backend integration (ADR-0051, GAP-OPENCODE-001/002): third LLM backend `opencode run` alongside `codex exec` and `claude -p`. New `--llm-backend opencode`, `--mode opencode` for ingest/enrich, `--opencode-binary/model/timeout` flags and `SQLITE_GRAPHRAG_OPENCODE_*` env vars. Fallback chain extended to `codex → claude → opencode → none`. `spawn_opencode()` without RLIMIT_AS (Bun runtime crash fix). 24-bug remediation including `--skip-embedding-on-failure` activation (BUG-SKIP-EMBED), `--llm-fallback` dead-flag fix (GAP-LLM-FALLBACK-DEAD-FLAG), FTS desync in batch/enrich (BUG-BATCH-FTS-DESYNC, BUG-ENRICH-DESC-FTS-DESYNC), Windows cross-compilation (BUG-WINDOWS-001), embedding timeout hardcode (BUG-TIMEOUT-HARDCODE-001), `list` pagination (BUG-LIST-TOTAL-COUNT-001), `--yes` enforcement on 3 destructive commands (BUG-YES-FLAG-IGNORED). 875+ tests passing
 - v1.0.91 spawn CWD isolation (GAP-SPAWN-001): `spawn_isolation_dir()` and `apply_cwd_isolation()` in `src/spawn/mod.rs` set `current_dir` to an ephemeral temp directory and `CLAUDE_CONFIG_DIR` to the same dir for ALL 10 production spawn sites. LLM subprocesses no longer inherit `.mcp.json` from the caller's project — embedding works zero-config in any directory. `cleanup_spawn_dir()` removes the temp dir at process exit (GAP-SPAWN-002). BUG-17 fixed `entities.degree` inflation: `increment_degree()` replaced by `recalculate_degree()` after all relationships are inserted. BUG-15 fixed 7 JSON schemas with missing `"opencode"` and `"auto"` in `backend_invoked` enum. BUG-16 fixed `deep-research.schema.json` missing `vec_degraded` field
+
+## v1.2.7 Patch Notes / Target provenance + range-validated reads
+
+- Crate `1.2.7`. NO main-DB schema migration (stays at **v16**, with no migration since v16). Pin `=1.2.7`.
+- **Target provenance on every side-effecting verb** — the envelope now carries `db_path_source` and `db_path_resolved`, so a caller reads which database was actually written and where that choice came from, instead of inferring it from the argv it believes it passed.
+- **Thirteen numeric read arguments are range-validated at parse time** — an out-of-range value is refused by clap with **exit 2** before any database work runs, rather than being clamped silently or reaching a query that degrades.
+- **Top-k** (`-k`, `--k`, the read-side `--limit`, `--max-results`): **1..=4096**.
+- **Listing limits** (`export --limit`, `pending --limit`, `pending-embeddings --limit`, `embedding --limit`): **1..=1000000**.
+- **Traversal depth** (`--max-hops`, `--hops`, `--depth`): **1..=64**.
+- **Deep-research fan-out** (`--max-sub-queries`): **1..=64**.
+- **Rustdoc lints denied through the manifest** — the `[lints.rustdoc]` table denies them, so a broken intra-doc link fails the build instead of surviving as a warning.
+
+## v1.2.6 Patch Notes / Agent-native output surface corrections
+
+- Crate `1.2.6`. NO main-DB schema migration (stays at **v16**). Pin `=1.2.6`. Purely corrective: the v1.2.2 output surface keeps its shape, but stops lying.
+- **`--filter` evaluates the set, not the page** — the predicate is applied to the whole result set instead of to the elements that happened to be emitted, so a filter no longer depends on where the emission cap fell.
+- **An unknown key is refused, not answered** — a key that does not exist in `--select` / `--filter` now aborts with **exit 2** instead of returning an empty payload with exit 0, so a typo is never mistaken for a legitimately empty result.
+- **The result array is no longer fabricated** — an envelope that carries no result array is left alone rather than being given a synthetic one.
+- **A declared knob that does nothing no longer exits 0** — a no-effect knob is reported instead of being swallowed by a success envelope.
 
 ## v1.2.2 Patch Notes / Agent-native output surface
 
@@ -812,7 +831,7 @@ sqlite-graphrag hybrid-search "$GEMINI_QUERY" --json --k 5 \
 
 ## Stable Identity
 ### Facts that remain invariant across doc updates
-- Package `sqlite-graphrag` **v1.2.2** published on crates.io with MSRV Rust 1.88 (schema v16; agent-native output surface + `--no-input`; no main-DB migration)
+- Package `sqlite-graphrag` **v1.2.7** published on crates.io with MSRV Rust 1.88 (schema v16; target provenance + range-validated reads; agent-native output surface + `--no-input`; no main-DB migration)
 - Repository `https://github.com/danilo-aguiar-br/sqlite-graphrag` without GitHub Actions CI (releases published manually)
 - License dual `MIT OR Apache-2.0` with individual license files at the repository root
 - Embedding generation: delegated to OpenRouter REST API (v1.0.93, ~100-500ms) or headless `claude code` / `codex` / `opencode` subprocess (OAuth, ~20-60s) per call. The Rust binary holds no model.

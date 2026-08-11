@@ -251,8 +251,20 @@ pub(crate) fn call_deep_research_synth(
                     entity_type: etype,
                     description: None,
                 };
-                let _ = entities::upsert_entity(conn, namespace, &ne);
-                ent_count += 1;
+                // Counted only when it PERSISTED. The increment used to sit
+                // outside the result, so an entity the database rejected — an
+                // LLM-extracted name failing validation is routine — still
+                // raised the number the envelope reported. That is not a silent
+                // discard, it is a false count: a caller reading
+                // `entities: 5` had no way to learn that two never landed.
+                //
+                // A rejection stays non-fatal on purpose. Propagating it would
+                // turn one bad name into a failed item, which the queue would
+                // retry and eventually mark dead, trading a partial success for
+                // a permanent failure.
+                if entities::upsert_entity(conn, namespace, &ne).is_ok() {
+                    ent_count += 1;
+                }
             }
         }
     }
@@ -272,10 +284,15 @@ pub(crate) fn call_deep_research_synth(
                 entities::find_entity_id(conn, namespace, src)?,
                 entities::find_entity_id(conn, namespace, tgt)?,
             ) {
-                let _ = entities::create_or_fetch_relationship(
+                // Same correction as the entity loop above: the count follows
+                // the write, not the attempt.
+                if entities::create_or_fetch_relationship(
                     conn, namespace, sid, tid, rel, str_, None,
-                );
-                rel_count += 1;
+                )
+                .is_ok()
+                {
+                    rel_count += 1;
+                }
             }
         }
     }

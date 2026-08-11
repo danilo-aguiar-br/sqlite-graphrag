@@ -15,6 +15,31 @@
 - Formal test plan with layers, triggers and release gates: [TEST_PLAN.md](TEST_PLAN.md)
 
 
+## v1.2.7 — Installed-Binary Suites Are Opt-In, and the Harness Envs Are Named
+
+The three `installed_binary_smoke_*` suites validate `~/.cargo/bin/sqlite-graphrag`, not the binary `cargo test` has just built. That is deliberate: they exist to catch a green workspace hiding behind a stale install. Until v1.2.7, however, the check was wired so that no correct code could satisfy it. `Cargo.toml` is bumped before the gate runs, the gate asserts installed equals workspace, and installing is only safe once the gate has passed. Every release therefore opened with 26 red tests that said nothing about the code.
+
+They now carry `#[ignore]`, so libtest reports them in the summary as ignored rather than failing, and rather than pretending. The order to run is:
+
+1. `cargo test --lib --all-features --locked` and `cargo test --tests --all-features --locked`, accepting the 26 as ignored.
+2. `cargo install --path . --locked --force`, which replaces the binary the operator is currently running — never a neutral act mid-session.
+3. `cargo test --test installed_binary_smoke_crud --test installed_binary_smoke_graph --test installed_binary_smoke_maintenance -- --ignored`.
+
+Step 3 is where `assert_expected_installed_version` earns its place. By then the versions must match, so a mismatch is a real defect instead of an artefact of ordering.
+
+The same release removed a silent failure mode. `skip_if_not_installed` called `std::process::exit(0)` when no binary was installed. libtest captures per-test output, and a bare `process::exit` never flushes that capture, so the explanatory message reached nobody while the suite reported success without running a single assertion — the exact pattern `src/commands/optimize.rs` already forbids in `src/` under GAP-SG-125. Asking for the installed-binary suite without an installed binary now panics.
+
+Three environment variables belong to the test harness and are not product configuration. The product reads none of them (G-T-XDG-04):
+
+- `SGR_TEST_EXPECT_INSTALLED_VERSION` overrides the version the smoke suites expect, in place of `CARGO_PKG_VERSION`.
+- `SGR_TEST_ALLOW_INSTALLED_VERSION_MISMATCH=1` downgrades the version assertion to a warning, for a deliberate audit of an older install.
+- `SGR_TEST_BENCH_OPT_IN=1` is required by `benches/retrieval_bench.rs`, which panics without it.
+
+The same release moved two rules that no gate was watching into `tests/`, where `cargo test` reaches them:
+
+- `tests/fmt_gate.rs::the_workspace_is_rustfmt_clean` runs `cargo fmt --all --check` from inside the suite. This repository forbids CI, as `tests/no_ci_workflows_gate.rs` states in so many words, so `cargo test` is the only automatic gate and every other guard lives in `tests/`. A rule that needs a tool other than rustc therefore sat outside every gate, enforced only by a pre-publish script and only when somebody remembered to invoke it. The v1.2.7 pre-publish run found drift in five places, all of it written during the session that had just declared the release ready — the signature of a rule nothing checks. `cargo fmt` neither reads nor writes `target/`, so it takes no build lock and costs no contention with a compilation already in flight (GAP-SG-211).
+- `tests/numeric_bounds_gate.rs::every_bounded_numeric_argument_declares_a_value_parser` scans `src/commands/` and demands a `value_parser` on every numeric clap argument whose name bounds a result set, a page or a walk: `limit`, `k`, `top_k`, `depth`, `max_hops`, `max_results`, `max_sub_queries`. The concurrency surface was already ranged and the memory surface was not. `related --limit` allocated `Vec::with_capacity(limit)` before any row could bound it, so an absurd value aborted the process on allocation instead of returning the exit code this crate reserves for memory pressure. The gate reads the source text rather than the built `Command` because clap erases the range into an opaque `ValueParser`, so the parsed tree cannot answer whether an argument is bounded (GAP-SG-213).
+
 ## v1.2.2 — Agent-Native Output Surface and Cross-Platform Type-Check
 
 ### Testing the output surface

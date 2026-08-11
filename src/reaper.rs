@@ -6,7 +6,7 @@
 //! MCP-spawned subprocess trees (the 2026-06-03 incident: 1.877 processes
 //! total, load average 276 on a 10-CPU host).
 //!
-//! [`scan_and_kill_orphans`] walks the process table at startup and
+//! [`crate::reaper::scan_and_kill_orphans`] walks the process table at startup and
 //! terminates any `claude` or `codex` invocation whose `PPID` is `1`
 //! (reparented to `init`/`launchd` after the parent died) and that is
 //! older than the `ORPHAN_MIN_AGE_SECS` constant. The scan is conservative: it only

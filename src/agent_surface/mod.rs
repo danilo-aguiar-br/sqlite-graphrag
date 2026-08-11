@@ -5,7 +5,7 @@
 //! module gives the CLI the projection / filter / sort / dedup / limit /
 //! truncation surface the sibling tools already expose, applied at a **single**
 //! point: [`crate::output`] serializes the response, hands the resulting
-//! [`serde_json::Value`] to [`apply`], and writes what comes back.
+//! [`serde_json::Value`] to `apply`, and writes what comes back.
 //!
 //! Working on the serialized value rather than on each command's response
 //! struct is what keeps this DRY — one implementation covers the whole CLI and
@@ -57,11 +57,16 @@
 
 pub mod budget;
 pub mod filter;
+pub mod gate;
 pub mod shape;
+pub mod target;
+pub mod universe;
+pub mod vocabulary;
 
 #[cfg(test)]
 mod tests;
 
+use crate::errors::AppError;
 use filter::FilterExpr;
 use serde_json::{json, Map, Value};
 use std::sync::OnceLock;
@@ -76,6 +81,29 @@ pub struct AgentSurface {
     /// contract applies, and therefore takes no part in [`Self::is_noop`]. A
     /// surface carrying only a command name still changes nothing.
     pub command: Option<String>,
+    /// Whether the subcommand can change durable state, as
+    /// [`crate::cli::Commands::mutates`] reports it.
+    ///
+    /// CONTEXT, never a knob, so it takes no part in [`Self::is_noop`]. The gate
+    /// reads it to stay silent after a write: refusing at output time would
+    /// report failure for an operation that already succeeded.
+    pub mutates: bool,
+    /// Escape hatch for `--allow-unknown-keys`: tolerate a key nothing carries.
+    ///
+    /// CONTEXT, never a knob. On its own it changes no envelope; it only widens
+    /// what the gate accepts.
+    pub allow_unknown_keys: bool,
+    /// What `--filter-scope` declared the predicate may observe.
+    ///
+    /// CONTEXT, never a knob: on its own it changes no envelope, it only tells
+    /// the gate which reading the caller meant.
+    pub filter_scope: Option<universe::FilterScope>,
+    /// Whether `--use-active` accepted an ambient target on purpose.
+    ///
+    /// CONTEXT, never a knob, so it takes no part in [`Self::is_noop`]. It
+    /// dispenses a mutating verb from naming its target in the argv, and
+    /// [`target`] records that it was used.
+    pub use_active: bool,
     /// Keys kept by `--select` / `--fields`, in the requested order.
     pub select: Vec<String>,
     /// Predicates from `--filter`, conjoined with AND.
@@ -95,7 +123,7 @@ pub struct AgentSurface {
 }
 
 impl AgentSurface {
-    /// `true` when no knob is set and [`apply`] must be a no-op.
+    /// `true` when no knob is set and `apply` must be a no-op.
     pub fn is_noop(&self) -> bool {
         self.select.is_empty()
             && self.filters.is_empty()
@@ -131,7 +159,10 @@ pub fn active() -> bool {
 }
 
 /// Applies the installed surface to `value`.
-pub fn apply_global(value: Value) -> Value {
+///
+/// # Errors
+/// Propagates the refusal raised by `apply` when the request is incoherent.
+pub fn apply_global(value: Value) -> Result<Value, AppError> {
     apply(get(), value)
 }
 
@@ -142,25 +173,104 @@ const META_KEY: &str = "agent_surface";
 const TRUNCATED_KEY: &str = "truncated";
 
 /// Applies `surface` to `value`, honouring the invariants documented above.
-pub fn apply(surface: &AgentSurface, mut value: Value) -> Value {
-    if surface.is_noop() || is_passthrough(&value) {
-        return value;
+///
+/// # Errors
+/// Returns [`AppError::Usage`] when the request cannot be honoured as asked —
+/// see [`gate`] for the three shapes that earns.
+pub fn apply(surface: &AgentSurface, value: Value) -> Result<Value, AppError> {
+    apply_with_target(surface, value, target::record(surface))
+}
+
+/// The body of `apply`, with the resolved target supplied rather than read.
+///
+/// The target lives in a process-wide `OnceLock`, which is correct for a
+/// one-shot binary and wrong for a test binary: `paths` and `agent_surface` unit
+/// tests share one process, so whether a target exists would depend on which
+/// test ran first. Taking it as an argument makes every test state its own
+/// premise, and keeps the production call site the only place that reads global
+/// state.
+///
+/// # Errors
+/// Returns [`AppError::Usage`] when the request cannot be honoured as asked.
+pub fn apply_with_target(
+    surface: &AgentSurface,
+    mut value: Value,
+    target: Option<Map<String, Value>>,
+) -> Result<Value, AppError> {
+    // Checked FIRST, and separately from the no-op case below: a schema document
+    // is a contract rather than a result, and a failure envelope carries its own
+    // target record from `crate::output::error_envelope`, so neither is
+    // annotated here.
+    if is_passthrough(&value) {
+        return Ok(value);
+    }
+    if surface.is_noop() {
+        // No knob is set, so nothing is reshaped — and yet the resolved target
+        // is still reported. Until v1.2.6 this branch returned unconditionally,
+        // which is precisely how a universal contract ended up visible only to
+        // callers who had already set an unrelated flag. See [`target`].
+        if let Some(meta) = target {
+            attach_meta(&mut value, &meta, false);
+        }
+        return Ok(value);
     }
 
     let array_key = locate_result_array(&value);
     let aliases_removed = suppress_alias_arrays(surface, &mut value, array_key.as_deref());
     let items = take_items(&mut value, array_key.as_deref());
 
+    // Resolution runs on the lifted elements and on what is LEFT of the
+    // envelope, which is exactly the split GAP-SG-203 turns on: a key found only
+    // on the remainder is a key the predicate would never have reached.
+    const NO_ELEMENTS: &[Value] = &[];
+    let findings = gate::evaluate(
+        surface,
+        &vocabulary::Scope::new(items.as_deref().unwrap_or(NO_ELEMENTS), &value),
+        array_key.as_deref(),
+        items.is_some(),
+    )?;
+
     let (payload, mut meta) = match items {
         Some(items) => shape_items(surface, value, array_key.as_deref(), items),
         None => shape_scalar_envelope(surface, value),
     };
 
+    // GAP-SG-205: merged at the ONE point both shaping paths converge on, so the
+    // shaped and the inert envelopes can never report different things about the
+    // same process.
+    if let Some(record) = target {
+        meta.extend(record);
+    }
+
     if !aliases_removed.is_empty() {
         meta.insert("aliases_removed".into(), json!(aliases_removed));
     }
+    if findings.is_partial() {
+        // A projection that dropped part of what was asked for says so, so a
+        // caller never reads a missing field as a missing value.
+        meta.insert("unresolved_keys".into(), json!(findings.unresolved_keys));
+        meta.insert("resolved_keys".into(), json!(findings.resolved_keys));
+        meta.insert("key_resolution".into(), json!("partial"));
+        if !findings.key_suggestions.is_empty() {
+            meta.insert("key_suggestions".into(), json!(findings.key_suggestions));
+        }
+        if findings.vocabulary_partial {
+            meta.insert("vocabulary_partial".into(), Value::Bool(true));
+        }
+    }
+    // Which member the reshaping actually acted on, and whether the CLI named it
+    // or the surface guessed. A caller that asked about a top-level key and got a
+    // narrowed array deserves to see that its request was redirected.
+    if let Some(key) = array_key.as_deref() {
+        let source = if is_declared_result_array(key) {
+            ARRAY_SOURCE_DECLARED
+        } else {
+            ARRAY_SOURCE_FALLBACK
+        };
+        meta.insert("result_array_source".into(), json!(source));
+    }
 
-    finalize(surface, payload, array_key.as_deref(), meta)
+    Ok(finalize(surface, payload, array_key.as_deref(), meta))
 }
 
 /// Drops the derived arrays that merely restate the member being reshaped.
@@ -177,7 +287,7 @@ pub fn apply(surface: &AgentSurface, mut value: Value) -> Value {
 /// from `graph_matches` — suppressing there deleted required data. An unknown or
 /// absent subcommand suppresses nothing.
 ///
-/// Returns the removed member names in declaration order, so [`apply`] can
+/// Returns the removed member names in declaration order, so `apply` can
 /// record them; an empty vector means nothing was dropped. Only members that
 /// are actually arrays are removed, so an envelope that reuses one of these
 /// names for a scalar keeps it, and a declared derived member the envelope
@@ -245,6 +355,30 @@ fn locate_result_array(value: &Value) -> Option<String> {
         .map(|(k, _)| k.clone())
 }
 
+/// Whether `key` is a member the CLI declared as a result set.
+///
+/// The distinction is load-bearing, not cosmetic. [`locate_result_array`] falls
+/// back to "the first member that is an array" when no known name matches, which
+/// is a guess: `stats` carries `namespaces`, so the fallback elected it and
+/// `--select total_memories` — a documented, top-level key — became unresolvable.
+/// An array chosen by heuristic is not a declared collection, and the gate and
+/// the record both have to say so. One implementation, two readers.
+fn is_declared_result_array(key: &str) -> bool {
+    crate::constants::AGENT_SURFACE_RESULT_KEYS.contains(&key)
+}
+
+/// Wire spelling for a count that the output ceiling reduced.
+const COUNT_SCOPE_EMITTED: &str = "emitted";
+
+/// Wire spelling for a count of every element that satisfied the predicates.
+const COUNT_SCOPE_MATCHED: &str = "matched";
+
+/// Wire spelling for an array the CLI named as its result set.
+const ARRAY_SOURCE_DECLARED: &str = "declared";
+
+/// Wire spelling for an array the surface elected for want of a declared one.
+const ARRAY_SOURCE_FALLBACK: &str = "fallback";
+
 /// Removes the result array from `value` so it can be reshaped in place.
 fn take_items(value: &mut Value, array_key: Option<&str>) -> Option<Vec<Value>> {
     match array_key {
@@ -274,6 +408,9 @@ fn shape_items(
     if let Some(key) = &surface.dedupe_by {
         items = shape::dedupe(items, key);
     }
+    // Measured BEFORE the output ceiling, because that is the only point where
+    // "how many rows satisfied the predicate" still has an answer.
+    let matched_count = items.len();
     items = shape::limit(items, surface.max_items);
     items = shape::project(items, &surface.select);
     let output_count = items.len();
@@ -281,6 +418,18 @@ fn shape_items(
     if surface.count_only {
         let mut meta = base_meta(surface, input_count, output_count);
         meta.insert("count_only".into(), Value::Bool(true));
+        // `--count-only` counts what SURVIVED, which is not always what matched:
+        // the count runs after `--max-items`, so a cap of 10 over 39 matches
+        // answers `10`. Documented, deliberate, and until now indistinguishable
+        // from a corpus that really held ten. This names which of the two it is.
+        meta.insert(
+            "count_scope".into(),
+            json!(if output_count < matched_count {
+                COUNT_SCOPE_EMITTED
+            } else {
+                COUNT_SCOPE_MATCHED
+            }),
+        );
         return (json!({ "count": output_count }), meta);
     }
 
@@ -318,7 +467,14 @@ fn shape_items(
 /// instead of shrinking them. Capping is safe because it removes whole
 /// elements, never fields inside one.
 ///
-/// Returns the member names that were actually shortened, in envelope order.
+/// Returns the member names that were actually shortened, in ascending key
+/// order.
+///
+/// NOT insertion order, and the difference is observable: `serde_json` is built
+/// here without the `preserve_order` feature, so a [`Map`] is a `BTreeMap` and
+/// iteration follows the key's `Ord`. Saying "envelope order" invited a caller
+/// to read a position that never encoded anything. Ascending order is also what
+/// makes this list identical on Linux, macOS and Windows.
 fn cap_secondary_arrays(envelope: &mut Value, max_items: usize) -> Vec<String> {
     if max_items == 0 {
         return Vec::new();
@@ -343,6 +499,9 @@ fn shape_scalar_envelope(surface: &AgentSurface, envelope: Value) -> (Value, Map
     if surface.count_only {
         let mut meta = base_meta(surface, 1, 1);
         meta.insert("count_only".into(), Value::Bool(true));
+        // An envelope with no result array is one thing, and no ceiling can make
+        // it fewer, so the count always describes what matched.
+        meta.insert("count_scope".into(), json!(COUNT_SCOPE_MATCHED));
         return (json!({ "count": 1 }), meta);
     }
     let projected = shape::project_one(envelope, &surface.select);
@@ -369,7 +528,47 @@ fn base_meta(surface: &AgentSurface, input: usize, output: usize) -> Map<String,
     if surface.max_items > 0 {
         meta.insert("max_items".into(), json!(surface.max_items));
     }
+    // GAP-SG-205 is deliberately NOT here: the target is merged by
+    // [`apply_with_target`], which is the one point the shaped and the inert
+    // paths share. Attaching it inside this function is what made it invisible
+    // whenever the surface was inert.
+    insert_query_ceiling(&mut meta);
     meta
+}
+
+/// Writes what the QUERY had already removed, when the command declared it.
+///
+/// GAP-SG-201: reported whatever the verdict, because a top-k is never refused
+/// and this is how its narrowness stops being invisible.
+///
+/// Shared by the shaping path and the inert one for the same reason the target
+/// is: both are facts about the PROCESS, not about the reshaping. Until v1.2.7
+/// this lived inside [`base_meta`] alone, so `deep-research "x"` with no knob
+/// reported its resolved target and stayed silent about having cut the ranking
+/// to five — the exact asymmetry the inert path was created to remove.
+fn insert_query_ceiling(meta: &mut Map<String, Value>) {
+    if let Some(ceiling) = universe::get() {
+        meta.insert("query_limited".into(), json!(true));
+        meta.insert("query_limit".into(), json!(ceiling.applied));
+        meta.insert("query_limit_source".into(), json!(ceiling.source.as_str()));
+        meta.insert("query_limit_kind".into(), json!(ceiling.kind.as_str()));
+        if let Some(total) = ceiling.universe_total {
+            meta.insert("universe_total".into(), json!(total));
+        }
+        // Three readings, not two. A top-k is neither the universe nor a page
+        // of one: the caller never asked for a corpus, so reporting `universe`
+        // would claim a completeness it never had, and reporting `page` would
+        // imply a larger set the command cannot name.
+        let scope = match ceiling.kind {
+            universe::CeilingKind::TopK => "top-k",
+            universe::CeilingKind::Pagination if ceiling.truncated_the_universe() => "page",
+            universe::CeilingKind::Pagination => "universe",
+        };
+        meta.insert("filter_scope".into(), json!(scope));
+        if scope == "page" {
+            meta.insert("filter_incomplete".into(), Value::Bool(true));
+        }
+    }
 }
 
 /// Applies the content and byte ceilings, then attaches the record.
@@ -479,13 +678,24 @@ fn encoded_len(value: &Value) -> usize {
 /// Writes the record into an object envelope, raising `truncated` when needed.
 ///
 /// Array envelopes have nowhere to carry the record; the shaping still applied,
-/// it is simply not annotated. Existing members are never overwritten.
+/// it is simply not annotated.
+///
+/// The flag is raised even over an existing `false`. Until v1.2.6 the write was
+/// guarded by `!map.contains_key`, which sounds conservative and was not: `list`
+/// serializes `truncated` unconditionally (`ListResponse` declares it as a plain
+/// `bool`), so the member was ALWAYS present and the surface could never raise
+/// it on the most used command in the binary. The module has always promised
+/// that removing data is never silent; that promise was quietly false wherever
+/// the command shipped its own flag.
+///
+/// Raising it is also monotonic — `true` is never written back to `false` — so
+/// a command that already truncated its own rows keeps saying so.
 fn attach_meta(payload: &mut Value, meta: &Map<String, Value>, truncated: bool) {
     let Some(map) = payload.as_object_mut() else {
         return;
     };
     map.insert(META_KEY.to_string(), Value::Object(meta.clone()));
-    if truncated && !map.contains_key(TRUNCATED_KEY) {
+    if truncated {
         map.insert(TRUNCATED_KEY.to_string(), Value::Bool(true));
     }
 }

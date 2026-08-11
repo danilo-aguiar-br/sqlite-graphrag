@@ -30,7 +30,7 @@ pub const ENRICH_MAX_TOKENS_GROWTH_FACTOR: u32 = 2;
 /// (GAP-SG-70/71).
 ///
 /// Kept with margin under the ~32K-token context ceiling of
-/// `deepseek/deepseek-v4-flash:nitro` (see [`EMBEDDING_REQUEST_MAX_TOKENS`]
+/// `deepseek/deepseek-v4-flash:nitro` (see [`crate::constants::EMBEDDING_REQUEST_MAX_TOKENS`]
 /// for the equivalent embedding-side ceiling) so growth never requests a
 /// budget the model cannot honour.
 pub const ENRICH_MAX_TOKENS_CEILING: u32 = 16_384;

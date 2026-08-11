@@ -19,21 +19,66 @@ pub fn parse_expected_updated_at(s: &str) -> Result<i64, String> {
         })
 }
 
-/// Validates `-k`/`--k` for `recall` and `hybrid-search` to the inclusive range `1..=4096`.
+/// Shared range check behind every numeric read-path argument.
 ///
-/// The upper bound matches the `sqlite-vec` knn limit; values above it would surface a leaky
-/// engine error such as `k value in knn query too large, provided 10000 and the limit is 4096`.
-/// Validating at parse time turns the failure into a clean Clap error before any database work.
-pub fn parse_k_range(s: &str) -> Result<usize, String> {
+/// Until v1.2.7 this logic existed once, for `-k`, and the other twelve numeric
+/// arguments had no validator at all. `related --limit` was the sharp end of
+/// that: it drove `Vec::with_capacity(limit)` before any data could bound it,
+/// so an absurd value aborted the process on allocation instead of returning
+/// the exit code this crate reserves for memory pressure. Every ceiling now
+/// lives in `crate::constants` and every public parser below is one line, so a
+/// new bounded argument costs a wrapper rather than a copy of this function.
+fn parse_usize_in_range(s: &str, lo: usize, hi: usize) -> Result<usize, String> {
     let value: usize = s
         .parse()
         .map_err(|_| format!("'{s}' is not a valid non-negative integer"))?;
-    if !(1..=4096).contains(&value) {
+    if !(lo..=hi).contains(&value) {
+        // The argument is not named here on purpose: Clap already prefixes the
+        // message with `invalid value '...' for '--limit <LIMIT>'`, so naming a
+        // field would contradict that prefix wherever a parser is shared.
         return Err(format!(
-            "k must be between 1 and 4096 (inclusive); got {value}"
+            "must be between {lo} and {hi} (inclusive); got {value}"
         ));
     }
     Ok(value)
+}
+
+/// Validates `-k`/`--k` on every retrieval command.
+///
+/// The upper bound matches the historical `sqlite-vec` knn limit; values above
+/// it used to surface a leaky engine error such as `k value in knn query too
+/// large, provided 10000 and the limit is 4096`. Validating at parse time turns
+/// the failure into a clean Clap error before any database work.
+pub fn parse_k_range(s: &str) -> Result<usize, String> {
+    parse_usize_in_range(s, 1, crate::constants::K_QUERY_RANGE_MAX)
+}
+
+/// Validates `--limit` on the commands that page over stored rows.
+///
+/// A looser ceiling than [`parse_k_range`] because `export --limit` ships a
+/// default of 100_000. These values reach SQLite as a `LIMIT` clause, where the
+/// row count already bounds the work, so the check rejects absurd input rather
+/// than guarding memory.
+pub fn parse_list_limit_range(s: &str) -> Result<usize, String> {
+    parse_usize_in_range(s, 1, crate::constants::K_LIST_LIMIT_MAX)
+}
+
+/// Validates `--max-hops` and `--depth` where the argument is a `usize`.
+pub fn parse_hops_range_usize(s: &str) -> Result<usize, String> {
+    parse_usize_in_range(s, 1, crate::constants::K_MAX_HOPS_CEILING as usize)
+}
+
+/// Validates `--max-hops` and `--depth` where the argument is a `u32`.
+pub fn parse_hops_range_u32(s: &str) -> Result<u32, String> {
+    parse_usize_in_range(s, 1, crate::constants::K_MAX_HOPS_CEILING as usize).map(|v| v as u32)
+}
+
+/// Validates `deep-research --max-sub-queries`.
+///
+/// This ceiling guards spend rather than memory: every sub-query is a separate
+/// REST round trip, so an unbounded value bills an unbounded fan-out.
+pub fn parse_sub_queries_range(s: &str) -> Result<usize, String> {
+    parse_usize_in_range(s, 1, crate::constants::K_MAX_SUB_QUERIES_CEILING)
 }
 
 /// Flexible boolean parser for Clap env var integration.

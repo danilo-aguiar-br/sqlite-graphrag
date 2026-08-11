@@ -30,7 +30,7 @@ pub struct NewMemory {
 
 /// Fully materialized row from the `memories` table.
 ///
-/// Returned by [`read_by_name`], [`read_full`], [`list`] and [`fts_search`].
+/// Returned by `read_by_name`, `read_full`, `list` and `fts_search`.
 /// The `metadata` field is kept as a JSON string to avoid double parsing.
 #[derive(Debug, Serialize)]
 pub struct MemoryRow {

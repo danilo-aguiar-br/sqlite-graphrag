@@ -242,7 +242,6 @@ pub mod memory_guard;
 
 /// Type-safe enumeration of the five `memories.source` CHECK constraint values.
 /// Replaces the footgun `pub source: String` to prevent G29-style regressions.
-#[allow(rustdoc::broken_intra_doc_links)]
 pub mod memory_source;
 
 /// Namespace resolution with precedence between flag, environment and markers.
@@ -290,7 +289,6 @@ pub mod signals;
 pub mod retry;
 
 /// G28: orphan-process reaper that runs at CLI startup.
-#[allow(rustdoc::broken_intra_doc_links)]
 pub mod reaper;
 
 /// G28-D: system load average observation (pre-spawn saturation check).

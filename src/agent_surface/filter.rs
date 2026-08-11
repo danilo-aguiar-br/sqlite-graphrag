@@ -86,6 +86,20 @@ impl FilterExpr {
         })
     }
 
+    /// The dotted path this predicate addresses, as the caller wrote it.
+    ///
+    /// The gate needs the key to resolve it against the envelope vocabulary and
+    /// to name it in a refusal; rebuilding the string from [`Self::path`] at
+    /// every call site would duplicate the join.
+    pub fn key(&self) -> String {
+        self.path.join(".")
+    }
+
+    /// The parsed path segments, for callers that resolve rather than compare.
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
+
     /// Evaluates the predicate against one element.
     ///
     /// A missing or non-scalar path never satisfies [`FilterOp::Equals`] or
@@ -111,6 +125,21 @@ pub fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
     let mut cursor = value;
     for segment in path {
         cursor = cursor.as_object()?.get(segment.as_str())?;
+    }
+    Some(cursor)
+}
+
+/// Walks a dotted path given as one unsplit string.
+///
+/// The sibling of [`lookup`], for callers that hold the key as the caller wrote
+/// it rather than pre-split. [`FilterExpr`] splits once at parse time because it
+/// then walks the path for every element; the gate resolves a key against many
+/// elements too, but it holds the key as text and splitting it per call would
+/// allocate a `Vec<String>` the walk never needs.
+pub fn resolve<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+    let mut cursor = value;
+    for segment in key.split('.') {
+        cursor = cursor.as_object()?.get(segment)?;
     }
     Some(cursor)
 }
