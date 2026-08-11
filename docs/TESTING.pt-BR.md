@@ -15,6 +15,31 @@
 - Plano de testes formal com camadas, gatilhos e gates de release: [TEST_PLAN.pt-BR.md](TEST_PLAN.pt-BR.md)
 
 
+## v1.2.7 — Suítes do Binário Instalado Viram Opt-In, e os Envs de Harness Ganham Nome
+
+As três suítes `installed_binary_smoke_*` validam `~/.cargo/bin/sqlite-graphrag`, e não o binário que o `cargo test` acabou de compilar. Isso é deliberado: elas existem para pegar um workspace verde escondido atrás de uma instalação velha. Até a v1.2.7, porém, a checagem estava montada de um jeito que nenhum código correto conseguia satisfazer. O `Cargo.toml` sobe de versão antes do gate rodar, o gate exige que o instalado seja igual ao workspace, e instalar só é seguro depois que o gate passa. Toda release, portanto, começava com 26 testes vermelhos que nada diziam sobre o código.
+
+Elas agora carregam `#[ignore]`, então o libtest as reporta no sumário como ignoradas, em vez de falhar e em vez de fingir. A ordem de execução é:
+
+1. `cargo test --lib --all-features --locked` e `cargo test --tests --all-features --locked`, aceitando as 26 como ignoradas.
+2. `cargo install --path . --locked --force`, que substitui o binário que o operador está usando agora — nunca um ato neutro no meio de uma sessão.
+3. `cargo test --test installed_binary_smoke_crud --test installed_binary_smoke_graph --test installed_binary_smoke_maintenance -- --ignored`.
+
+O passo 3 é onde `assert_expected_installed_version` justifica seu lugar. Ali as versões precisam bater, então divergência é defeito real e não artefato de ordenação.
+
+A mesma release removeu um modo de falha silencioso. `skip_if_not_installed` chamava `std::process::exit(0)` quando não havia binário instalado. O libtest captura a saída de cada teste, e um `process::exit` nu nunca faz o flush dessa captura, então a mensagem explicativa não chegava a ninguém enquanto a suíte reportava sucesso sem rodar uma única asserção — exatamente o padrão que `src/commands/optimize.rs` já proíbe em `src/` sob o GAP-SG-125. Pedir a suíte do binário instalado sem binário instalado agora entra em pânico.
+
+Três variáveis de ambiente pertencem ao harness de teste e não são configuração de produto. O produto não lê nenhuma delas (G-T-XDG-04):
+
+- `SGR_TEST_EXPECT_INSTALLED_VERSION` sobrescreve a versão que as suítes smoke esperam, no lugar de `CARGO_PKG_VERSION`.
+- `SGR_TEST_ALLOW_INSTALLED_VERSION_MISMATCH=1` rebaixa a asserção de versão para aviso, para auditoria deliberada de uma instalação antiga.
+- `SGR_TEST_BENCH_OPT_IN=1` é exigida por `benches/retrieval_bench.rs`, que entra em pânico sem ela.
+
+A mesma release moveu para `tests/` duas regras que nenhum gate vigiava, onde o `cargo test` as alcança:
+
+- `tests/fmt_gate.rs::the_workspace_is_rustfmt_clean` roda `cargo fmt --all --check` de dentro da suíte. Este repositório proíbe CI, como `tests/no_ci_workflows_gate.rs` declara em texto literal, então o `cargo test` é o único gate automático e toda outra guarda vive em `tests/`. Uma regra que exige ferramenta diferente do rustc ficava, portanto, fora de qualquer gate, imposta só por um script pré-publicação e só quando alguém lembrava de invocá-lo. A execução pré-publicação da v1.2.7 encontrou deriva em cinco pontos, todos escritos na mesma sessão que acabara de declarar a release pronta — a assinatura de uma regra que nada verifica. O `cargo fmt` não lê nem escreve em `target/`, então não toma o build lock e não custa contenção com uma compilação já em curso (GAP-SG-211).
+- `tests/numeric_bounds_gate.rs::every_bounded_numeric_argument_declares_a_value_parser` varre `src/commands/` e exige `value_parser` em todo argumento numérico do clap cujo nome limita um conjunto de resultados, uma página ou uma travessia: `limit`, `k`, `top_k`, `depth`, `max_hops`, `max_results`, `max_sub_queries`. A superfície de concorrência já tinha faixa declarada e a de memória não. O `related --limit` alocava `Vec::with_capacity(limit)` antes que qualquer linha pudesse limitá-lo, então um valor absurdo abortava o processo na alocação em vez de devolver o exit code que esta crate reserva para pressão de memória. O gate lê o texto-fonte em vez da `Command` construída porque o clap apaga a faixa dentro de um `ValueParser` opaco, de modo que a árvore parseada não consegue responder se um argumento é limitado (GAP-SG-213).
+
 ## v1.2.2 — Superfície de Saída Agent-Native e Type-Check Multiplataforma
 
 ### Testando a superfície de saída
@@ -177,8 +202,6 @@ cargo test --test cli_db_noop_host_surfaces_regression
   - `auto_describe_ignores_short_and_blank_lines` — linhas curtas (<21 chars) e linhas em branco são puladas
 - `tests/binary_size_documented_regression.rs::assert_documented_size_matches_real` — GAP-E2E-001. Verifica que a descrição em `Cargo.toml:6` confere com o tamanho real do binário dentro de ±5%
 - `tests/health_schema_drift_regression.rs::assert_all_health_keys_in_schema` — GAP-E2E-007. Verifica que todos os 17 novos campos estão presentes no `health.schema.json` regenerado e que `additionalProperties: true` (política Must-Ignore por RFC 7493 I-JSON) é respeitada
-
-## Tamanho Atual da Suite de Testes
 
 ## v1.0.85 — Suite de Testes de Cinco Gaps (ADR-0043)
 
@@ -628,3 +651,17 @@ A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-
 - Documentação do cargo-nextest: `https://nexte.st/`
 - Referência de configuração do cargo-nextest: `https://nexte.st/docs/configuration/`
 - Crate serial_test: `https://docs.rs/serial_test/latest/serial_test/`
+
+
+## Notas da Suíte de Testes da v1.0.82
+### Contagem de Testes e Flakes Conhecidos
+- A v1.0.82 sai com 807 testes, 1 ignorado, 0 falhando (conforme o registro em gaps.md em 2026-06-15)
+- Os quatro novos subcomandos (`pending`, `slots`, `embedding`, `pending-embeddings`) têm cada um 2-3 testes unitários e 1-2 testes de integração
+- Os 5 novos ADRs (0036-0040) têm cada um um teste de regressão em `tests/` nomeado conforme o número do ADR
+- Flake conhecido: `slot_enforces_max_concurrency` é sensível a temporização em runners lentos; ele é retentado automaticamente uma vez com backoff de 50ms antes de ser marcado como falho
+- Flake conhecido: `pending-embeddings process reprocesses failed rows` exige sessão OAuth funcional; gateie-o em `tests/mock-llm/codex` estar no `PATH`
+- A nova crate `fs4` (NÃO `fs2`) é exercitada em `src/llm_slots.rs::acquire_llm_slot`; o teste `llm_slots_acquire_release_cross_process` roda 2 processos filhos que disputam o mesmo slot
+### Artefato do Plano de Testes
+- Veja `docs/TEST_PLAN.pt-BR.md` para o plano consolidado de validação ponta a ponta em 10 fases, por versão
+- O plano valida as migrações de schema V014 e V015, todas as 5 decisões de ADR, o novo exit code 19 e a mitigação do incidente de 401 OAuth do codex
+- Rode da Fase 1 à Fase 10 do `docs/TEST_PLAN.pt-BR.md` em sequência com um banco novo a cada execução (o snapshot avulso `TEST_PLAN_v1.0.82.md` foi aposentado na v1.0.96)

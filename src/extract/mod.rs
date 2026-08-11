@@ -1,6 +1,6 @@
 //! Extraction backend abstraction (v1.0.75 — G21 solution)
 //!
-//! Provides the [`ExtractionBackend`] trait with concrete implementations for
+//! Provides the `ExtractionBackend` trait with concrete implementations for
 //! LLM-only (default in v1.0.75), Embedding (legacy), None (no extraction),
 //! and Composite (orchestrates multiple backends in parallel).
 //!

@@ -11,10 +11,20 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 | Version | Status      | Security Patches         |
 | ------- | ----------- | ------------------------ |
-| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.2 / crate 1.2.2) |
+| 1.2.x   | Supported   | Yes, receives fixes (current line; latest v1.2.7 / crate 1.2.7) |
 | 1.1.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 1.0.x   | Supported   | Yes, receives critical fixes; upgrade to 1.2.x recommended |
 | 0.x     | Unsupported | No patches provided      |
+
+### v1.2.7 security-relevant notes
+- **Database provenance is now published.** Every side-effecting verb emits `db_path_source` and `db_path_resolved` in the envelope, so the caller can see which database a write actually landed in
+- Omitting `--db` does NOT use the current directory: the call silently falls back to the XDG database and exits 0. The provenance fields make that previously silent write to the wrong database visible
+
+### v1.2.6 security-relevant notes
+- **An unknown key in `--select` or `--filter` is no longer silenced.** Such a request used to degrade into an empty result set with exit 0; it is now rejected with exit 2
+- A `--filter` now evaluates the whole set instead of only the current page
+- A declared knob with no effect no longer returns exit 0
+- Security consequence: a caller can no longer mistake a malformed request for a legitimate empty result
 
 ### v1.2.2 security-relevant notes
 - **Failure envelopes are never filtered.** The agent-native output surface (`--filter`, `--select`, `--max-items`, …) reshapes result rows only; an envelope carrying `error: true` or `ok: false` reaches the caller verbatim. A caller can therefore never be led to read a failure as an empty-but-successful result set
@@ -80,7 +90,7 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 ## Security Update Policy
 - Patches for supported versions ship as a new patch release on crates.io and GitHub Releases
 - Every release is validated with the full 10-command quality gate described in CONTRIBUTING
-- CI runs `cargo audit` and `cargo deny check advisories licenses bans sources` on every push
+- Advisory and license checks run LOCALLY by the operator with `cargo audit` and `cargo deny check advisories licenses bans sources`; the repository has no CI workflows, and `cargo test` is the only automatic gate
 - Supply chain is enforced via pinned `constant_time_eq = "=0.4.2"` to protect MSRV 1.88
 - Transitive dependency MSRV drift is monitored proactively per PRD policy
 

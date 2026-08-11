@@ -35,6 +35,7 @@
       "required": ["db_path", "schema_version", "status", "elapsed_ms"],
       "additionalProperties": false,
       "properties": {
+        "agent_surface": { "": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#//AgentSurfaceMeta" },
         "db_path":        { "type": "string" },
         "schema_version": { "type": "integer", "minimum": 0, "description": "Latest applied migration number from refinery_schema_history. Emitted as JSON number since v1.0.35 (was string in v1.0.34 and earlier)." },
         "status":         { "type": "string", "enum": ["ok", "already_up_to_date"] },
@@ -48,6 +49,7 @@
       "required": ["db_path", "schema_version", "applied_migrations", "elapsed_ms"],
       "additionalProperties": false,
       "properties": {
+        "agent_surface": { "": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#//AgentSurfaceMeta" },
         "db_path":             { "type": "string" },
         "schema_version":      { "type": "integer", "minimum": 0, "description": "MAX(version) from refinery_schema_history. Emitted as JSON number since v1.0.35." },
         "applied_migrations":  { "type": "array", "items": { "$ref": "#/$defs/MigrationEntry" }, "description": "List of migrations already applied to this database." },
@@ -61,6 +63,7 @@
       "required": ["db_path", "schema_version", "pending_migrations", "pending_count", "checksum_mismatches", "status", "elapsed_ms"],
       "additionalProperties": false,
       "properties": {
+        "agent_surface": { "": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#//AgentSurfaceMeta" },
         "db_path":             { "type": "string" },
         "schema_version":      { "type": "integer", "minimum": 0, "description": "Latest applied migration number at the time of the probe." },
         "pending_migrations":  { "type": "array", "items": { "$ref": "#/$defs/MigrationEntry" }, "description": "Migrations that would be applied. Empty when the database is already at the latest schema." },

@@ -26,7 +26,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ### Toolchain requirements
 - MSRV is Rust 1.88 declared in `rust-version` inside `Cargo.toml`
 - JAMAIS bump MSRV without opening an RFC-style issue for discussion first
-- Install Rust via `rustup` and pin the toolchain with `rustup default 1.88.0` when reproducing CI
+- Install Rust via `rustup` and pin the toolchain with `rustup default 1.88.0`: this repository has NO remote CI, so the pinned toolchain is the only thing that makes local verification reproducible between contributors
 ### Dependency pinning
 - Direct pin `constant_time_eq = "=0.4.2"` protects MSRV 1.88 from transitive drift via `blake3`
 - JAMAIS run `cargo update` indiscriminately; always open a PR explaining the version bump
@@ -37,7 +37,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 
 ## Branching Strategy
-- Branch `main` is protected and requires a passing CI pipeline for merge
+- Branch `main` is protected; no CI pipeline exists, so the operator MUST run the local verification suite by hand before merging
 - Feature branches SHOULD use the prefix `feature/<short-kebab-case-description>`
 - Bug fix branches SHOULD use the prefix `fix/<short-kebab-case-description>`
 - Documentation-only branches SHOULD use the prefix `docs/<short-kebab-case-description>`
@@ -54,7 +54,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Use `chore` for tooling, CI, or repository maintenance
 - Use `test` for adding or improving tests
 - Use `ci` for CI pipeline changes
-- JAMAIS add `Co-authored-by` for AI agents in commit messages: this is enforced by CI
+- JAMAIS add `Co-authored-by` for AI agents in commit messages: nothing enforces this automatically, so the reviewer MUST check it by hand
 
 
 ## Pull Request Process
@@ -74,7 +74,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 
 
 ## Testing
-- Run the standard suite with `cargo nextest run --profile ci` for the fast CI-aligned runner
+- Run the standard suite with `cargo nextest run --profile ci` for the fast runner: `[profile.ci]` is defined locally in `.config/nextest.toml`, and the profile name is historical, since the run happens on your machine and not on a remote pipeline
 - Run the slow suite separately with `cargo nextest run --profile heavy --features slow-tests`
 - Measure full-audit coverage with `cargo llvm-cov nextest --profile heavy --features slow-tests --summary-only`
 - Keep the full-audit coverage floor at or above 80 percent
@@ -84,16 +84,18 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Treat `init`, `remember`, `recall`, and `hybrid-search` as heavy-memory commands during manual validation
 - Start heavy-command validation with `--max-concurrency 1` and scale only after measuring RSS and swap behavior
 - JAMAIS issue real HTTP requests or touch real filesystem paths outside a `TempDir` in tests
+- `cargo test` is the ONLY automatic gate in this repository, and it runs on your machine: `tests/no_ci_workflows_gate.rs` forbids CI workflows outright, so every other check in this document is a LOCAL step the operator has to remember
 - Run `cargo test --lib lock::tests retry::circuit_breaker_tests` after touching `lock.rs` or `retry.rs` to exercise the new v1.0.68 singleton and circuit-breaker helpers
-- Run `cargo test --test terminal_compile_windows` after touching `src/terminal.rs` to confirm the public surface stays callable; the dedicated CI job `windows-build-check` runs the full cross-platform type check
+- Run `cargo test --test terminal_compile_windows` after touching `src/terminal.rs` to confirm the public surface stays callable; there is no `windows-build-check` CI job, so run `cargo check --target x86_64-pc-windows-msvc --lib --all-features` locally for the full cross-platform type check
 - Test assertions involving timestamps MUST be timezone-agnostic — parse ISO via `chrono::DateTime::parse_from_rfc3339` and compare `timestamp()` against `DateTime::UNIX_EPOCH` instead of hardcoded `1970-01-01T00:00:00` strings; this rule was added after a `SQLITE_GRAPHRAG_DISPLAY_TZ` leak in v1.0.66/v1.0.67 made three pre-existing tests flaky
 - OpenRouter embedding tests live in `tests/openrouter_embedding.rs` using `wiremock` for HTTP mocking; run with `cargo test --test openrouter_embedding`
 - E2E OpenRouter tests with real API are opt-in: use `config add-key openrouter` (or `--openrouter-api-key`) and `--embedding-model` to run against a live endpoint; product never reads `OPENROUTER_API_KEY`; these are NOT part of the default `cargo test` suite
 - v1.2.1 enrich-queue CAPA regressions: when editing enqueue/dequeue/re-embed predicates, run `cargo test --lib commands::enrich` and confirm `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` stay green (namespace claim isolation / `entity:` strip)
 
 ### v1.0.76 Test Matrix (3 features)
-- The CI matrix runs `clippy` and `test` jobs across `default` and `llm-only` features (the `embedding-legacy` leg was removed in v1.0.79 together with the feature)
-- The `default` and `llm-only` jobs install a stub `mock-llm` CLI on `PATH` so embedding round-trip tests can run without real OAuth credentials
+- Historical: the v1.0.76 CI matrix RAN `clippy` and `test` jobs across `default` and `llm-only` features (the `embedding-legacy` leg was removed in v1.0.79 together with the feature)
+- Historical: those `default` and `llm-only` jobs INSTALLED a stub `mock-llm` CLI on `PATH` so embedding round-trip tests could run without real OAuth credentials
+- Today that matrix no longer exists: `.github/` holds only issue and pull request templates, and `tests/no_ci_workflows_gate.rs` forbids workflows and FAILS if any file appears under `.github/workflows/`. Reproduce the feature legs locally with `cargo test --no-default-features --features llm-only`
 
 - New code that touches `src/extract/llm_embedding.rs` MUST be exercised via the mock LLM contract in `tests/fixtures/mock-llm/`
 - New code MUST NOT depend on the daemon: the daemon was fully removed in the LLM-only one-shot architecture (v1.0.76+; feature deleted before v1.1.0). Every build is one-shot with no in-process model runtime
@@ -103,6 +105,11 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 ## Documentation
 - Every public API MUST have `///` doc comments with at least one testable example when reasonable
 - Run `cargo doc --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"` locally before pushing
+- `cargo doc --no-deps --locked` is a real quality gate, not a courtesy step: a broken intra-doc link fails the doc build
+- The rustdoc lint levels are a versioned fact in the manifest, under `[lints.rustdoc]` in `Cargo.toml`: `broken_intra_doc_links = "deny"`, `private_intra_doc_links = "deny"`, `invalid_html_tags = "deny"`
+- Because the levels live in the manifest, the gate does NOT depend on anyone remembering to export `RUSTDOCFLAGS` from a script outside the repository
+- These lints are only available when running rustdoc, so `cargo check`, `cargo clippy -- -D warnings` and `cargo test` are structurally blind to them: that blindness is how the debt grew from 7 warnings in v1.1.1 to 64 errors in v1.2.7 with the other three gates green the whole time
+- Operational trap: an `invalid_html_tags` error in a doc comment is almost never on the line rustdoc reports; an unpaired backtick ABOVE the reported point misaligns the code-span pairing, and rustdoc then flags the first `<` it finds after it, so look UPWARD from the reported line for the unbalanced backtick
 - Documentation formatting rules are defined in `docs_rules/rules_rust_documentacao.md`
 - Bilingual README, CONTRIBUTING, SECURITY, and CODE_OF_CONDUCT MUST stay synchronized across EN and pt-BR
 - When adding or modifying CLI commands, update documentation in BOTH English and Portuguese files (e.g., `README.md` and `README.pt-BR.md`, `docs/HOW_TO_USE.md` and `docs/HOW_TO_USE.pt-BR.md`)

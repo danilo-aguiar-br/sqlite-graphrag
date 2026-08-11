@@ -19,8 +19,13 @@ use serde::Serialize;
 ///
 /// `pretty` selects indented output; compact is a single line.
 fn render<T: Serialize>(value: &T, pretty: bool) -> Result<String, AppError> {
-    if crate::agent_surface::active() {
-        let shaped = crate::agent_surface::apply_global(serde_json::to_value(value)?);
+    // Two reasons to enter the layer, not one. A knob means the envelope is
+    // reshaped; a resolved target means it must be annotated even though no
+    // knob was set. GAP-SG-205: gating solely on `active()` is what hid the
+    // target on the default path, since a caller that sets no flag is exactly
+    // the caller the Explicit Target Designation rule is written for.
+    if crate::agent_surface::active() || crate::agent_surface::target::is_reportable() {
+        let shaped = crate::agent_surface::apply_global(serde_json::to_value(value)?)?;
         return Ok(if pretty {
             serde_json::to_string_pretty(&shaped)?
         } else {
@@ -53,7 +58,7 @@ fn should_indent() -> bool {
 
 /// Serializes `value` as JSON and writes it to stdout with a trailing newline.
 ///
-/// Indented on a terminal, compact everywhere else; see [`should_indent`].
+/// Indented on a terminal, compact everywhere else; see `should_indent`.
 ///
 /// Flushes stdout after writing. A `BrokenPipe` error is silenced so that
 /// piping to consumers that close early (e.g. `head`) does not surface an error.

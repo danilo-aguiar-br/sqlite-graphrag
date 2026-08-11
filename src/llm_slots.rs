@@ -110,10 +110,10 @@ pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGu
                             acquired_at: Instant::now(),
                         });
                     }
-                    // Slot file existe mas está locked por outro processo
+                    // The slot file exists but another process holds its lock.
                 }
                 Err(_) => {
-                    // Slot file já existe (race condition rara) — tenta próximo
+                    // The slot file already exists (rare race) — try the next.
                 }
             }
         }
@@ -207,8 +207,8 @@ fn pid_alive(pid: u32) -> bool {
 
 #[cfg(not(unix))]
 fn pid_alive(pid: u32) -> bool {
-    // No Windows, sem equivalente direto; assume vivo se arquivo existe.
-    // Cleanup manual via `slots cleanup --yes` é a via.
+    // On Windows there is no direct equivalent, so a slot whose file exists is
+    // assumed alive. `slots cleanup --yes` is the manual way out.
     let _ = pid;
     true
 }

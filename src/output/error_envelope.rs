@@ -39,6 +39,23 @@ struct ErrorEnvelope<'a> {
     retryable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     suggestion: Option<&'a str>,
+    /// Flags the caller passed that the invocation could not apply.
+    ///
+    /// Omitted when empty, because most failures discard nothing and an always
+    /// present empty array would invite a reader to treat `[]` as meaningful.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    discarded_flags: &'a [String],
+    /// GAP-SG-205: the database this process resolved, and which layer named it.
+    ///
+    /// Carried by the struct rather than attached by [`crate::agent_surface`],
+    /// which treats a failure envelope as pass-through — deliberately, so a
+    /// `--filter` can never suppress an error. Two consequences make this the
+    /// right home: the invariant "a failure reaches the caller verbatim" stays
+    /// literally true, and the hand-rolled fallback below still emits the target
+    /// on the one path that exists BECAUSE serialization failed. Knowing which
+    /// database a failed write was aimed at matters most exactly there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_surface: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Emits the failure envelope, with a hand-rolled fallback.
@@ -58,7 +75,9 @@ pub fn emit_error_envelope(
     error_class: &str,
     retryable: bool,
     suggestion: Option<&str>,
+    discarded_flags: &[String],
 ) {
+    let target = crate::agent_surface::target::record(crate::agent_surface::get());
     let envelope = ErrorEnvelope {
         error: true,
         code,
@@ -66,18 +85,43 @@ pub fn emit_error_envelope(
         error_class,
         retryable,
         suggestion,
+        discarded_flags,
+        agent_surface: target.clone(),
     };
     if emit_json(&envelope).is_err() {
         use std::io::Write;
         let escaped = escape(message);
         let esc_class = escape(error_class);
-        let head = format!(
+        let mut line = format!(
             r#"{{"error":true,"code":{code},"message":"{escaped}","error_class":"{esc_class}","retryable":{retryable}"#
         );
-        let line = match suggestion {
-            Some(s) => format!(r#"{head},"suggestion":"{}"}}"#, escape(s)),
-            None => format!("{head}}}"),
-        };
+        if let Some(s) = suggestion {
+            line.push_str(&format!(r#","suggestion":"{}""#, escape(s)));
+        }
+        if !discarded_flags.is_empty() {
+            let list = discarded_flags
+                .iter()
+                .map(|f| format!(r#""{}""#, escape(f)))
+                .collect::<Vec<_>>()
+                .join(",");
+            line.push_str(&format!(r#","discarded_flags":[{list}]"#));
+        }
+        // Rendered by hand for the same reason as everything else on this path:
+        // the branch exists because `serde_json` already failed once, so leaning
+        // on it again to serialize the target would drop exactly the field that
+        // says where a failed write was pointed.
+        if let Some(map) = &target {
+            let members = map
+                .iter()
+                .map(|(k, v)| {
+                    let text = v.as_str().unwrap_or_default();
+                    format!(r#""{}":"{}""#, escape(k), escape(text))
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            line.push_str(&format!(r#","agent_surface":{{{members}}}"#));
+        }
+        line.push('}');
         let _ = writeln!(std::io::stdout().lock(), "{line}");
     }
 }
@@ -94,7 +138,7 @@ pub fn emit_error_envelope(
 #[cold]
 #[inline(never)]
 pub fn emit_error_json(code: i32, message: &str) {
-    emit_error_envelope(code, message, "permanent", false, None);
+    emit_error_envelope(code, message, "permanent", false, None, &[]);
 }
 
 /// GAP-SG-39: emits the actionable failure envelope for a classified error.
@@ -111,8 +155,16 @@ pub fn emit_error_json_with_suggestion(
     error_class: &str,
     retryable: bool,
     suggestion: Option<&str>,
+    discarded_flags: &[String],
 ) {
-    emit_error_envelope(code, message, error_class, retryable, suggestion);
+    emit_error_envelope(
+        code,
+        message,
+        error_class,
+        retryable,
+        suggestion,
+        discarded_flags,
+    );
 }
 
 #[cfg(test)]

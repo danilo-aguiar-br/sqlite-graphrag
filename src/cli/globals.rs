@@ -275,6 +275,41 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "EXPR")]
     pub filter: Vec<String>,
 
+    /// GAP-SG-201: declare what `--filter` is allowed to observe.
+    ///
+    /// Omitted, a predicate over a page the query already truncated is refused
+    /// with exit 2, because the answer would describe a set the predicate never
+    /// saw: `--filter type=skill list` reports 39 of 1892 memories, and the same
+    /// request with `--limit 50` reported 0. `page` accepts the narrower reading
+    /// and records it; `universe` states the requirement explicitly.
+    ///
+    /// Only paginated commands with a countable universe are ever refused. A
+    /// `-k` in `hybrid-search` or `recall` bounds a ranking rather than paging a
+    /// table, so the top-k IS the answer and filtering it is legitimate.
+    #[arg(long, global = true, value_enum, value_name = "SCOPE")]
+    pub filter_scope: Option<crate::agent_surface::universe::FilterScope>,
+
+    /// GAP-SG-202: accept a `--select` / `--filter` / `--sort` / `--dedupe-by`
+    /// key that this envelope carries nowhere.
+    ///
+    /// Without it such a key is refused with exit 2, because an unresolvable key
+    /// produces an empty answer indistinguishable from missing data — a typo
+    /// reads as "the memory does not exist". With it the pre-v1.2.6 behaviour is
+    /// restored for callers who genuinely probe a heterogeneous payload.
+    #[arg(long, global = true, default_value_t = false)]
+    pub allow_unknown_keys: bool,
+
+    /// GAP-SG-207: accept the ambient database target for a verb that changes
+    /// durable state.
+    ///
+    /// A mutating subcommand normally has to name its target with `--db`, and is
+    /// refused with exit 2 when it does not. This is the explicit dispensation
+    /// the Explicit Target Designation rule requires beside that requirement:
+    /// the inheritance still happens, but a human asked for it and the envelope
+    /// records that they did, so it is a decision rather than an accident.
+    #[arg(long, global = true, default_value_t = false)]
+    pub use_active: bool,
+
     /// GAP-SG-142: emit at most N result elements.
     ///
     /// Distinct from the per-subcommand `--limit` and from `-k`, which bound
@@ -387,10 +422,33 @@ impl Cli {
             }
         }
         self.install_agent_surface()?;
+        self.install_write_policy();
         // Installed here rather than at each call site so the guarantee holds
         // for every stdin reader, present and future, from a single point.
         crate::stdin_helper::install_no_input(crate::runtime_config::no_input(self.no_input));
         Ok(())
+    }
+
+    /// GAP-SG-207: records whether this process may inherit its database target
+    /// from ambient configuration, for [`crate::paths::AppPaths::resolve`].
+    ///
+    /// Runs beside [`Self::install_agent_surface`] and for the same reason: this
+    /// is the one hook that sees the parsed command line before any handler
+    /// executes, which is the only window where refusing still means "nothing
+    /// happened" rather than "it happened somewhere you did not name".
+    ///
+    /// With no subcommand there is nothing to mutate, so the requirement is off.
+    /// That is not a permissive default — a bare invocation prints help and
+    /// resolves no path at all.
+    fn install_write_policy(&self) {
+        let requires_explicit_target = self
+            .command
+            .as_ref()
+            .is_some_and(|c| c.mutates() && !c.may_inherit_target());
+        crate::paths::install_write_policy(crate::paths::WritePolicy {
+            requires_explicit_target,
+            use_active: self.use_active,
+        });
     }
 
     /// GAP-SG-142: resolves the agent-native output surface and installs it
@@ -421,6 +479,10 @@ impl Cli {
                 .as_ref()
                 .and_then(Commands::agent_surface_slug)
                 .map(str::to_string),
+            mutates: self.command.as_ref().is_none_or(Commands::mutates),
+            allow_unknown_keys: self.allow_unknown_keys,
+            use_active: self.use_active,
+            filter_scope: self.filter_scope,
             select: self.select.clone(),
             filters,
             sort: self.sort.clone(),

@@ -8,7 +8,7 @@
 > OpenRouter REST request for its embedding; nothing local holds a model.
 > There is no daemon, no ONNX runtime, no MCP server and no hook.
 > The headless `claude` / `codex` / `opencode` backends were REMOVED in v1.2.0.
-> **Current release v1.2.5.** Standing contract across the whole 1.2.x line:
+> **Current release v1.2.7.** Standing contract across the whole 1.2.x line:
 > schema **v16**, `DEFAULT_EMBEDDING_DIM=1024`, precedence **CLI flag > XDG
 > `config set` > default** (product env `SQLITE_GRAPHRAG_*` is **not** read on
 > the hot path). What each release changed lives in
@@ -98,6 +98,20 @@ sqlite-graphrag deep-research "how does the enrich queue claim work" --k 20 --tr
 - **REQUIRED precedence** — flag > XDG `cli.no_input` > `false`.
 - **FORBIDDEN `--no-input=false`** to disable an XDG opt-in. Unset the key instead: the `=false` spelling reads as "input is allowed here" while the surrounding automation assumes otherwise.
 - The point is fail-fast, not capability removal: an agent that hangs waiting for a human who is not there is worse than one that exits 65 and says so.
+
+## Database Target Provenance — `db_path_source` and `db_path_resolved` (v1.2.7)
+
+Every envelope of a process that resolved a database reports which layer supplied that target and which absolute path was actually opened, inside the `agent_surface` block, with **no flag required**.
+
+- **REQUIRED `db_path_source`** — exactly three values exist: `argv` (`--db` named the target), `xdg` (the configuration key `db.path` named it), `default` (nothing named it and the compiled XDG fallback was used).
+- **REQUIRED `db_path_resolved`** — the absolute path this process actually resolved, reported beside the layer that supplied it.
+- **REQUIRED conduct** — PARSE both before trusting any write, and before trusting a read whose answer will drive a decision. `argv` is the only explicit designation; `xdg` and `default` are ambient authority — legitimate for an idempotent read, and the shape of a confused deputy for a write.
+- **REQUIRED on a surprise** — a `db_path_resolved` that is not the database you meant also means every earlier call of this session landed there. Re-run with `--db <PATH>` **after the verb** and confirm with `read --name <NAME> --json` instead of assuming the data is where you wanted it.
+- **REQUIRED `db_path_dispensation`** — the single value `use-active`, present only when `--use-active` let a mutating subcommand accept an ambient target on purpose. It never appears beside `argv`, where the flag was never consulted, so its ABSENCE beside a non-`argv` source on a mutating verb is itself the signal that nothing explicit authorised the inheritance.
+- Members absent means the process resolved no database at all (`config`, `completions`, `locale`); it never means "resolved but not reported".
+- A mutating subcommand that resolves `default` — no `--db` and no `db.path` — **exits 2 without touching anything**. `xdg` is permitted, because `config set db.path` is a designation made once instead of on every invocation.
+- **FORBIDDEN** — reading exit `0` as proof the write landed in the intended database; omitting `--db` and assuming the current directory, since the fallback is the XDG target and not the working directory; placing `--db` before the verb, which exits 2.
+
 
 ## New in v1.2.0 — dim 1024 + XDG Config Contract (No Migration, Schema v16)
 

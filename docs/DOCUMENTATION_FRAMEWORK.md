@@ -1,6 +1,47 @@
+## v1.2.7 — Coverage Update (agent-native gap closure)
+
+- Current product docs target **crate 1.2.7**, schema **v16** (no main-DB migration).
+- Releases sealed since the previous matrix: **1.2.3, 1.2.4, 1.2.5, 1.2.6, 1.2.7**.
+- **v1.2.7 themes (must appear in README, HOW_TO, AGENTS, COOKBOOK, MIGRATION, HEADLESS, TESTING, INTEGRATIONS, SECURITY, llms, skills, FRAMEWORK):**
+  1. CLI surface is **51 top-level verbs**; the inventory is contractual, not decorative
+  2. Configuration surface is **63 XDG config keys**
+  3. `tests/docs_command_coverage.rs` requires the 51 verbs — minus `help`, declared `NOT_A_PRODUCT_SURFACE` — across **17 documents**
+  4. `tests/docs_declared_facts_gate.rs` + `tests/docs_xdg_coverage.rs` require the 63 XDG keys; reference scope is **`README.md` + `README.pt-BR.md` only**
+  5. `tests/docs_language_parity.rs` requires an **equal `##` section count** in every EN/PT pair
+  6. v1.2.6 corrected the agent-native output surface — **GAP-SG-201, GAP-SG-202, GAP-SG-203, GAP-SG-204, GAP-SG-206**
+  7. v1.2.7 resolved **GAP-SG-205, GAP-SG-207, GAP-SG-209, GAP-SG-211, GAP-SG-212, GAP-SG-213**
+  8. **GAP-SG-208 partially resolved** with declared residue; **GAP-SG-210 remains OPEN**
+- Machine contracts: no schema field change; `$schema` documents remain exempt from reshaping.
+- See [CHANGELOG.md](../CHANGELOG.md) `[1.2.7]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+
+| Document | EN Coverage | PT-BR Coverage | Drift |
+|---|---|---|---|
+| `README.md` / `README.pt-BR.md` | v1.2.7 (51-verb surface + the 63 XDG keys; sole reference scope of the XDG gate) | v1.2.7 (espelhado; same 63 keys) | Current→1.2.7 |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.7 (owned by the release track) | v1.2.7 (must include `[1.2.7]`) | Current→1.2.7 |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.7 banner + pin | v1.2.7 (espelhado) | Current→1.2.7 |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.7 notes | espelhado | Current→1.2.7 |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 release log retained (historical) | espelhado | Historical entries only |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.7 surface block + 51-verb inventory | v1.2.7 (espelhado) | Current→1.2.7 |
+| `llms-full.txt` | v1.2.7 patch notes | N/A | Current→1.2.7 |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.7 REQUIRED block + 51-verb inventory | v1.2.7 (espelhado) | Current→1.2.7 |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.7 title + inventory flags | v1.2.7 (espelhado) | Current→1.2.7 |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.7 title + inventory flags | v1.2.7 (espelhado) | Current→1.2.7 |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.2→1.2.7 additive upgrade (no main-DB migration) | v1.2.7 (espelhado) | Current→1.2.7 |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.7 docs gates (command coverage, XDG coverage, language parity) | v1.2.7 (espelhado) | Current→1.2.7 |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.7 title | v1.2.7 (espelhado) | Current→1.2.7 |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.7 inventory + pin | v1.2.7 (espelhado) | Current→1.2.7 |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.1 gate rows retained (historical) | espelhado | Historical entries only |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.7 (EN-canonical meta-doc; surface matrix) | N/A (historical exception — no mandatory PT pair) | Current→1.2.7 |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.7 surface + 51-verb inventory | v1.2.7 (espelhado) | Current→1.2.7 |
+| `docs/schemas/` | 100% + v1.2.7 note (no schema field change; `$schema` exempt from reshaping) | N/A (bilingual inline README) | Current→1.2.7 |
+
+- Historical seal note for **crate 1.2.2** (superseded by the v1.2.7 surface above): schema **v16** (no main-DB migration).
+
+> **Historical matrix (crate 1.2.2 agent-native output-surface seal — superseded by the v1.2.7 matrix at the top of this file).** Drift column is **not** Current.
+
 ## v1.2.2 — Coverage Update (agent-native output surface)
 
-- Current product docs target **crate 1.2.2**, schema **v16** (no main-DB migration; purely additive CLI surface).
+- Historical seal target — **crate 1.2.2**, schema **v16** (no main-DB migration; purely additive CLI surface).
 - **v1.2.2 themes (must appear in README, HOW_TO, AGENTS, COOKBOOK, MIGRATION, HEADLESS, TESTING, INTEGRATIONS, SECURITY, llms, skills, FRAMEWORK):**
   1. Eight global output flags — `--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`
   2. Fixed pipeline order — filter → sort → dedupe → max-items → select → count-only → truncate-content → max-output-bytes
@@ -18,24 +59,24 @@
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.2.2 (surface table + `--no-input` + offline examples) | v1.2.2 (espelhado; PT gained the previously missing v1.0.82/v1.0.85 global-flags table) | Current→1.2.2 |
-| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.2 (owned by the release track) | v1.2.2 (must include `[1.2.2]`) | Current→1.2.2 |
-| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.2 banner + pin | v1.2.2 (espelhado) | Current→1.2.2 |
-| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.2 notes | espelhado | Current→1.2.2 |
+| `README.md` / `README.pt-BR.md` | v1.2.2 (surface table + `--no-input` + offline examples) | v1.2.2 (espelhado; PT gained the previously missing v1.0.82/v1.0.85 global-flags table) | Historical (superseded by 1.2.7) |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.2 (owned by the release track) | v1.2.2 (must include `[1.2.2]`) | Historical (superseded by 1.2.7) |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.2 banner + pin | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.2 notes | espelhado | Historical (superseded by 1.2.7) |
 | `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 release log retained (historical) | espelhado | Historical entries only |
-| `llms.txt` / `llms.pt-BR.txt` | v1.2.2 surface block + inventory | v1.2.2 (espelhado) | Current→1.2.2 |
-| `llms-full.txt` | v1.2.2 patch notes | N/A | Current→1.2.2 |
-| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.2 REQUIRED block + context-economy example + `--no-input` | v1.2.2 (espelhado) | Current→1.2.2 |
-| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Current→1.2.2 |
-| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Current→1.2.2 |
-| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.1→1.2.2 additive upgrade | v1.2.2 (espelhado) | Current→1.2.2 |
-| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.2 surface invariants + `--no-fail-fast` rationale + Windows GNU type-check | v1.2.2 (espelhado) | Current→1.2.2 |
-| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.2 title | v1.2.2 (espelhado) | Current→1.2.2 |
-| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.2 inventory + pin | v1.2.2 (espelhado) | Current→1.2.2 |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.2 surface block + inventory | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `llms-full.txt` | v1.2.2 patch notes | N/A | Historical (superseded by 1.2.7) |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.2 REQUIRED block + context-economy example + `--no-input` | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.2 title + inventory flags | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.1→1.2.2 additive upgrade | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.2 surface invariants + `--no-fail-fast` rationale + Windows GNU type-check | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.2 title | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.2 inventory + pin | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
 | `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.1 gate rows retained (historical) | espelhado | Historical entries only |
-| `DOCUMENTATION_FRAMEWORK.md` | v1.2.2 (EN-canonical meta-doc; surface matrix) | N/A (historical exception — no mandatory PT pair) | Current→1.2.2 |
-| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.2 surface + `--no-input` in Global Flags | v1.2.2 (espelhado) | Current→1.2.2 |
-| `docs/schemas/` | 100% + v1.2.2 note (no schema field change; `$schema` exempt from reshaping) | N/A (bilingual inline README) | Current→1.2.2 |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.2 (EN-canonical meta-doc; surface matrix) | N/A (historical exception — no mandatory PT pair) | Historical (superseded by 1.2.7) |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.2 surface + `--no-input` in Global Flags | v1.2.2 (espelhado) | Historical (superseded by 1.2.7) |
+| `docs/schemas/` | 100% + v1.2.2 note (no schema field change; `$schema` exempt from reshaping) | N/A (bilingual inline README) | Historical (superseded by 1.2.7) |
 
 - Historical seal note for **crate 1.2.1** (superseded by the v1.2.2 surface above): schema **v16** (no main-DB migration).
 
@@ -937,6 +978,9 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - [ ] gaps.md atualizado com nova rodada de acceptance testing
 - [ ] INTEGRATIONS.md + INTEGRATIONS.pt-BR.md atualizados se houver novas integrações
 - [ ] TODAS as seções "Authentication" e "API keys" revisadas para refletir a OAuth-only enforcement (v1.0.69+)
+- [ ] `tests/docs_command_coverage.rs` verde — impede que qualquer um dos 51 verbos top-level (menos `help`, declarado `NOT_A_PRODUCT_SURFACE`) desapareça de qualquer um dos 17 documentos que carregam o inventário
+- [ ] `tests/docs_xdg_coverage.rs` verde — impede que qualquer uma das 63 chaves de configuração XDG fique sem documentação em `README.md` e `README.pt-BR.md`, o único escopo de referência do gate
+- [ ] `tests/docs_language_parity.rs` verde — impede que um par EN/PT-BR divirja no número de seções `##`, que é como uma tradução perde conteúdo em silêncio
 
 
 ## Contagem de Referência — Métricas do Projeto Modelo

@@ -25,6 +25,12 @@
     "suggestion": {
       "type": "string",
       "description": "Actionable remediation hint (GAP-SG-39), localized in the same language as 'message'. Absent for variants whose own message is already self-remediating; never an empty string."
+    },
+    "discarded_flags": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Flags the caller passed that this invocation could not apply, in the argv spelling the caller typed (e.g. \"--filter\", \"--sort\", \"--dedupe-by\", \"--select\"). Required by rules-rust-cli-stdin-stdout-silent-discard, which forbids returning success while ignoring a supplied argument and asks the failure JSON to name what was dropped. Absent when nothing was discarded — notably when the refusal is about an argument that is MISSING rather than ignored, such as a mutating verb reaching path resolution without --db. Never an empty array: [] would invite a reader to treat absence of discards as a distinct state from a build that does not report them."
     }
   }
 }

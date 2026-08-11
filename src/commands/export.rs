@@ -29,7 +29,7 @@ pub struct ExportArgs {
     #[arg(long, default_value_t = false)]
     pub include_deleted: bool,
     /// Maximum number of memories to export (default: 100000).
-    #[arg(long, default_value_t = 100_000)]
+    #[arg(long, default_value_t = 100_000, value_parser = crate::parsers::parse_list_limit_range)]
     pub limit: usize,
     /// Offset for pagination.
     #[arg(long, default_value_t = 0)]

@@ -6,7 +6,7 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 > Persistent memory for AI agents in a single Rust binary with built-in GraphRAG.
-> **Current release: v1.2.5.** Standing contract, unchanged across the 1.2.x line: schema **v16**, `DEFAULT_EMBEDDING_DIM=1024`, configuration precedence **CLI flag > XDG `config set` > default** (product env `SQLITE_GRAPHRAG_*` is **not** read on the hot path), embedding and enrich over **OpenRouter REST only**, manual releases (no GitHub Actions), crates.io owner `danilo-aguiar-br`. What each release changed lives in [CHANGELOG.md](CHANGELOG.md) — this banner is not a second copy of it.
+> **Current release: v1.2.7.** Standing contract, unchanged across the 1.2.x line: schema **v16**, `DEFAULT_EMBEDDING_DIM=1024`, configuration precedence **CLI flag > XDG `config set` > default** (product env `SQLITE_GRAPHRAG_*` is **not** read on the hot path), embedding and enrich over **OpenRouter REST only**, manual releases (no GitHub Actions), crates.io owner `danilo-aguiar-br`. What each release changed lives in [CHANGELOG.md](CHANGELOG.md) — this banner is not a second copy of it.
 
 - Read this document in [Portuguese (pt-BR)](README.pt-BR.md).
 
@@ -584,6 +584,20 @@ Precedence: flag > XDG `cli.no_input` > `false`. A host that opted in through XD
 | `list` | List cached model files with sizes and total disk usage |
 | `stats` | Alias of `list` (v1.2.0 — agents often call `cache stats`) |
 | `clear-models` | Remove cached embedding/NER model files (forces re-download on next `init`) |
+
+
+## Numeric Argument Ranges (v1.2.7)
+
+Thirteen numeric arguments of the read surface are range-validated by clap at parse time. A value outside the range is refused with **exit 2** and a range message, before the database is touched.
+
+| Range | Arguments |
+| --- | --- |
+| `1..=4096` (top-k) | `recall -k`, `hybrid-search -k`, `related --limit`, `graph entities --limit`, `deep-research --k`, `deep-research --max-results` |
+| `1..=1000000` (listing limit) | `export --limit`, `pending --limit`, `pending-embeddings --limit`, `embedding --limit` |
+| `1..=64` (hops) | `related --max-hops` (alias `--hops`), `recall --max-hops`, `graph traverse --depth`, `deep-research --max-hops` |
+| `1..=64` (sub-queries) | `deep-research --max-sub-queries` |
+
+The ceilings live in `src/constants/search.rs` as `K_QUERY_RANGE_MAX`, `K_LIST_LIMIT_MAX`, `K_MAX_HOPS_CEILING` and `K_MAX_SUB_QUERIES_CEILING`.
 
 
 ## Configuration (XDG — v1.2.5)

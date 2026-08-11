@@ -6,15 +6,15 @@
 //! Split by responsibility (GAP-SG-146), roughly in order of how structured
 //! the output is:
 //!
-//! * [`envelope`] — complete JSON payloads, and the single point where the
+//! * `envelope` — complete JSON payloads, and the single point where the
 //!   agent-native reshaping surface is applied
-//! * [`error_envelope`] — failure payloads, with a serializer-free fallback
-//! * [`stream`] — NDJSON, one record per line, deliberately unshaped
-//! * [`passthrough`] — plain text and verbatim bytes, no JSON at all
-//! * [`human`] — stderr diagnostics via `tracing`
-//! * [`sink`] — the one place bytes actually reach stdout
+//! * `error_envelope` — failure payloads, with a serializer-free fallback
+//! * `stream` — NDJSON, one record per line, deliberately unshaped
+//! * `passthrough` — plain text and verbatim bytes, no JSON at all
+//! * `human` — stderr diagnostics via `tracing`
+//! * `sink` — the one place bytes actually reach stdout
 //! * [`format`] — `--format` value enums
-//! * [`responses`] — the serializable payload types themselves
+//! * `responses` — the serializable payload types themselves
 //!
 //! Every public item is re-exported here, so `crate::output::emit_json` and
 //! friends keep working unchanged; callers never name a submodule.

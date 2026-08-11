@@ -115,19 +115,57 @@ fn names_a_destination(id: &str, body: &str) -> bool {
     })
 }
 
+/// Headings present in the raw document, counted with the very predicate
+/// [`entries`] splits on.
+///
+/// Kept separate from [`entries`] on purpose: a blindness guard that reuses the
+/// splitter's own bookkeeping cannot detect the splitter losing an entry.
+fn heading_count(gaps: &str) -> usize {
+    gaps.lines()
+        .filter(|line| line.trim_start().starts_with(ENTRY_HEADING))
+        .count()
+}
+
 #[test]
 fn the_gate_found_the_entries_it_is_supposed_to_read() {
-    let entries = entries(&read_gaps());
-    assert!(
-        entries.len() > 30,
-        "only {} entries parsed out of gaps.md, so the split broke and every \
-         assertion below would pass by not looking",
-        entries.len()
+    let gaps = read_gaps();
+    let parsed = entries(&gaps);
+    let headings = heading_count(&gaps);
+
+    // GAP-SG-206: until v1.2.6 this guard demanded more than thirty entries.
+    // Thirty was the size of the corpus the day it was written, not a property
+    // of the splitter, so the number rotted the moment entries were closed and
+    // pruned: the document reached two entries and this gate went red while
+    // parsing both of them perfectly. A threshold cannot tell "the splitter
+    // broke" from "the backlog shrank", and only the first is a defect.
+    //
+    // Parity is the invariant that was meant all along. It fails when a heading
+    // produces no entry, when two headings collapse into one id, and when the
+    // splitter merges bodies — and it holds at two entries, at two hundred, and
+    // at none.
+    assert_eq!(
+        parsed.len(),
+        headings,
+        "gaps.md carries {headings} `{ENTRY_HEADING}` heading(s) but the \
+         splitter produced {} entry(ies), so a heading was dropped or two \
+         collapsed onto one id, and every assertion below would pass by not \
+         looking",
+        parsed.len()
     );
+
+    // Same guard one level down. `a_caveated_verdict_names_where_the_leftover_
+    // is_tracked` skips any entry whose status it cannot read, so an entry
+    // without the bullet is invisible to it rather than rejected by it.
+    let without_status: Vec<&str> = parsed
+        .iter()
+        .filter(|(_, body)| status_of(body).is_none())
+        .map(|(id, _)| id.as_str())
+        .collect();
     assert!(
-        entries.values().filter_map(|b| status_of(b)).count() > 30,
-        "entries parsed but their status bullets did not, which is the same \
-         blindness one level down"
+        without_status.is_empty(),
+        "every entry must carry a `{STATUS_MARKER}` bullet, or the caveat check \
+         below passes it over in silence instead of judging it. Missing on: {}",
+        without_status.join(", ")
     );
 }
 

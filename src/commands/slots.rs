@@ -210,7 +210,10 @@ fn run_release(slot_id: u32, yes: bool) -> Result<(), AppError> {
         "slot_id": slot_id,
         "path": path.to_string_lossy(),
     });
-    let _ = emit_json_compact(&out);
+    // GAP-SG-204: `let _ =` here swallowed every emission failure, including the
+    // agent-native refusals the surface raises from v1.2.6 on. A caller that
+    // asked for an impossible projection would have seen exit 0 and no payload.
+    emit_json_compact(&out)?;
     Ok(())
 }
 
@@ -248,7 +251,8 @@ fn run_cleanup(stale_after: u64, yes: bool, dry_run: bool) -> Result<(), AppErro
         "elapsed_ms": start.elapsed().as_millis() as u64,
         "yes": yes,
     });
-    let _ = emit_json_compact(&out);
+    // See `run_release` above for why this is no longer discarded.
+    emit_json_compact(&out)?;
     Ok(())
 }
 

@@ -280,7 +280,27 @@ pub(crate) fn persist_staged(
                         offset: Some(u.start as i64),
                     })
                     .collect();
-                let _ = storage_urls::insert_urls(conn, memory_id, &url_entries);
+                // `insert_urls` returns a COUNT, not a `Result`: it already logs
+                // each individual failure and never propagates, because the URL
+                // index is an accelerator rather than the record. What `let _ =`
+                // threw away was therefore not an error but the evidence of a
+                // SHORTFALL — with every per-URL warning arriving separately,
+                // nothing ever compared what landed against what was asked for.
+                //
+                // Staying non-fatal is deliberate: the transaction that created
+                // the memory committed on the line above, so returning `Err`
+                // here would report failure for a file that WAS ingested, and a
+                // caller retrying a successful ingest writes the memory twice.
+                let requested = url_entries.len();
+                let inserted = storage_urls::insert_urls(conn, memory_id, &url_entries);
+                if inserted < requested {
+                    tracing::warn!(
+                        memory_id,
+                        requested,
+                        inserted,
+                        "URL index is incomplete; the memory itself was committed"
+                    );
+                }
             }
 
             Ok(FileSuccess {

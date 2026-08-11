@@ -80,8 +80,19 @@ fn link_with_short_wait_lock_aborts_fast_v1088() {
 
     // Spawn the link invocation against an isolated DB. Use a name
     // that does not collide with any pre-existing test memory.
+    //
+    // The `--db` is not decoration and was MISSING until v1.2.7: the comment
+    // above claimed isolation the arguments never provided, so this test wrote
+    // through whatever ambient target the host happened to resolve. GAP-SG-207
+    // is what surfaced it — a mutating verb naming no target now fails closed,
+    // which turned a silent latent bug into a red test.
+    let db = TempDir::new().expect("isolated database directory");
+    let db_path = db.path().join("cold-lock.sqlite");
+    let db_arg = db_path.to_str().expect("temp path is utf-8");
     let link_args = [
         "link",
+        "--db",
+        db_arg,
         "--from",
         "cold-lock-entity-a",
         "--to",

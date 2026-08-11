@@ -29,6 +29,34 @@ pub enum AppError {
     #[error("validation error: {0}")]
     Validation(String),
 
+    /// The argv parsed but asks for something impossible. Maps to exit code `2`.
+    ///
+    /// Distinct from [`AppError::Validation`] on purpose. `Validation` means the
+    /// DATA the caller supplied is wrong and exits `1`; this means the REQUEST
+    /// itself is incoherent and exits [`crate::constants::USAGE_EXIT_CODE`], the
+    /// same code clap returns for a rejected flag. An agent therefore branches on
+    /// one number for "fix the command line" whether the parser or the
+    /// agent-native surface caught it.
+    ///
+    /// Introduced in v1.2.6 for the refusals the surface can only make once it
+    /// has the envelope: a projection or predicate key that exists in no result
+    /// element, a predicate aimed at a collection the caller never named, and a
+    /// filter evaluated over a page the query had already truncated.
+    ///
+    /// Carries the flags the request declared and the binary could not honour.
+    /// `rules-rust-cli-stdin-stdout-silent-discard` requires the error JSON to
+    /// name them in a field: leaving them inside the prose would force the
+    /// caller to parse a sentence — in one of two languages — to learn which of
+    /// its own arguments were dropped. Empty for refusals that discard nothing,
+    /// such as a predicate judged over a truncated page.
+    #[error("usage error: {message}")]
+    Usage {
+        /// The localized refusal, already carrying its corrective action.
+        message: String,
+        /// Flags the caller passed that this invocation could not apply.
+        discarded_flags: Vec<String>,
+    },
+
     /// External binary required for operation was not found in PATH. Maps to exit code `1`.
     #[error("binary not found: {name} — ensure it is installed and in PATH")]
     BinaryNotFound {
@@ -257,7 +285,7 @@ pub enum AppError {
     /// pair. Maps to exit code `75` (the same `EX_TEMPFAIL` code used by the
     /// CLI semaphore).
     ///
-    /// G28-B (v1.0.68): ensures at most one `enrich`, `ingest --mode
+    /// G28-B (v1.0.68): ensures at most one `enrich`
     /// or `ingest` runs at a time per namespace. The guard predates v1.2.0 and
     /// once also covered `ingest --mode claude-code` / `--mode codex`.
     /// Use `--wait-job-singleton <SECONDS>` (per-command) to poll until the
@@ -375,6 +403,7 @@ impl AppError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::Validation(_) => 1,
+            Self::Usage { .. } => crate::constants::USAGE_EXIT_CODE,
             Self::BinaryNotFound { .. } => 1,
             Self::RateLimited { .. } => 1,
             Self::Timeout { .. } => 1,
@@ -404,6 +433,21 @@ impl AppError {
             Self::LowMemory { .. } => crate::constants::LOW_MEMORY_EXIT_CODE,
             Self::Shutdown { .. } => crate::constants::SHUTDOWN_EXIT_CODE,
             Self::ProviderError { .. } => 1,
+        }
+    }
+
+    /// Flags the caller passed that this invocation could not honour.
+    ///
+    /// Empty for every variant that discards nothing, so a consumer reads one
+    /// field instead of branching on the variant it happened to receive.
+    #[inline]
+    #[must_use]
+    pub fn discarded_flags(&self) -> &[String] {
+        match self {
+            Self::Usage {
+                discarded_flags, ..
+            } => discarded_flags,
+            _ => &[],
         }
     }
 
@@ -477,6 +521,7 @@ impl AppError {
         matches!(
             self,
             Self::Validation(_)
+                | Self::Usage { .. }
                 | Self::BinaryNotFound { .. }
                 | Self::Duplicate(_)
                 | Self::NotFound(_)
@@ -578,6 +623,10 @@ impl AppError {
                 "review the input against the command's --help; names must be kebab-case (lowercase letters, digits, hyphens) and bodies non-empty",
                 "revise a entrada contra o --help do comando; nomes devem ser kebab-case (minúsculas, dígitos, hifens) e corpos não podem ser vazios",
             )),
+            Self::Usage { .. } => Some((
+                "the command line asks for something impossible; read `agent_surface.unresolved_keys` / `filter_scope` in the error envelope and correct the flag, or declare the narrower intent with --filter-scope page or --allow-unknown-keys",
+                "a linha de comando pede algo impossível; leia `agent_surface.unresolved_keys` / `filter_scope` no envelope de erro e corrija a flag, ou declare a intenção mais estreita com --filter-scope page ou --allow-unknown-keys",
+            )),
             Self::Duplicate(_) => Some((
                 "pass --force-merge to update the existing memory instead of failing",
                 "passe --force-merge para atualizar a memória existente em vez de falhar",
@@ -675,6 +724,7 @@ impl AppError {
         use crate::i18n::validation::app_error_pt as pt;
         match self {
             Self::Validation(msg) => pt::validation(msg),
+            Self::Usage { message, .. } => pt::usage(message),
             Self::BinaryNotFound { name } => pt::binary_not_found(name),
             Self::RateLimited { detail } => pt::rate_limited(detail),
             Self::Timeout {

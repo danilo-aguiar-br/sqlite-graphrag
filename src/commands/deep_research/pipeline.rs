@@ -16,12 +16,12 @@ use crate::storage::{entities, memories};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// Vetores por sub-consulta, se houve degradação, e o código da PRIMEIRA delas.
+/// Per-sub-query vectors, whether anything degraded, and the FIRST such code.
 ///
-/// O terceiro elemento entrou na v1.2.5 junto com a ligação de
-/// `--fail-on-degraded`: [`crate::query_embedding::degradation_failure`] deriva a
-/// classe do erro do CÓDIGO e nunca da prosa, e até então este caminho logava o
-/// código e o descartava. Sem ele nenhum chamador conseguia honrar esse contrato.
+/// The third element arrived in v1.2.5 alongside wiring `--fail-on-degraded`:
+/// [`crate::query_embedding::degradation_failure`] derives the error class from
+/// the CODE and never from the prose, and until then this path logged the code
+/// and dropped it. Without it no caller could honour that contract.
 pub(super) type SubEmbeddings = (Vec<Option<Arc<Vec<f32>>>>, bool, Option<&'static str>);
 
 /// GAP-001 (v1.1.04): computes per-sub-query embeddings OUTSIDE the tokio
@@ -44,11 +44,11 @@ pub(super) fn compute_sub_embeddings(
     );
     let mut sub_embeddings: Vec<Option<Arc<Vec<f32>>>> = Vec::with_capacity(sub_query_texts.len());
     let mut vec_degraded = false;
-    // O código da PRIMEIRA degradação, guardado para `--fail-on-degraded`. Antes o
-    // `reason_code` só era logado e descartado, então nenhum chamador conseguia
-    // classificar a falha pelo código em vez da prosa — que é o que
-    // `degradation_failure` exige. Primeira e não última: uma sub-consulta que
-    // falhou por timeout não deve ser reclassificada por outra que falhou depois.
+    // The FIRST degradation's code, kept for `--fail-on-degraded`. Previously
+    // `reason_code` was logged and discarded, so no caller could classify the
+    // failure by code rather than by prose — which is what
+    // `degradation_failure` requires. First and not last: a sub-query that
+    // failed on a timeout must not be reclassified by one that failed later.
     let mut first_reason_code: Option<&'static str> = None;
     for sq_text in sub_query_texts {
         match crate::embedder::try_embed_query_with_embedding_choice(

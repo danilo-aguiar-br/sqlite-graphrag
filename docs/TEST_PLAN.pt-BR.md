@@ -89,6 +89,8 @@
 - Comando: a mesma invocação do nextest; arquivos vivem em `tests/`
 - Pré-requisito: `export PATH="$PWD/tests/mock-llm:$PATH"` (mocks dim-aware desde o G51)
 - Critério: ZERO falhas
+- Os gates estruturais vivem nesta camada porque o `cargo test` é o único gate automático deste repositório: `tests/fmt_gate.rs` roda `cargo fmt --all --check` de dentro da suíte, então o Gate 1 abaixo não pode mais ser pulado por esquecimento do script pré-publicação (GAP-SG-211)
+- `tests/numeric_bounds_gate.rs` varre `src/commands/` e falha quando um argumento numérico do clap que limita conjunto de resultados, página ou travessia não declara `value_parser` (GAP-SG-213)
 ### Camada 3 — Doctests (por commit, OBRIGATÓRIA localmente)
 - Comando: `/usr/bin/timeout 300 cargo test --doc`
 - O nextest NÃO executa doctests; pular esta camada localmente foi como a causa A do G50 ficou quebrada por 10 releases

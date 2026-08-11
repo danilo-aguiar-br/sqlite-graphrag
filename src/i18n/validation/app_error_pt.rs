@@ -3,6 +3,15 @@ pub fn validation(msg: &str) -> String {
     format!("erro de validação: {msg}")
 }
 
+/// Localized `usage` message wrapping `msg`.
+///
+/// Kept distinct from [`validation`] because the two exit with different codes:
+/// a validation failure is about the DATA and exits `1`, a usage failure is
+/// about the REQUEST and exits `2`.
+pub fn usage(msg: &str) -> String {
+    format!("erro de uso: {msg}")
+}
+
 /// Localized `duplicate` message wrapping `msg`.
 pub fn duplicate(msg: &str) -> String {
     let translated = msg

@@ -6,8 +6,23 @@
   "$defs": {
     "AgentSurfaceMeta": {
       "type": "object",
-      "description": "Record of what the reshaping layer did to this envelope. Present only when at least one knob was set; absent means the envelope is byte-identical to the unshaped contract.",
-      "required": ["input_count", "output_count"],
+      "description": "Record of what the reshaping layer did to this envelope, and of the database this process resolved. The block now has TWO shapes. A SHAPING record appears when at least one knob was set and always carries input_count and output_count. A TARGET-ONLY record appears when no knob was set but the process resolved a database (GAP-SG-205): nothing was reshaped, so counting inputs and outputs would report a measurement that never happened. The block is absent only when neither applies — no knob AND no database — which is the case for `config`, `completions` and `locale`.",
+      "dependentRequired": {
+        "select": ["input_count", "output_count"],
+        "filters": ["input_count", "output_count"],
+        "sort": ["input_count", "output_count"],
+        "dedupe_by": ["input_count", "output_count"],
+        "max_items": ["input_count", "output_count"],
+        "count_only": ["input_count", "output_count"],
+        "secondary_capped": ["input_count", "output_count"],
+        "content_truncated": ["input_count", "output_count"],
+        "output_truncated": ["input_count", "output_count"],
+        "key_resolution": ["input_count", "output_count"],
+        "result_array_source": ["input_count", "output_count"],
+        "count_scope": ["input_count", "output_count"],
+        "input_count": ["output_count"],
+        "output_count": ["input_count"]
+      },
       "additionalProperties": false,
       "properties": {
         "input_count": {
@@ -68,6 +83,89 @@
           "type": "integer",
           "minimum": 1,
           "description": "Byte ceiling requested by --max-output-bytes. Present only alongside output_truncated."
+        },
+        "db_path_source": {
+          "type": "string",
+          "enum": ["argv", "xdg", "default"],
+          "description": "GAP-SG-205: which layer supplied the database this process touched. `argv` means --db named it explicitly. `xdg` and `default` mean it was inherited from ambient configuration — legitimate for an idempotent read, and the shape of a confused deputy for a write, which is why the layer is now reported instead of being invisible. Emitted on EVERY envelope of a process that resolved a target, including one with no shaping flag set: v1.2.6 attached it downstream of the no-op short-circuit, so it appeared only for callers who had already set an unrelated flag and was omitted on the default path. Absent means the process resolved no database at all (`config`, `completions`, `locale`), never 'resolved but not reported'."
+        },
+        "db_path_dispensation": {
+          "type": "string",
+          "enum": ["use-active"],
+          "description": "GAP-SG-207: a mutating subcommand accepted an ambient target on purpose, via --use-active. Present only when the dispensation changed the outcome, so it never appears beside db_path_source `argv`, where the flag was never consulted. Its ABSENCE beside a non-argv source on a mutating verb is itself the signal that nothing explicit authorised the inheritance."
+        },
+        "db_path_resolved": {
+          "type": "string",
+          "description": "Absolute path of the database this process actually resolved, beside the layer that supplied it."
+        },
+        "query_limited": {
+          "type": "boolean",
+          "description": "GAP-SG-201: true when the QUERY applied a ceiling before the surface ever saw the envelope. Present whenever the subcommand declared one, refusal or not, so a narrow answer is never mistaken for a complete one."
+        },
+        "query_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows the query was allowed to return. Distinct from max_items, which bounds the OUTPUT after shaping."
+        },
+        "query_limit_source": {
+          "type": "string",
+          "enum": ["flag", "default"],
+          "description": "Whether the caller chose the ceiling or a named constant supplied it. `default` is how GAP-SG-201 fired on a command line that mentioned no limit at all: `graph entities` caps at 50."
+        },
+        "query_limit_kind": {
+          "type": "string",
+          "enum": ["pagination", "top-k"],
+          "description": "`pagination` pages an enumerable universe the command can COUNT (list, graph entities). `top-k` bounds a ranking or a traversal (hybrid-search -k, recall -k, related --limit), where the ceiling defines the answer instead of truncating one. Only `pagination` is ever refused."
+        },
+        "universe_total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the set the query paged over, when the command can count it. Absent for `top-k`, which has no universe to compare against."
+        },
+        "filter_scope": {
+          "type": "string",
+          "enum": ["universe", "page", "top-k"],
+          "description": "What the predicate actually observed. `universe` means the ceiling removed nothing. `page` means it did, so the answer describes a subset. `top-k` means the caller asked for a ranking rather than a corpus."
+        },
+        "filter_incomplete": {
+          "type": "boolean",
+          "description": "Present and true only alongside filter_scope `page`. Emitted when --filter-scope page declared the narrower reading; without that declaration the request is refused with exit 2 instead."
+        },
+        "key_resolution": {
+          "type": "string",
+          "enum": ["partial"],
+          "description": "GAP-SG-202: present only when a projection resolved SOME of the keys asked for. Complete resolution reports nothing, so the record stays quiet on the common case; total failure is refused with exit 2 rather than reported."
+        },
+        "key_suggestions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "GAP-SG-202: field names the caller may have meant, for the keys under unresolved_keys. Carried as data rather than folded into a sentence, because refusal messages are localized and parsing a correction out of prose in one of two languages is exactly what the agent-native contract forbids. Ordered and deduplicated, so the list is identical on every platform. Present only alongside key_resolution, and absent when nothing in the vocabulary resembled the request — itself informative, since it means the caller is looking at the wrong command rather than at a typo.",
+          "minItems": 1
+        },
+        "vocabulary_partial": {
+          "type": "boolean",
+          "const": true,
+          "description": "GAP-SG-202: the vocabulary behind key_suggestions was sampled rather than exhaustive, because the element sample or the key ceiling was reached. It qualifies the ADVICE and never the verdict: key classification always scans every element, so a partial vocabulary can shorten a suggestion list but can never cause a key to be misreported as absent. Present only when true, so a reader never has to distinguish false from 'this build does not report it'."
+        },
+        "count_scope": {
+          "type": "string",
+          "enum": ["matched", "emitted"],
+          "description": "What the number under --count-only actually counts. `matched` means every element that satisfied the predicates. `emitted` means the output ceiling reduced it — --count-only counts what survived, and it runs AFTER --max-items, so a cap of 10 over 39 matches answers 10. That ordering is deliberate and documented; this field is what makes the two cases distinguishable instead of leaving `10` indistinguishable from a corpus that really held ten."
+        },
+        "result_array_source": {
+          "type": "string",
+          "enum": ["declared", "fallback"],
+          "description": "GAP-SG-203: whether the reshaped member is one the CLI declares as a result set (`declared`, from AGENT_SURFACE_RESULT_KEYS) or one the surface elected for want of a declared one (`fallback`, the first member that happened to be an array). The distinction is load-bearing: `stats` carries `namespaces`, the fallback elected it, and a predicate aimed at the top-level `total_memories` was redirected onto a collection the caller never named. A caller seeing `fallback` knows its request may have been pointed somewhere it did not ask for. Absent when the envelope carries no result array at all."
+        },
+        "resolved_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keys from --select that the payload can carry. Present only alongside key_resolution."
+        },
+        "unresolved_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keys from --select that nothing in scope carries, so the projection dropped them. Present only alongside key_resolution — a caller reads this instead of concluding the records were incomplete."
         },
         "aliases_removed": {
           "type": "array",

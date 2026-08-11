@@ -1,6 +1,6 @@
 # Integrations
 
-> **v1.2.5 (current):** eight global agent-native flags (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`; failure envelopes are never filtered) plus `--no-input`. Schema stays **v16**; `DEFAULT_EMBEDDING_DIM=1024`. Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
+> **v1.2.7 (current):** ten global agent-native flags (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--filter-scope`, `--allow-unknown-keys`; failure envelopes are never filtered) plus `--no-input`. An unresolvable key or a predicate over a truncated page is refused with exit 2 instead of answering empty, and the failure envelope names the dropped arguments in `discarded_flags`. Every envelope of a process that resolved a database reports `db_path_source` and `db_path_resolved` inside the `agent_surface` block, with no flag required. A subcommand that changes durable state exits 2 without touching anything when NOTHING named its target — no `--db` and no `db.path` in the configuration. An XDG target is permitted, because `config set db.path` is a designation made once rather than per invocation; `--use-active` accepts the compiled default on purpose. Schema stays **v16**; `DEFAULT_EMBEDDING_DIM=1024`. Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 
 > Read this document in [Portuguese (pt-BR)](INTEGRATIONS.pt-BR.md)

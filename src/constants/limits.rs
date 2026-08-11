@@ -115,7 +115,7 @@ pub const MAX_NAMESPACES_ACTIVE: u32 = 100;
 /// (GAP-SG-04/07).
 ///
 /// Chosen below the 127 KB body margin so each partition also stays under
-/// [`REMEMBER_MAX_SAFE_MULTI_CHUNKS`] chunks and [`EMBEDDING_REQUEST_MAX_TOKENS`]
+/// [`REMEMBER_MAX_SAFE_MULTI_CHUNKS`] chunks and [`crate::constants::EMBEDDING_REQUEST_MAX_TOKENS`]
 /// tokens, even for multibyte/CJK text (~1 cl100k token per UTF-8 char, so
 /// 80 KiB / 3 bytes-per-char yields about 27K tokens, below the 30K ceiling).
 pub const AUTOSPLIT_PARTITION_MAX_BYTES: usize = 80 * 1024;

@@ -7,7 +7,7 @@
 //!   3. Retargeting memory_entities bindings.
 //!   4. Deleting the now-empty source entity rows.
 //!
-//! [`args`] holds the CLI surface, [`envelope`] the JSON report and [`resolve`]
+//! `args` holds the CLI surface, `envelope` the JSON report and `resolve`
 //! the namespace-scoped ID lookup; the merge transaction itself stays here.
 
 use crate::errors::AppError;

@@ -4,8 +4,8 @@
 //! sets used by the `related`, `recall`, `hybrid-search`, `deep-research` and
 //! `graph traverse` commands.
 //!
-//! [`walk`] holds the single BFS engine; the other modules are thin adapters.
-//! [`traverse`] answers "which memories are within N hops", [`bfs`] additionally
+//! `walk` holds the single BFS engine; the other modules are thin adapters.
+//! `traverse` answers "which memories are within N hops", `bfs` additionally
 //! records the predecessor of each entity so evidence chains can be
 //! reconstructed.
 

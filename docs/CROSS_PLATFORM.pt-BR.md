@@ -48,7 +48,7 @@ cargo clippy --all-targets -- -D warnings
 
 | Plataforma | Build | Testes unitários | Harness E2E offline |
 |----------|-------|------------|---------------------|
-| Linux x86_64 | CI de registro no host | host | `scripts/e2e_offline_v120.sh` |
+| Linux x86_64 | host local do operador (de registro) | host | `scripts/e2e_offline_v120.sh` |
 | macOS | checklist do operador | checklist do operador | mesmo script (bash) |
 | Windows | checklist do operador | checklist do operador | adapte paths; use Git Bash ou rode checks manualmente |
 
@@ -144,8 +144,8 @@ cargo install --path .
 | x86_64-pc-windows-msvc | Windows | x86_64 | ~14.6 MiB | <80ms |
 | aarch64-pc-windows-msvc | Windows | ARM64 | ~14.6 MiB | <80ms |
 
-- Cada linha acima recebe asset de release vinculado a cada tag publicada no GitHub
-- Cada linha acima recebe smoke tests automatizados em CI a cada commit empurrado
+- Cada linha acima é construída e verificada localmente pelo operador naquele host; este projeto não tem pipeline remoto
+- Cada linha acima tem seus smoke checks executados à mão a partir da matriz de build no topo deste documento
 - Manifesto SHA256SUMS acompanha cada binário para verificação de integridade imediata
 - Símbolos de debug são entregues como artefatos `.dSYM` ou `.pdb` separados sob demanda
 - Cross-compilação usa `cross` em hosts Linux para a célula `aarch64-unknown-linux-gnu` da matriz
@@ -251,7 +251,7 @@ sqlite-graphrag recall "query" --json | from json | get results | select name
 - Cada shell acima lê os mesmos códigos de saída garantindo semântica de orquestração idêntica
 - Formato JSON de saída fica byte idêntico nos cinco shells simplificando pipelines automatizados
 - Scripts de completion são suportados pela CLI atual via `sqlite-graphrag completion <shell>`
-- Precedência de variáveis de ambiente permanece idêntica em todos os shells testados em CI
+- Precedência de configuração é flag CLI > `config set` XDG > default em todo shell; variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` são PROIBIDAS e não são lidas em runtime
 - Sinais SIGINT e SIGTERM funcionam identicamente habilitando shutdown gracioso universalmente
 
 
@@ -290,6 +290,7 @@ export SQLITE_GRAPHRAG_LOG_LEVEL="debug"
 - RSS após modelo reporta memória residente de pico após carregar `multilingual-e5-small` completo
 - Throughput de embedding mede tokens por segundo durante operações sustentadas de `remember`
 - Cada número acima fica dentro de dez por cento de variância entre dez rodadas de benchmark locais
+- Esses números vêm de hosts do operador; este projeto não tem pipeline remoto de benchmark
 
 
 ## Agentes Validados Por Plataforma
@@ -306,7 +307,7 @@ export SQLITE_GRAPHRAG_LOG_LEVEL="debug"
 - Cursor editor invoca o binário via seu terminal em macOS, Linux e Windows sem distinção
 - Zed editor roda sqlite-graphrag como ferramenta externa em macOS e Linux nativamente
 - Aider agente de código foca em terminais Linux e macOS para fluxos git-aware diários
-- Jules do Google Labs roda o binário Linux glibc em pipelines de CI predominantemente
+- Jules do Google Labs roda o binário Linux glibc em pipelines predominantemente
 - Kilo Code agente autônomo foca em fluxos macOS para desenvolvedores com bindings nativos
 - Roo Code orquestrador executa em servidores Linux e workstations macOS intercambialmente
 - Cline agente autônomo integra via VS Code em todo sistema operacional que o editor suporta

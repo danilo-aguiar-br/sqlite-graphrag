@@ -125,7 +125,7 @@ pub fn run(args: ListArgs) -> Result<(), AppError> {
 
     let effective_limit = args.limit.unwrap_or(match args.format {
         OutputFormat::Json => usize::MAX,
-        _ => 50,
+        _ => crate::constants::K_LIST_TEXT_DEFAULT_LIMIT,
     });
 
     let memory_type_str = args.r#type.map(|t| t.as_str());
@@ -168,6 +168,21 @@ pub fn run(args: ListArgs) -> Result<(), AppError> {
 
     // GAP-SG-53: when pagination hides rows, tell the operator that `list` is
     // not a reliable inventory and point them at `export` (full NDJSON).
+    // GAP-SG-201: declare the ceiling so the output surface stops describing a
+    // universe it never observed. `list --format json` defaults to `usize::MAX`,
+    // so the declaration is only ever a real cut when the caller asked for one.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: effective_limit,
+        offset: args.offset,
+        source: if args.limit.is_some() {
+            crate::agent_surface::universe::CeilingSource::Flag
+        } else {
+            crate::agent_surface::universe::CeilingSource::Default
+        },
+        kind: crate::agent_surface::universe::CeilingKind::Pagination,
+        universe_total: Some(total_count),
+    });
+
     let truncation_warning = if truncated {
         let returned = items.len();
         Some(format!(

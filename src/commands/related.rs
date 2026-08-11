@@ -1,7 +1,7 @@
 //! Handler for the `related` CLI subcommand.
 
 use crate::constants::{
-    DEFAULT_K_RECALL, DEFAULT_MAX_HOPS, DEFAULT_MIN_WEIGHT, TEXT_DESCRIPTION_PREVIEW_LEN,
+    DEFAULT_MAX_HOPS, DEFAULT_MIN_WEIGHT, K_RELATED_DEFAULT_LIMIT, TEXT_DESCRIPTION_PREVIEW_LEN,
 };
 use crate::errors::AppError;
 use crate::graph::{GraphWalk, SqlNeighbors};
@@ -39,7 +39,7 @@ pub struct RelatedArgs {
     #[arg(long, alias = "from")]
     pub name: Option<String>,
     /// Maximum graph hop count. Also accepts the alias `--hops`.
-    #[arg(long, alias = "hops", default_value_t = DEFAULT_MAX_HOPS)]
+    #[arg(long, alias = "hops", default_value_t = DEFAULT_MAX_HOPS, value_parser = crate::parsers::parse_hops_range_u32)]
     pub max_hops: u32,
     /// Filter results to a specific relation type. Canonical values:
     /// applies-to, uses, depends-on, causes, fixes, contradicts, supports,
@@ -51,7 +51,7 @@ pub struct RelatedArgs {
     #[arg(long, default_value_t = DEFAULT_MIN_WEIGHT)]
     pub min_weight: f64,
     /// Maximum number of items.
-    #[arg(long, default_value_t = DEFAULT_K_RECALL)]
+    #[arg(long, default_value_t = K_RELATED_DEFAULT_LIMIT, value_parser = crate::parsers::parse_k_range)]
     pub limit: usize,
     /// Namespace scope.
     #[arg(long)]
@@ -180,6 +180,16 @@ pub fn run(args: RelatedArgs) -> Result<(), AppError> {
         relation_filter.as_deref(),
         args.limit,
     )?;
+    // GAP-SG-201: `related --limit` stops a breadth-first walk rather than
+    // paging a table, so there is no universe to count and no page to refuse.
+    // Reported so the caller sees the bound instead of inferring completeness.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: args.limit,
+        offset: 0,
+        source: crate::agent_surface::universe::CeilingSource::Flag,
+        kind: crate::agent_surface::universe::CeilingKind::TopK,
+        universe_total: None,
+    });
 
     match args.format {
         OutputFormat::Json => {

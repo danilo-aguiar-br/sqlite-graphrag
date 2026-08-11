@@ -18,6 +18,7 @@ use support::{assert_json_or_not_found, assert_json_stdout, Env};
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_01_init() {
     let env = Env::new();
     let out = env.cmd().arg("init").output().expect("init failed");
@@ -31,6 +32,7 @@ fn smoke_01_init() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_02_health() {
     let env = Env::new();
     env.init();
@@ -48,6 +50,7 @@ fn smoke_02_health() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_03_remember() {
     let env = Env::new();
     env.init();
@@ -84,6 +87,7 @@ fn smoke_03_remember() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_04_recall() {
     let env = Env::new();
     env.init();
@@ -101,6 +105,7 @@ fn smoke_04_recall() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_05_read() {
     let env = Env::new();
     env.init();
@@ -123,6 +128,7 @@ fn smoke_05_read() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_06_list() {
     let env = Env::new();
     env.init();
@@ -148,6 +154,7 @@ fn smoke_06_list() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_07_forget() {
     let env = Env::new();
     env.init();
@@ -171,6 +178,7 @@ fn smoke_07_forget() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_08_purge() {
     let env = Env::new();
     env.init();
@@ -193,6 +201,7 @@ fn smoke_08_purge() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_09_rename() {
     let env = Env::new();
     env.init();
@@ -227,6 +236,7 @@ fn smoke_09_rename() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_10_edit() {
     let env = Env::new();
     env.init();
@@ -260,6 +270,7 @@ fn smoke_10_edit() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_11_history() {
     let env = Env::new();
     env.init();
@@ -293,6 +304,7 @@ fn smoke_11_history() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[ignore = "needs `cargo install --path .` first: validates the INSTALLED binary, not this build"]
 fn smoke_12_restore() {
     let env = Env::new();
     env.init();

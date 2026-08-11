@@ -11,10 +11,20 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 | Versão  | Status        | Correções de Segurança     |
 | ------- | ------------- | -------------------------- |
-| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.2 / crate 1.2.2) |
+| 1.2.x   | Suportada     | Sim, recebe correções (linha atual; última v1.2.7 / crate 1.2.7) |
 | 1.1.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 1.0.x   | Suportada     | Sim, recebe correções críticas; upgrade para 1.2.x recomendado |
 | 0.x     | Sem suporte   | Sem correções fornecidas   |
+
+### Notas de segurança relevantes da v1.2.7
+- **A proveniência do banco passou a ser publicada.** Todo verbo com efeito colateral emite `db_path_source` e `db_path_resolved` no envelope, então o chamador enxerga em qual banco a escrita realmente caiu
+- Omitir `--db` NÃO usa o diretório atual: a chamada cai no banco XDG em silêncio e sai com exit 0. Os campos de proveniência tornam visível essa escrita no banco errado, antes silenciosa
+
+### Notas de segurança relevantes da v1.2.6
+- **Uma chave inexistente em `--select` ou `--filter` deixou de ser silenciada.** Antes o pedido degradava para um conjunto vazio com exit 0; agora é recusado com exit 2
+- Um `--filter` passou a avaliar o conjunto inteiro em vez de apenas a página atual
+- Um knob declarado sem efeito deixou de devolver exit 0
+- Consequência de segurança: o chamador não pode mais confundir um pedido malformado com um resultado legítimo vazio
 
 ### Notas de segurança relevantes da v1.2.2
 - **Envelope de falha nunca é filtrado.** A superfície de saída agent-native (`--filter`, `--select`, `--max-items`, …) remodela apenas linhas de resultado; um envelope com `error: true` ou `ok: false` chega ao chamador literalmente. O chamador nunca pode ser induzido a ler uma falha como conjunto de resultados vazio e bem-sucedido
@@ -80,7 +90,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 ## Política de Atualização de Segurança
 - Patches para versões suportadas são entregues como nova release patch no crates.io e GitHub Releases
 - Toda release é validada com o pipeline completo de 10 comandos descrito em CONTRIBUTING
-- CI executa `cargo audit` e `cargo deny check advisories licenses bans sources` em cada push
+- As verificações de advisory e de licença são executadas LOCALMENTE pelo operador com `cargo audit` e `cargo deny check advisories licenses bans sources`; o repositório não tem workflows de CI, e `cargo test` é o único gate automático
 - Supply chain é protegida via pinagem `constant_time_eq = "=0.4.2"` para proteger MSRV 1.88
 - Drift de MSRV de dependência transitiva é monitorado proativamente conforme política do PRD
 

@@ -3,7 +3,7 @@
 use crate::errors::AppError;
 use crate::retry::AttemptOutcome;
 
-/// [`OpenRouterClient::embed_single`] / [`OpenRouterClient::embed_batch`]
+/// [`crate::embedding_api::OpenRouterClient::embed_single`] / [`crate::embedding_api::OpenRouterClient::embed_batch`]
 /// failure (reauditor addendum, mirrors [`crate::chat_api::ChatError`]).
 ///
 /// `retry_class` is the retry verdict computed AT THE ORIGIN (the exact HTTP
@@ -59,8 +59,8 @@ impl From<AppError> for EmbedError {
 }
 
 /// Unwraps `EmbedError` back down to its `source`, discarding `retry_class`.
-/// Lets the many pre-existing `?`-based callers of [`OpenRouterClient::embed_single`]
-/// / [`OpenRouterClient::embed_batch`] (in [`crate::embedder`]) keep compiling
+/// Lets the many pre-existing `?`-based callers of [`crate::embedding_api::OpenRouterClient::embed_single`]
+/// / [`crate::embedding_api::OpenRouterClient::embed_batch`] (in [`crate::embedder`]) keep compiling
 /// unchanged; callers that need the typed retry verdict (the enrich
 /// `re-embed` path) should match on `EmbedError` directly instead of relying
 /// on this conversion.

@@ -70,7 +70,7 @@ pub fn config_key_unknown(key: &str, suggestion: Option<&str>) -> String {
     }
 }
 
-/// Localized description of the domain a [`ValueKind`] accepts.
+/// Localized description of the domain a [`crate::config::ValueKind`] accepts.
 ///
 /// `Text` and `OneOf` never reach here: the first has no domain to describe,
 /// and the second is a list of literal spellings that must not be translated.

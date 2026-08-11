@@ -54,7 +54,7 @@ pub struct PendingListArgs {
     #[arg(long, value_enum)]
     pub status: Option<PendingStatusArg>,
     /// Maximum number of entries to return. Default: 100.
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 100, value_parser = crate::parsers::parse_list_limit_range)]
     pub limit: usize,
     /// GAP-E2E-010b (v1.0.89): explicit database path override. Defaults to
     /// the path resolved by `AppPaths::resolve(None)` when omitted. Honors

@@ -6,7 +6,7 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 > Memória persistente para agentes de IA em um único binário Rust com GraphRAG embutido.
-> **Release atual: v1.2.5.** Contrato permanente, inalterado em toda a linha 1.2.x: schema **v16**, `DEFAULT_EMBEDDING_DIM=1024`, precedência de configuração **flag CLI > XDG `config set` > default** (env de produto `SQLITE_GRAPHRAG_*` **não** é lida no hot path), embedding e enrich **somente por OpenRouter REST**, releases manuais (sem GitHub Actions), owner no crates.io `danilo-aguiar-br`. O que cada release mudou está em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — este banner não é uma segunda cópia dele.
+> **Release atual: v1.2.7.** Contrato permanente, inalterado em toda a linha 1.2.x: schema **v16**, `DEFAULT_EMBEDDING_DIM=1024`, precedência de configuração **flag CLI > XDG `config set` > default** (env de produto `SQLITE_GRAPHRAG_*` **não** é lida no hot path), embedding e enrich **somente por OpenRouter REST**, releases manuais (sem GitHub Actions), owner no crates.io `danilo-aguiar-br`. O que cada release mudou está em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md) — este banner não é uma segunda cópia dele.
 
 - Leia este documento em [inglês (EN)](README.md).
 
@@ -575,6 +575,20 @@ Precedência: flag > XDG `cli.no_input` > `false`. Um host que optou pela flag v
 | --- | --- | --- |
 | `pending-embeddings` | `list`, `status`, `abandon` | Inspeção da fila de retry de embedding; `status` (v1.2.0) é alias de `embedding status` |
 | `embedding` | `status`, `list`, `abandon` | Saúde e inspeção por entrada da fila; `status --json` reporta `coverage` e contadores `*_missing` |
+
+
+## Faixas de Argumentos Numéricos (v1.2.7)
+
+Treze argumentos numéricos da superfície de leitura têm a faixa validada pelo clap em tempo de parse. Um valor fora da faixa é recusado com **exit 2** e mensagem de faixa, antes de o banco ser tocado.
+
+| Faixa | Argumentos |
+| --- | --- |
+| `1..=4096` (top-k) | `recall -k`, `hybrid-search -k`, `related --limit`, `graph entities --limit`, `deep-research --k`, `deep-research --max-results` |
+| `1..=1000000` (limite de listagem) | `export --limit`, `pending --limit`, `pending-embeddings --limit`, `embedding --limit` |
+| `1..=64` (saltos) | `related --max-hops` (alias `--hops`), `recall --max-hops`, `graph traverse --depth`, `deep-research --max-hops` |
+| `1..=64` (sub-consultas) | `deep-research --max-sub-queries` |
+
+Os tetos vivem em `src/constants/search.rs` como `K_QUERY_RANGE_MAX`, `K_LIST_LIMIT_MAX`, `K_MAX_HOPS_CEILING` e `K_MAX_SUB_QUERIES_CEILING`.
 
 
 ## Configuração (XDG — v1.2.5)

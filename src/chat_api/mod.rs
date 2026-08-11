@@ -9,9 +9,9 @@
 //! 429, exponential backoff + jitter on 5xx) and the same minimal headers
 //! (only `Authorization: Bearer`, no `HTTP-Referer`/`X-Title`). The shared
 //! error envelope and backoff helper live in [`crate::openrouter_http`]
-//! (GAP-SG-74). The submodule layout mirrors it too: [`wire`] holds the serde
-//! shapes, [`error`] the failure type, [`transport`] the retry loop, [`client`]
-//! the call surface and [`completion`] the response finalisation.
+//! (GAP-SG-74). The submodule layout mirrors it too: `wire` holds the serde
+//! shapes, `error` the failure type, `transport` the retry loop, `client`
+//! the call surface and `completion` the response finalisation.
 //!
 //! v1.0.95 (ADR-0054): adds an OpenRouter REST transport for the `enrich`
 //! JUDGE so structured extraction no longer requires a locally installed

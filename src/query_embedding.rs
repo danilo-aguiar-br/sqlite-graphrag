@@ -72,12 +72,12 @@ pub const FALLBACK_FTS_ONLY_CODE: &str = "fallback_fts_only";
 /// The class is derived from `reason_code`, never from the message prose, so a
 /// reworded string cannot silently reclassify a failure:
 /// - `timeout`, `slot_exhausted`, `oauth_quota`, `cancelled` — the provider was
-///   unreachable or too slow. [`AppError::Timeout`] is retryable, so
+///   unreachable or too slow. [`crate::errors::AppError::Timeout`] is retryable, so
 ///   `error_class` is `transient` and `retryable` is `true`: retrying is exactly
 ///   the right advice.
 /// - anything else (`dim_zero`, `backend_mismatch`, `embedding_failed`) — the
 ///   configuration or the response shape is wrong, and retrying an unchanged
-///   invocation reproduces it. [`AppError::Embedding`] carries exit 11.
+///   invocation reproduces it. [`crate::errors::AppError::Embedding`] carries exit 11.
 pub fn degradation_failure(
     fail_on_degraded: bool,
     vec_degraded: bool,
@@ -207,11 +207,11 @@ mod tests {
         );
     }
 
-    /// A degradação PEDIDA nunca vira falha, mesmo com a flag ligada.
+    /// Degradation the caller ASKED for never becomes a failure, flag or no flag.
     ///
-    /// Este é o par que fecha o ciclo: o teste acima prova que o código chega, e
-    /// este prova o que o código serve para decidir. Sem ele, alguém poderia
-    /// remover `reason_code` do ramo de opt-out e só um dos dois quebraria.
+    /// The pair that closes the loop: the test above proves the code arrives,
+    /// and this one proves what the code is there to decide. Without it, someone
+    /// could drop `reason_code` from the opt-out branch and only one would break.
     #[test]
     fn opting_out_survives_fail_on_degraded() {
         let resolved = resolve_query_embedding(

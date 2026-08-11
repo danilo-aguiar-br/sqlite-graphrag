@@ -54,7 +54,7 @@ pub struct PendingEmbeddingsListArgs {
     #[arg(long, default_value = "pending")]
     pub status: String,
     /// Maximum number of entries to return. Default: 1000.
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 1000, value_parser = crate::parsers::parse_list_limit_range)]
     pub limit: usize,
     /// Emit machine-readable JSON on stdout.
     #[arg(long, hide = true)]
