@@ -36,13 +36,30 @@ pub struct OptimizeArgs {
     pub skip_fts: bool,
     /// When true (default), the FTS5 rebuild step is skipped when
     /// `fts check` reports the index is already functional. Saves 5-15
-    /// minutes on large databases. Set to false to always rebuild.
+    /// minutes on large databases.
+    ///
+    /// `default_value_t = true` on a `bool` yields `ArgAction::SetTrue` over a
+    /// default that is already `true`, so this flag cannot change the outcome:
+    /// passing it is a no-op. It stays for compatibility, and the negated form
+    /// below is what actually forces a rebuild. ADR-0016 decided on that form,
+    /// and both the examples and the runtime message have instructed it since
+    /// v1.0.69 while the parser rejected it with exit 2.
     #[arg(
         long,
         default_value_t = true,
+        overrides_with = "no_fts_skip_when_functional",
         help = "Skip FTS5 rebuild when index is already functional (saves minutes on big DBs)"
     )]
     pub fts_skip_when_functional: bool,
+    /// Forces the FTS5 rebuild even when `fts check` reports the index is
+    /// already functional. Wins when both spellings are passed, because the
+    /// negated form is the explicit request and the positive one is inert.
+    #[arg(
+        long = "no-fts-skip-when-functional",
+        default_value_t = false,
+        help = "Force the FTS5 rebuild even when the index is already functional"
+    )]
+    pub no_fts_skip_when_functional: bool,
     /// G36 Step 2 (v1.0.69): run `fts check` + `fts stats` only, do not
     /// trigger any rebuild. Exit code is 0 when the index is healthy, 1
     /// when a rebuild would be recommended.
@@ -134,7 +151,7 @@ pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
 
     let (fts_rebuilt, fts_skipped_functional, fts_unhealthy, fts_rows_indexed) = if args.skip_fts {
         (false, false, false, None)
-    } else if args.fts_skip_when_functional && fts_functional {
+    } else if args.fts_skip_when_functional && !args.no_fts_skip_when_functional && fts_functional {
         tracing::info!(target: "optimize",
             "FTS5 index already functional; skipping rebuild (use --no-fts-skip-when-functional to override)"
         );
@@ -257,6 +274,7 @@ mod tests {
             db: Some(db_path.to_string_lossy().into_owned()),
             skip_fts: false,
             fts_skip_when_functional: true,
+            no_fts_skip_when_functional: false,
             fts_dry_run: false,
             fts_progress: 30,
             yes: true,

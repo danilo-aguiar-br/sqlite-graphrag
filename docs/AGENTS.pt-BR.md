@@ -377,7 +377,7 @@ sqlite-graphrag config doctor --json
 - Ambos `migrate --rehash` e `migrate --to-llm-only` têm schemas JSON dedicados (`migrate-rehash.schema.json` e `migrate-to-llm-only.schema.json`) em `docs/schemas/`.
 ### OBRIGATÓRIO — Versão de Schema e Embeddings com Backing BLOB
 - A versão atual de schema é 13. A migração V013 descarta as virtual tables `vec_memories`, `vec_entities` e `vec_chunks` e as substitui pelas tabelas regulares com backing BLOB `memory_embeddings`, `entity_embeddings` e `chunk_embeddings`. A similaridade por cosseno é computada em Rust puro sob demanda em `src/similarity.rs`.
-- A `hybrid-search` usa FTS5 como filtro grosso e refina o conjunto de candidatos com cosseno em Rust puro sobre os embeddings BLOB. O FTS5 permanece saudável porque a reconstrução é bloqueada por `optimize --fts-skip-when-functional` (G36 da v1.0.69).
+- A `hybrid-search` usa FTS5 como filtro grosso e refina o conjunto de candidatos com cosseno em Rust puro sobre os embeddings BLOB. O FTS5 permanece saudável porque o `optimize` pula a reconstrução quando o índice já está funcional, que é o PADRÃO desde o G36 da v1.0.69; `--no-fts-skip-when-functional` força a reconstrução.
 - O subcomando `daemon` foi totalmente removido (infraestrutura na v1.0.76; código restante de `daemon.rs` deletado na v1.0.79, antecipando o cronograma da v1.1.0).
 ### OBRIGATÓRIO — Apenas OAuth Reafirmado
 - O mandato OAuth-only da v1.0.69 é REAFIRMADO. O spawn ABORTA com `AppError::Validation` se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiverem definidas no ambiente. Ambas as variáveis são excluídas da whitelist de env-clear como defesa em profundidade.

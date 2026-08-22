@@ -1,7 +1,8 @@
 //! Composite extraction backend (v1.0.75 — G21 orchestration)
 //!
 //! Runs multiple backends in parallel and merges their outputs.
-//! Used when the user requests `--extraction-backend both`.
+//! Was selected by an extraction-backend switch that no longer exists: the flag
+//! was removed in v1.0.79 together with the fastembed pipeline.
 
 use super::{
     BackendHealth, BackendKind, ExtractionBackend, ExtractionHints, ExtractionOutput, SharedBackend,

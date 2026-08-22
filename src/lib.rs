@@ -113,7 +113,7 @@ pub fn shutdown_signal() -> u8 {
 /// cleared. Intended for tests and audit invocations where the SHUTDOWN flag
 /// was contaminated by an earlier signal handler in the same process tree.
 /// Production code must NOT call this — the only legitimate callers are
-/// integration tests, audit scripts, and the `--ignore-shutdown` CLI flag.
+/// integration tests and audit scripts. No CLI flag reaches this function.
 ///
 /// Note: this only resets the `SHUTDOWN` flag. The global [`CancellationToken`]
 /// remains in its previous cancelled state because `tokio_util::sync::CancellationToken`

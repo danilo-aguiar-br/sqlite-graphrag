@@ -25,8 +25,20 @@ pub struct VacuumArgs {
     #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
     pub json: bool,
     /// Run a WAL checkpoint before and after `VACUUM`.
-    #[arg(long, default_value_t = true)]
+    ///
+    /// `default_value_t = true` on a `bool` gives `ArgAction::SetTrue` over a
+    /// default that is already `true`, so this flag cannot change the outcome by
+    /// itself. `--no-checkpoint` is what turns the checkpoints off, following
+    /// the `--auto-describe` / `--no-auto-describe` pair in `ingest`.
+    #[arg(long, default_value_t = true, overrides_with = "no_checkpoint")]
     pub checkpoint: bool,
+    /// Skip the WAL checkpoints that bracket `VACUUM`.
+    #[arg(
+        long = "no-checkpoint",
+        default_value_t = false,
+        help = "Skip the WAL checkpoint before and after VACUUM"
+    )]
+    pub no_checkpoint: bool,
     /// Output format.
     #[arg(long, value_enum, default_value_t = JsonOutputFormat::Json)]
     pub format: JsonOutputFormat,
@@ -60,11 +72,12 @@ pub fn run(args: VacuumArgs) -> Result<(), AppError> {
         .map(|meta| meta.len())
         .unwrap_or(0);
     let conn = open_rw(&paths.db)?;
-    if args.checkpoint {
+    let checkpoint = args.checkpoint && !args.no_checkpoint;
+    if checkpoint {
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
     }
     conn.execute_batch("VACUUM;")?;
-    if args.checkpoint {
+    if checkpoint {
         conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
     }
     drop(conn);

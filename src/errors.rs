@@ -278,7 +278,7 @@ pub enum AppError {
 
     /// Another instance is already running and holds the advisory lock. Maps to exit code `75`.
     ///
-    /// Use `--allow-parallel` to skip the lock or `--wait-lock SECONDS` to retry.
+    /// Use `--wait-lock <SECONDS>` to poll until the lock drops.
     #[error("lock busy: {0}")]
     LockBusy(String),
 
@@ -321,11 +321,12 @@ pub enum AppError {
 
     /// G45: an LLM embedding operation is already running against the
     /// same `(namespace, db)` pair in another process. Exit code 75
-    /// (retryable). The caller can pass `--wait-embed-singleton
-    /// <SECONDS>` to poll until the lock drops.
+    /// (retryable). The caller can pass `--wait-lock <SECONDS>` to poll until
+    /// the lock drops. Until v1.2.8 this message named the wait flag removed in
+    /// v1.2.0, so obeying the refusal returned exit 2 (GAP-SG-303).
     #[error(
         "embedding singleton for namespace '{namespace}' is already held (exit 75); \
-         another CLI is calling the LLM on this database; pass --wait-embed-singleton <SECONDS> to wait"
+         another CLI is calling the LLM on this database; pass --wait-lock <SECONDS> to wait"
     )]
     /// Embedding singleton locked.
     EmbeddingSingletonLocked {

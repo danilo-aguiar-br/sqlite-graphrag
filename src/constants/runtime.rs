@@ -73,7 +73,7 @@ pub const DEFAULT_MAX_RSS_MB: u64 = 8_192;
 
 /// Maximum time in seconds an instance waits to acquire a concurrency slot.
 ///
-/// Passed as the default for `--max-wait-secs` in the CLI. After exhausting this limit,
+/// Passed as the default for `--wait-lock` in the CLI. After exhausting this limit,
 /// the invocation returns [`crate::errors::AppError::AllSlotsFull`] with exit code
 /// [`crate::constants::CLI_LOCK_EXIT_CODE`] (75).
 pub const CLI_LOCK_DEFAULT_WAIT_SECS: u64 = 300;

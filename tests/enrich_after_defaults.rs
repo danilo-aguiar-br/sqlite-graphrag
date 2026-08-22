@@ -150,6 +150,8 @@ fn defaulted_fields() -> Vec<DefaultedField> {
         defaulted!(preflight_check, "false", |a: &EnrichArgs| !a
             .preflight_check),
         defaulted!(max_load_check, "true", |a: &EnrichArgs| a.max_load_check),
+        defaulted!(no_max_load_check, "false", |a: &EnrichArgs| !a
+            .no_max_load_check),
         defaulted!(force_redescribe, "false", |a: &EnrichArgs| !a
             .force_redescribe),
         defaulted!(quality_sample, "None", |a: &EnrichArgs| a

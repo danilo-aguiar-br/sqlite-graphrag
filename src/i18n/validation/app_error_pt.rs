@@ -249,7 +249,7 @@ pub fn job_singleton_locked(job_type: &str, namespace: &str) -> String {
 pub fn embedding_singleton_locked(namespace: &str) -> String {
     format!(
         "singleton de embedding para o namespace '{namespace}' já está retido (exit 75); \
-         outra CLI está chamando o LLM neste banco; passe --wait-embed-singleton <SEGUNDOS> para aguardar"
+         outra CLI está chamando o LLM neste banco; passe --wait-lock <SEGUNDOS> para aguardar"
     )
 }
 
