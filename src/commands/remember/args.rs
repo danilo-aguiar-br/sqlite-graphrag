@@ -4,38 +4,39 @@ use crate::cli::MemoryType;
 use crate::output::JsonOutputFormat;
 
 #[derive(clap::Args)]
-#[command(after_long_help = "EXAMPLES:\n  \
-    # Create a memory with inline body\n  \
-    sqlite-graphrag remember --name design-auth --type decision \\\n    \
-    --description \"auth design\" --body \"JWT for stateless auth\"\n\n  \
-    # Create with curated graph via --graph-stdin\n  \
-    echo '{\"body\":\"...\",\"entities\":[],\"relationships\":[]}' | \\\n    \
-    sqlite-graphrag remember --name my-mem --type note --description \"desc\" --graph-stdin\n\n  \
-    # Enable automatic URL extraction with --graph-stdin (URL-regex only since v1.0.79)\n  \
-    echo '{\"body\":\"See https://docs.rs ...\",\"entities\":[],\"relationships\":[]}' | \\\n    \
-    sqlite-graphrag remember --name url-test --type note --description \"test\" \\\n    \
-    --graph-stdin --enable-ner\n\n  \
-    # Idempotent upsert with --force-merge\n  \
-    sqlite-graphrag remember --name my-mem --type note --description \"updated\" \\\n    \
-    --body \"new content\" --force-merge\n\n\
-NOTE:\n  \
-    remember does NOT accept positional arguments.\n  \
-    Use --body \"text\" for inline content\n  \
-    Use --body-file path for file content\n  \
-    Use --body-stdin for piped content\n  \
-    Use --graph-stdin for JSON with entities and relationships\n\n\
-ENTITY TYPES (for --graph-stdin entities, NOT memory --type):\n  \
-    concept, tool, person, file, project, decision, incident,\n  \
-    organization, location, date, dashboard, issue_tracker, memory\n  \
-    WARNING: reference, skill, document, note, user, feedback are\n  \
-    MEMORY types only — NOT valid for entities.\n  \
-    Mapping: reference→concept, document→file, user→person")]
 /// Remember args.
+///
+/// GAP-SG-216: this struct carried an `after_long_help` block from v1.0.x until
+/// v1.2.8 and NONE of it ever reached a terminal. `Commands::Remember` in
+/// `crate::cli::commands` declares the same attribute on the enum variant, and
+/// clap keeps that one — silently, with no warning and no lint. The dead block
+/// is where the false claim "reference, skill, document, note, user, feedback
+/// are MEMORY types only — NOT valid for entities" survived two minor releases
+/// after v1.1.8 made the parser accept all six.
+///
+/// The authoritative block now lives beside the variant, where it renders, and
+/// `tests/remember_input_contract_gate.rs` reads THAT text. Do not add a second
+/// `after_long_help` here: a help attribute nothing renders is prose that can
+/// only rot.
 pub struct RememberArgs {
+    /// GAP-SG-216: memory name as a positional argument, the same form `edit`,
+    /// `read`, `forget`, `history`, `related`, `rename`, `restore` and
+    /// `memory-entities` already accept. `remember` alone refused it, and the
+    /// refusal arrived as clap's generic `unexpected argument`, which names
+    /// neither `--name` nor the reason.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with = "name",
+        help = "Memory name in kebab-case; alternative to --name"
+    )]
+    pub name_positional: Option<String>,
     /// Memory name in kebab-case (lowercase letters, digits, hyphens).
     /// Acts as unique key within the namespace; collisions trigger merge or rejection.
+    ///
+    /// Optional at the clap layer only because the positional form is the
+    /// alternative; `super::name::resolve` refuses when NEITHER is given.
     #[arg(long)]
-    pub name: String,
+    pub name: Option<String>,
     #[arg(
         long,
         value_enum,
@@ -176,6 +177,20 @@ Accepts Unix epoch (e.g. 1700000000) or RFC 3339 (e.g. 2026-04-19T12:00:00Z)."
         help = "Reject the write if --name would be normalized to kebab-case (preserve-name guard)"
     )]
     pub strict_name: bool,
+    /// GAP-SG-216: reject a declared `entity_type` outside the thirteen
+    /// canonical kinds.
+    ///
+    /// The sibling of [`Self::strict_name`]: one field guards the name the
+    /// caller typed, the other the taxonomy. An open vocabulary stays the
+    /// default because LLM extraction depends on it — an extractor cannot be
+    /// asked to emit only thirteen labels, while a caller who typed one can opt
+    /// into being refused.
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Reject the write if a declared entity_type is outside the canonical vocabulary"
+    )]
+    pub strict_entity_types: bool,
     /// GAP-SG-51: with --force-merge, REPLACE the memory's entity/relationship
     /// bindings with the supplied set instead of merging additively. Combined
     /// with an empty `entities`/`relationships` payload this clears all bindings

@@ -1,4 +1,7 @@
 # ADR-0062: v1.1.02 — Two Residual Gaps Closed (GLiNER Removal, TooManyTokens Typed) + Entity Orphan Prune + Re-Embed Regression Test
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `IngestMode` no longer exposes `claude-code`, `codex` or `opencode`: `ingest --mode` accepts only `none` today.
+- HISTORICAL: `--embedding-backend llm` is refused as well; the live values are `openrouter` and `none`.
 
 - **Status**: Accepted
 - **Date**: 2026-07-06

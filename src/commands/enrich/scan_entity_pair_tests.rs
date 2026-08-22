@@ -52,7 +52,7 @@ fn scan_isolated_entity_pairs_excludes_seen() {
         rusqlite::params![mem_id, a_id, b_id],
     )
     .unwrap();
-    // marca o par como já avaliado (verdict none)
+    // mark the pair as already judged (verdict none)
     conn.execute(
         "INSERT INTO entity_connect_seen (source_id, target_id, namespace, verdict) \
          VALUES (?1, ?2, 'global','none')",

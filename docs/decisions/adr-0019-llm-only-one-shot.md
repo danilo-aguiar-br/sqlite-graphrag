@@ -1,8 +1,11 @@
 # ADR-0019: LLM-Only One-Shot Architecture (v1.0.76)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it offers `--extraction-backend llm` and `migrate --to-llm-only --keep-vec`, and the v1.2.8 parser rejects both `--extraction-backend` and `--keep-vec`.
+- HISTORICAL: `--extraction-backend` was removed with no replacement; the live migration pair is `migrate --to-llm-only --drop-vec-tables`.
 
 - Status: Accepted (2026-06-07)
 - Update (v1.0.79): the `embedding-legacy` escape hatch mentioned below was removed ahead of the v1.1.0 schedule; the transition window is closed
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: src/embedder.rs, src/extraction.rs, src/similarity.rs, src/storage/connection.rs, src/storage/memories.rs, src/storage/entities.rs, src/storage/chunks.rs, migrations/V002, migrations/V013, Cargo.toml
 
 ## Context

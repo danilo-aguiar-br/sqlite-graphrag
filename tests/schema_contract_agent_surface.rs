@@ -4,13 +4,25 @@
 //! test runs the binary, captures stdout, parses it as JSON and validates it
 //! against the published `docs/schemas/*.schema.json`. The shared harness lives
 //! in `tests/schema_support/`.
+//!
+//! NOT gated behind `slow-tests`, unlike the 29 other heavy test files, because
+//! this suite is the only thing that compares the binary's REAL stdout against
+//! the published contract. GAP-SG-271 measured what the gate cost while it was
+//! on: five files sat behind the feature, `cargo test` never compiled them, and
+//! the published schemas drifted with nothing to notice. A gate the default
+//! invocation never runs is not a gate — it is a gate-shaped reassurance.
+//!
+//! The attribute must never move back into `tests/schema_support/mod.rs`: a
+//! shared `mod.rs` that cfg-es itself out does not become empty, it VANISHES
+//! from the module graph, so every `use support::…` fails to resolve and the
+//! whole test build breaks.
 
 #[path = "schema_support/mod.rs"]
 mod support;
 
 use serde_json::Value;
 use serial_test::serial;
-use support::{validar_schema, Env, AGENT_SURFACE_SCHEMA};
+use support::{validate_schema, Env, AGENT_SURFACE_SCHEMA};
 
 // ---------------------------------------------------------------------------
 // 40 — list under --select (GAP-SG-142 agent-native surface)
@@ -27,39 +39,39 @@ use support::{validar_schema, Env, AGENT_SURFACE_SCHEMA};
 fn schema_40_list_agent_surface_select() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-surface-select");
-    let saida = env
+    env.remember_simple("mem-schema-surface-select");
+    let output = env
         .cmd()
         .args(["list", "--namespace", "global", "--select", "name"])
         .output()
         .expect("list --select failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "list --select: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "list --select");
+    let instance = Env::parse_stdout(&output, "list --select");
 
-    validar_schema(
+    validate_schema(
         "list --select",
         include_str!("../docs/schemas/list.schema.json"),
-        &instancia,
+        &instance,
     );
 
     assert_eq!(
-        instancia["agent_surface"]["select"],
+        instance["agent_surface"]["select"],
         serde_json::json!(["name"])
     );
     assert!(
-        instancia.get("memories").is_none(),
-        "the unprojected alias must not survive the projection: {instancia}"
+        instance.get("memories").is_none(),
+        "the unprojected alias must not survive the projection: {instance}"
     );
     assert_eq!(
-        instancia["agent_surface"]["aliases_removed"],
+        instance["agent_surface"]["aliases_removed"],
         serde_json::json!(["memories"])
     );
-    for item in instancia["items"].as_array().expect("items é array") {
+    for item in instance["items"].as_array().expect("items é array") {
         let obj = item.as_object().expect("item é objeto");
         assert_eq!(obj.len(), 1, "somente a chave projetada sobrevive: {item}");
         assert!(obj.contains_key("name"));
@@ -77,38 +89,36 @@ fn schema_40_list_agent_surface_select() {
 fn schema_41_list_agent_surface_count_only() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-surface-count");
-    let saida = env
+    env.remember_simple("mem-schema-surface-count");
+    let output = env
         .cmd()
         .args(["list", "--namespace", "global", "--count-only"])
         .output()
         .expect("list --count-only failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "list --count-only: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "list --count-only");
+    let instance = Env::parse_stdout(&output, "list --count-only");
 
     // The definition is lifted into a standalone document so its internal
     // `#/$defs/AgentSurfaceMeta` reference still resolves.
-    let compartilhado: Value = serde_json::from_str(AGENT_SURFACE_SCHEMA)
+    let shared_schema: Value = serde_json::from_str(AGENT_SURFACE_SCHEMA)
         .expect("agent-surface.schema.json deve ser JSON válido");
-    let mut envelope_de_contagem = compartilhado["$defs"]["CountOnlyEnvelope"].clone();
-    envelope_de_contagem["$schema"] =
-        serde_json::json!("https://json-schema.org/draft/2020-12/schema");
-    envelope_de_contagem["$defs"] = compartilhado["$defs"].clone();
-    let schema_str =
-        serde_json::to_string(&envelope_de_contagem).expect("serialização do subschema");
+    let mut count_envelope = shared_schema["$defs"]["CountOnlyEnvelope"].clone();
+    count_envelope["$schema"] = serde_json::json!("https://json-schema.org/draft/2020-12/schema");
+    count_envelope["$defs"] = shared_schema["$defs"].clone();
+    let schema_str = serde_json::to_string(&count_envelope).expect("serialização do subschema");
 
-    validar_schema("list --count-only", &schema_str, &instancia);
+    validate_schema("list --count-only", &schema_str, &instance);
 
-    assert_eq!(instancia["agent_surface"]["count_only"], true);
-    assert!(instancia["count"].as_u64().is_some());
+    assert_eq!(instance["agent_surface"]["count_only"], true);
+    assert!(instance["count"].as_u64().is_some());
     assert!(
-        instancia.get("items").is_none() && instancia.get("memories").is_none(),
-        "o payload é substituído pela contagem: {instancia}"
+        instance.get("items").is_none() && instance.get("memories").is_none(),
+        "o payload é substituído pela contagem: {instance}"
     );
 }
 
@@ -125,8 +135,8 @@ fn schema_41_list_agent_surface_count_only() {
 fn schema_42_recall_agent_surface_alias_suppression() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-surface-recall");
-    let saida = env
+    env.remember_simple("mem-schema-surface-recall");
+    let output = env
         .cmd()
         .args([
             "recall",
@@ -139,27 +149,27 @@ fn schema_42_recall_agent_surface_alias_suppression() {
         .output()
         .expect("recall --max-items failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "recall --max-items: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "recall --max-items");
+    let instance = Env::parse_stdout(&output, "recall --max-items");
 
-    validar_schema(
+    validate_schema(
         "recall --max-items",
         include_str!("../docs/schemas/recall.schema.json"),
-        &instancia,
+        &instance,
     );
 
-    assert!(instancia.get("direct_matches").is_none(), "{instancia}");
-    assert!(instancia.get("graph_matches").is_none(), "{instancia}");
+    assert!(instance.get("direct_matches").is_none(), "{instance}");
+    assert!(instance.get("graph_matches").is_none(), "{instance}");
     assert_eq!(
-        instancia["agent_surface"]["aliases_removed"],
+        instance["agent_surface"]["aliases_removed"],
         serde_json::json!(["direct_matches", "graph_matches"])
     );
     assert!(
-        instancia["results"]
+        instance["results"]
             .as_array()
             .expect("results é array")
             .len()
@@ -179,8 +189,8 @@ fn schema_42_recall_agent_surface_alias_suppression() {
 fn schema_43_related_agent_surface_alias_suppression() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-surface-related");
-    let saida = env
+    env.remember_simple("mem-schema-surface-related");
+    let output = env
         .cmd()
         .args([
             "related",
@@ -194,26 +204,26 @@ fn schema_43_related_agent_surface_alias_suppression() {
         .output()
         .expect("related --select failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "related --select: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "related --select");
+    let instance = Env::parse_stdout(&output, "related --select");
 
-    validar_schema(
+    validate_schema(
         "related --select",
         include_str!("../docs/schemas/related.schema.json"),
-        &instancia,
+        &instance,
     );
 
     assert!(
-        instancia.get("related_memories").is_none(),
-        "the unprojected clone must not survive: {instancia}"
+        instance.get("related_memories").is_none(),
+        "the unprojected clone must not survive: {instance}"
     );
     assert_eq!(
-        instancia["agent_surface"]["aliases_removed"],
+        instance["agent_surface"]["aliases_removed"],
         serde_json::json!(["related_memories"]),
-        "members absent from this envelope are never reported: {instancia}"
+        "members absent from this envelope are never reported: {instance}"
     );
 }

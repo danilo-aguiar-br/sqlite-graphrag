@@ -1,4 +1,7 @@
 # ADR-0036: Persistência por Estágios com Checkpoint Retomável
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the commands listed below were never delivered: the parser rejects `remember --stage-only` and `remember --skip-embedding`, and the `pending` family was removed in v1.2.8.
+- HISTORICAL: do NOT confuse the removed `pending` with `pending-embeddings`, which is alive and is a different thing.
 
 - **Status**: Aceito
 - **Data**: 2026-06-15

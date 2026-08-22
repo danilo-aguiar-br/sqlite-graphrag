@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/graph-entity-types.schema.json",
+  "title": "GraphEntityTypesResponse",
+  "description": "Response emitted by `sqlite-graphrag graph entity-types`. Reports the entity-type vocabulary ACTUALLY present in the database, one row per distinct `type` with its entity count, ordered by count descending then label ascending. v1.2.8 opened the vocabulary and V017 dropped the SQL CHECK, so the set of valid labels is no longer written down anywhere in the source; `graph entities --entity-type` can only filter by a label the caller already guessed, which makes an unknown label unreachable. This command answers the question from the data instead. The --json flag is a no-op kept for backward compatibility; JSON is always emitted on stdout.",
+  "type": "object",
+  "required": ["types", "total_types", "total_entities", "elapsed_ms"],
+  "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
+    "types": {
+      "type": "array",
+      "description": "One row per distinct entity-type label in scope. This is the array the agent-native surface reshapes, so --select, --filter, --sort, --dedupe-by and --max-items act on its elements.",
+      "items": {
+        "type": "object",
+        "required": ["type", "count", "canonical"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "The label exactly as stored. Any term the writer used, not a member of a fixed list. Entities written before v1.2.8 carry the label the old closed enum folded them onto rather than the one their writer declared, so a canonical label counts both the writers who chose it and the writers whose choice was replaced by it."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Entities carrying this label within the requested namespace scope."
+          },
+          "canonical": {
+            "type": "boolean",
+            "description": "Whether the label is one of the thirteen recommended kinds (concept, dashboard, date, decision, file, incident, issue_tracker, location, memory, organization, person, project, tool). False is a normal result and not a defect: the vocabulary is open by design, and a false here is the signal that a writer used a word the canonical set does not cover."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "total_types": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Distinct labels found in scope, counted BEFORE any agent-surface trimming, so it survives --max-items and reports the real size of the vocabulary even when the emitted array was cut."
+    },
+    "total_entities": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Entities summed across every label in scope, counted before any agent-surface trimming."
+    },
+    "namespace": {
+      "type": ["string", "null"],
+      "description": "Namespace filter applied to the query; null when no --namespace was provided, in which case every namespace is audited."
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Wall-clock time in milliseconds for the database query."
+    }
+  },
+  "additionalProperties": false
+}

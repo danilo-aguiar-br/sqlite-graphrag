@@ -29,9 +29,24 @@ NOTE:\n  \
     Run `sqlite-graphrag cleanup-orphans` afterwards to remove any newly orphaned entities.")]
 /// Delete entity args.
 pub struct DeleteEntityArgs {
+    /// Entity name as a positional argument. Alternative to `--name`.
+    ///
+    /// GAP-SG-272: matches the spelling `read` and `related` have always accepted.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with = "name",
+        help = "Entity name (kebab-case slug); alternative to --name"
+    )]
+    pub name_positional: Option<String>,
     /// Entity name to delete (graph node, not memory name).
-    #[arg(long)]
-    pub name: String,
+    ///
+    /// `Option` rather than a bare `String`, and required only when the positional
+    /// is absent: clap enforces "exactly one of the two" through the pair of
+    /// attributes, so the handler never has to decide what an empty designation
+    /// means. This verb DELETES, so failing closed in the parser is worth more
+    /// than the convenience of a non-optional field.
+    #[arg(long, required_unless_present = "name_positional")]
+    pub name: Option<String>,
     /// Required confirmation flag. Without it the command exits with an error.
     ///
     /// Deletes all relationships and memory bindings attached to this entity.
@@ -64,13 +79,25 @@ struct DeleteEntityResponse {
 
 /// Run.
 pub fn run(args: DeleteEntityArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
 
     if !args.cascade {
         return Err(AppError::Validation(
             "use --cascade to confirm deletion of entity and all its relationships".to_string(),
         ));
     }
+
+    // GAP-SG-272: the two spellings are mutually exclusive in the parser and one
+    // of them is mandatory, so the `ok_or_else` arm is unreachable through the
+    // CLI. It stays because this function is also callable as a library, where no
+    // clap attribute is enforcing anything.
+    let entity_name: &str = args
+        .name_positional
+        .as_deref()
+        .or(args.name.as_deref())
+        .ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
+        })?;
 
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -79,8 +106,8 @@ pub fn run(args: DeleteEntityArgs) -> Result<(), AppError> {
 
     let mut conn = open_rw(&paths.db)?;
 
-    let entity_id = entities::find_entity_id(&conn, &namespace, &args.name)?
-        .ok_or_else(|| AppError::NotFound(errors_msg::entity_not_found(&args.name, &namespace)))?;
+    let entity_id = entities::find_entity_id(&conn, &namespace, entity_name)?
+        .ok_or_else(|| AppError::NotFound(errors_msg::entity_not_found(entity_name, &namespace)))?;
 
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
@@ -148,11 +175,11 @@ pub fn run(args: DeleteEntityArgs) -> Result<(), AppError> {
 
     let response = DeleteEntityResponse {
         action: "deleted".to_string(),
-        entity_name: args.name.clone(),
+        entity_name: entity_name.to_string(),
         namespace: namespace.clone(),
         relationships_removed,
         bindings_removed,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

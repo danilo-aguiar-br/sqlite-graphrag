@@ -42,14 +42,14 @@ fn init(dir: &TempDir) {
     cmd(dir).arg("init").assert().success();
 }
 
-// Recipe 10 — Purge + vacuum + optimize: pipeline completo retorna JSON com status ok
+// Recipe 10 — Purge + vacuum + optimize: full pipeline returns JSON with status ok
 #[test]
 #[serial]
 fn recipe_10_purge_vacuum_optimize() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
-    // Seed e soft-delete para ter dados a purgar
+    // Seed and soft-delete so that purge has data to work on
     cmd(&dir)
         .args([
             "remember",
@@ -168,7 +168,7 @@ fn recipe_11_ndjson_list() {
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("recipe 11: list deve retornar JSON válido");
 
-    // Comportamento real: objeto com chave "items"
+    // Actual behaviour: an object with an "items" key
     assert!(
         json["items"].is_array(),
         "recipe 11: list retorna objeto com chave 'items' (não array root — drift detectado se mudou)"
@@ -185,23 +185,20 @@ fn recipe_11_ndjson_list() {
         "recipe 11: deve listar 3 memórias inseridas"
     );
 
-    // Cada item deve ter campos esperados para NDJSON
-    let primeiro = &items[0];
+    // Every item must carry the expected fields for NDJSON
+    let first = &items[0];
+    assert!(first["id"].is_number(), "recipe 11: item.id deve existir");
     assert!(
-        primeiro["id"].is_number(),
-        "recipe 11: item.id deve existir"
-    );
-    assert!(
-        primeiro["name"].is_string(),
+        first["name"].is_string(),
         "recipe 11: item.name deve existir"
     );
     assert!(
-        primeiro["namespace"].is_string(),
+        first["namespace"].is_string(),
         "recipe 11: item.namespace deve existir"
     );
 }
 
-// Recipe 13 — GNU parallel simulado com threads: recall paralelo em 4 namespaces
+// Recipe 13 — GNU parallel simulated with threads: parallel recall across 4 namespaces
 #[test]
 #[serial]
 fn recipe_13_parallel_namespaces() {
@@ -257,9 +254,9 @@ fn recipe_13_parallel_namespaces() {
         })
         .collect();
 
-    let resultados: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let outputs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
 
-    for (i, output) in resultados.iter().enumerate() {
+    for (i, output) in outputs.iter().enumerate() {
         assert!(
             output.status.success(),
             "recipe 13: recall no namespace {} deve ter exit 0",
@@ -281,14 +278,14 @@ fn recipe_13_parallel_namespaces() {
     }
 }
 
-// Recipe 14 — Debug slow queries: health + stats + --json retornam campos documentados
+// Recipe 14 — Debug slow queries: health + stats + --json return the documented fields
 #[test]
 #[serial]
 fn recipe_14_debug_health_stats() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
-    // Health: campos documentados no COOKBOOK
+    // Health: fields documented in the COOKBOOK
     let health_out = cmd(&dir).args(["health", "--json"]).output().unwrap();
 
     assert!(
@@ -299,7 +296,7 @@ fn recipe_14_debug_health_stats() {
     let health: serde_json::Value = serde_json::from_slice(&health_out.stdout)
         .expect("recipe 14: health deve retornar JSON válido");
 
-    // Valida campos documentados: `integrity, wal_size_mb, journal_mode`
+    // Validates the documented fields: `integrity, wal_size_mb, journal_mode`
     assert!(
         health.get("integrity").is_some(),
         "recipe 14: health deve ter campo 'integrity' como documentado"
@@ -313,7 +310,7 @@ fn recipe_14_debug_health_stats() {
         "recipe 14: health deve ter campo 'journal_mode' como documentado"
     );
 
-    // Stats: campos documentados no COOKBOOK
+    // Stats: fields documented in the COOKBOOK
     let stats_out = cmd(&dir).args(["stats", "--json"]).output().unwrap();
 
     assert!(
@@ -324,10 +321,10 @@ fn recipe_14_debug_health_stats() {
     let stats: serde_json::Value = serde_json::from_slice(&stats_out.stdout)
         .expect("recipe 14: stats deve retornar JSON válido");
 
-    // Valida campos documentados: `memories, memories_total, entities, entities_total,
+    // Validates the documented fields: `memories, memories_total, entities, entities_total,
     // relationships, relationships_total, edges, chunks_total, avg_body_len,
     // db_size_bytes, db_bytes`
-    let campos_esperados = [
+    let expected_fields = [
         "memories",
         "memories_total",
         "entities",
@@ -341,16 +338,16 @@ fn recipe_14_debug_health_stats() {
         "db_bytes",
     ];
 
-    for campo in &campos_esperados {
+    for field in &expected_fields {
         assert!(
-            stats.get(campo).is_some(),
-            "recipe 14: stats deve ter campo '{campo}' como documentado no COOKBOOK"
+            stats.get(field).is_some(),
+            "recipe 14: stats deve ter campo '{field}' como documentado no COOKBOOK"
         );
     }
 }
 
 // Recipe 15 — Simulated benchmark: recall and hybrid-search execute in reasonable time
-// Simula `hyperfine` verificando que ambos os comandos completam sem timeout
+// Simulates `hyperfine` by checking that both commands complete without a timeout
 #[test]
 #[serial]
 fn recipe_15_hyperfine_timing() {

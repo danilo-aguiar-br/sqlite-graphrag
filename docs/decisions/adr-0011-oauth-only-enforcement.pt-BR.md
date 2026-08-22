@@ -2,7 +2,7 @@
 
 - **Status.** Aceito.
 - **Data.** 2026-06-05.
-- **Decisores.** Danilo Aguiar (operador), Claude Code (consultor).
+- **Decisores.** Alice Martins (operador), Claude Code (consultor).
 - **Supersede.** Nenhum.
 - **Gaps relacionados.** G28-A (proliferação de MCP), gaps.md linhas 41-49 (Regras Invioláveis de Invocação Headless).
 

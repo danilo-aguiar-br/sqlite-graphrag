@@ -4,13 +4,25 @@
 //! test runs the binary, captures stdout, parses it as JSON and validates it
 //! against the published `docs/schemas/*.schema.json`. The shared harness lives
 //! in `tests/schema_support/`.
+//!
+//! NOT gated behind `slow-tests`, unlike the 29 other heavy test files, because
+//! this suite is the only thing that compares the binary's REAL stdout against
+//! the published contract. GAP-SG-271 measured what the gate cost while it was
+//! on: five files sat behind the feature, `cargo test` never compiled them, and
+//! the published schemas drifted with nothing to notice. A gate the default
+//! invocation never runs is not a gate — it is a gate-shaped reassurance.
+//!
+//! The attribute must never move back into `tests/schema_support/mod.rs`: a
+//! shared `mod.rs` that cfg-es itself out does not become empty, it VANISHES
+//! from the module graph, so every `use support::…` fails to resolve and the
+//! whole test build breaks.
 
 #[path = "schema_support/mod.rs"]
 mod support;
 
 use serde_json::Value;
 use serial_test::serial;
-use support::{validar_schema, Env};
+use support::{validate_schema, Env};
 // ---------------------------------------------------------------------------
 // 30 — delete-entity
 // ---------------------------------------------------------------------------
@@ -21,21 +33,21 @@ fn schema_30_delete_entity() {
     let env = Env::new();
     env.init();
     let (ent_a, _ent_b) = env.remember_with_entities("del-ent-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["delete-entity", "--name", &ent_a, "--cascade"])
         .output()
         .expect("delete-entity failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "delete-entity: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "delete-entity");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "delete-entity");
+    validate_schema(
         "delete-entity",
         include_str!("../docs/schemas/delete-entity.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -49,21 +61,21 @@ fn schema_31_reclassify() {
     let env = Env::new();
     env.init();
     let (ent_a, _ent_b) = env.remember_with_entities("reclass-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["reclassify", "--name", &ent_a, "--new-type", "tool"])
         .output()
         .expect("reclassify failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "reclassify: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "reclassify");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "reclassify");
+    validate_schema(
         "reclassify",
         include_str!("../docs/schemas/reclassify.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -77,23 +89,23 @@ fn schema_32_merge_entities() {
     let env = Env::new();
     env.init();
     let (ent_a, ent_b) = env.remember_with_entities("merge-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["merge-entities", "--names", &ent_a, "--into", &ent_b])
         .output()
         .expect("merge-entities failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "merge-entities: exit {:?}\nstdout: {}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stdout),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "merge-entities");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "merge-entities");
+    validate_schema(
         "merge-entities",
         include_str!("../docs/schemas/merge-entities.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -107,21 +119,21 @@ fn schema_33_memory_entities() {
     let env = Env::new();
     env.init();
     env.remember_with_entities("mem-ent-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["memory-entities", "--name", "mem-ent-schema"])
         .output()
         .expect("memory-entities failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "memory-entities: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "memory-entities");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "memory-entities");
+    validate_schema(
         "memory-entities",
         include_str!("../docs/schemas/memory-entities.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -135,21 +147,21 @@ fn schema_33b_memory_entities_reverse() {
     let env = Env::new();
     env.init();
     let (ent_a, _ent_b) = env.remember_with_entities("mem-ent-rev-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["memory-entities", "--entity", &ent_a])
         .output()
         .expect("memory-entities --entity failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "memory-entities --entity: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "memory-entities --entity");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "memory-entities --entity");
+    validate_schema(
         "memory-entities-reverse",
         include_str!("../docs/schemas/memory-entities-reverse.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -163,21 +175,21 @@ fn schema_34_prune_ner() {
     let env = Env::new();
     env.init();
     let (ent_a, _ent_b) = env.remember_with_entities("prune-schema");
-    let saida = env
+    let output = env
         .cmd()
         .args(["prune-ner", "--entity", &ent_a, "--dry-run"])
         .output()
         .expect("prune-ner failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "prune-ner: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "prune-ner");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "prune-ner");
+    validate_schema(
         "prune-ner",
         include_str!("../docs/schemas/prune-ner.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -192,7 +204,7 @@ fn schema_35_rename_entity() {
     env.init();
     let (ent_a, _ent_b) = env.remember_with_entities("rename-ent-schema");
     let new_name = format!("{ent_a}-renamed");
-    let saida = env
+    let output = env
         .cmd()
         // rename-entity re-embeds the renamed entity; without a live key that
         // would abort with exit 11 before any schema could be validated.
@@ -208,15 +220,15 @@ fn schema_35_rename_entity() {
         .output()
         .expect("rename-entity failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "rename-entity: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "rename-entity");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "rename-entity");
+    validate_schema(
         "rename-entity",
         include_str!("../docs/schemas/rename-entity.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -229,10 +241,10 @@ fn schema_35_rename_entity() {
 fn schema_36_deep_research() {
     let env = Env::new();
     env.init();
-    env.remember_simples("schema36-mem-a");
-    env.remember_simples("schema36-mem-b");
+    env.remember_simple("schema36-mem-a");
+    env.remember_simple("schema36-mem-b");
 
-    let saida = env
+    let output = env
         .cmd()
         .args([
             "deep-research",
@@ -245,16 +257,16 @@ fn schema_36_deep_research() {
         .output()
         .expect("deep-research failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "deep-research: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "deep-research");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "deep-research");
+    validate_schema(
         "deep-research",
         include_str!("../docs/schemas/deep-research.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -285,7 +297,7 @@ fn schema_37_reclassify_relation() {
         .expect("link failed");
 
     // Dry-run: safe, validates JSON contract without committing.
-    let saida = env
+    let output = env
         .cmd()
         .args([
             "reclassify-relation",
@@ -299,16 +311,16 @@ fn schema_37_reclassify_relation() {
         .output()
         .expect("reclassify-relation failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "reclassify-relation: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "reclassify-relation");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "reclassify-relation");
+    validate_schema(
         "reclassify-relation",
         include_str!("../docs/schemas/reclassify-relation.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -321,25 +333,25 @@ fn schema_37_reclassify_relation() {
 fn schema_38_normalize_entities() {
     let env = Env::new();
     env.init();
-    env.remember_simples("schema38-normalize-ent");
+    env.remember_simple("schema38-normalize-ent");
 
     // Dry-run: validates JSON contract without modifying data.
-    let saida = env
+    let output = env
         .cmd()
         .args(["normalize-entities", "--dry-run"])
         .output()
         .expect("normalize-entities failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "normalize-entities: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let instancia = Env::parse_stdout(&saida, "normalize-entities");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "normalize-entities");
+    validate_schema(
         "normalize-entities",
         include_str!("../docs/schemas/normalize-entities.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -352,9 +364,9 @@ fn schema_38_normalize_entities() {
 fn schema_39_enrich() {
     let env = Env::new();
     env.init();
-    env.remember_simples("schema39-enrich-mem");
+    env.remember_simple("schema39-enrich-mem");
 
-    let saida = env
+    let output = env
         .cmd()
         .args([
             "enrich",
@@ -368,13 +380,13 @@ fn schema_39_enrich() {
         .output()
         .expect("enrich failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "enrich: exit {:?}\nstderr: {}",
-        saida.status.code(),
-        String::from_utf8_lossy(&saida.stderr)
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
     );
 
-    let stdout_str = String::from_utf8_lossy(&saida.stdout);
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout_str
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -395,12 +407,12 @@ fn schema_39_enrich() {
             .unwrap_or_else(|e| panic!("enrich NDJSON line not valid JSON: {e}\n{line}"));
 
         if val["summary"] == true {
-            validar_schema("enrich-summary", summary_schema_str, &val);
+            validate_schema("enrich-summary", summary_schema_str, &val);
             summary_found = true;
         } else if val.get("phase").is_some() {
-            validar_schema("enrich-phase", phase_schema_str, &val);
+            validate_schema("enrich-phase", phase_schema_str, &val);
         } else if val.get("item").is_some() {
-            validar_schema("enrich-item", item_schema_str, &val);
+            validate_schema("enrich-item", item_schema_str, &val);
         }
         // Lines from non-implemented operations include "operation" key — skip gracefully.
     }

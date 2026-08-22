@@ -31,6 +31,7 @@
 //! answer. Refusing there would break every semantic search that carries a
 //! filter while curing nothing.
 
+use serde_json::{json, Map, Value};
 use std::sync::OnceLock;
 
 /// What the caller declares `--filter` may observe.
@@ -149,4 +150,90 @@ pub fn record(ceiling: QueryCeiling) {
 /// The declared ceiling, or `None` when the command declared none.
 pub fn get() -> Option<&'static QueryCeiling> {
     CEILING.get()
+}
+
+/// Wire spelling for a count that the OUTPUT ceiling reduced.
+const COUNT_SCOPE_EMITTED: &str = "emitted";
+
+/// Wire spelling for a count of every element that satisfied the predicates.
+const COUNT_SCOPE_MATCHED: &str = "matched";
+
+/// Wire spelling for a count taken over a page the QUERY had already cut.
+const COUNT_SCOPE_PAGE: &str = "page";
+
+/// Names which of three sets `--count-only` actually counted.
+///
+/// GAP-SG-201. The field existed and reported two of the three readings: it
+/// compared the emitted count against the matched one, which detects
+/// `--max-items` and is structurally blind to the SQL `LIMIT` upstream of it.
+/// Both numbers are measured AFTER the query returned its page, so fifty rows
+/// out of 107 111 answered `matched` — the strongest of the three labels — on a
+/// command line that named no limit.
+///
+/// The query ceiling therefore wins the precedence. It is upstream of
+/// `--max-items`, so when it cut rows the count describes a page no matter what
+/// the output ceiling did afterwards; reporting `emitted` there would name the
+/// smaller omission and hide the larger one.
+///
+/// This still matters after [`super::gate`] refuses a count over a page, because
+/// that refusal has an escape: a caller who declares `--filter-scope page` is let
+/// through, and until now was let through to a label that said `matched`. The
+/// refusal governs the default path; this governs the accepted one.
+///
+/// It lives HERE rather than beside the shaping because it is a statement about
+/// the ceiling, not about the reshaping — the same reason [`insert_query_ceiling`]
+/// is its neighbour.
+pub(super) fn count_scope(
+    output_count: usize,
+    matched_count: usize,
+    ceiling: Option<&QueryCeiling>,
+) -> &'static str {
+    if ceiling.is_some_and(|c| c.kind == CeilingKind::Pagination && c.truncated_the_universe()) {
+        return COUNT_SCOPE_PAGE;
+    }
+    if output_count < matched_count {
+        return COUNT_SCOPE_EMITTED;
+    }
+    COUNT_SCOPE_MATCHED
+}
+
+/// The label used when an envelope carries no result array to count.
+///
+/// Such an envelope is one thing, and no ceiling can make it fewer, so the count
+/// always describes what matched.
+pub(super) const COUNT_SCOPE_SCALAR: &str = COUNT_SCOPE_MATCHED;
+
+/// Writes what the QUERY had already removed, when the command declared it.
+///
+/// GAP-SG-201: reported whatever the verdict, because a top-k is never refused
+/// and this is how its narrowness stops being invisible.
+///
+/// Shared by the shaping path and the inert one for the same reason the target
+/// is: both are facts about the PROCESS, not about the reshaping. Until v1.2.7
+/// this lived inside `base_meta` alone, so `deep-research "x"` with no knob
+/// reported its resolved target and stayed silent about having cut the ranking
+/// to five — the exact asymmetry the inert path was created to remove.
+pub(super) fn insert_query_ceiling(meta: &mut Map<String, Value>, ceiling: Option<&QueryCeiling>) {
+    if let Some(ceiling) = ceiling {
+        meta.insert("query_limited".into(), json!(true));
+        meta.insert("query_limit".into(), json!(ceiling.applied));
+        meta.insert("query_limit_source".into(), json!(ceiling.source.as_str()));
+        meta.insert("query_limit_kind".into(), json!(ceiling.kind.as_str()));
+        if let Some(total) = ceiling.universe_total {
+            meta.insert("universe_total".into(), json!(total));
+        }
+        // Three readings, not two. A top-k is neither the universe nor a page
+        // of one: the caller never asked for a corpus, so reporting `universe`
+        // would claim a completeness it never had, and reporting `page` would
+        // imply a larger set the command cannot name.
+        let scope = match ceiling.kind {
+            CeilingKind::TopK => "top-k",
+            CeilingKind::Pagination if ceiling.truncated_the_universe() => "page",
+            CeilingKind::Pagination => "universe",
+        };
+        meta.insert("filter_scope".into(), json!(scope));
+        if scope == "page" {
+            meta.insert("filter_incomplete".into(), Value::Bool(true));
+        }
+    }
 }

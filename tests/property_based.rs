@@ -2,7 +2,7 @@ use proptest::prelude::*;
 use regex::Regex;
 
 // ---------------------------------------------------------------------------
-// Constantes espelhadas de src/constants.rs — sem importar a crate em testes
+// Constants mirrored from src/constants.rs — without importing the crate in tests
 // ---------------------------------------------------------------------------
 
 const MAX_MEMORY_NAME_LEN: usize = 80;
@@ -70,12 +70,12 @@ proptest! {
         prefix in "[a-z]{1,10}",
         suffix in "[a-z]{1,10}"
     ) {
-        let nome_com_underscore = format!("{prefix}_{suffix}");
+        let name_with_underscore = format!("{prefix}_{suffix}");
         let re = Regex::new(NAME_SLUG_REGEX).unwrap();
         prop_assert!(
-            !re.is_match(&nome_com_underscore),
+            !re.is_match(&name_with_underscore),
             "Underscore incorretamente aceito: {:?}",
-            nome_com_underscore
+            name_with_underscore
         );
     }
 
@@ -85,12 +85,12 @@ proptest! {
         a in "[a-z]{1,10}",
         b in "[a-z]{1,10}"
     ) {
-        let nome_com_espaco = format!("{a} {b}");
+        let name_with_space = format!("{a} {b}");
         let re = Regex::new(NAME_SLUG_REGEX).unwrap();
         prop_assert!(
-            !re.is_match(&nome_com_espaco),
+            !re.is_match(&name_with_space),
             "Espaco incorretamente aceito: {:?}",
-            nome_com_espaco
+            name_with_space
         );
     }
 
@@ -100,7 +100,7 @@ proptest! {
     fn body_length_boundary_unicode_above_limit(
         extra in "[\\p{L}]{1,500}"
     ) {
-        // Gera um body com pelo menos MAX_MEMORY_BODY_LEN + len(extra) bytes.
+        // Builds a body with at least MAX_MEMORY_BODY_LEN + len(extra) bytes.
         let padding: String = "a".repeat(MAX_MEMORY_BODY_LEN);
         let body = format!("{padding}{extra}");
         prop_assert!(
@@ -112,7 +112,7 @@ proptest! {
 
     /// ASCII body up to MAX_MEMORY_BODY_LEN bytes must be <= the limit.
     #[test]
-    fn body_length_boundary_unicode_no_limite(
+    fn body_length_boundary_unicode_at_the_limit(
         chars in "[A-Za-z0-9]{1,4096}"
     ) {
         let truncated: String = chars.chars().take(MAX_MEMORY_BODY_LEN).collect();
@@ -141,7 +141,7 @@ proptest! {
 
     /// BLAKE3 is deterministic: the same input produces the same hash across distinct calls.
     #[test]
-    fn embedding_determinism_blake3_mesmo_hash_para_mesmo_input(
+    fn embedding_determinism_blake3_same_hash_for_same_input(
         body in "[\\p{L}\\p{N} .,!?]{1,1000}"
     ) {
         let hash_a = blake3::hash(body.as_bytes());
@@ -157,7 +157,7 @@ proptest! {
     /// BLAKE3 hashes of distinct inputs must differ (collision is extremely
     /// unlikely — this property tests practical anti-collision).
     #[test]
-    fn embedding_determinism_blake3_inputs_distintos_hashes_distintos(
+    fn embedding_determinism_blake3_distinct_inputs_distinct_hashes(
         a in "[a-z]{10,50}",
         b in "[A-Z]{10,50}"
     ) {
@@ -177,7 +177,7 @@ proptest! {
     /// must be round-trippable: deserializing the serialized JSON returns the
     /// same original values.
     #[test]
-    fn json_round_trip_nome_descricao_body(
+    fn json_round_trip_name_description_body(
         name in "[a-z][a-z0-9-]{0,30}[a-z0-9]",
         description in "[\\p{L}\\p{N} .,!?]{1,200}",
         body in "[\\p{L}\\p{N} .,!?\n]{1,500}"
@@ -218,7 +218,7 @@ mod unit_tests {
     #[test]
     fn name_slug_regex_accepts_canonical_examples() {
         let re = Regex::new(NAME_SLUG_REGEX).unwrap();
-        let validos = [
+        let valid_names = [
             "a",
             "z",
             "0",
@@ -234,15 +234,15 @@ mod unit_tests {
                 .chain(std::iter::once('b'))
                 .collect::<String>(),
         ];
-        for nome in &validos {
-            assert!(re.is_match(nome), "Nome canonico rejeitado: {nome:?}");
+        for name in &valid_names {
+            assert!(re.is_match(name), "Nome canonico rejeitado: {name:?}");
         }
     }
 
     #[test]
     fn name_slug_regex_rejects_invalid_examples() {
         let re = Regex::new(NAME_SLUG_REGEX).unwrap();
-        let invalidos = [
+        let invalid_names = [
             "",
             "A",
             "My-Memory",
@@ -252,16 +252,16 @@ mod unit_tests {
             "ends-with-dash-",
             "__reserved",
         ];
-        for nome in &invalidos {
+        for name in &invalid_names {
             assert!(
-                !re.is_match(nome),
-                "Nome invalido incorretamente aceito: {nome:?}"
+                !re.is_match(name),
+                "Nome invalido incorretamente aceito: {name:?}"
             );
         }
     }
 
     #[test]
-    fn blake3_hash_bytes_tem_32_bytes() {
+    fn blake3_hash_bytes_has_32_bytes() {
         let h = blake3::hash(b"sqlite-graphrag");
         assert_eq!(h.as_bytes().len(), 32);
     }

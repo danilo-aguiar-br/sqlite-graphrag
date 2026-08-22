@@ -71,15 +71,26 @@ pub(super) fn resolve(args: &RememberArgs) -> Result<ResolvedInput, AppError> {
             });
         }
         let content = std::fs::read_to_string(path).map_err(AppError::Io)?;
-        // v1.1.1 (P7): boundary validation with context — an invalid
-        // entity_type surfaces the FromStr message (13 valid values + hints)
-        // as a Validation error instead of a bare Json error (exit 20).
+        // v1.1.1 (P7): boundary validation with context, so a malformed payload
+        // fails as a Validation error naming the flag instead of a bare Json
+        // error (exit 20).
+        //
+        // GAP-SG-216: an unrecognised entity_type never reaches this error path.
+        // It once produced the FromStr message listing thirteen valid values,
+        // then from v1.1.8 was silently folded, and since v1.2.8 is simply a
+        // valid label. What still fails here is malformed JSON; an unusable
+        // label shape fails later, in `normalize_and_validate_graph_input`.
         graph.entities = serde_json::from_str(&content).map_err(|e| {
             AppError::Validation(crate::i18n::validation::invalid_json_in_flag(
                 "--entities-file",
                 &e,
             ))
         })?;
+        graph
+            .type_warnings
+            .extend(super::graph_input::collect_noncanonical_entity_types(
+                &content,
+            ));
     }
     if let Some(ref path) = args.relationships_file {
         let file_size = std::fs::metadata(path).map_err(AppError::Io)?.len();
@@ -104,6 +115,11 @@ pub(super) fn resolve(args: &RememberArgs) -> Result<ResolvedInput, AppError> {
                 &e,
             ))
         })?;
+        graph
+            .type_warnings
+            .extend(super::graph_input::collect_noncanonical_entity_types(
+                &raw_body,
+            ));
         raw_body = graph.body.take().unwrap_or_default();
     }
     if args.graph_stdin && !graph.entities.is_empty() {
@@ -129,6 +145,11 @@ pub(super) fn resolve(args: &RememberArgs) -> Result<ResolvedInput, AppError> {
         })?;
         graph.entities = gf.entities;
         graph.relationships = gf.relationships;
+        graph
+            .type_warnings
+            .extend(super::graph_input::collect_noncanonical_entity_types(
+                &content,
+            ));
         if !body_explicitly_provided {
             raw_body = gf.body.take().unwrap_or_default();
         }

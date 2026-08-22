@@ -349,6 +349,23 @@ pub struct Cli {
     ///
     /// `N` is the number of result elements left after `--filter`,
     /// `--dedupe-by` and `--max-items`.
+    ///
+    /// GAP-SG-201, and this CHANGED the exit code in v1.2.8: over a paginated
+    /// command whose limit actually cut rows, this is now refused with exit `2`
+    /// rather than answering a page count that reads as the inventory. Declare
+    /// `--filter-scope page` to accept the narrower reading, and the
+    /// `count_scope` field of the agent-surface record then reports `page`
+    /// instead of `matched`. A top-k bound is never refused: the k IS the answer.
+    ///
+    /// GAP-SG-209: refused with exit `2` on `export` and `ingest`, which emit one
+    /// record per line. A count applied there ran once per line and answered
+    /// about a single record instead of the stream.
+    ///
+    /// GAP-SG-206: after a subcommand that actually persists, the knob is
+    /// SUPPRESSED rather than honoured, and the `count_only_suppressed` field of
+    /// the agent-surface record says so. Replacing a write envelope with a number
+    /// would discard `memory_id` and `entities_created` for an operation that
+    /// already happened and cannot be replayed.
     #[arg(long, global = true, default_value_t = false)]
     pub count_only: bool,
 
@@ -368,6 +385,9 @@ pub struct Cli {
     /// is recorded under `agent_surface.output_truncated` / `dropped`.
     /// Precedence: this flag > XDG `agent_surface.max_output_bytes` > 0
     /// (no ceiling).
+    ///
+    /// GAP-SG-209: refused with exit `2` on `export` and `ingest`. A byte budget
+    /// spent once per emitted line is not a budget on the output.
     #[arg(long, global = true, value_name = "N")]
     pub max_output_bytes: Option<usize>,
 
@@ -409,14 +429,14 @@ impl Cli {
                     Language::Portuguese => "--max-concurrency deve ser >= 1".to_string(),
                 });
             }
-            let teto = max_concurrency_ceiling();
-            if n > teto {
+            let ceiling = max_concurrency_ceiling();
+            if n > ceiling {
                 return Err(match current() {
                     Language::English => format!(
-                        "--max-concurrency {n} exceeds the ceiling of {teto} (2×nCPUs) on this system"
+                        "--max-concurrency {n} exceeds the ceiling of {ceiling} (2×nCPUs) on this system"
                     ),
                     Language::Portuguese => format!(
-                        "--max-concurrency {n} excede o teto de {teto} (2×nCPUs) neste sistema"
+                        "--max-concurrency {n} excede o teto de {ceiling} (2×nCPUs) neste sistema"
                     ),
                 });
             }
@@ -441,10 +461,7 @@ impl Cli {
     /// That is not a permissive default — a bare invocation prints help and
     /// resolves no path at all.
     fn install_write_policy(&self) {
-        let requires_explicit_target = self
-            .command
-            .as_ref()
-            .is_some_and(|c| c.mutates() && !c.may_inherit_target());
+        let requires_explicit_target = self.command.as_ref().is_some_and(Commands::persists);
         crate::paths::install_write_policy(crate::paths::WritePolicy {
             requires_explicit_target,
             use_active: self.use_active,
@@ -489,6 +506,8 @@ impl Cli {
             dedupe_by: self.dedupe_by.clone(),
             max_items: crate::runtime_config::agent_surface_max_items(self.max_items),
             count_only: self.count_only,
+            streamed: self.command.as_ref().is_some_and(Commands::streams),
+            writes_receipt: self.command.as_ref().is_some_and(Commands::persists),
             truncate_content: crate::runtime_config::agent_surface_truncate_content(
                 self.truncate_content,
             ),

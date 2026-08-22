@@ -24,12 +24,26 @@ pub(super) fn parse_pair_key(key: &str) -> Option<(i64, i64)> {
 }
 
 /// Default batch size for entity-connect / cross-domain-bridges scans.
+///
+/// DEBT (v1.2.8): belongs in `src/constants/`, beside the other enrich defaults.
+/// It bounds how much paid work one invocation proposes, which makes it cost
+/// policy rather than a local scan detail, and `enrich.entity_connect` already
+/// exposes sibling knobs through the XDG registry. Not moved because
+/// `src/constants/` was outside the scope this change was allowed to touch.
 pub(super) const ENTITY_CONNECT_DEFAULT_LIMIT: usize = 50;
 
 /// Top hubs considered when filling residual slots via hub×island pairs.
+///
+/// DEBT (v1.2.8): same reason as above — with
+/// [`ENTITY_CONNECT_ISLAND_CAP`] it sets the O(H·I) ceiling of the fill pass,
+/// so the two together decide the worst case of a scan an operator pays for,
+/// and neither is visible from `src/constants/`.
 const ENTITY_CONNECT_HUB_TOP: i64 = 32;
 
 /// Cap on island candidates considered per hub-fill pass (keeps the fill O(H·I)).
+///
+/// DEBT (v1.2.8): belongs in `src/constants/` for the reason given on
+/// [`ENTITY_CONNECT_HUB_TOP`], which it is only meaningful beside.
 const ENTITY_CONNECT_ISLAND_CAP: i64 = 500;
 
 /// Scan for entity pairs that share no direct relationship and have not been

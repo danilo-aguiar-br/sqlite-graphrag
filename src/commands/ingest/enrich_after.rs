@@ -15,12 +15,8 @@ use crate::output;
 /// # Errors
 /// Propagates only stdout/serialization failures. A failing `enrich` run is
 /// logged and reported as `enrich_phase_failed`, never returned as an error.
-pub(super) fn run(
-    args: &IngestArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
-    output::emit_json_compact(&serde_json::json!({
+pub(super) fn run(args: &IngestArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
+    output::emit_stream_record(&serde_json::json!({
         "event": "enrich_phase_started",
         "operation": "memory-bindings"
     }))?;
@@ -44,6 +40,13 @@ pub(super) fn run(
         // instead of pinning a value. GAP-SG-149 remains honoured — nothing
         // here shadows XDG.
         openrouter_base_url: None,
+        // GAP-SG-283: the neutral values, on purpose. `ingest --enrich-after`
+        // never declared an entity type vocabulary, so it does not start
+        // declaring one now: both fall through to the compiled default, which
+        // is the canonical set kept as written — the v1.2.8 behaviour, byte for
+        // byte. An operator who wants a policy here asks for it.
+        allowed_types: Vec::new(),
+        on_unknown_type: None,
         db: args.db.clone(),
         json: false,
         resume: false,
@@ -62,11 +65,14 @@ pub(super) fn run(
         circuit_breaker_threshold:
             crate::commands::enrich::DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD,
         preserve_threshold: crate::commands::enrich::DEFAULT_ENRICH_PRESERVE_THRESHOLD,
-        entity_description_grounding_threshold:
-            crate::commands::enrich::DEFAULT_ENRICH_GROUNDING_THRESHOLD,
+        // `None` defers to the accessor, which reads the XDG key before the
+        // compiled default — naming the constant here would pin this path to
+        // the default and silently ignore an operator's `config set`.
+        entity_description_grounding_threshold: None,
         force_redescribe: false,
         quality_sample: None,
         entity_names: Vec::new(),
+        entity_type: None,
         memory_names: Vec::new(),
         anchor_memory: None,
         entity_description_domain: "auto".to_string(),
@@ -93,15 +99,15 @@ pub(super) fn run(
         body_extract_graph_only: false,
         print_schema: false,
     };
-    match crate::commands::enrich::run(&enrich_args, llm_backend, embedding_backend) {
+    match crate::commands::enrich::run(&enrich_args, backends) {
         Ok(()) => {
-            output::emit_json_compact(&serde_json::json!({
+            output::emit_stream_record(&serde_json::json!({
                 "event": "enrich_phase_completed"
             }))?;
         }
         Err(e) => {
             tracing::warn!(error = %e, "enrich --operation memory-bindings failed after ingest");
-            output::emit_json_compact(&serde_json::json!({
+            output::emit_stream_record(&serde_json::json!({
                 "event": "enrich_phase_failed",
                 "error": e.to_string()
             }))?;

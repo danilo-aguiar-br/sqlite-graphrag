@@ -5,6 +5,30 @@
 
 use crate::i18n::{current, Language};
 
+/// A concurrency ceiling of zero was handed to the LLM slot acquisition.
+///
+/// GAP-SG-262: this message lived as a Portuguese string literal inside
+/// `llm_slots::acquire_llm_slot`, so it was the one refusal on that path that
+/// an English-speaking caller received in Portuguese. It never reached
+/// `refusal_message_call_site_gate` either, because that gate walks THIS module
+/// and the message was not in it.
+///
+/// Zero is rejected rather than treated as unlimited: a zero ceiling would make
+/// every slot comparison vacuous and authorise unbounded concurrency, which is
+/// the opposite of what the caller asked for by naming a limit at all.
+pub fn llm_slot_ceiling_must_be_positive() -> String {
+    match current() {
+        Language::English => {
+            "max_concurrent must be >= 1 for acquire_llm_slot: a ceiling of 0 would \
+             authorise unbounded concurrency rather than none"
+                .to_string()
+        }
+        Language::Portuguese => "max_concurrent deve ser >= 1 para acquire_llm_slot: um teto de 0 \
+             autorizaria concorrência ilimitada em vez de nenhuma"
+            .to_string(),
+    }
+}
+
 /// Invalid JSON for a CLI flag that takes a file path (e.g. `--entities-file`).
 pub fn invalid_json_in_flag(flag: &str, err: &impl std::fmt::Display) -> String {
     match current() {
@@ -109,11 +133,75 @@ pub fn name_required_positional_or_flag() -> String {
     }
 }
 
-/// Single-mode missing --name.
+/// `split-body`: neither a name nor `--batch` was supplied.
+///
+/// Distinct from [`name_required_positional_or_flag`] because this verb has a
+/// second legitimate way to be complete — operating on every oversized memory —
+/// and a message naming only the name would read as though batch mode did not
+/// exist. GAP-SG-272 added the positional spelling, so the text names all three
+/// ways in rather than the one flag it used to hardcode in English only.
+pub fn split_body_needs_name_or_batch() -> String {
+    match current() {
+        Language::English => "name required: pass it as a positional argument or via --name, \
+             or use --batch to split every oversized memory"
+            .to_string(),
+        Language::Portuguese => {
+            "nome obrigatório: passe como argumento posicional ou via --name, ou use \
+             --batch para dividir toda memória acima do teto"
+                .to_string()
+        }
+    }
+}
+
+/// Neither a name nor `--id` was supplied to a verb that accepts both.
+///
+/// One function for two call sites — `read` and `rename-entity` — which each
+/// carried their own English literal, and had already drifted: one listed the
+/// positional spelling and the other did not, for the same choice.
+pub fn name_or_id_required() -> String {
+    match current() {
+        Language::English => "name or --id required: pass the name as a positional \
+             argument, via --name, or identify the row with --id"
+            .to_string(),
+        Language::Portuguese => {
+            "nome ou --id obrigatório: passe o nome como argumento posicional, via \
+             --name, ou identifique a linha com --id"
+                .to_string()
+        }
+    }
+}
+
+/// `reclassify` single mode: neither `--new-type` nor `--description` was given.
+///
+/// Previously an English literal inline in the handler, which made the refusal
+/// untranslatable in a product that ships every other message in two languages.
+pub fn reclassify_needs_type_or_description() -> String {
+    match current() {
+        Language::English => {
+            "at least one of --new-type or --description is required in single mode".to_string()
+        }
+        Language::Portuguese => {
+            "pelo menos um entre --new-type e --description é obrigatório no modo single"
+                .to_string()
+        }
+    }
+}
+
+/// Single-mode missing name.
+///
+/// GAP-SG-272: the text names the positional spelling too, because the verbs that
+/// read this message now accept both. A refusal that names only the flag sends the
+/// operator to `--help` to discover the form they could have used.
 pub fn name_required_single_mode() -> String {
     match current() {
-        Language::English => "--name is required in single mode".to_string(),
-        Language::Portuguese => "--name é obrigatório no modo single".to_string(),
+        Language::English => {
+            "name required in single mode: pass it as a positional argument or via --name"
+                .to_string()
+        }
+        Language::Portuguese => {
+            "nome obrigatório no modo single: passe como argumento posicional ou via --name"
+                .to_string()
+        }
     }
 }
 
@@ -150,13 +238,17 @@ pub fn reembed_target_only(target: &str) -> String {
 }
 
 /// Refusing orphan entity delete without --yes.
+/// Counts rows, not entities: the caller sums orphan entities, dangling
+/// relationships and every other foreign key violation in the file, and a
+/// message that named only one of the three would understate what is about to
+/// be deleted.
 pub fn refuse_delete_orphans_without_yes(orphan_count: usize) -> String {
     match current() {
         Language::English => format!(
-            "refusing to delete {orphan_count} orphan entities without --yes (use --dry-run to preview)"
+            "refusing to delete {orphan_count} orphaned rows without --yes (use --dry-run to preview)"
         ),
         Language::Portuguese => format!(
-            "recusando excluir {orphan_count} entidades órfãs sem --yes (use --dry-run para pré-visualizar)"
+            "recusando excluir {orphan_count} linhas órfãs sem --yes (use --dry-run para pré-visualizar)"
         ),
     }
 }
@@ -305,16 +397,6 @@ pub fn unknown_pending_embeddings_status(other: &str) -> String {
         Language::English => format!("unknown pending_embeddings status: {other}"),
         Language::Portuguese => {
             format!("status de pending_embeddings desconhecido: {other}")
-        }
-    }
-}
-
-/// Unknown pending_memories status string.
-pub fn unknown_pending_memories_status(other: &str) -> String {
-    match current() {
-        Language::English => format!("unknown pending_memories status: {other}"),
-        Language::Portuguese => {
-            format!("status de pending_memories desconhecido: {other}")
         }
     }
 }

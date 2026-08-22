@@ -86,12 +86,17 @@ pub fn embed_via_backend(
             // future via the existing handle instead of building a nested
             // runtime, which would panic with "Cannot start a runtime from
             // within a runtime".
+            // GAP-SG-270: `?` alone would go through `From<EmbedError> for
+            // AppError`, which drops the origin-computed retry verdict and
+            // makes a permanent failure look transient to the enrich queue.
             let vec = match tokio::runtime::Handle::try_current() {
                 Ok(handle) => tokio::task::block_in_place(|| {
                     handle.block_on(client.embed_single(text, client.default_input_type()))
-                })?,
+                })
+                .map_err(super::embed_error::app_error_preserving_retry_class)?,
                 Err(_) => shared_runtime()?
-                    .block_on(client.embed_single(text, client.default_input_type()))?,
+                    .block_on(client.embed_single(text, client.default_input_type()))
+                    .map_err(super::embed_error::app_error_preserving_retry_class)?,
             };
             Ok((vec, LlmBackendKind::OpenRouter))
         }
@@ -132,7 +137,13 @@ pub fn embed_via_backend_strict(
                 Ok((Vec::new(), LlmBackendKind::None))
             } else {
                 Err(match last_err {
-                    Some(e) => AppError::Embedding(crate::i18n::validation::embedding_detail(e)),
+                    // GAP-SG-270: restating the last backend error as a detail
+                    // string must not throw its retry verdict away one step
+                    // after the conversion preserved it.
+                    Some(e) => super::embed_error::embedding_error_with_class_of(
+                        crate::i18n::validation::embedding_detail(e),
+                        e,
+                    ),
                     None => AppError::Embedding(crate::i18n::validation::embedding_detail(
                         LlmBackendError::NoBackendsAvailable,
                     )),

@@ -1,4 +1,8 @@
 # ADR-0057: Sidecar de fila do enrich + ingest derivado do `--db`, não do CWD (v1.0.97)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: o override `--queue-db` citado abaixo nunca foi entregue e o parser o recusa.
+- HISTÓRICO: as cadeias de path descritas abaixo ainda citam `SQLITE_GRAPHRAG_CACHE_DIR` e `SQLITE_GRAPHRAG_HOME`; nenhuma é lida em runtime pelo binário v1.2.8 e os canais vivos são `sqlite-graphrag config set cache.dir` e `config set db.path`.
+- HISTÓRICO: essas duas linhas descrevem resolução INTERNA em vez de instruir o leitor, então ficam registradas aqui como descrição vencida e não como canal oferecido.
 
 - **Status**: Aceito
 - **Data**: 2026-06-29

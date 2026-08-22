@@ -95,7 +95,7 @@ fn count_operation_backlog_body_enrich_uses_default_threshold() {
 #[test]
 fn count_operation_backlog_entity_connect_counts_isolated() {
     let conn = open_test_db();
-    // entidade degree-0 COM binding NER -> deve contar como backlog
+    // degree-0 entity WITH an NER binding -> must count as backlog
     conn.execute(
         "INSERT INTO entities (namespace, name, type, degree) VALUES ('global','hub','tool',0)",
         [],

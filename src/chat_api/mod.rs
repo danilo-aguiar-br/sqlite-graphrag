@@ -41,6 +41,14 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// requires a short identifier; the actual contract is carried by `schema`.
 const SCHEMA_NAME: &str = "enrich_output";
 
+/// Sampling temperature for every request this client makes (G-PR-7).
+///
+/// All of them are extraction and classification over evidence the caller
+/// already holds, so the useful output is the one the evidence determines.
+/// Before this constant the field was absent from the request entirely and
+/// each provider applied its own default, which for most is 1.0.
+const EXTRACTION_TEMPERATURE: f64 = 0.0;
+
 mod client;
 mod completion;
 mod error;

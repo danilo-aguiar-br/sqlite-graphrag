@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/graph-input.schema.json",
+  "title": "RememberGraphInput",
+  "description": "GAP-SG-216: JSON object accepted by `sqlite-graphrag remember --graph-stdin` and `remember --graph-file`. Until v1.2.8 this wire shape had no published schema, so the commonest failure — a missing `entity_type` — could only be discovered by triggering it. Also since v1.2.8 the `entity_type` vocabulary is OPEN: a label outside the thirteen recommended kinds is stored as written instead of being replaced. Every member is optional: `body` is used only when no other body source is given, and an empty `entities` with `--replace-graph` is how bindings are cleared.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "type": ["string", "null"],
+      "description": "Memory body. Ignored when --body, --body-file or --body-stdin supplied one; those win and only entities/relationships are taken from here."
+    },
+    "entities": {
+      "type": "array",
+      "description": "Graph entities to bind to this memory. Bounded by the XDG key limits.max_entities_per_memory (default 50).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Canonical entity name within the namespace, kebab-case."
+          },
+          "entity_type": {
+            "type": "string",
+            "description": "Semantic type of the graph NODE. The vocabulary is OPEN since v1.2.8 (GAP-SG-277, GAP-SG-278): any term is accepted and STORED AS WRITTEN, never replaced by another label. Thirteen kinds stay RECOMMENDED — concept, dashboard, date, decision, file, incident, issue_tracker, location, memory, organization, person, project, tool — and a label outside them is reported in the response `warnings` array while still being written. Pass `--strict-entity-types` to restrict the write to those thirteen and be refused with exit 1 otherwise. Only the SHAPE is enforced: the label is trimmed, lowercased and has hyphens turned into underscores, and it is rejected when empty, digits only, containing a line break, or longer than 64 characters. This is NOT the memory --type, which is a different CLOSED vocabulary (user, feedback, project, reference, decision, incident, skill, document, note) with a different meaning; `project`, `decision` and `incident` appear in both and mean different things. When no type is declared at all, the entity is stored as `concept`."
+          },
+          "type": {
+            "type": "string",
+            "description": "Alias accepted by the parser as a synonym for `entity_type`. Same open vocabulary and same shape rules."
+          },
+          "description": {
+            "type": ["string", "null"],
+            "description": "Optional human-readable description of the entity."
+          }
+        },
+        "required": ["name"],
+        "oneOf": [
+          { "required": ["entity_type"] },
+          { "required": ["type"] }
+        ]
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "Graph edges to bind to this memory. Bounded by the XDG key limits.max_relations_per_memory (default 50).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": { "type": "string", "description": "Source entity name." },
+          "from": { "type": "string", "description": "Alias for `source`." },
+          "target": { "type": "string", "description": "Target entity name." },
+          "to": { "type": "string", "description": "Alias for `target`." },
+          "relation": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+            "description": "Relation label. The 12 canonical values are applies-to, uses, depends-on, causes, fixes, contradicts, supports, follows, related, mentions, replaces, tracked-in. Any kebab-case or snake_case string is accepted and normalized to snake_case before storage."
+          },
+          "type": { "type": "string", "description": "Alias for `relation`." },
+          "strength": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Edge strength in [0.0, 1.0]. Defaults to 0.5 when omitted (GAP-CLI-GRAPH-01). Exposed as `weight` in graph outputs."
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Alias for `strength`."
+          },
+          "description": {
+            "type": ["string", "null"],
+            "description": "Optional human-readable description of the relationship."
+          }
+        },
+        "required": ["relation"]
+      }
+    }
+  },
+  "examples": [
+    {
+      "body": "Alice owns the onboarding checklist.",
+      "entities": [
+        { "name": "alice-martins-souza", "entity_type": "person", "description": null },
+        { "name": "onboarding-checklist", "entity_type": "file" }
+      ],
+      "relationships": [
+        { "source": "alice-martins-souza", "target": "onboarding-checklist", "relation": "applies-to", "strength": 0.8 }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # ADR-0026: Drift da Migração V002 `vec_tables` Deve Ser Corrigido no Binário
 
 - Status: Aceito (2026-06-09)
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: `migrations/V002__vec_tables.sql`, `src/commands/migrate.rs`, fluxo de instalação e rebuild do operador
 
 ## Contexto

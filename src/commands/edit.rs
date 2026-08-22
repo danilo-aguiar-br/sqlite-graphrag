@@ -99,14 +99,10 @@ struct EditResponse {
 }
 
 /// Run.
-pub fn run(
-    args: EditArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: EditArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
     use crate::constants::*;
 
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     tracing::debug!(target: "edit", name = ?args.name_positional.as_deref().or(args.name.as_deref()), "updating memory");
     // Resolve name from positional or --name flag; both are optional, at least one is required.
     let name = args.name_positional.or(args.name).ok_or_else(|| {
@@ -224,8 +220,7 @@ pub fn run(
             match crate::embedder::embed_passage_with_embedding_choice(
                 &paths.models,
                 &new_body,
-                embedding_backend,
-                llm_backend,
+                backends,
             ) {
                 Ok((emb, kind)) => Some((emb, kind.as_str())),
                 // v1.1.2 (Gap 2): typed payload rejections are permanent and
@@ -291,7 +286,7 @@ pub fn run(
         name,
         action: "updated".to_string(),
         version: next_v,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
         backend_invoked,
     })?;
 

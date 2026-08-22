@@ -49,6 +49,7 @@ fn resolve_memory(conn: &Connection, namespace: &str, name: &str, dim: usize) ->
         Ok(v) => v,
         Err(_) => {
             return Resolved::Settled(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: crate::i18n::validation::memory_named_not_found(name),
             })
         }
@@ -68,10 +69,18 @@ fn resolve_memory(conn: &Connection, namespace: &str, name: &str, dim: usize) ->
     }
     if body.trim().is_empty() {
         return Resolved::Settled(EnrichItemResult::Skipped {
-            reason: "body is empty".to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::body_is_empty(),
         });
     }
-    let snippet: String = body.chars().take(200).collect();
+    // Same role as the one-row path: this snippet travels to
+    // `memories::upsert_vec` through `ReembedTarget::Memory`, and that writer
+    // takes it as `_snippet` and drops it. It is never model input, so the
+    // log-preview budget names it correctly and holds the width where it is.
+    let snippet: String = body
+        .chars()
+        .take(crate::constants::ENRICH_BODY_LOG_PREVIEW_CHARS)
+        .collect();
     Resolved::NeedsEmbedding {
         target: ReembedTarget::Memory {
             memory_id,
@@ -95,6 +104,7 @@ fn resolve_entity(conn: &Connection, namespace: &str, name: &str, dim: usize) ->
         Ok(v) => v,
         Err(_) => {
             return Resolved::Settled(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: crate::i18n::validation::entity_named_not_found(name),
             })
         }
@@ -134,6 +144,7 @@ fn resolve_chunk(conn: &Connection, namespace: &str, chunk_key: &str, dim: usize
         Ok(v) => v,
         Err(_) => {
             return Resolved::Settled(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: crate::i18n::validation::invalid_chunk_id_in_reembed_key(chunk_key),
             })
         }
@@ -150,6 +161,7 @@ fn resolve_chunk(conn: &Connection, namespace: &str, chunk_key: &str, dim: usize
         Ok(v) => v,
         Err(_) => {
             return Resolved::Settled(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: crate::i18n::validation::chunk_id_not_found_in_namespace(
                     chunk_id, namespace,
                 ),
@@ -171,7 +183,8 @@ fn resolve_chunk(conn: &Connection, namespace: &str, chunk_key: &str, dim: usize
     }
     if chunk_text.trim().is_empty() {
         return Resolved::Settled(EnrichItemResult::Skipped {
-            reason: "chunk text is empty".to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::chunk_text_is_empty(),
         });
     }
     Resolved::NeedsEmbedding {

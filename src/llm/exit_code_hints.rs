@@ -254,7 +254,7 @@ mod llm_backend_error_tests {
 
     #[test]
     fn truncate_tail_respects_utf8_boundary() {
-        // 600 'é' chars = 1200 bytes; cut at 1023 (odd byte inside a 2-byte
+        // 600 `é` chars = 1200 bytes; cut at 1023 (odd byte inside a 2-byte
         // UTF-8 sequence) must back off to 1022 (boundary). 4-byte emoji
         // would also be handled: 256 emoji = 1024 bytes, cut at 1023 must
         // back off to 1020 (emoji = 4 bytes each, 1020 is boundary).

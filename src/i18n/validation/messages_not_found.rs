@@ -121,11 +121,6 @@ pub fn api_key_fingerprint_not_found(fingerprint: &str) -> String {
     format!("no key with fingerprint {fingerprint}")
 }
 
-/// A `pending_memories` row id did not resolve.
-pub fn pending_id_not_found(pending_id: i64) -> String {
-    format!("pending_id {pending_id} not found in pending_memories")
-}
-
 /// Every builder in this module, evaluated with placeholder arguments.
 ///
 /// Exposed so `src/i18n/tests.rs` can assert the Portuguese chain covers the
@@ -150,6 +145,5 @@ pub(crate) fn catalog_samples() -> Vec<String> {
         chunk_id_not_found_in_namespace(3, "global"),
         slot_not_held(2, "/tmp/slot-2.lock"),
         api_key_fingerprint_not_found("ab12cd34"),
-        pending_id_not_found(11),
     ]
 }

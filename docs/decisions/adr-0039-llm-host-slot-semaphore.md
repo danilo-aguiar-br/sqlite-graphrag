@@ -1,4 +1,7 @@
 # ADR-0039: Semáforo Cross-Process para Spawn de Subprocessos LLM
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `SQLITE_GRAPHRAG_LLM_MAX_HOST_CONCURRENCY` and `SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS` are never read at runtime by the v1.2.8 binary and have no effect.
+- HISTORICAL: the live channels are `sqlite-graphrag config set llm.max_host_concurrency` and `sqlite-graphrag config set llm.slot_wait_secs`.
 
 - **Status**: Aceito
 - **Data**: 2026-06-15

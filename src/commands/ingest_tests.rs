@@ -363,14 +363,17 @@ fn unique_name_errors_after_collision_cap() {
 
 // ── v1.0.32 Onda 4B: in-process pipeline validation ──
 
+// v1.2.8: the expected spellings are kebab-case because the stored form
+// changed by decision. `validate_relation_format` takes the NORMALISED value,
+// and the normaliser now converges on hyphens.
 #[test]
 fn validate_relation_format_accepts_valid_relations() {
     use crate::parsers::{is_canonical_relation, validate_relation_format};
-    assert!(validate_relation_format("applies_to").is_ok());
-    assert!(validate_relation_format("depends_on").is_ok());
+    assert!(validate_relation_format("applies-to").is_ok());
+    assert!(validate_relation_format("depends-on").is_ok());
     assert!(validate_relation_format("implements").is_ok());
     assert!(validate_relation_format("").is_err());
-    assert!(is_canonical_relation("applies_to"));
+    assert!(is_canonical_relation("applies-to"));
     assert!(!is_canonical_relation("implements"));
 }
 

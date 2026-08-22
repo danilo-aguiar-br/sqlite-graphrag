@@ -1,6 +1,9 @@
-# Checklist multiplataforma (sqlite-graphrag v1.2.5)
+# Checklist multiplataforma (sqlite-graphrag v1.2.8)
 
 Validação apenas local (sem GitHub Actions). A CLI deve rodar em **Linux**, **macOS** e **Windows**.
+
+- Leia a versão em inglês em [CROSS_PLATFORM.md](CROSS_PLATFORM.md)
+- Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
 ## Matriz de build (rode em cada host)
 
@@ -39,7 +42,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Proibido
 
-- Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` para config
+- Variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` como canal de config — **proibidas**, e **não são lidas** em runtime
 - Paths hardcoded `/tmp`, `/home/...` ou drive-letter em código de produção
 - Recriar CI `.github/workflows` neste projeto
 - Telemetria remota / export OTEL
@@ -56,7 +59,7 @@ cargo clippy --all-targets -- -D warnings
 
 > **Nota:** a narrativa multiplataforma legada (notas por release v1.1.06 e anteriores, whitelist Windows, etc.) permanece **abaixo** para profundidade histórica. O checklist canônico da **v1.2.1** é a seção acima (espelha [CROSS_PLATFORM.md](CROSS_PLATFORM.md)); gate offline `scripts/e2e_offline_v120.sh` **20/20** (wrapper histórico `e2e_offline_v118.sh` / 16/16 supersedido). CAPA enrich 1.2.1 multiplataforma: `dequeue_next_pending` = operação+namespace; `--until-empty` isola via `count_eligible_pending`; `--force-redescribe` reabre skipped/done (nunca dead); re-embed por `LENGTH(embedding)=dim*4` (`reconcile_satisfied_reembed_pending`); enqueue remove prefixo `entity:`; chunk valida namespace alvo; CAPA-D marcadores compostos "configuration file" (sem FP bare); suite de fila **38** testes OK. Schema **v16**; crate **1.2.1**.
 >
-> **AVISO v1.2.1:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **NÃO** são lidos no hot path. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs. **DEFAULT_EMBEDDING_DIM=1024**. CAPA enrich: sempre passe `--namespace`; claim via `dequeue_next_pending` = operação+namespace; `--until-empty` conta só op+ns (`count_eligible_pending`); `--force-redescribe` reabre skipped/done uma vez por processo (nunca dead); re-embed elegível por BLOB `LENGTH(embedding)=dim*4` (não só coluna dim) com `reconcile_satisfied_reembed_pending`; enqueue remove prefixo `entity:` no lookup (bare ok; ausente rejeita); chunk enqueue valida namespace alvo (memory não deletada); CAPA-D só marcadores compostos "configuration file" (sem FP bare `%configuration file%`); suite de fila **38** testes OK — regressões `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Schema **v16**; crate **1.2.1**; sem migração do DB principal. Recuperação de fila: `enrich --list-skipped` / `--requeue-skipped`. **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `completions`) aceitam `--db` como no-op. Inventário completo de comandos CLI: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
+> **AVISO v1.2.1:** trechos legados que ensinam `export SQLITE_GRAPHRAG_*` como override de config **não têm efeito** e nunca são lidos em runtime. Configure com flags CLI e `config set` (XDG). Whitelist de spawn OAuth (`ANTHROPIC_AUTH_TOKEN`, …) continua válida para subprocessos, e não é product env de knobs. **DEFAULT_EMBEDDING_DIM=1024**. CAPA enrich: sempre passe `--namespace`; claim via `dequeue_next_pending` = operação+namespace; `--until-empty` conta só op+ns (`count_eligible_pending`); `--force-redescribe` reabre skipped/done uma vez por processo (nunca dead); re-embed elegível por BLOB `LENGTH(embedding)=dim*4` (não só coluna dim) com `reconcile_satisfied_reembed_pending`; enqueue remove prefixo `entity:` no lookup (bare ok; ausente rejeita); chunk enqueue valida namespace alvo (memory não deletada); CAPA-D só marcadores compostos "configuration file" (sem FP bare `%configuration file%`); suite de fila **38** testes OK — regressões `enqueue_candidate_accepts_entity_prefixed_reembed_key`, `dequeue_next_pending_isolates_by_namespace`. Schema **v16**; crate **1.2.1**; sem migração do DB principal. Recuperação de fila: `enrich --list-skipped` / `--requeue-skipped`. **GAP-SG-139:** folhas host/XDG (`config`, `slots`, `cache`, `completions`) aceitam `--db` como no-op. Inventário completo de comandos CLI: [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
 
 ## Notas de operador da v1.2.1 (todas as plataformas)
 
@@ -69,7 +72,7 @@ cargo clippy --all-targets -- -D warnings
 - entity-connect: totalmente implementado (persiste relacionamentos); timeout do primeiro scan sai **1** (não singleton **75**).
 - Ordem recomendada para agentes: escrita → entity-descriptions (quente, opcional `--enqueue-enrich`) → entity-connect (frio). Sempre passe `--namespace` nos drains de enrich.
 - O portão offline de referência é host Linux + `scripts/e2e_offline_v120.sh` **20/20** (canônico; o wrapper histórico `e2e_offline_v118.sh` / 16/16 foi substituído). macOS e Windows usam a mesma checklist; não declare validação de harness em três SOs sem evidência de host. Schema permanece **v16** (apenas CAPA no sidecar).
-- Inventário completo de comandos top-level (todos os 50 comandos de produto + famílias aninhadas): [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
+- Inventário completo de comandos top-level (todos os 50 verbos de topo, com `help` incluído, mais as famílias aninhadas): [HOW_TO_USE.pt-BR.md](HOW_TO_USE.pt-BR.md) (espelhado em [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md) / [HEADLESS_INVOCATION.pt-BR.md](HEADLESS_INVOCATION.pt-BR.md)).
 - Inglês: [CROSS_PLATFORM.md](CROSS_PLATFORM.md)
 
 ## Whitelist de Env de Custom Provider no Windows (v1.0.83+)
@@ -78,7 +81,7 @@ cargo clippy --all-targets -- -D warnings
 - No Windows as env vars de custom-provider `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT` fluem para o subprocesso LLM identicamente ao Linux/macOS
 - `LockFileEx` é usado pelo semáforo de slots (ADR-0039, v1.0.82) no Windows; esta release não adiciona novas primitivas de lock
 - O teste de auditoria no-leak `audit_no_token_leak_in_subprocess_stderr` roda apenas em Linux; a mesma asserção se aplica no Windows por construção (propagação de env é agnóstica de plataforma no helper)
-- Flag `--strict-env-clear` e env var `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` funcionam identicamente no Windows; apenas `PATH` (ou `Path` no Windows, que o helper normaliza) é encaminhado em modo estrito
+- Nota **histórica** (v1.0.83): a flag --strict-env-clear e a variável `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` funcionavam identicamente no Windows, encaminhando apenas `PATH` (ou `Path` no Windows, que o helper normalizava) em modo estrito; ambas foram **removidas** na v1.2.0 com os spawners de subprocesso
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.pt-BR.md` e `docs/COOKBOOK.pt-BR.md#como-usar-providers-anthropic-compativeis-customizados-v1083` para a receita completa
 # SUPORTE CROSS PLATFORM (atual: v1.1.06; notas desde v1.0.97+)
 
@@ -97,7 +100,7 @@ cargo clippy --all-targets -- -D warnings
 - `cross-domain-bridges` compartilha o **mesmo** path O(k) + `entity_connect_seen`; convergência **GAP-002** preservada.
 
 ## Notas de operador da v1.1.05 (todas as plataformas)
-- O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"`; sem migração de schema (permanece em v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
+- O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"`; sem migração de schema (permanece em v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md). Suite de regressão: `tests/v1105_incident_bugs_regression.rs`.
 - **Bug 1 (fan-out de aspectos)**: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`) em todo SO; caminho manual opcional `--sub-query-strategy manual --sub-queries-file PATH` é seguro quanto ao separador de caminho (passe um path normal do filesystem da plataforma).
 - **Bug 2 (atomwrite + ack)**: prefira `deep-research --output PATH` mais `--quiet`/`-q` global para envelopes multi-MB não serem truncados por redirecionamento de shell; nunca misture stderr no arquivo JSON com `&>`. Escrita atômica de JSON (`atomwrite`: tempfile no mesmo diretório → fsync → rename) funciona em Linux, macOS e Windows; fsync do diretório pai aplica-se em Unix. Campos do ack no stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`.
 - **Bug 4 (self-ref no merge)**: no zsh/bash/PowerShell, prefira arrays explícitos em vez de word splitting sem aspas ao scriptar loops de `merge-entities`; a CLI rejeita `--ids`/`--into-id` (ou nomes) auto-referenciais **antes** de qualquer trabalho no DB em todos os targets.
@@ -189,7 +192,7 @@ cargo install --path .
 ### Shell — PowerShell 7 e Windows Terminal
 - PowerShell 7 ou posterior executa cada exemplo do README sem modificação alguma
 - Windows Terminal renderiza saída colorida e barras de progresso identicamente aos shells Unix
-- CMD.EXE legado funciona mas remove cores ANSI exceto se `SQLITE_GRAPHRAG_FORCE_COLOR=1`
+- CMD.EXE legado funciona mas remove cores ANSI exceto se `CLICOLOR_FORCE=1`, uma das três variáveis de ambiente que o binário lê, ao lado de `NO_COLOR` e `XDG_RUNTIME_DIR`
 - Usuários WSL2 devem preferir o binário Linux glibc para paridade completa com Unix
 - PowerShell ISE NÃO suporta prompts interativos usados durante a confirmação do `init`
 
@@ -250,7 +253,7 @@ sqlite-graphrag recall "query" --json | from json | get results | select name
 ```
 - Cada shell acima lê os mesmos códigos de saída garantindo semântica de orquestração idêntica
 - Formato JSON de saída fica byte idêntico nos cinco shells simplificando pipelines automatizados
-- Scripts de completion são suportados pela CLI atual via `sqlite-graphrag completion <shell>`
+- Scripts de completion são suportados pela CLI atual via `sqlite-graphrag completions <shell>`
 - Precedência de configuração é flag CLI > `config set` XDG > default em todo shell; variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` são PROIBIDAS e não são lidas em runtime
 - Sinais SIGINT e SIGTERM funcionam identicamente habilitando shutdown gracioso universalmente
 
@@ -260,20 +263,20 @@ sqlite-graphrag recall "query" --json | from json | get results | select name
 - Caminho padrão do banco resolve para `./graphrag.sqlite` no diretório da invocação
 - Caminhos no macOS resolvem para `~/Library/Application Support/sqlite-graphrag/` conforme HIG
 - Caminhos no Windows resolvem para `%APPDATA%\sqlite-graphrag\` e `%LOCALAPPDATA%\sqlite-graphrag\`
-- Override via `SQLITE_GRAPHRAG_DB_PATH` tem prioridade absoluta em todo sistema operacional
+- A flag `--db`, escrita depois do subcomando, tem prioridade absoluta em todo sistema operacional, com a chave XDG `db.path` como padrão
 
 
-### Variáveis De Ambiente — Overrides Em Runtime
+### Configuração — Flags De CLI E Chaves XDG
 ```bash
-export SQLITE_GRAPHRAG_DB_PATH="/var/lib/graphrag.sqlite"
-export SQLITE_GRAPHRAG_CACHE_DIR="/tmp/sqlite-graphrag-cache"
-export SQLITE_GRAPHRAG_LANG="pt"
-export SQLITE_GRAPHRAG_LOG_LEVEL="debug"
+sqlite-graphrag config set db.path "/var/lib/graphrag.sqlite"
+sqlite-graphrag config set i18n.lang "pt"
+sqlite-graphrag config set log.level "debug"
 ```
-- `SQLITE_GRAPHRAG_DB_PATH` sobrescreve o caminho padrão `./graphrag.sqlite`
-- `SQLITE_GRAPHRAG_CACHE_DIR` isola cache do modelo e lock files para cenários de container e teste
-- `SQLITE_GRAPHRAG_LANG` alterna saída da CLI entre inglês e português brasileiro imediatamente
-- `SQLITE_GRAPHRAG_LOG_LEVEL` controla verbosidade do tracing expondo cada query SQL em `debug`
+- A chave XDG `db.path` sobrescreve o caminho padrão `./graphrag.sqlite`
+- A flag `--db`, escrita depois do subcomando, vence a chave XDG em toda invocação
+- Cache de host e lock files vivem sob os diretórios XDG do sistema, sem knob de produto que os redirecione
+- A chave `i18n.lang`, ou a flag global `--lang`, alterna a saída da CLI entre inglês e português brasileiro
+- A chave `log.level`, ou as flags `-v` / `-vv` / `-vvv`, controla a verbosidade do tracing expondo cada query SQL em `debug`
 
 
 ## Performance Por Target

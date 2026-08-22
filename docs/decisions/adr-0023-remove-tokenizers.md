@@ -1,8 +1,11 @@
 # ADR-0023: Removal of `tokenizers` Crate (v1.0.76)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it tells the operator to override the ceiling through `SQLITE_GRAPHRAG_EMBEDDING_MAX_TOKENS`, and that variable is never read at runtime by the v1.2.8 binary and has no effect.
+- HISTORICAL: the override was removed with no replacement, because no XDG key exposes the ceiling; `config list` carries only `embedding.dim`, `embedding.batch_size` and `embedding.timeout_secs`.
 
 - Status: Accepted (2026-06-07)
 - Update (v1.0.79): the `embedding-legacy` escape hatch mentioned below was removed ahead of the v1.1.0 schedule; the transition window is closed
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: src/tokenizer.rs, src/chunking.rs, src/commands/ingest.rs, src/commands/remember.rs, src/commands/enrich.rs, src/commands/ingest_claude.rs, Cargo.toml
 
 ## Context

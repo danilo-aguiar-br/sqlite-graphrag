@@ -234,9 +234,9 @@ fn list_returns_memories_from_namespace() -> TestResult {
 
     let rows = list(&conn, "global", None, 10, 0, false)?;
     assert!(rows.len() >= 2);
-    let nomes: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
-    assert!(nomes.contains(&"mem-list-a"));
-    assert!(nomes.contains(&"mem-list-b"));
+    let names: Vec<_> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"mem-list-a"));
+    assert!(names.contains(&"mem-list-b"));
     Ok(())
 }
 

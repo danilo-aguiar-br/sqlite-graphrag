@@ -179,7 +179,7 @@ pub struct EnrichArgs {
     pub mode: Option<EnrichMode>,
 
     /// Maximum number of items to process in this run. Omit for all.
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", value_parser = crate::parsers::parse_list_limit_range)]
     pub limit: Option<usize>,
 
     /// GAP-SG-185 / v1.2.4: keyset page size for the enrich SCAN phase.
@@ -375,7 +375,10 @@ pub struct EnrichArgs {
         long,
         value_name = "N",
         default_value_t = DEFAULT_ENRICH_REST_CONCURRENCY,
-        value_parser = clap::value_parser!(u32).range(1..=16)
+        value_parser = clap::value_parser!(u32).range(
+            crate::constants::MIN_ENRICH_REST_CONCURRENCY as i64
+                ..=crate::constants::MAX_ENRICH_REST_CONCURRENCY as i64
+        )
     )]
     pub rest_concurrency: u32,
 
@@ -493,11 +496,26 @@ pub struct EnrichArgs {
 
     /// GAP-CLI-ED-03: minimum grounding coverage of an entity description
     /// against linked memory bodies. Uses trigram coverage (`|A∩B|/|A|`),
-    /// not symmetric Jaccard, because descriptions are short. Default 0.12.
-    /// Set to 0 to use the compiled default. Only applies to
+    /// not symmetric Jaccard, because descriptions are short. Only applies to
     /// `entity-descriptions`.
-    #[arg(long, value_name = "FLOAT", default_value_t = DEFAULT_ENRICH_GROUNDING_THRESHOLD)]
-    pub entity_description_grounding_threshold: f64,
+    ///
+    /// Precedence: this flag, then XDG
+    /// `enrich.entity_description.grounding_threshold`, then the compiled
+    /// `DEFAULT_ENRICH_GROUNDING_THRESHOLD`. Read through the accessor of the
+    /// same name, never as a bare field.
+    ///
+    /// The constant is deliberately NOT an intra-doc link here: this field is
+    /// `pub` while the constant is `pub(crate)`, and `[lints.rustdoc]` denies
+    /// `private_intra_doc_links` since GAP-SG-211.
+    ///
+    /// Zero is a LITERAL zero — it accepts every candidate. It used to mean
+    /// "use the compiled default", and that sentinel was the defect: a
+    /// `default_value_t` here meant clap always supplied a value, so the branch
+    /// reading the compiled constant only ran when an operator typed `0`
+    /// explicitly. Raising the constant therefore changed nothing in
+    /// production, and the XDG key had no reader at all.
+    #[arg(long, value_name = "FLOAT")]
+    pub entity_description_grounding_threshold: Option<f64>,
 
     /// GAP-CLI-ED-06 / CAPA-B: re-scan entities whose description is empty OR
     /// matches high-precision low-quality compound markers (e.g. "is a software
@@ -514,13 +532,66 @@ pub struct EnrichArgs {
     /// it is not a drain backlog and is not processed by `--force-redescribe`.
     /// Precedence: this flag > XDG `enrich.entity_description.quality_sample`
     /// > default 50. Set 0 to disable sampling.
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", value_parser = crate::parsers::parse_quality_sample_range)]
     pub quality_sample: Option<usize>,
 
     /// GAP-CLI-NAMES-02: explicit entity name filter (entity-descriptions,
     /// entity-connect, …). Alias of `--names` for entity-keyed ops.
     #[arg(long, value_name = "NAMES", value_delimiter = ',')]
     pub entity_names: Vec<String>,
+
+    /// Restrict an entity-keyed operation to entities carrying this type label.
+    ///
+    /// v1.2.8: `entity-type-validate` scanned the whole namespace at random,
+    /// with no way to aim it. That is the operation which can propose a better
+    /// label for the entities the closed vocabulary collapsed into `concept`,
+    /// and without a filter the only way to reach them was to pay for every
+    /// entity in the graph. `--entity-type concept` aims it at exactly the
+    /// bucket that needs revisiting.
+    ///
+    /// Free text, matched literally against the stored label, because the
+    /// vocabulary is open since V017 and a closed value set here would refuse
+    /// the very labels this flag exists to look for.
+    #[arg(long, value_name = "LABEL")]
+    pub entity_type: Option<String>,
+
+    /// GAP-SG-283: entity type labels this project accepts, comma separated.
+    ///
+    /// `remember --strict-entity-types` and `link --strict-relations` already
+    /// let a project declare its vocabulary on the hand-written write channels.
+    /// `enrich` declared nothing, and it is the channel that writes type labels
+    /// in VOLUME: `entity-type-validate` persists whatever the model returns.
+    ///
+    /// Precedence: this flag > XDG `enrich.entity_type.allowed_types` > the
+    /// canonical vocabulary compiled into the binary. An empty declaration
+    /// falls through to the next layer rather than refusing every label.
+    ///
+    /// Labels are shape-normalised on the way in, so `Issue-Tracker` and
+    /// `issue_tracker` declare the same member. What to do with a label outside
+    /// the set is `--on-unknown-type`.
+    #[arg(long, value_name = "LIST", value_delimiter = ',')]
+    pub allowed_types: Vec<String>,
+
+    /// GAP-SG-283: policy for a validated entity type outside `--allowed-types`.
+    ///
+    /// `keep` (the default) stores the label as written, which is byte-for-byte
+    /// the v1.2.8 behaviour — an existing caller passing no flag is unaffected.
+    /// `fallback` stores the nearest accepted label and preserves the raw one in
+    /// the entity description, so the rewrite has a declared inverse. `strict`
+    /// refuses the item with exit 1, mirroring `remember --strict-entity-types`.
+    ///
+    /// Precedence: this flag > XDG `enrich.entity_type.on_unknown_type` >
+    /// `keep`. Applies to `--operation entity-type-validate`; every other
+    /// operation ignores it.
+    ///
+    /// Parsed against the same list the policy module parses, so the flag and
+    /// the reader cannot accept different sets.
+    #[arg(
+        long,
+        value_name = "POLICY",
+        value_parser = clap::builder::PossibleValuesParser::new(super::events::UNKNOWN_TYPE_POLICIES)
+    )]
+    pub on_unknown_type: Option<String>,
 
     /// GAP-CLI-NAMES-02: explicit memory name filter (memory-bindings,
     /// body-enrich, …). Alias of `--names` for memory-keyed ops.
@@ -611,5 +682,20 @@ impl EnrichArgs {
     /// Precedence: `--scan-page-size` > XDG `enrich.scan_page_size` > default 512.
     pub(crate) fn scan_page_size(&self) -> usize {
         crate::runtime_config::enrich_scan_page_size(self.scan_page_size)
+    }
+
+    /// G-PR-7: resolved minimum grounding coverage for entity descriptions.
+    ///
+    /// Precedence: `--entity-description-grounding-threshold` > XDG
+    /// `enrich.entity_description.grounding_threshold` >
+    /// [`DEFAULT_ENRICH_GROUNDING_THRESHOLD`]. This is the ONLY reader of that
+    /// XDG key; the key was listed as a dead configuration channel until this
+    /// accessor existed.
+    pub(crate) fn entity_description_grounding_threshold(&self) -> f64 {
+        crate::runtime_config::resolve_f64(
+            self.entity_description_grounding_threshold,
+            "enrich.entity_description.grounding_threshold",
+            DEFAULT_ENRICH_GROUNDING_THRESHOLD,
+        )
     }
 }

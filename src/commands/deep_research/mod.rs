@@ -31,7 +31,7 @@ use envelope::{
     ResearchStats,
 };
 pub(super) use envelope::{EvidenceChain, EvidenceNode, SubQuery, SubQueryResult};
-use pipeline::{compute_sub_embeddings, execute_sub_query, resolve_sub_queries};
+use pipeline::{compute_sub_embeddings, execute_sub_query, resolve_sub_queries, RetrievalKnobs};
 
 #[cfg(test)]
 use pipeline::{decompose_query, decompose_query_with_sources};
@@ -40,8 +40,7 @@ use pipeline::{decompose_query, decompose_query_with_sources};
 #[tracing::instrument(skip_all, level = "debug", name = "deep_research")]
 pub fn run(
     args: DeepResearchArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
     fail_on_degraded: bool,
 ) -> Result<(), AppError> {
     tracing::debug!(target: "deep_research", query = %args.query, k = args.k, "starting deep research");
@@ -59,7 +58,7 @@ pub fn run(
     let sub_query_plan = resolve_sub_queries(&args)?;
     let sub_query_texts: Vec<String> = sub_query_plan.iter().map(|s| s.text.clone()).collect();
     let (sub_embeddings, vec_degraded, degraded_reason_code) =
-        compute_sub_embeddings(&paths, &sub_query_texts, embedding_backend, llm_backend);
+        compute_sub_embeddings(&paths, &sub_query_texts, backends);
     // Decided BEFORE the runtime is built and the whole fan-out is spent:
     // without this the search answered FTS-only with exit 0 and the flag was a
     // placebo. Failing here also avoids paying for the network calls of a search
@@ -82,8 +81,7 @@ pub fn run(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to build tokio runtime: {e}")))?;
     rt.block_on(run_async(
         args,
-        llm_backend,
-        embedding_backend,
+        backends,
         sub_query_plan,
         sub_embeddings,
         vec_degraded,
@@ -99,12 +97,15 @@ pub fn run(
 /// fan-out share one plan (v1.1.05).
 async fn run_async(
     args: DeepResearchArgs,
-    _llm_backend: crate::cli::LlmBackendChoice,
-    _embedding_backend: crate::cli::EmbeddingBackendChoice,
+    _backends: crate::cli::BackendChoice,
     sub_queries: Vec<SubQuery>,
     sub_embeddings: Vec<Option<Arc<Vec<f32>>>>,
     vec_degraded: bool,
 ) -> Result<(), AppError> {
+    let crate::cli::BackendChoice {
+        llm: _llm_backend,
+        embedding: _embedding_backend,
+    } = _backends;
     let start = std::time::Instant::now();
 
     if args.query.trim().is_empty() {
@@ -137,12 +138,37 @@ async fn run_async(
     }
 
     // Phase 2: Fan-out — parallel sub-query execution.
+    // Bounded concurrency: permits = min(cpus, free_ram / ram_per_task), capped
+    // at 8 and never above the number of sub-queries. `--max-concurrency`
+    // overrides the computed value, because a fixed number that ignores the host
+    // breaks on the next machine.
+    //
+    // WORKLOAD: I/O-bound. Each sub-query is one embedding round trip plus SQLite
+    // reads; the CPU term is a proxy for reasonable fan-out, not for saturation.
+    //
+    // ram_per_task uses `llm.worker_rss_mb` (default 350 MB), the same measured
+    // per-worker resident figure the LLM slot accounting already uses on this
+    // host, and only half of the free RAM is offered so a concurrent enrich
+    // drain is not squeezed out. The memory term was missing entirely before
+    // v1.2.8: the count was `cpus.min(8)` on any host, which on a loaded machine
+    // sized fan-out from a number that says nothing about what is left.
     let cpu_count = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
+    let ram_per_task_mb = crate::constants::llm_worker_rss_mb().max(1);
+    // `available_memory_mb` returns 0 when the reading is unavailable, which
+    // would floor the permits at 1 on a host that simply cannot report. Falling
+    // back to the CPU term keeps the previous behaviour in that case rather than
+    // silently serialising the fan-out.
+    let available_mb = crate::memory_guard::available_memory_mb();
+    let ram_permits = if available_mb == 0 {
+        cpu_count
+    } else {
+        usize::try_from(available_mb / 2 / ram_per_task_mb).unwrap_or(cpu_count)
+    };
     let permits = args
         .max_concurrency
-        .unwrap_or_else(|| cpu_count.min(8))
+        .unwrap_or_else(|| cpu_count.min(ram_permits).min(8))
         .min(sub_queries.len())
         .max(1);
     let semaphore = Arc::new(Semaphore::new(permits));
@@ -157,13 +183,15 @@ async fn run_async(
         let ns = namespace.clone();
         let db_path = paths.db.clone();
         let query_text = sq_text.clone();
-        let k = args.k;
-        let max_hops = args.max_hops;
-        let min_weight = args.min_weight;
-        let rrf_k = args.rrf_k;
-        let graph_decay = args.graph_decay;
-        let graph_min_score = args.graph_min_score;
-        let max_neighbors_per_hop = args.max_neighbors_per_hop;
+        let knobs = RetrievalKnobs {
+            k: args.k,
+            max_hops: args.max_hops,
+            min_weight: args.min_weight,
+            rrf_k: args.rrf_k,
+            graph_decay: args.graph_decay,
+            graph_min_score: args.graph_min_score,
+            max_neighbors_per_hop: args.max_neighbors_per_hop,
+        };
 
         join_set.spawn(async move {
             let _permit = sem
@@ -179,13 +207,7 @@ async fn run_async(
                     emb.as_ref().map(|v| v.as_slice()),
                     &ns,
                     &db_path,
-                    k,
-                    max_hops,
-                    min_weight,
-                    rrf_k,
-                    graph_decay,
-                    graph_min_score,
-                    max_neighbors_per_hop,
+                    knobs,
                 )
             })
             .await;

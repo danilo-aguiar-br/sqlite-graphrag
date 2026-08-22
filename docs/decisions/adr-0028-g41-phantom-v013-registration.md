@@ -3,7 +3,7 @@
 
 ## Status
 - Accepted (2026-06-09)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: `src/commands/migrate.rs`, `src/storage/connection.rs`
 - Covers the phantom V013 registration bug in v1.0.76/v1.0.77
 

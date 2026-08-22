@@ -72,7 +72,7 @@ pub struct HybridSearchArgs {
     #[arg(long, help = "Skip live query embedding; serve FTS5 BM25 only")]
     pub fallback_fts_only: bool,
     /// Graph traversal depth (requires --with-graph; default 2 when active).
-    #[arg(long)]
+    #[arg(long, value_parser = crate::parsers::parse_hops_range_u32)]
     pub max_hops: Option<u32>,
     /// Minimum edge weight for graph traversal (requires --with-graph; default 0.3 when active).
     #[arg(long)]

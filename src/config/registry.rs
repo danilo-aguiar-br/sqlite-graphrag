@@ -166,7 +166,7 @@ pub const SETTING_KEYS: &[SettingKey] = &[
     },
     SettingKey {
         key: "enrich.entity_description.corpus_top_k",
-        default: Some("5"),
+        default: Some("8"),
         kind: ValueKind::Unsigned,
     },
     SettingKey {
@@ -176,8 +176,13 @@ pub const SETTING_KEYS: &[SettingKey] = &[
     },
     SettingKey {
         key: "enrich.entity_description.grounding_threshold",
-        default: Some("0.12"),
+        default: Some("0.30"),
         kind: ValueKind::Float,
+    },
+    SettingKey {
+        key: "enrich.entity_description.neighbour_top_k",
+        default: Some("12"),
+        kind: ValueKind::Unsigned,
     },
     SettingKey {
         key: "enrich.entity_description.min_corpus_chars",
@@ -191,7 +196,51 @@ pub const SETTING_KEYS: &[SettingKey] = &[
     },
     SettingKey {
         key: "enrich.entity_description.snippet_chars",
-        default: Some("400"),
+        default: Some("2000"),
+        kind: ValueKind::Unsigned,
+    },
+    // GAP-SG-279: `entity-type-validate` decided an entity's type from two
+    // lines of input — the name and the label under dispute — while the sibling
+    // operation next to it had four keys for gathering evidence before writing
+    // a single sentence. The asymmetry was the whole defect: the operation with
+    // the weakest input was the one asked to repair the 10902 entities the
+    // closed vocabulary had collapsed into `concept`. These four keys are the
+    // same four the description path already has, so the two operations tune
+    // alike instead of one of them being untunable.
+    // GAP-SG-283: the vocabulary policy `enrich` lacked. `remember` has
+    // `--strict-entity-types` and `link` has `--strict-relations`; the channel
+    // that writes type labels in VOLUME had neither, so a model string reached
+    // `UPDATE entities SET type` with nothing between it and the column once
+    // V017 removed the SQL CHECK. Read by
+    // `src/commands/enrich/events/entity_type_policy.rs`.
+    SettingKey {
+        key: "enrich.entity_type.allowed_types",
+        default: None,
+        kind: ValueKind::Text,
+    },
+    SettingKey {
+        key: "enrich.entity_type.on_unknown_type",
+        default: Some("keep"),
+        kind: ValueKind::Text,
+    },
+    SettingKey {
+        key: "enrich.entity_type_validate.corpus_top_k",
+        default: Some("8"),
+        kind: ValueKind::Unsigned,
+    },
+    SettingKey {
+        key: "enrich.entity_type_validate.min_corpus_chars",
+        default: Some("40"),
+        kind: ValueKind::Unsigned,
+    },
+    SettingKey {
+        key: "enrich.entity_type_validate.neighbour_top_k",
+        default: Some("12"),
+        kind: ValueKind::Unsigned,
+    },
+    SettingKey {
+        key: "enrich.entity_type_validate.snippet_chars",
+        default: Some("2000"),
         kind: ValueKind::Unsigned,
     },
     SettingKey {
@@ -445,6 +494,13 @@ mod setting_keys_drift_tests {
     /// those tests.
     const SCANNED_SOURCES: &[&str] = &[
         include_str!("../commands/enrich/extraction_descriptions.rs"),
+        // GAP-SG-279 put a `resolve_usize` here: `entity-type-validate` now
+        // reads `enrich.entity_type_validate.min_corpus_chars` before deciding
+        // whether an entity has enough evidence to judge its type from.
+        include_str!("../commands/enrich/extraction_graph.rs"),
+        // GAP-SG-283: the entity type vocabulary policy reads its two keys
+        // here, one layer above the `call_*` helper that writes the column.
+        include_str!("../commands/enrich/events/entity_type_policy.rs"),
         include_str!("../commands/enrich/prompts.rs"),
         include_str!("../commands/enrich/quality_sample.rs"),
         include_str!("../commands/enrich/scheduler.rs"),

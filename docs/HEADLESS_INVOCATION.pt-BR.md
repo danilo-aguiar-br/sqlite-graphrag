@@ -116,7 +116,7 @@ Orquestradores headless precisam conhecer a superfície completa de produto mesm
   - Envelopes de falha (`error: true` / `ok: false`) e documentos `$schema` nunca são remodelados; streams NDJSON contornam a superfície
 - Flag global de entrada adicionada na **v1.2.2**
   - `--no-input` — recusa stdin em qualquer ponto da invocação; todo leitor de stdin falha de antemão com exit 1; precedência flag > XDG `cli.no_input` > `false`
-- `schema` — catálogo legível por máquina dos **75** contratos JSON
+- `schema` — catálogo legível por máquina dos **76** contratos JSON
   - `schema` — listagem NDJSON, um `{"id","invoke"}` por linha; `invoke` é o comando pronto para copiar
   - `schema --name <ID>` — emite o documento JSON Schema daquele contrato
   - `<ID>` desconhecido sai com **exit 4**; documentos `$schema` são isentos da superfície de saída agent-native, então qualquer flag global pode ser encadeada com segurança
@@ -127,7 +127,7 @@ Orquestradores headless precisam conhecer a superfície completa de produto mesm
 
 ## Contrato stdout/stderr e --quiet (v1.1.05) + alias `-o` (v1.1.8)
 
-ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: `tests/v1105_danilo_bugs_regression.rs` (nome da suite **v1105**).
+ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md). Suite de regressão: `tests/v1105_incident_bugs_regression.rs` (nome da suite **v1105**).
 
 - JSON estruturado SEMPRE no stdout; logs de tracing SEMPRE no stderr
 - Use `--quiet`/`-q` (global) para suprimir tracing não-erro — útil em pipelines headless que parseiam stdout com `jaq`
@@ -144,12 +144,12 @@ OUTDIR=/tmp/graphrag-out
 mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
-  deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
+  deep-research "alice" --max-sub-queries 7 --k 20 --with-bodies \
   -o "$OUTDIR/research.json" --json
 # Parseie o ack no stdout; envelope completo no arquivo
 # Facetas manuais opcionais:
-# printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"
-# sqlite-graphrag --quiet deep-research "danilo" \
+# printf '%s\n' 'alice stack' 'alice projetos' > "$OUTDIR/subs.txt"
+# sqlite-graphrag --quiet deep-research "alice" \
 #   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
 #   --output "$OUTDIR/research.json" --json
 ```
@@ -317,7 +317,7 @@ sqlite-graphrag remember --name foo --type note --body "..." \
   --llm-backend openrouter --json
 
 # Se o backend falhar, inspecione a fila pendente
-sqlite-graphrag pending-embeddings list --filter-status failed --json
+sqlite-graphrag pending-embeddings list --status pending --json
 ```
 ### Padrão de poll do semáforo de slots (GAP-004, ADR-0039)
 ```bash

@@ -87,16 +87,16 @@ fn init_db(tmp: &TempDir) {
 }
 
 // ---------------------------------------------------------------------------
-// Paridade EN/PT — variantes AppError via localized_message_for
+// EN/PT parity — AppError variants through localized_message_for
 // ---------------------------------------------------------------------------
 
 #[test]
-fn paridade_localized_message_todas_variantes_apperror() {
+fn localized_message_parity_all_apperror_variants() {
     use sqlite_graphrag::errors::AppError;
     use sqlite_graphrag::i18n::Language;
     use std::io;
 
-    let variantes: Vec<AppError> = vec![
+    let variants: Vec<AppError> = vec![
         AppError::Validation("campo x".into()),
         AppError::Duplicate("ns/mem".into()),
         AppError::Conflict("ts mudou".into()),
@@ -122,31 +122,31 @@ fn paridade_localized_message_todas_variantes_apperror() {
         },
     ];
 
-    for variante in &variantes {
-        let msg_en = variante.localized_message_for(Language::English);
-        let msg_pt = variante.localized_message_for(Language::Portuguese);
+    for variant in &variants {
+        let msg_en = variant.localized_message_for(Language::English);
+        let msg_pt = variant.localized_message_for(Language::Portuguese);
 
         assert!(
             !msg_en.is_empty(),
-            "mensagem EN vazia para variante: {variante:?}"
+            "mensagem EN vazia para variante: {variant:?}"
         );
         assert!(
             !msg_pt.is_empty(),
-            "mensagem PT vazia para variante: {variante:?}"
+            "mensagem PT vazia para variante: {variant:?}"
         );
         assert_ne!(
             msg_en, msg_pt,
-            "mensagem EN e PT identicas para variante {variante:?}: '{msg_en}'"
+            "mensagem EN e PT identicas para variante {variant:?}: '{msg_en}'"
         );
     }
 }
 
 #[test]
-fn localized_message_en_cada_variante_contem_termo_ingles() {
+fn localized_message_en_every_variant_contains_english_term() {
     use sqlite_graphrag::errors::AppError;
     use sqlite_graphrag::i18n::Language;
 
-    let casos: Vec<(AppError, &str)> = vec![
+    let cases: Vec<(AppError, &str)> = vec![
         (AppError::Validation("campo".into()), "validation error"),
         (AppError::Duplicate("ns/m".into()), "duplicate detected"),
         (AppError::Conflict("ts".into()), "conflict"),
@@ -165,21 +165,21 @@ fn localized_message_en_cada_variante_contem_termo_ingles() {
         (AppError::LockBusy("l".into()), "lock busy"),
     ];
 
-    for (variante, esperado) in &casos {
-        let msg = variante.localized_message_for(Language::English);
+    for (variant, expected) in &cases {
+        let msg = variant.localized_message_for(Language::English);
         assert!(
-            msg.contains(esperado),
-            "EN: esperado '{esperado}' em '{msg}' (variante: {variante:?})"
+            msg.contains(expected),
+            "EN: esperado '{expected}' em '{msg}' (variante: {variant:?})"
         );
     }
 }
 
 #[test]
-fn localized_message_pt_cada_variante_contem_termo_portugues() {
+fn localized_message_pt_every_variant_contains_portuguese_term() {
     use sqlite_graphrag::errors::AppError;
     use sqlite_graphrag::i18n::Language;
 
-    let casos: Vec<(AppError, &str)> = vec![
+    let cases: Vec<(AppError, &str)> = vec![
         (AppError::Validation("campo".into()), "erro de validação"),
         (AppError::Duplicate("ns/m".into()), "duplicata detectada"),
         (AppError::Conflict("ts".into()), "conflito"),
@@ -198,17 +198,17 @@ fn localized_message_pt_cada_variante_contem_termo_portugues() {
         (AppError::LockBusy("l".into()), "lock ocupado"),
     ];
 
-    for (variante, esperado) in &casos {
-        let msg = variante.localized_message_for(Language::Portuguese);
+    for (variant, expected) in &cases {
+        let msg = variant.localized_message_for(Language::Portuguese);
         assert!(
-            msg.contains(esperado),
-            "PT: esperado '{esperado}' em '{msg}' (variante: {variante:?})"
+            msg.contains(expected),
+            "PT: esperado '{expected}' em '{msg}' (variante: {variant:?})"
         );
     }
 }
 
 // ---------------------------------------------------------------------------
-// Testes E2E via --lang flag
+// E2E tests through the --lang flag
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -236,7 +236,7 @@ fn lang_pt_remember_invalid_name_stderr_portuguese() {
 }
 
 #[test]
-fn lang_en_mesmo_cenario_stderr_ingles() {
+fn lang_en_same_scenario_stderr_english() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -258,7 +258,7 @@ fn lang_en_mesmo_cenario_stderr_ingles() {
 }
 
 #[test]
-fn lang_pt_not_found_stderr_portugues() {
+fn lang_pt_not_found_stderr_portuguese() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -270,7 +270,7 @@ fn lang_pt_not_found_stderr_portugues() {
 }
 
 #[test]
-fn lang_en_not_found_stderr_ingles() {
+fn lang_en_not_found_stderr_english() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -282,13 +282,13 @@ fn lang_en_not_found_stderr_ingles() {
 }
 
 #[test]
-fn lang_pt_body_excede_limite_stderr_portugues() {
+fn lang_pt_body_exceeds_limit_stderr_portuguese() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let corpo_enorme = "x".repeat(512_001);
+    let huge_body = "x".repeat(512_001);
     let body_path = tmp.path().join("body-grande-pt.txt");
-    std::fs::write(&body_path, corpo_enorme).unwrap();
+    std::fs::write(&body_path, huge_body).unwrap();
     cmd_lang(&tmp, "pt")
         .args([
             "remember",
@@ -310,13 +310,13 @@ fn lang_pt_body_excede_limite_stderr_portugues() {
 }
 
 #[test]
-fn lang_en_body_excede_limite_stderr_ingles() {
+fn lang_en_body_exceeds_limit_stderr_english() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let corpo_enorme = "x".repeat(512_001);
+    let huge_body = "x".repeat(512_001);
     let body_path = tmp.path().join("body-grande-en.txt");
-    std::fs::write(&body_path, corpo_enorme).unwrap();
+    std::fs::write(&body_path, huge_body).unwrap();
     cmd_lang(&tmp, "en")
         .args([
             "remember",
@@ -337,11 +337,11 @@ fn lang_en_body_excede_limite_stderr_ingles() {
 }
 
 // ---------------------------------------------------------------------------
-// Testes E2E via XDG i18n.lang (canal real; SQLITE_GRAPHRAG_LANG nunca foi lida)
+// E2E tests through XDG i18n.lang (the real channel; SQLITE_GRAPHRAG_LANG was never read)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn xdg_i18n_lang_pt_aplica_portugues() {
+fn xdg_i18n_lang_pt_applies_portuguese() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -353,7 +353,7 @@ fn xdg_i18n_lang_pt_aplica_portugues() {
 }
 
 #[test]
-fn xdg_i18n_lang_en_aplica_ingles() {
+fn xdg_i18n_lang_en_applies_english() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -365,7 +365,7 @@ fn xdg_i18n_lang_en_aplica_ingles() {
 }
 
 #[test]
-fn xdg_i18n_lang_pt_br_aplica_portugues() {
+fn xdg_i18n_lang_pt_br_applies_portuguese() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -377,7 +377,7 @@ fn xdg_i18n_lang_pt_br_aplica_portugues() {
 }
 
 // ---------------------------------------------------------------------------
-// Flag --lang vence a chave XDG i18n.lang
+// The --lang flag wins over the XDG i18n.lang key
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -409,7 +409,7 @@ fn flag_lang_pt_overrides_xdg_lang_en() {
 }
 
 // ---------------------------------------------------------------------------
-// Default sem flag e sem env var — fallback English
+// Default without flag and without env var — English fallback
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -447,13 +447,13 @@ fn locale_ptbr_without_flag_without_xdg_applies_portuguese() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn json_stdout_identico_em_en_e_pt() {
+fn json_stdout_identical_in_en_and_pt() {
     let tmp_en = TempDir::new().unwrap();
     let tmp_pt = TempDir::new().unwrap();
     init_db(&tmp_en);
     init_db(&tmp_pt);
 
-    let saida_en = cmd_lang(&tmp_en, "en")
+    let output_en = cmd_lang(&tmp_en, "en")
         .arg("health")
         .assert()
         .success()
@@ -461,7 +461,7 @@ fn json_stdout_identico_em_en_e_pt() {
         .stdout
         .clone();
 
-    let saida_pt = cmd_lang(&tmp_pt, "pt")
+    let output_pt = cmd_lang(&tmp_pt, "pt")
         .arg("health")
         .assert()
         .success()
@@ -469,8 +469,8 @@ fn json_stdout_identico_em_en_e_pt() {
         .stdout
         .clone();
 
-    let json_en: serde_json::Value = serde_json::from_slice(&saida_en).unwrap();
-    let json_pt: serde_json::Value = serde_json::from_slice(&saida_pt).unwrap();
+    let json_en: serde_json::Value = serde_json::from_slice(&output_en).unwrap();
+    let json_pt: serde_json::Value = serde_json::from_slice(&output_pt).unwrap();
 
     assert_eq!(
         json_en["status"], json_pt["status"],
@@ -491,7 +491,7 @@ fn alias_english_accepted_by_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let saida = cmd_lang(&tmp, "en")
+    let output = cmd_lang(&tmp, "en")
         .arg("health")
         .assert()
         .success()
@@ -499,7 +499,7 @@ fn alias_english_accepted_by_cli() {
         .stdout
         .clone();
 
-    let json: serde_json::Value = serde_json::from_slice(&saida).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(json["status"], "ok");
 }
 
@@ -508,7 +508,7 @@ fn alias_pt_br_accepted_by_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let saida = cmd_lang(&tmp, "pt")
+    let output = cmd_lang(&tmp, "pt")
         .arg("health")
         .assert()
         .success()
@@ -516,6 +516,6 @@ fn alias_pt_br_accepted_by_cli() {
         .stdout
         .clone();
 
-    let json: serde_json::Value = serde_json::from_slice(&saida).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(json["status"], "ok");
 }

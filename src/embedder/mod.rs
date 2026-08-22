@@ -48,6 +48,7 @@ pub(crate) static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 // Batch sizing + parallel fan-out (R-SRP-01).
 mod backend;
 mod batch;
+mod embed_error;
 mod fallback;
 mod getters;
 mod passage;
@@ -60,15 +61,14 @@ pub use batch::{
     chunk_embed_batch_size, effective_permits, embed_entity_texts_cached, entity_embed_batch_size,
     EmbedCacheStats, CHUNK_EMBED_BATCH_SIZE, EMBED_BATCH_CALIBRATION_DIM, ENTITY_EMBED_BATCH_SIZE,
 };
+// GAP-SG-270: the conversion that keeps `EmbedError::retry_class` alive on its
+// way to the enrich queue.
+pub(crate) use embed_error::app_error_preserving_retry_class;
 
-// GAP-SG-163: see the note in `batch/mod.rs` — the allow belongs to the
-// re-export so the warning lands on external callers, not on us.
-#[allow(deprecated)]
-pub use batch::embed_passages_parallel_with_embedding_choice;
-// GAP-SG-147: zero-copy entry point for in-crate callers that already own the
-// corpus. Deliberately not `pub`: the borrowed-slice wrapper above stays the
-// public surface so no downstream signature breaks.
-pub(crate) use batch::embed_passages_parallel_shared;
+// GAP-SG-147 / GAP-SG-163: zero-copy entry point for every caller. The
+// borrowed-slice wrapper that used to shadow it was removed in v1.2.8; this
+// is now the published multi-passage surface.
+pub use batch::embed_passages_parallel_shared;
 pub use fallback::{
     classify_embedding_error, embed_with_fallback, try_embed_query_with_deterministic_fallback,
     try_embed_query_with_fallback, EmbeddingErrorKind, FallbackReason,

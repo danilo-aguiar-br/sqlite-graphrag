@@ -30,10 +30,8 @@ pub(in crate::commands::enrich) struct ReembedCycleCtx<'a> {
     pub backoff_clause: &'a str,
     /// Model and cache directories.
     pub paths: &'a crate::paths::AppPaths,
-    /// Resolved LLM backend choice.
-    pub llm_backend: crate::cli::LlmBackendChoice,
-    /// Resolved embedding backend choice.
-    pub embedding_backend: crate::cli::EmbeddingBackendChoice,
+    /// Resolved LLM and embedding backend choices.
+    pub backends: crate::cli::BackendChoice,
     /// `--max-attempts` floor used when a failure is recorded.
     pub max_attempts: u32,
     /// Total item count reported in each NDJSON event.
@@ -114,14 +112,7 @@ pub(in crate::commands::enrich) fn run_reembed_cycle(
 
     let keys: Vec<String> = claimed.iter().map(|r| r.item_key.clone()).collect();
     let started = Instant::now();
-    let batch = call_reembed_batch(
-        ctx.main_conn,
-        ctx.namespace,
-        &keys,
-        ctx.paths,
-        ctx.llm_backend,
-        ctx.embedding_backend,
-    );
+    let batch = call_reembed_batch(ctx.main_conn, ctx.namespace, &keys, ctx.paths, ctx.backends);
     let elapsed_ms = started.elapsed().as_millis() as i64;
 
     let outcomes = match batch {
@@ -222,7 +213,11 @@ pub(in crate::commands::enrich) fn run_reembed_cycle(
                     index,
                 );
             }
-            EnrichItemResult::Skipped { reason } => {
+            // `cost` is ignored ON PURPOSE here, and only here: `re-embed` runs
+            // no chat completion, so every skip it produces carries zero (see
+            // the batch-cost split above, which relies on the same fact). The
+            // chat operations bind it and fold it into their accumulators.
+            EnrichItemResult::Skipped { reason, cost: _ } => {
                 if !writeback("mark_skipped", 0, &outcome.item_key, || {
                     mark_skipped(ctx.queue_conn, row.id, &reason)
                 }) {
@@ -239,9 +234,11 @@ pub(in crate::commands::enrich) fn run_reembed_cycle(
                     index,
                 );
             }
-            // `re-embed` never runs the body-preservation gate; treat the
-            // variant defensively as a soft skip rather than panicking.
-            EnrichItemResult::PreservationFailed { .. } => {
+            // `re-embed` never runs the body-preservation gate, and it never
+            // rewrites a type label either; both variants are handled here
+            // defensively as soft skips rather than panicking, so a future
+            // operation that starts producing one cannot take this path down.
+            EnrichItemResult::Retyped { .. } | EnrichItemResult::PreservationFailed { .. } => {
                 if !writeback("mark_skipped", 0, &outcome.item_key, || {
                     mark_skipped(ctx.queue_conn, row.id, "preservation_failed")
                 }) {
@@ -292,13 +289,11 @@ fn emit_item_event(
         entity_id,
         entities,
         rels,
-        chars_before: None,
-        chars_after: None,
-        cost_usd: None,
         elapsed_ms: Some(elapsed_ms.max(0) as u64),
         error,
         index,
         total: ctx.total,
+        ..Default::default()
     };
     match ctx.stdout_mu {
         Some(mu) => {

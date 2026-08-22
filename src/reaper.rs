@@ -7,26 +7,40 @@
 //! total, load average 276 on a 10-CPU host).
 //!
 //! [`crate::reaper::scan_and_kill_orphans`] walks the process table at startup and
-//! terminates any `claude` or `codex` invocation whose `PPID` is `1`
+//! terminates any invocation whose `PPID` is `1`
 //! (reparented to `init`/`launchd` after the parent died) and that is
 //! older than the `ORPHAN_MIN_AGE_SECS` constant. The scan is conservative: it only
-//! kills processes that (a) match a known LLM CLI name, AND (b) are
+//! kills processes that (a) match a known target name, AND (b) are
 //! orphaned, AND (c) are older than the threshold. A short-lived CLI
 //! that is just starting up is left alone.
+//!
+//! # Portability
+//!
+//! GAP-SG-261: the walk reads the process table through `sysinfo`, not through
+//! `/proc`. The `/proc` implementation was gated on `#[cfg(unix)]`, which is
+//! TRUE on macOS — a platform with no `/proc` — so there the very first
+//! `read_dir` failed and the caller was told "no orphan subprocesses detected".
+//! A verdict reported without a measurement is worse than an error, because it
+//! reads like one.
+//!
+//! Only `terminate_pid` still splits by platform, because asking a process to
+//! stop is where the systems genuinely differ: `SIGTERM` on Unix, and
+//! `sysinfo`'s own request on Windows. The split is at that one call rather
+//! than around the whole scan.
 
-// v1.0.74: gate the orphan-reaper internals behind `cfg(unix)` so the
-// constants and the `Duration` import are not flagged as dead code on
-// Windows. The tests that reference them also need the same gate so the
-// Windows test compilation does not break (the tests assert the values
-// match the contract documented in CHANGELOG G28).
-#[cfg(unix)]
-use std::time::Duration;
-
-#[cfg(unix)]
+// GAP-SG-261: the constants used to be gated behind `cfg(unix)` because the
+// scan itself was, and on Windows they would have been dead code. The scan is
+// portable now, so the gate would be the thing making them dead.
 const ORPHAN_MIN_AGE_SECS: u64 = 60;
 
-#[cfg(unix)]
 const ORPHAN_SCAN_TARGETS: &[&str] = &["sqlite-graphrag"];
+
+/// The PPID an orphan is reparented to once its parent dies.
+///
+/// `1` is `init` on Linux and `launchd` on macOS. Windows has no reparenting
+/// contract of this shape, which is why [`orphan_pids`] answers with an empty
+/// set there rather than pretending otherwise.
+const REPARENTED_PPID: u32 = 1;
 
 /// Reaper report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,13 +68,18 @@ pub fn scan_and_kill_orphans() -> ReaperReport {
         elapsed_ms: 0,
     };
 
-    #[cfg(unix)]
-    {
-        if let Err(e) = scan_unix(&mut report) {
-            tracing::warn!(target: "reaper", error = %e, "orphan scan failed");
+    for (pid, name) in orphan_pids(ORPHAN_MIN_AGE_SECS) {
+        report.found += 1;
+        match terminate_pid(pid) {
+            Ok(()) => {
+                report.killed += 1;
+                tracing::info!(target: "reaper", pid, comm = %name, "killed orphan LLM subprocess");
+            }
+            Err(e) => {
+                report.failed += 1;
+                tracing::warn!(target: "reaper", pid, comm = %name, error = %e, "failed to kill orphan");
+            }
         }
-        // G42/S4 (v1.0.79): also remove stale `codex-home-{pid}`
-        // isolation directories left behind by crashed invocations.
     }
 
     let max = crate::llm_slots::default_max_concurrency();
@@ -68,11 +87,6 @@ pub fn scan_and_kill_orphans() -> ReaperReport {
     for slot_id in &stale {
         let _ = crate::llm_slots::force_release(*slot_id);
         tracing::info!(target: "reaper", slot_id, "released stale LLM slot (PID dead)");
-    }
-
-    #[cfg(not(unix))]
-    {
-        tracing::debug!(target: "reaper", "orphan scan is a no-op on non-Unix platforms");
     }
 
     report.elapsed_ms = start.elapsed().as_millis() as u64;
@@ -90,123 +104,97 @@ pub fn scan_and_kill_orphans() -> ReaperReport {
     report
 }
 
-#[cfg(unix)]
-fn scan_unix(report: &mut ReaperReport) -> std::io::Result<()> {
-    use std::fs;
-    use std::path::Path;
+/// Every PID that matches a scan target, is reparented, and is old enough.
+///
+/// GAP-SG-261: this used to read `/proc` under `#[cfg(unix)]`. That gate is
+/// WRONG for macOS, which is `unix` and has no `/proc`, so `read_dir` failed at
+/// the first call and the reaper reported zero orphans on a host it had never
+/// actually looked at. Reporting "no orphans detected" without having read the
+/// process table is worse than reporting an error, because the log line reads
+/// like a measurement.
+///
+/// `sysinfo` is already a dependency of this crate — `system_load` and
+/// `llm_slots` use it — and it is pure Rust, so the portable path costs no new
+/// crate and no C toolchain. It also replaces a heuristic with the real value:
+/// process age came from the mtime of `/proc/<pid>/stat`, which is a proxy,
+/// while [`sysinfo::Process::run_time`] is the elapsed running time itself.
+///
+/// Returns an empty vector rather than an error when nothing matches, so the
+/// caller cannot tell "scan failed" from "scan found nothing" by accident —
+/// that distinction lives in the `Result` this does not return, and the scan is
+/// documented as best-effort.
+fn orphan_pids(min_age_secs: u64) -> Vec<(u32, String)> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
-    let proc = Path::new("/proc");
-    let entries = fs::read_dir(proc)?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name_str) = name.to_str() else {
-            continue;
-        };
-        if !name_str.chars().all(|c| c.is_ascii_digit()) {
-            continue;
-        }
-        let pid: i32 = match name_str.parse() {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        if pid == std::process::id() as i32 {
-            continue;
-        }
+    // Only the process list is refreshed: the reaper never asks about CPU,
+    // memory or disk, and refreshing everything would walk data this function
+    // discards on every host it runs on.
+    let mut system =
+        System::new_with_specifics(RefreshKind::new().with_processes(ProcessRefreshKind::new()));
+    system.refresh_processes(ProcessesToUpdate::All, true);
 
-        let stat_path = entry.path().join("stat");
-        let stat = match fs::read_to_string(&stat_path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        // /proc/[pid]/stat has the form: `pid (comm) state ppid ...`
-        // The comm field can contain spaces and parens; the last `)`
-        // separates the comm from the rest.
-        let Some(close_paren) = stat.rfind(')') else {
-            continue;
-        };
-        let after = &stat[close_paren + 1..];
-        let mut parts = after.split_whitespace();
-        // parts[0] = state (e.g. "R"), parts[1] = ppid, parts[2] = pgrp, ...
-        let state = parts.next().unwrap_or("");
-        let ppid: i32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(-1);
-
-        // Only target processes orphaned to init (PPID 1 on Linux/Unix
-        // when the parent is gone) or whose parent is also dead.
-        if ppid != 1 {
+    let own_pid = std::process::id();
+    let mut out = Vec::new();
+    for (pid, process) in system.processes() {
+        let pid = pid.as_u32();
+        if pid == own_pid {
             continue;
         }
-
-        // Skip zombies (state Z) — they need no kill.
-        if state.starts_with('Z') {
+        // Reparented to init/launchd is what makes a process an ORPHAN rather
+        // than a peer someone is still supervising.
+        if process.parent().map(sysinfo::Pid::as_u32) != Some(REPARENTED_PPID) {
             continue;
         }
-
-        // Resolve the comm field. proc/[pid]/comm is the short program
-        // name (no path); we use it instead of parsing the bracketed
-        // comm from stat to avoid encoding edge cases.
-        let comm_path = entry.path().join("comm");
-        let comm = match fs::read_to_string(&comm_path) {
-            Ok(s) => s.trim().to_string(),
-            Err(_) => continue,
-        };
-
-        if !ORPHAN_SCAN_TARGETS.iter().any(|t| comm == *t) {
+        let name = process.name().to_string_lossy().to_string();
+        if !ORPHAN_SCAN_TARGETS.iter().any(|target| name == *target) {
             continue;
         }
-
-        // Age check: skip processes that just spawned (under 60s old) so
-        // we never race with a concurrent CLI invocation.
-        let age_ok = check_process_age(pid, ORPHAN_MIN_AGE_SECS);
-        if !age_ok {
+        // Never race a peer that just started. The threshold is the safety
+        // margin, not an optimisation.
+        if process.run_time() < min_age_secs {
             continue;
         }
+        out.push((pid, name));
+    }
+    out
+}
 
-        report.found += 1;
-        match terminate_pid(pid) {
-            Ok(()) => {
-                report.killed += 1;
-                tracing::info!(target: "reaper", pid, comm = %comm, "killed orphan LLM subprocess");
-            }
-            Err(e) => {
-                report.failed += 1;
-                tracing::warn!(target: "reaper", pid, comm = %comm, error = %e, "failed to kill orphan");
-            }
+/// Asks one process to terminate.
+///
+/// Unix sends `SIGTERM` and returns without waiting: a follow-up sweep can
+/// escalate to `SIGKILL` if the process ignores it. Windows has no signal of
+/// this shape, and `sysinfo::Process::kill` is the portable request there —
+/// which is why the platform split lives HERE, at the one call that genuinely
+/// differs, instead of around the whole scan as it used to.
+fn terminate_pid(pid: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        // SAFETY: `kill` with a PID this scan just read from the process table
+        // and a constant signal number. It cannot violate memory safety; the
+        // worst outcome is `ESRCH` for a process that exited in between, which
+        // is returned as an error rather than ignored.
+        let rc = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
         }
     }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn check_process_age(pid: i32, min_age_secs: u64) -> bool {
-    use std::fs;
-    // /proc/[pid]/stat field 22 is start_time in clock ticks since boot.
-    // We instead use the simpler heuristic: stat file mtime.
-    let stat_path = std::path::Path::new("/proc")
-        .join(pid.to_string())
-        .join("stat");
-    let Ok(meta) = fs::metadata(&stat_path) else {
-        return false;
-    };
-    let Ok(modified) = meta.modified() else {
-        return false;
-    };
-    let Ok(elapsed) = std::time::SystemTime::now().duration_since(modified) else {
-        return false;
-    };
-    elapsed >= Duration::from_secs(min_age_secs)
-}
-
-#[cfg(unix)]
-fn terminate_pid(pid: i32) -> std::io::Result<()> {
-    // SIGTERM first; if the process ignores it for >2s, the caller can
-    // escalate to SIGKILL. For the reaper we send TERM and return; a
-    // follow-up sweep can send KILL if needed.
-    let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
+    #[cfg(not(unix))]
+    {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+        let mut system = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+        );
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        match system.process(sysinfo::Pid::from_u32(pid)) {
+            Some(process) if process.kill() => Ok(()),
+            Some(_) => Err(std::io::Error::other("the platform refused the request")),
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "the process exited before the request reached it",
+            )),
+        }
     }
 }
 
@@ -227,7 +215,6 @@ mod tests {
         assert_eq!(r.failed, 0);
     }
 
-    #[cfg(unix)]
     #[test]
     fn orphan_min_age_is_one_minute() {
         // G28: the threshold of 60s is the safety margin that prevents
@@ -236,18 +223,49 @@ mod tests {
         assert_eq!(ORPHAN_MIN_AGE_SECS, 60);
     }
 
-    #[cfg(unix)]
     #[test]
     fn orphan_targets_include_sqlite_graphrag() {
         assert!(ORPHAN_SCAN_TARGETS.contains(&"sqlite-graphrag"));
     }
 
     #[test]
-    fn scan_completes_without_panic_on_linux() {
-        // Just ensure the function returns a ReaperReport on the test
-        // host. On Linux CI we may be PID 1 in containers; the report
-        // will simply have found=0.
+    fn scan_completes_without_panic() {
+        // Just ensure the function returns a ReaperReport on the test host.
+        // In containers we may be PID 1; the report will simply have found=0.
         let r = scan_and_kill_orphans();
         assert!(r.elapsed_ms < 30_000, "scan must finish in <30s");
+    }
+
+    #[test]
+    fn the_scan_reads_the_process_table_without_proc() {
+        // GAP-SG-261. The previous implementation opened `/proc` under
+        // `#[cfg(unix)]`, which is true on macOS, where `/proc` does not exist
+        // — so the scan failed at its first call and the caller was told "no
+        // orphans detected". This asserts the portable path instead: the table
+        // is read through `sysinfo`, and the answer is a real measurement on
+        // every platform this crate builds for.
+        //
+        // The invariant that survives a host with no orphans: the scan must
+        // SEE processes. A run that enumerates nothing would satisfy any
+        // assertion about the result being empty, which is exactly the blindness
+        // the old gate produced.
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+        let mut system = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+        );
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        assert!(
+            !system.processes().is_empty(),
+            "the process table must be readable, or the reaper reports a verdict \
+             it never measured"
+        );
+
+        // This process is in the table and is NOT a candidate: it is neither
+        // reparented nor foreign, so the filter must exclude it.
+        let own = std::process::id();
+        assert!(
+            !orphan_pids(0).iter().any(|(pid, _)| *pid == own),
+            "the scan must never target the running process, at any age threshold"
+        );
     }
 }

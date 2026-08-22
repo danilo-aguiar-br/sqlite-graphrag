@@ -45,6 +45,12 @@ fn base_cmd(temp: &TempDir) -> Command {
         .arg(common::openrouter_mock::STUB_MODEL);
     cmd.arg("--config-dir").arg(temp.path().join("config"));
     cmd.arg("--cache-dir").arg(temp.path().join("cache"));
+    // GAP-SG-207: `init_db` below selects the database with `config set db.path`
+    // instead of threading `--db` after every subcommand, and the fence refuses
+    // a mutating verb that resolved through that key. Declaring the
+    // dispensation here keeps the selection mechanism this file was written
+    // around, which is exactly what `--use-active` exists for.
+    cmd.arg("--use-active");
     // Keep tests deterministic regardless of the host shell's env.
     cmd.arg("--skip-memory-guard");
     cmd

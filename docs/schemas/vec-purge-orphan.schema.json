@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/vec-purge-orphan.schema.json",
   "title": "vec purge-orphan response (v1.0.69)",
-  "description": "Response shape of `sqlite-graphrag vec purge-orphan --yes --json`. Added in v1.0.69 as part of G39. Purges orphans from vec_memories, vec_entities, and vec_chunks in a single transaction.",
+  "description": "Response shape of `sqlite-graphrag vec purge-orphan --yes --json`. Added in v1.0.69 as part of G39. Purges orphans from vec_memories, vec_entities, and vec_chunks in a single transaction. Corrected by GAP-SG-271, which ran the command and validated the real envelope for the first time: the document declared a nested `purged` object and a `namespace` string that `VecPurgeOrphanResponse` in src/commands/vec.rs has never serialized, enumerated two `action` values none of its three call sites writes, and omitted the four flat counters it always emits. Under `additionalProperties: false` that rejected every real answer.",
   "type": "object",
   "properties": {
     "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
@@ -10,28 +10,33 @@
     "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "action": {
       "type": "string",
-      "enum": ["purged", "dry_run"],
-      "description": "Whether the purge was actually applied or merely previewed"
+      "enum": ["purged_orphan", "purge_orphan", "purge_orphan_dry_run"],
+      "description": "`purged_orphan` after rows were deleted, `purge_orphan_dry_run` under --dry-run, and `purge_orphan` when no memory embedding table exists at all, which short-circuits before any counting"
     },
-    "purged": {
-      "type": "object",
-      "description": "Per-table counts of rows deleted (or that WOULD be deleted under --dry-run)",
-      "properties": {
-        "vec_memories": { "type": "integer", "minimum": 0 },
-        "vec_entities": { "type": "integer", "minimum": 0 },
-        "vec_chunks": { "type": "integer", "minimum": 0 }
-      },
-      "required": ["vec_memories", "vec_entities", "vec_chunks"],
-      "additionalProperties": false
+    "deleted": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Rows deleted from the active memory embedding table. Always 0 on the dry-run and short-circuit paths."
     },
-    "namespace": {
-      "type": "string"
+    "deleted_entities": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Rows deleted from vec_entities (G39). Always 0 on the dry-run and short-circuit paths."
+    },
+    "deleted_chunks": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Rows deleted from vec_chunks (G39). Always 0 on the dry-run and short-circuit paths."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "True when nothing was written, so the counters above describe an empty operation rather than the rows that WOULD be deleted"
     },
     "elapsed_ms": {
       "type": "integer",
       "minimum": 0
     }
   },
-  "required": ["action", "purged", "namespace", "elapsed_ms"],
+  "required": ["action", "deleted", "deleted_entities", "deleted_chunks", "dry_run", "elapsed_ms"],
   "additionalProperties": false
 }

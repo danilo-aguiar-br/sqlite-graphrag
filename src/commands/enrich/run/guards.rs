@@ -16,8 +16,7 @@ use crate::errors::AppError;
 /// flag), or `Ok(false)` to continue into the normal enrich pipeline.
 pub(super) fn handle_pre_db_guards(
     args: &EnrichArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<bool, AppError> {
     // R-AN-01: schema introspection must not open the DB or call the LLM.
     if args.print_schema {
@@ -31,7 +30,7 @@ pub(super) fn handle_pre_db_guards(
             let mut gate_args = args.clone();
             gate_args.operation = Some(op);
             gate_args.ops_gate = false; // prevent recursion
-            super::run(&gate_args, llm_backend, embedding_backend)?;
+            super::run(&gate_args, backends)?;
         }
         return Ok(true);
     }

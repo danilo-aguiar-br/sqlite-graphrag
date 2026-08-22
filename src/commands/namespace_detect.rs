@@ -37,7 +37,7 @@ struct NamespaceDetectResponse {
 
 /// Run.
 pub fn run(args: NamespaceDetectArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let _ = args.db;
     let _ = args.json; // --json is a no-op because output is already JSON by default
     let resolution = namespace::detect_namespace(args.namespace.as_deref())?;
@@ -45,7 +45,7 @@ pub fn run(args: NamespaceDetectArgs) -> Result<(), AppError> {
         namespace: resolution.namespace,
         source: resolution.source,
         cwd: resolution.cwd,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
     Ok(())
 }

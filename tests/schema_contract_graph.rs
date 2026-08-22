@@ -4,12 +4,24 @@
 //! test runs the binary, captures stdout, parses it as JSON and validates it
 //! against the published `docs/schemas/*.schema.json`. The shared harness lives
 //! in `tests/schema_support/`.
+//!
+//! NOT gated behind `slow-tests`, unlike the 29 other heavy test files, because
+//! this suite is the only thing that compares the binary's REAL stdout against
+//! the published contract. GAP-SG-271 measured what the gate cost while it was
+//! on: five files sat behind the feature, `cargo test` never compiled them, and
+//! the published schemas drifted with nothing to notice. A gate the default
+//! invocation never runs is not a gate — it is a gate-shaped reassurance.
+//!
+//! The attribute must never move back into `tests/schema_support/mod.rs`: a
+//! shared `mod.rs` that cfg-es itself out does not become empty, it VANISHES
+//! from the module graph, so every `use support::…` fails to resolve and the
+//! whole test build breaks.
 
 #[path = "schema_support/mod.rs"]
 mod support;
 
 use serial_test::serial;
-use support::{validar_schema, Env};
+use support::{validate_schema, Env};
 // ---------------------------------------------------------------------------
 // 14 — related
 // ---------------------------------------------------------------------------
@@ -19,22 +31,22 @@ use support::{validar_schema, Env};
 fn schema_14_related() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-related");
-    let saida = env
+    env.remember_simple("mem-schema-related");
+    let output = env
         .cmd()
         .args(["related", "--name", "mem-schema-related", "--hops", "1"])
         .output()
         .expect("related failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "related: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "related");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "related");
+    validate_schema(
         "related",
         include_str!("../docs/schemas/related.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -48,7 +60,7 @@ fn schema_15_link() {
     let env = Env::new();
     env.init();
     let (ent_a, ent_b) = env.remember_with_entities("mem-schema-link");
-    let saida = env
+    let output = env
         .cmd()
         .args([
             "link",
@@ -64,15 +76,15 @@ fn schema_15_link() {
         .output()
         .expect("link failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "link: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "link");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "link");
+    validate_schema(
         "link",
         include_str!("../docs/schemas/link.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -86,7 +98,7 @@ fn schema_16_unlink() {
     let env = Env::new();
     env.init();
     let (ent_a, ent_b) = env.remember_with_entities("mem-schema-unlink");
-    // Cria o link primeiro
+    // Create the link first
     env.cmd()
         .args([
             "link",
@@ -101,7 +113,7 @@ fn schema_16_unlink() {
         ])
         .assert()
         .success();
-    let saida = env
+    let output = env
         .cmd()
         .args([
             "unlink",
@@ -117,15 +129,15 @@ fn schema_16_unlink() {
         .output()
         .expect("unlink failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "unlink: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "unlink");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "unlink");
+    validate_schema(
         "unlink",
         include_str!("../docs/schemas/unlink.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -138,21 +150,21 @@ fn schema_16_unlink() {
 fn schema_17_graph() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-graph");
-    let saida = env
+    env.remember_simple("mem-schema-graph");
+    let output = env
         .cmd()
         .args(["graph", "--format", "json", "--namespace", "global"])
         .output()
         .expect("graph failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "graph: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "graph");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "graph");
+    validate_schema(
         "graph",
         include_str!("../docs/schemas/graph.schema.json"),
-        &instancia,
+        &instance,
     );
 }

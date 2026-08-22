@@ -97,7 +97,6 @@ fn crate_sources_excluding_registry(exclude_resolver_module: bool) -> String {
 const KNOWN_DEAD_CHANNELS: &[&str] = &[
     "enrich.entity_connect.default_limit",
     "enrich.entity_connect.large_ns_limit",
-    "enrich.entity_description.grounding_threshold",
     "log.retention_days",
 ];
 
@@ -169,9 +168,57 @@ fn dead_channel_debt_list_is_accurate() {
 const DECLARED_XDG_ONLY_RESOLVERS: &[&str] = &[
     "enrich.entity_description.corpus_top_k",
     "enrich.entity_description.min_corpus_chars",
+    // G-PR-7: same shape and same reasoning as its three corpus siblings above.
+    // It sizes the evidence handed to the model, which is a corpus-tuning knob
+    // an operator sets once per host, not a per-invocation decision — and it
+    // must resolve identically for the write path and the `--status` sampler,
+    // which a per-call flag would let drift apart.
+    "enrich.entity_description.neighbour_top_k",
     "enrich.entity_description.snippet_chars",
     "enrich.yield_every_n_items",
+    // GAP-SG-279: `entity-type-validate` gathers evidence before judging a
+    // type, and sizes it exactly the way the description path does. Same
+    // reasoning as the four above — host tuning, not a per-invocation decision,
+    // and it must resolve identically wherever the evidence is read.
+    "enrich.entity_type_validate.corpus_top_k",
+    "enrich.entity_type_validate.min_corpus_chars",
+    "enrich.entity_type_validate.neighbour_top_k",
+    "enrich.entity_type_validate.snippet_chars",
 ];
+
+/// Field suffix that marks a struct member holding a config key (GAP-SG-279).
+///
+/// The evidence loader is shared by two operations that must gather the same
+/// SHAPE of evidence with different budgets, so the three keys it reads arrive
+/// through an `EvidenceTuning` value rather than as literals at the call site:
+/// `resolve_usize(None, tuning.corpus_top_k_key, ...)`.
+///
+/// That refactor is right, and it made the scanner below go blind. The literal
+/// `None, "key"` pair it looks for no longer exists for those keys, so three
+/// of them silently dropped out of this gate's coverage — the failure mode this
+/// whole file exists to prevent, arriving through the front door. Following the
+/// indirection keeps them counted.
+const TUNING_KEY_FIELD_SUFFIX: &str = "_key:\"";
+
+/// Config keys reached through an indirection struct rather than a literal.
+///
+/// Returns the keys named by every `*_key: "..."` field in the packed source.
+/// Deliberately shallow: it does not prove the struct is ever passed to a
+/// resolver, only that a key travels by name through a field built for that
+/// purpose. A gate that tried to trace the value would be a compiler, and a
+/// gate that breaks on formatting gets deleted.
+fn keys_behind_a_tuning_struct(packed: &str) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    for chunk in packed.split(TUNING_KEY_FIELD_SUFFIX).skip(1) {
+        if let Some(end) = chunk.find('"') {
+            let key = &chunk[..end];
+            if key.contains('.') {
+                found.insert(key.to_string());
+            }
+        }
+    }
+    found
+}
 
 /// Every key resolved with a literal `None` override must be declared XDG-only.
 #[test]
@@ -220,16 +267,57 @@ fn xdg_only_declarations_still_describe_a_literal_none_call() {
     let sources = crate_sources_excluding_registry(true);
     let packed: String = sources.chars().filter(|c| !c.is_whitespace()).collect();
 
+    // GAP-SG-279: a key reached through an `EvidenceTuning` field is still
+    // resolved with a literal `None` override — the `None` sits in the shared
+    // loader instead of at each call site. Counting only the literal pair would
+    // declare four true entries stale and invite someone to delete them, which
+    // is how a guard turns into folklore in the other direction.
+    let via_tuning = keys_behind_a_tuning_struct(&packed);
+
     let mut stale = Vec::new();
     for key in DECLARED_XDG_ONLY_RESOLVERS {
-        if !packed.contains(&format!("None,\"{key}\"")) {
+        let literal = packed.contains(&format!("None,\"{key}\""));
+        if !literal && !via_tuning.contains(*key) {
             stale.push(*key);
         }
     }
     assert!(
         stale.is_empty(),
         "these keys are declared XDG-only but no longer have a literal `None` \
-         resolver; drop them from DECLARED_XDG_ONLY_RESOLVERS: {stale:?}"
+         resolver, and none reaches one through a tuning struct either; drop \
+         them from DECLARED_XDG_ONLY_RESOLVERS: {stale:?}"
+    );
+}
+
+/// The indirection follower must find the keys that stopped being literals.
+///
+/// A meta-test, because the scanner it guards went blind once already: the
+/// evidence-loader refactor moved four keys out of literal call sites and
+/// nothing announced it. Feeding the follower the real source and asserting it
+/// still sees them is what proves the coverage was restored rather than merely
+/// declared.
+#[test]
+fn the_indirection_follower_sees_keys_that_left_the_call_site() {
+    let sources = crate_sources_excluding_registry(true);
+    let packed: String = sources.chars().filter(|c| !c.is_whitespace()).collect();
+    let via_tuning = keys_behind_a_tuning_struct(&packed);
+
+    for expected in [
+        "enrich.entity_description.corpus_top_k",
+        "enrich.entity_description.snippet_chars",
+        "enrich.entity_description.neighbour_top_k",
+        "enrich.entity_type_validate.corpus_top_k",
+    ] {
+        assert!(
+            via_tuning.contains(expected),
+            "the follower lost sight of `{expected}`; it is named by a \
+             `*_key` field and must still be counted. Seen: {via_tuning:?}"
+        );
+    }
+
+    assert!(
+        !via_tuning.contains("resolve_usize"),
+        "the follower must extract KEYS, not fragments of the call around them"
     );
 }
 

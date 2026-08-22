@@ -1,7 +1,10 @@
 # ADR-0024: FTS5 Coarse Filter + Cosine Refinement (v1.0.76)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it promises `--partition-key` for the v1.1.0 release, a release long shipped, and the v1.2.8 parser rejects the flag on `hybrid-search` and on `recall`.
+- HISTORICAL: the option was never implemented and has no replacement; narrow a query with `--namespace` and the `-k` bound instead.
 
 - Status: Accepted (2026-06-07)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: src/commands/hybrid_search.rs, src/commands/recall.rs, src/commands/related.rs, src/storage/memories.rs
 
 ## Context

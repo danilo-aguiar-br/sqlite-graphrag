@@ -13,12 +13,12 @@ use sqlite_graphrag::cli::{Cli, Commands};
 
 #[test]
 fn regression_read_args_accepts_name_positional() {
-    // Simulate: sqlite-graphrag read minha-memoria
-    let cli = Cli::try_parse_from(["sqlite-graphrag", "read", "minha-memoria"]).unwrap();
+    // Simulate: sqlite-graphrag read my-memory
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "read", "my-memory"]).unwrap();
     if let Some(Commands::Read(args)) = cli.command {
         assert_eq!(
             args.name_positional.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "ReadArgs deve capturar NAME positional"
         );
         assert!(
@@ -32,12 +32,12 @@ fn regression_read_args_accepts_name_positional() {
 
 #[test]
 fn regression_read_args_accepts_flag_name() {
-    // Simulate: sqlite-graphrag read --name minha-memoria (back-compat)
-    let cli = Cli::try_parse_from(["sqlite-graphrag", "read", "--name", "minha-memoria"]).unwrap();
+    // Simulate: sqlite-graphrag read --name my-memory (back-compat)
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "read", "--name", "my-memory"]).unwrap();
     if let Some(Commands::Read(args)) = cli.command {
         assert_eq!(
             args.name.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "ReadArgs deve capturar --name flag para back-compat"
         );
         assert!(
@@ -55,11 +55,11 @@ fn regression_read_args_accepts_flag_name() {
 
 #[test]
 fn regression_forget_args_accepts_name_positional() {
-    let cli = Cli::try_parse_from(["sqlite-graphrag", "forget", "minha-memoria"]).unwrap();
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "forget", "my-memory"]).unwrap();
     if let Some(Commands::Forget(args)) = cli.command {
         assert_eq!(
             args.name_positional.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "ForgetArgs deve capturar NAME positional"
         );
         assert!(
@@ -73,12 +73,11 @@ fn regression_forget_args_accepts_name_positional() {
 
 #[test]
 fn regression_forget_args_accepts_flag_name() {
-    let cli =
-        Cli::try_parse_from(["sqlite-graphrag", "forget", "--name", "minha-memoria"]).unwrap();
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "forget", "--name", "my-memory"]).unwrap();
     if let Some(Commands::Forget(args)) = cli.command {
         assert_eq!(
             args.name.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "ForgetArgs deve capturar --name flag para back-compat"
         );
         assert!(args.name_positional.is_none());
@@ -93,11 +92,11 @@ fn regression_forget_args_accepts_flag_name() {
 
 #[test]
 fn regression_history_args_accepts_name_positional() {
-    let cli = Cli::try_parse_from(["sqlite-graphrag", "history", "minha-memoria"]).unwrap();
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "history", "my-memory"]).unwrap();
     if let Some(Commands::History(args)) = cli.command {
         assert_eq!(
             args.name_positional.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "HistoryArgs deve capturar NAME positional"
         );
         assert!(args.name.is_none());
@@ -108,12 +107,11 @@ fn regression_history_args_accepts_name_positional() {
 
 #[test]
 fn regression_history_args_accepts_flag_name() {
-    let cli =
-        Cli::try_parse_from(["sqlite-graphrag", "history", "--name", "minha-memoria"]).unwrap();
+    let cli = Cli::try_parse_from(["sqlite-graphrag", "history", "--name", "my-memory"]).unwrap();
     if let Some(Commands::History(args)) = cli.command {
         assert_eq!(
             args.name.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "HistoryArgs deve capturar --name flag para back-compat"
         );
         assert!(args.name_positional.is_none());
@@ -131,7 +129,7 @@ fn regression_edit_args_accepts_name_positional() {
     let cli = Cli::try_parse_from([
         "sqlite-graphrag",
         "edit",
-        "minha-memoria",
+        "my-memory",
         "--body",
         "novo-conteudo",
     ])
@@ -139,7 +137,7 @@ fn regression_edit_args_accepts_name_positional() {
     if let Some(Commands::Edit(args)) = cli.command {
         assert_eq!(
             args.name_positional.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "EditArgs deve capturar NAME positional"
         );
         assert!(args.name.is_none());
@@ -154,7 +152,7 @@ fn regression_edit_args_accepts_flag_name() {
         "sqlite-graphrag",
         "edit",
         "--name",
-        "minha-memoria",
+        "my-memory",
         "--body",
         "novo-conteudo",
     ])
@@ -162,7 +160,7 @@ fn regression_edit_args_accepts_flag_name() {
     if let Some(Commands::Edit(args)) = cli.command {
         assert_eq!(
             args.name.as_deref(),
-            Some("minha-memoria"),
+            Some("my-memory"),
             "EditArgs deve capturar --name flag para back-compat"
         );
         assert!(args.name_positional.is_none());

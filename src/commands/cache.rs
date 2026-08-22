@@ -83,7 +83,7 @@ pub fn run(args: CacheArgs) -> Result<(), AppError> {
 
 fn clear_models(args: ClearModelsArgs) -> Result<(), AppError> {
     args.db_noop.ignore();
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     // Resolve the canonical models directory through AppPaths (XDG cache).
     // GAP-SG-139: --db is a no-op; never resolve the graph path here.
     let paths = AppPaths::resolve(None)?;
@@ -111,7 +111,7 @@ fn clear_models(args: ClearModelsArgs) -> Result<(), AppError> {
         existed,
         bytes_freed,
         files_removed,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
 
     Ok(())

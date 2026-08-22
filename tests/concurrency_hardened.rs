@@ -40,6 +40,10 @@ mod common;
 // ---------------------------------------------------------------------------
 
 /// GAP-SG-101: isolated assert_cmd bound to db_path via planted db.path.
+///
+/// GAP-SG-207: carries `--use-active`, because binding through the planted key
+/// is the point of this helper and the fence refuses a mutating verb that
+/// resolved that way without the declared dispensation.
 fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
     let mut c = sgr_cmd();
     common::plant_db_path(&tmp.path().join("config"), db_path);
@@ -54,6 +58,7 @@ fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
         .arg(common::openrouter_mock::STUB_MODEL)
         .arg("--cache-dir")
         .arg(tmp.path())
+        .arg("--use-active")
         .arg("--skip-memory-guard");
     c
 }
@@ -63,8 +68,8 @@ fn slot_path(tmp: &TempDir, slot: usize) -> std::path::PathBuf {
     tmp.path().join(format!("cli-slot-{slot}.lock"))
 }
 
-/// Ocupa `n_slots` arquivos de lock diretamente via fs4, retornando os handles.
-fn ocupar_slots(tmp: &TempDir, n_slots: usize) -> Vec<std::fs::File> {
+/// Locks `n_slots` lock files directly via fs4, returning the handles.
+fn occupy_slots(tmp: &TempDir, n_slots: usize) -> Vec<std::fs::File> {
     use fs4::fs_std::FileExt;
     use std::fs::OpenOptions;
 
@@ -89,18 +94,18 @@ fn ocupar_slots(tmp: &TempDir, n_slots: usize) -> Vec<std::fs::File> {
 // Test 1 — 5 simultaneous instances: the 5th receives exit 75
 // ---------------------------------------------------------------------------
 // Occupies the 4 default slots via fs4, then triggers a 5th invocation with
-// --wait-lock 0 e confirma que ela retorna exit 75 (AllSlotsFull).
+// --wait-lock 0 and confirms it returns exit 75 (AllSlotsFull).
 
 #[test]
 #[serial]
-fn cinco_instancias_quinta_exit_75() {
+fn five_instances_fifth_gets_exit_75() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
 
     // Occupy all 4 default slots
-    let handles = ocupar_slots(&tmp, 4);
+    let handles = occupy_slots(&tmp, 4);
 
     // 5th invocation with --wait-lock 0 must fail with exit 75.
-    // MUST use --cache-dir so lock files share the same directory as ocupar_slots
+    // MUST use --cache-dir so lock files share the same directory as occupy_slots
     // (paths::cache_dir prefers CLI override over ProjectDirs under XDG_CACHE_HOME).
     sgr_cmd()
         .env("XDG_CACHE_HOME", tmp.path())
@@ -125,18 +130,18 @@ fn cinco_instancias_quinta_exit_75() {
 // Test 2 — --wait-lock 3 waits up to 3 seconds for a slot
 // ---------------------------------------------------------------------------
 // Occupies all slots, releases after 1s in a separate thread, confirms that
-// --wait-lock 3 aguarda e conclui com sucesso.
+// --wait-lock 3 waits and completes successfully.
 //
 // Costs ~1s: the slots are released after 800ms while the child waits up to 3s.
 
 #[test]
 #[serial]
-fn wait_lock_3s_respeitado() {
+fn wait_lock_3s_respected() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let tmp_path = tmp.path().to_path_buf();
 
-    // Ocupa todos os 4 slots
-    let handles = ocupar_slots(&tmp, 4);
+    // Occupy all 4 slots
+    let handles = occupy_slots(&tmp, 4);
 
     // Release all after 1 second in a separate thread
     std::thread::spawn(move || {
@@ -147,7 +152,7 @@ fn wait_lock_3s_respeitado() {
     });
 
     // --wait-lock 3 must wait for release (within 3s) and complete.
-    // MUST use --cache-dir to share lock directory with ocupar_slots.
+    // MUST use --cache-dir to share lock directory with occupy_slots.
     sgr_cmd()
         .env("XDG_CACHE_HOME", tmp.path())
         .arg("--cache-dir")
@@ -165,7 +170,7 @@ fn wait_lock_3s_respeitado() {
 }
 
 // ---------------------------------------------------------------------------
-// Teste 3 — remember duplicado seguido de edit com --updated-at stale → exit 3
+// Test 3 — duplicate remember followed by edit with a stale --updated-at → exit 3
 // ---------------------------------------------------------------------------
 // Simulates optimistic locking: insert a memory, get updated_at, modify
 // via CLI, then try editing again with the stale updated_at (before the
@@ -173,7 +178,7 @@ fn wait_lock_3s_respeitado() {
 
 #[test]
 #[serial]
-fn optimistic_locking_conflito_exit_3() {
+fn optimistic_locking_conflict_exit_3() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let db_path = tmp.path().join("test.sqlite");
 
@@ -198,16 +203,16 @@ fn optimistic_locking_conflito_exit_3() {
         .assert()
         .success();
 
-    // Obter updated_at via read para capturar o timestamp antes de modificar
-    let output_leitura = sgr_on(&tmp, &db_path)
+    // Get updated_at via read to capture the timestamp before modifying
+    let read_output = sgr_on(&tmp, &db_path)
         .args(["read", "--name", "mem-conflito", "--namespace", "global"])
         .output()
         .expect("output deve funcionar");
 
-    let json_leitura: serde_json::Value =
-        serde_json::from_slice(&output_leitura.stdout).expect("output deve ser JSON");
+    let read_json: serde_json::Value =
+        serde_json::from_slice(&read_output.stdout).expect("output deve ser JSON");
 
-    let _updated_at_real = json_leitura
+    let _updated_at_real = read_json
         .get("updated_at")
         .and_then(|v| v.as_i64())
         .expect("updated_at deve existir e ser i64");
@@ -237,7 +242,7 @@ fn optimistic_locking_conflito_exit_3() {
 // ---------------------------------------------------------------------------
 // Test 4 — purge during recall does not corrupt the database
 // ---------------------------------------------------------------------------
-// Dispara recall e purge em paralelo via threads e confirma que o banco
+// Fires recall and purge in parallel via threads and confirms the database
 // remains intact (no SQLITE_CORRUPT errors or panic) after both finish.
 // Uses std::sync::Barrier to synchronize the start.
 
@@ -308,24 +313,24 @@ fn purge_during_recall_does_not_corrupt() {
             .expect("purge deve executar sem panic")
     });
 
-    let resultado_recall = handle_recall
+    let recall_result = handle_recall
         .join()
         .expect("thread recall não deve entrar em panic");
-    let resultado_purge = handle_purge
+    let purge_result = handle_purge
         .join()
         .expect("thread purge não deve entrar em panic");
 
     // Neither must have exited with a corruption error code
     // Exit code 10 = Database error (SQLite), 20 = Internal
-    let codigo_recall = resultado_recall.status.code().unwrap_or(-1);
-    let codigo_purge = resultado_purge.status.code().unwrap_or(-1);
+    let recall_code = recall_result.status.code().unwrap_or(-1);
+    let purge_code = purge_result.status.code().unwrap_or(-1);
 
     assert_ne!(
-        codigo_recall, 20,
+        recall_code, 20,
         "recall não deve retornar erro interno (exit 20)"
     );
     assert_ne!(
-        codigo_purge, 20,
+        purge_code, 20,
         "purge não deve retornar erro interno (exit 20)"
     );
 
@@ -348,7 +353,7 @@ fn purge_during_recall_does_not_corrupt() {
 
 #[test]
 #[serial]
-fn dez_remembers_namespaces_diferentes() {
+fn ten_remembers_in_different_namespaces() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let db_path = tmp.path().join("test.sqlite");
 
@@ -395,19 +400,19 @@ fn dez_remembers_namespaces_diferentes() {
         })
         .collect();
 
-    // Coleta resultados de todas as threads
-    let resultados: Vec<_> = handles
+    // Collect results from all threads
+    let results: Vec<_> = handles
         .into_iter()
         .map(|h| h.join().expect("thread não deve entrar em panic"))
         .collect();
 
-    let sucessos = resultados.iter().filter(|r| r.status.success()).count();
-    let falhas = resultados.len() - sucessos;
+    let successes = results.iter().filter(|r| r.status.success()).count();
+    let failures = results.len() - successes;
 
     assert_eq!(
-        sucessos, n_threads,
-        "todos os {n_threads} remembers em namespaces distintos devem ter sucesso, \
-         obtivemos {sucessos} sucessos e {falhas} falhas"
+        successes, n_threads,
+        "all {n_threads} remembers in distinct namespaces must succeed, \
+         got {successes} successes and {failures} failures"
     );
 
     // Verify that each namespace has exactly 1 memory in the database
@@ -440,7 +445,7 @@ fn dez_remembers_namespaces_diferentes() {
 
 #[test]
 #[serial]
-fn saturacao_10x_slots_bounded() {
+fn saturation_10x_slots_bounded() {
     let tmp = TempDir::new().expect("TempDir");
     let db_path = tmp.path().join("test.sqlite");
 

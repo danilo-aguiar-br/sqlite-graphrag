@@ -170,7 +170,7 @@ fn purge_retention_days_padrao_90() {
 }
 
 // ---------------------------------------------------------------------------
-// hybrid-search response shape tem campo results
+// hybrid-search response shape has a results field
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -201,7 +201,6 @@ fn hybrid_search_response_shape_tem_results() {
             rrf_score: Some(0.95),
             normalized_score: 0.95,
             vec_distance: Some(0.05),
-            fts_bm25: None,
         }],
         fts_degraded: false,
         fts_error: None,
@@ -224,6 +223,7 @@ fn hybrid_search_response_shape_tem_results() {
         backend_invoked: None,
         max_graph_results: None,
         vec_degraded_reason: None,
+        vec_degraded_code: None,
     };
 
     let json_str = serde_json::to_string(&resp).unwrap();
@@ -271,7 +271,7 @@ fn hybrid_search_response_shape_tem_results() {
 }
 
 // ---------------------------------------------------------------------------
-// DbBusy mapeia para exit code 15 em v2.0.0
+// DbBusy maps to exit code 15 in v2.0.0
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -293,7 +293,7 @@ fn db_busy_exit_code_15() {
 }
 
 // ---------------------------------------------------------------------------
-// BatchPartialFailure mapeia para exit code 13
+// BatchPartialFailure maps to exit code 13
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -318,7 +318,7 @@ fn batch_partial_failure_exit_code_13() {
 }
 
 // ---------------------------------------------------------------------------
-// NAME_SLUG_REGEX permite single char [a-z0-9]
+// NAME_SLUG_REGEX allows a single char [a-z0-9]
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -7,24 +7,24 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 ## Recent — v1.2.0 product seal (no new ADR)
 
 - The **v1.2.0** product seal (XDG config precedence, `DEFAULT_EMBEDDING_DIM=1024`, `enrich --list-skipped` / `--requeue-skipped`, **GAP-SG-139** `--db` no-op on host leaves, offline gate `scripts/e2e_offline_v120.sh` **20/20**) is documented in [CHANGELOG.md](../../CHANGELOG.md) `[1.2.0]` and the monographs (`docs/HOW_TO_USE.md`, `docs/COOKBOOK.md`, `docs/HEADLESS_INVOCATION.md`, `docs/AGENTS.md`, `docs/schemas/README.md`).
-- **No new ADR** was required for this seal (last ADR remains **ADR-0066** / v1.1.06). Do not invent ADR-0067 unless a real architectural decision is recorded on disk.
+- **No new ADR** was required for that seal. The line that once read "last ADR remains ADR-0066" outlived its truth: **ADR-0067** landed in v1.2.6, and **ADR-0068** and **ADR-0069** in v1.2.8. The last ADR is **ADR-0070**, recorded on disk in v1.2.8 for GAP-SG-279. Do not invent ADR-0071 unless a real architectural decision is recorded on disk.
 
 ## Index
 
 | ADR | Title | Version | Status | PT-BR |
 |---|---|---|---|---|
-| [ADR-0007](adr-0007-retry-policy.md) | Retry Policy for Subprocess Spawns | v1.0.68 | Accepted | — |
-| [ADR-0008](adr-0008-process-lifecycle-singleton.md) | Process Lifecycle Singleton (Job Lock) | v1.0.68 | Accepted | — |
-| [ADR-0009](adr-0009-windows-sys-handle-pinning.md) | `windows-sys >= 0.59` Handle Type Safety | v1.0.68 | Accepted | — |
-| [ADR-0010](adr-0010-mcp-isolation-claude-config-dir.md) | MCP Isolation via `CLAUDE_CONFIG_DIR` | v1.0.69 | Accepted | — |
-| [ADR-0011](adr-0011-oauth-only-enforcement.md) | OAuth-Only Enforcement (mandate) | v1.0.69 | Accepted | — |
-| [ADR-0012](adr-0012-memory-source-enum.md) | `MemorySource` Enum (type safety) | v1.0.69 | Accepted | — |
-| [ADR-0013](adr-0013-singleton-scoped-by-db-hash.md) | Singleton Scoped by `db_hash` (BLAKE3) | v1.0.69 | Accepted | — |
-| [ADR-0014](adr-0014-codex-spawn-helper.md) | Codex Spawn Helper Unification | v1.0.69 | Accepted | — |
-| [ADR-0015](adr-0015-preservation-gate.md) | Preservation Gate (Jaccard trigram) | v1.0.69 | Accepted | — |
-| [ADR-0016](adr-0016-fts5-hardening-flags.md) | FTS5 Hardening Flags | v1.0.69 | Accepted | — |
-| [ADR-0017](adr-0017-vec-orphan-handling.md) | Vec Orphan Handling Subcommands | v1.0.69 | Accepted | — |
-| [ADR-0018](adr-0018-v1-0-69-status.md) | v1.0.69 Status Executive Summary | v1.0.69 | Accepted | — |
+| [ADR-0007](adr-0007-retry-policy.md) | Retry Policy for Subprocess Spawns | v1.0.68 | Accepted | [PT-BR](adr-0007-retry-policy.pt-BR.md) |
+| [ADR-0008](adr-0008-process-lifecycle-singleton.md) | Process Lifecycle Singleton (Job Lock) | v1.0.68 | Accepted | [PT-BR](adr-0008-process-lifecycle-singleton.pt-BR.md) |
+| [ADR-0009](adr-0009-windows-sys-handle-pinning.md) | `windows-sys >= 0.59` Handle Type Safety | v1.0.68 | Accepted | [PT-BR](adr-0009-windows-sys-handle-pinning.pt-BR.md) |
+| [ADR-0010](adr-0010-mcp-isolation-claude-config-dir.md) | MCP Isolation via `CLAUDE_CONFIG_DIR` | v1.0.69 | Accepted | [PT-BR](adr-0010-mcp-isolation-claude-config-dir.pt-BR.md) |
+| [ADR-0011](adr-0011-oauth-only-enforcement.md) | OAuth-Only Enforcement (mandate) | v1.0.69 | Accepted | [PT-BR](adr-0011-oauth-only-enforcement.pt-BR.md) |
+| [ADR-0012](adr-0012-memory-source-enum.md) | `MemorySource` Enum (type safety) | v1.0.69 | Accepted | [PT-BR](adr-0012-memory-source-enum.pt-BR.md) |
+| [ADR-0013](adr-0013-singleton-scoped-by-db-hash.md) | Singleton Scoped by `db_hash` (BLAKE3) | v1.0.69 | Accepted | [PT-BR](adr-0013-singleton-scoped-by-db-hash.pt-BR.md) |
+| [ADR-0014](adr-0014-codex-spawn-helper.md) | Codex Spawn Helper Unification | v1.0.69 | Accepted | [PT-BR](adr-0014-codex-spawn-helper.pt-BR.md) |
+| [ADR-0015](adr-0015-preservation-gate.md) | Preservation Gate (Jaccard trigram) | v1.0.69 | Accepted | [PT-BR](adr-0015-preservation-gate.pt-BR.md) |
+| [ADR-0016](adr-0016-fts5-hardening-flags.md) | FTS5 Hardening Flags | v1.0.69 | Accepted | [PT-BR](adr-0016-fts5-hardening-flags.pt-BR.md) |
+| [ADR-0017](adr-0017-vec-orphan-handling.md) | Vec Orphan Handling Subcommands | v1.0.69 | Accepted | [PT-BR](adr-0017-vec-orphan-handling.pt-BR.md) |
+| [ADR-0018](adr-0018-v1-0-69-status.md) | v1.0.69 Status Executive Summary | v1.0.69 | Accepted | [PT-BR](adr-0018-v1-0-69-status.pt-BR.md) |
 | [ADR-0019](adr-0019-llm-only-one-shot.md) | LLM-Only One-Shot Architecture | v1.0.76 | Accepted | [PT-BR](adr-0019-llm-only-one-shot.pt-BR.md) |
 | [ADR-0020](adr-0020-pure-rust-cosine.md) | Pure-Rust Cosine Similarity | v1.0.76 | Accepted | [PT-BR](adr-0020-pure-rust-cosine.pt-BR.md) |
 | [ADR-0021](adr-0021-deprecate-daemon.md) | Deprecate and Remove Daemon | v1.0.76 | Accepted | [PT-BR](adr-0021-deprecate-daemon.pt-BR.md) |
@@ -71,8 +71,12 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 | [ADR-0062](adr-0062-v1-1-02-gap-closure.md) | v1.1.02 — Two Residual Gaps Closed (GLiNER Removal, TooManyTokens Typed) + Entity Orphan Prune + Re-Embed Regression Test | v1.1.02 | Accepted | [PT-BR](adr-0062-v1-1-02-gap-closure.pt-BR.md) |
 | [ADR-0063](adr-0063-v1-1-03-bug-fixes.md) | v1.1.03 — Six Bugs + split-body (Bug-Fix Wave) | v1.1.03 | Accepted | [PT-BR](adr-0063-v1-1-03-bug-fixes.pt-BR.md) |
 | [ADR-0064](adr-0064-v1-1-04-gap-closure.md) | v1.1.04 — Two Structural Gaps Closure (deep-research Nested-Runtime Panic, entity-connect Convergence) | v1.1.04 | Accepted | [PT-BR](adr-0064-v1-1-04-gap-closure.pt-BR.md) |
-| [ADR-0065](adr-0065-v1-1-05-danilo-bugs.md) | v1.1.05 — Five Operator Bugs from the "danilo" Deep-Research Incident | v1.1.05 | Accepted | [PT-BR](adr-0065-v1-1-05-danilo-bugs.pt-BR.md) |
+| [ADR-0065](adr-0065-v1-1-05-incident-bugs.md) | v1.1.05 — Five Operator Bugs from the Single-Subject Deep-Research Incident | v1.1.05 | Accepted | [PT-BR](adr-0065-v1-1-05-incident-bugs.pt-BR.md) |
 | [ADR-0066](adr-0066-v1-1-06-entity-connect-scan.md) | v1.1.06 — Entity-Connect Scan O(k) (GAP-ENTITY-CONNECT-SCAN-CARTESIAN) | v1.1.06 | Accepted | [PT-BR](adr-0066-v1-1-06-entity-connect-scan.pt-BR.md) |
+| [ADR-0067](adr-0067-query-ceiling-vs-output-ceiling.md) | v1.2.6 — Query Ceiling vs Output Ceiling, and exit 2 for an Incoherent Request | v1.2.6 | Accepted | [PT-BR](adr-0067-query-ceiling-vs-output-ceiling.pt-BR.md) |
+| [ADR-0068](adr-0068-open-entity-type-vocabulary.md) | v1.2.8 — The `entity_type` Vocabulary is Open, not Merely Wider (GAP-SG-277, GAP-SG-278) | v1.2.8 | Accepted | [PT-BR](adr-0068-open-entity-type-vocabulary.pt-BR.md) |
+| [ADR-0069](adr-0069-foreign-keys-around-migrations.md) | v1.2.8 — Foreign Key Enforcement is Toggled Around the Migration Runner | v1.2.8 | Accepted | [PT-BR](adr-0069-foreign-keys-around-migrations.pt-BR.md) |
+| [ADR-0070](adr-0070-enrich-write-path-requires-evidence.md) | v1.2.8 — An Enrich Operation that Writes to the Graph Must See Evidence, or Abstain (GAP-SG-279) | v1.2.8 | Accepted | [PT-BR](adr-0070-enrich-write-path-requires-evidence.pt-BR.md) |
 
 ## Coverage by Version
 
@@ -100,14 +104,16 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 - **v1.1.01**: 1 ADR (0061) — twelve-priority roadmap closure: entity embedding via OpenRouter REST, re-embed --target backfill, graph recompute-degree, reclassify-relation --literal-from, merge/rename by ID, real vector-coverage in health/embedding status, typed EntityType errors, dimension-aware re-embed predicate, typed exit-6 variants, ingest --name-prefix (gaps.md Priorities 1-7, 10-12)
 - **v1.1.03**: 1 ADR (0063) — six operator-blocking bugs + split-body: batched scan-enqueue, --literal-to, --cross-namespace merge, claimed_at + --reset-stale-claims, status doc clarification, LEFT JOIN chunk re-embed, split-body subcommand
 - **v1.1.04**: 1 ADR (0064) — deep-research nested-runtime panic (GAP-001) + entity-connect convergence via V016 `entity_connect_seen` (GAP-002)
-- **v1.1.05**: 1 ADR (0065) — five "danilo" deep-research incident bugs: single-token aspect fan-out, atomic --output + --quiet, graph traverse fuzzy, pre-DB self-merge guard, link --from-id/--to-id + digit-name reject
+- **v1.1.05**: 1 ADR (0065) — five single-subject deep-research incident bugs: single-token aspect fan-out, atomic --output + --quiet, graph traverse fuzzy, pre-DB self-merge guard, link --from-id/--to-id + digit-name reject
 - **v1.1.06**: 1 ADR (0066) — entity-connect O(k) scan (co-occurrence + hub×island), pair keys `pair:{id1}:{id2}` / `entity_pair`, first-scan InterruptHandle Timeout exit 1, NDJSON `scan_start`/`scan_meta`, GAP-002 preserved; suite `tests/v1106_entity_connect_scan_regression.rs`; GAP-ENTITY-CONNECT-SCAN-CARTESIAN closed
+- **v1.2.6**: 1 ADR (0067) — query ceiling separated from output ceiling, and exit 2 for an incoherent request (GAP-SG-201 through GAP-SG-207); amended in v1.2.7
+- **v1.2.8**: 2 ADRs (0068, 0069) — the `entity_type` vocabulary opened by subtraction, with `--strict-entity-types` and `graph entity-types` (GAP-SG-277, GAP-SG-278); foreign key enforcement toggled around the migration runner instead of inside a migration, after a measured cascade took 213 029 edges to zero with exit 0 (GAP-SG-140)
 
 ## Bilíngue Status
 
-- **EN (English)**: 60/60 ADRs (100%)
-- **PT-BR (Português Brasileiro)**: 48/60 ADRs (80%)
-- **PT-BR pendente**: 12 ADRs (0007-0018) — criados antes do mandato bilíngue (legado histórico)
+- **EN (English)**: 63/63 ADRs (100%)
+- **PT-BR (Português Brasileiro)**: 63/63 ADRs (100%)
+- **PT-BR pendente**: nenhum. A nota anterior declarava 12 ADRs pendentes (0007-0018) como legado pré-mandato bilíngue, e a coluna PT-BR dessas doze linhas trazia `—`. Medido em 2026-08-18: os doze arquivos `.pt-BR.md` existem em disco, e a única lacuna real eram os dois ADRs da v1.2.8. A contagem e as doze células foram corrigidas contra o diretório, não contra a nota.
 
 ## Conventions
 
@@ -120,10 +126,10 @@ Each ADR is available in two languages: English (`adr-XXXX-slug.md`) and Brazili
 
 ## Adding a New ADR
 
-1. Choose the next sequential number (next is ADR-0067)
-2. Create `adr-0067-slug.md` following the canonical structure
+1. Choose the next sequential number (next is ADR-0071)
+2. Create `adr-0070-slug.md` following the canonical structure
 3. Add entry to this INDEX.md (EN row)
-4. After EN stabilizes (typically 1+ release), create `adr-0067-slug.pt-BR.md`
+4. After EN stabilizes (typically 1+ release), create `adr-0070-slug.pt-BR.md`
 5. Add PT-BR column link
 6. Update the "Coverage by Version" section
 7. Reference the new ADR from `gaps.md` if it closes a documented gap

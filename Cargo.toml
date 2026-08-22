@@ -1,6 +1,6 @@
 [package]
 name = "sqlite-graphrag"
-version = "1.2.7"
+version = "1.2.8"
 edition = "2021"
 rust-version = "1.88"
 description = "Persistent GraphRAG memory for Claude Code, Codex, Cursor, and 27 AI agents — one self-contained ~19 MiB Rust binary, zero daemon. Never re-explain your codebase again. Hybrid retrieval (FTS5 BM25 + cosine similarity + multi-hop graph traversal) surfaces the right memory in milliseconds. Embedding and entity enrichment run as parallel REST calls against your cloud LLM — no fragile headless subprocesses, no ONNX runtime, no model downloads. Soft-delete with full version history, transactional atomic writes, BLAKE3-tracked mutations. OAuth-only: raw API keys ABORT the spawn."
@@ -320,8 +320,13 @@ mockall = "0.13"
 wiremock = "0.6"
 libc = "0.2"
 jsonschema = "0.29"
-# Same C-free configuration as the runtime dependency; a dev-dependency that
-# re-enabled the default features would drag `cc` back into `cargo test`.
+# Same configuration as the runtime dependency: `pure` keeps blake3 on its Rust
+# backend instead of compiling the SIMD assembly, so the default features are
+# not re-enabled behind `cargo test`. This is NOT a C-free build. `cc` stays in
+# the graph because `libsqlite3-sys` builds the bundled SQLite and `ring` builds
+# the rustls crypto backend; `Cargo.lock` also lists it under `generator` and
+# `iana-time-zone-haiku`. The lockfile is not feature-resolved, so the
+# `blake3 -> cc` edge is recorded there even though `pure` never invokes it.
 blake3 = { version = "1", default-features = false, features = ["std", "pure"] }
 [target.'cfg(sqlite_graphrag_loom)'.dev-dependencies]
 # Só compila quando RUSTFLAGS="--cfg sqlite_graphrag_loom" é passado — previne livelock térmico.
@@ -346,7 +351,17 @@ inherits = "release"
 debug = 1
 
 [features]
-# Opt-in for future heavy tests (stress/exhaustive property tests).
+# Opt-in for the 29 slow integration test files that spawn the binary repeatedly.
+#
+# GAP-SG-271: this comment used to say "future heavy tests (stress/exhaustive
+# property tests)", which described nothing that was actually behind it. What sat
+# here were the five strict schema-contract suites — the only tests that compare
+# the binary's real stdout against `docs/schemas/*.schema.json` — and `cargo test`
+# is this project's ONLY automatic gate, so gating them meant the published
+# contract had no enforcement at all. Those five now run unconditionally.
+#
+# A comment that describes the wrong contents is worse than no comment: it
+# answers the reviewer's question with a reassurance instead of a fact.
 slow-tests = []
 # Enable parking_lot deadlock detection thread (10s polling interval).
 deadlock-detection = ["parking_lot/deadlock_detection"]
@@ -384,9 +399,19 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(sqlite_graphrag_loom)'] }
 # outcome, explained entirely by which tool can see it.
 #
 # Declaring the level here rather than in RUSTDOCFLAGS is the point. RFC 3389
-# maps the `rustdoc` table onto the rustdoc command, so `cargo doc` and
-# `cargo test --doc` now fail on their own instead of depending on someone
-# remembering an environment variable that lives in a script outside the repo.
+# maps the `rustdoc` table onto the rustdoc command, so `cargo doc` fails on its
+# own instead of depending on someone remembering an environment variable that
+# lives in a script outside the repo.
+#
+# GAP-SG-228 corrected an over-claim written here: this block once said
+# `cargo test --doc` failed on its own too. Measured on v1.2.8, it does not.
+# `rustdoc --test` extracts doctests without resolving intra-doc links, so it
+# exits 0 on a tree where `cargo doc --no-deps` exits 101. `cargo doc` is the
+# ONLY tool that sees this class, and it is not among the gates this repository
+# runs — `no_ci_workflows_gate` declares `cargo test` as the only automatic one.
+# `tests/rustdoc_link_gate.rs` closes `private_intra_doc_links` statically, in
+# milliseconds and without the build lock. The other two lints below remain
+# enforced only by `cargo doc`; that leftover is tracked in `gaps.md`.
 broken_intra_doc_links = "deny"
 private_intra_doc_links = "deny"
 invalid_html_tags = "deny"

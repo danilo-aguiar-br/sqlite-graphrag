@@ -73,7 +73,7 @@ struct PruneNerResponse {
 
 /// Run.
 pub fn run(args: PruneNerArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
 
     if args.entity.is_none() && !args.all {
         return Err(AppError::Validation(
@@ -113,7 +113,7 @@ pub fn run(args: PruneNerArgs) -> Result<(), AppError> {
             bindings_removed: count,
             namespace: namespace.clone(),
             entity: args.entity.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
 
         match args.format {
@@ -134,7 +134,7 @@ pub fn run(args: PruneNerArgs) -> Result<(), AppError> {
             bindings_removed: count,
             namespace: namespace.clone(),
             entity: args.entity.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
 
         match args.format {
@@ -188,7 +188,7 @@ pub fn run(args: PruneNerArgs) -> Result<(), AppError> {
         bindings_removed: removed,
         namespace: namespace.clone(),
         entity: args.entity.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

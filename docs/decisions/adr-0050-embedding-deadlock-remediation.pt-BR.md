@@ -1,4 +1,7 @@
 # ADR-0050 — Remediação de Deadlock de Embedding
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: as flags globais `--claude-binary` e `--codex-binary` citadas abaixo são recusadas pelo parser da v1.2.8.
+- HISTÓRICO: os backends LLM por subprocesso que elas apontavam foram removidos na v1.2.0, sem flag substituta.
 
 **Status**: Aceito
 **Data**: 2026-06-21

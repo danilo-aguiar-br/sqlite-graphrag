@@ -9,7 +9,6 @@
 
 use crate::chunking::split_body_by_sections;
 use crate::constants::{DEFAULT_RELATION_WEIGHT, MAX_MEMORY_NAME_LEN};
-use crate::entity_type::EntityType;
 use crate::errors::AppError;
 use crate::i18n::errors_msg;
 use crate::output::{self, JsonOutputFormat};
@@ -43,6 +42,19 @@ pub const DEFAULT_SPLIT_THRESHOLD: usize = 25_000;
 )]
 /// Split body args.
 pub struct SplitBodyArgs {
+    /// Memory name as a positional argument. Alternative to `--name`.
+    ///
+    /// GAP-SG-272: `read` and `related` have accepted the name positionally for
+    /// releases, and this verb did not, so switching between them cost a trip to
+    /// `--help`. Conflicts are declared here rather than on both sides because
+    /// clap's conflicts are symmetric; stating them once keeps the two spellings
+    /// from drifting apart.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with_all = ["name", "batch"],
+        help = "Memory name (kebab-case slug); alternative to --name"
+    )]
+    pub name_positional: Option<String>,
     /// Memory name to split (single mode). Mutually exclusive with `--batch`.
     #[arg(long, value_name = "NAME", conflicts_with = "batch")]
     pub name: Option<String>,
@@ -101,12 +113,17 @@ struct BatchResult {
 
 /// Validates the parsed args and dispatches to single or batch mode.
 pub fn run(args: SplitBodyArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let _ = args.format;
 
-    if !args.batch && args.name.is_none() {
+    // GAP-SG-272: resolved once, so the two spellings cannot disagree between the
+    // guard below and the branch that uses the value. `or` is safe here precisely
+    // because clap already refused the case where both were supplied.
+    let designated_name = args.name_positional.as_deref().or(args.name.as_deref());
+
+    if !args.batch && designated_name.is_none() {
         return Err(AppError::Validation(
-            "either --name <NAME> or --batch is required".to_string(),
+            crate::i18n::validation::split_body_needs_name_or_batch(),
         ));
     }
     if args.threshold == 0 {
@@ -120,8 +137,8 @@ pub fn run(args: SplitBodyArgs) -> Result<(), AppError> {
     crate::storage::connection::ensure_db_ready(&paths)?;
 
     if args.batch {
-        run_batch(&paths.db, &namespace, args.threshold, args.dry_run, inicio)
-    } else if let Some(name) = args.name.as_deref() {
+        run_batch(&paths.db, &namespace, args.threshold, args.dry_run, started)
+    } else if let Some(name) = designated_name {
         let result = split_single(&paths.db, &namespace, name, args.threshold, args.dry_run)?;
         output::emit_json(&result)?;
         Ok(())
@@ -138,7 +155,7 @@ fn run_batch(
     namespace: &str,
     threshold: usize,
     dry_run: bool,
-    inicio: std::time::Instant,
+    started: std::time::Instant,
 ) -> Result<(), AppError> {
     let conn = open_rw(db_path)?;
     let mut stmt =
@@ -171,7 +188,7 @@ fn run_batch(
         dry_run,
         split,
         skipped,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
     Ok(())
 }
@@ -321,7 +338,7 @@ fn split_single(
     let original_entity_name = crate::parsers::normalize_entity_name(name);
     let original_entity = NewEntity {
         name: original_entity_name.clone(),
-        entity_type: EntityType::Memory,
+        entity_type: "memory".to_string(),
         description: None,
     };
     let original_entity_id = entities::upsert_entity(&tx, namespace, &original_entity)?;
@@ -330,7 +347,7 @@ fn split_single(
         let child_entity_name = crate::parsers::normalize_entity_name(child_name);
         let child_entity = NewEntity {
             name: child_entity_name.clone(),
-            entity_type: EntityType::Memory,
+            entity_type: "memory".to_string(),
             description: None,
         };
         let child_entity_id = entities::upsert_entity(&tx, namespace, &child_entity)?;

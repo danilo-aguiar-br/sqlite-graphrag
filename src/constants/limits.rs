@@ -23,6 +23,15 @@ pub const MAX_MEMORY_BODY_LEN: usize = 512_000;
 /// Body character count above which the body is split into chunks.
 pub const MAX_BODY_CHARS_BEFORE_CHUNK: usize = 8_000;
 
+/// Maximum length, in characters, of an `entities.type` label.
+///
+/// v1.2.8 opened the entity vocabulary: `type` is now free text and the SQL
+/// `CHECK` that used to bound it is gone (V017). The only remaining guard is
+/// shape, and this is its size half — it exists so a runaway LLM completion
+/// cannot land a paragraph in a column meant to hold a word. Generous on
+/// purpose: the longest canonical kind is `issue_tracker` at 13 characters.
+pub const MAX_ENTITY_TYPE_LEN: usize = 64;
+
 /// Default upper bound on distinct entities persisted per memory.
 ///
 /// Bumped from 30 → 50 in v1.0.43 to reduce semantic loss on rich documents.

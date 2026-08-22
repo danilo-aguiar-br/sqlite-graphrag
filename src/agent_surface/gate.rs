@@ -27,7 +27,7 @@
 //! That is a deliberate asymmetry: a diagnostic lost is cheaper than data
 //! duplicated.
 
-use super::universe::{self, CeilingKind, FilterScope};
+use super::universe::{self, CeilingKind, FilterScope, QueryCeiling};
 use super::vocabulary::{KeyOrigin, Scope};
 use super::AgentSurface;
 use crate::errors::AppError;
@@ -82,6 +82,12 @@ const SORT_FLAG: &str = "--sort";
 const DEDUPE_FLAG: &str = "--dedupe-by";
 /// Argv spelling of the projection knob.
 const SELECT_FLAG: &str = "--select";
+/// Argv spelling of the knob that replaces the payload with a count.
+const COUNT_ONLY_FLAG: &str = "--count-only";
+/// Argv spelling of the envelope byte ceiling.
+const MAX_OUTPUT_BYTES_FLAG: &str = "--max-output-bytes";
+/// Argv spelling of the cap on emitted result elements.
+const MAX_ITEMS_FLAG: &str = "--max-items";
 
 /// Builds a refusal that names, as data, the flags it could not honour.
 ///
@@ -106,6 +112,7 @@ pub fn evaluate(
     scope: &Scope,
     array_key: Option<&str>,
     has_array: bool,
+    ceiling: Option<&universe::QueryCeiling>,
 ) -> Result<Findings, AppError> {
     let mut findings = Findings::default();
 
@@ -114,8 +121,12 @@ pub fn evaluate(
         return Ok(findings);
     }
 
+    // First, because "this is a stream" is a fact about the SHAPE of the output
+    // and outranks every question about the set the query returned.
+    refuse_whole_set_knobs_on_a_stream(surface)?;
     refuse_inert_knobs(surface, has_array)?;
-    refuse_a_predicate_over_a_page(surface)?;
+    refuse_a_predicate_over_a_page(surface, ceiling)?;
+    refuse_a_count_over_a_page(surface, ceiling)?;
 
     if surface.allow_unknown_keys {
         return Ok(findings);
@@ -156,33 +167,232 @@ pub fn evaluate(
     Ok(findings)
 }
 
-/// GAP-SG-201: a predicate must not report on a set the query already cut.
+/// GAP-SG-215: the same verdict, for a payload that is a STREAM of records.
 ///
-/// Only [`CeilingKind::Pagination`] earns a refusal, and only when the ceiling
-/// actually removed rows. A `--limit` wider than the corpus cut nothing, and a
-/// top-k bound is the answer rather than a truncation of one — see
-/// [`super::universe`] for why that distinction is load-bearing.
+/// [`evaluate`] answers about one complete envelope, and every question it asks
+/// past the refusals — which member is the result array, is that array declared,
+/// did a ceiling cut it — is a question about envelope structure a stream does
+/// not have. Running it per line is precisely the defect this closes:
+/// `--select name export` projected three records correctly and then failed on
+/// the fourth line, the summary, because that line is a different shape and was
+/// judged as though it were a record.
+///
+/// So a stream gets the two decisions that ARE about records, sharing the very
+/// functions [`evaluate`] uses:
+///
+/// * the stream refusals, so an unusable knob fails before the first byte
+/// * projection resolution against the record vocabulary, so `--select` is
+///   answered ONCE for the whole stream instead of once per line
+///
+/// `scope` is built from a bounded prefix of the records rather than from all of
+/// them. [`super::vocabulary::Scope::classify`] scans every element it is given,
+/// and giving it every element of a 100 000-row export would mean holding the
+/// whole corpus as `Value` — measured at ~24 KB per record, so ~2.4 GB. The
+/// prefix is the honest bound, and `vocabulary_partial` on the trailer declares
+/// that it was one. It is still strictly stronger than what it replaces, which
+/// judged each line in isolation against no vocabulary at all.
+///
+/// # Errors
+/// Returns [`AppError::Usage`] — exit `2` — before the caller has written
+/// anything, which is the property the per-line path could not offer.
+pub fn evaluate_stream(surface: &AgentSurface, scope: &Scope) -> Result<Findings, AppError> {
+    let mut findings = Findings::default();
+
+    // The fence, for the same reason as in `evaluate`: `ingest` streams and
+    // writes, and refusing after a write is what makes a caller retry a
+    // succeeded operation.
+    if surface.mutates {
+        return Ok(findings);
+    }
+
+    refuse_whole_set_knobs(surface)?;
+    refuse_a_predicate_on_a_stream(surface)?;
+
+    if surface.allow_unknown_keys || scope.is_empty() {
+        return Ok(findings);
+    }
+    // `true` because a stream IS its records: there is no envelope for a key to
+    // resolve against instead, so projection always targets the elements.
+    resolve_projection(surface, scope, true, &mut findings)?;
+    Ok(findings)
+}
+
+/// GAP-SG-201: the ceiling, when it hid rows the caller is about to report on.
+///
+/// Returns `None` — meaning "nothing to refuse" — in the three cases that are
+/// not a hidden page:
+///
+/// * No ceiling was declared, so the command never paged anything.
+/// * A [`CeilingKind::TopK`] bound, which IS the answer rather than a truncation
+///   of one — see [`super::universe`] for why that distinction is load-bearing.
+/// * A ceiling that cut nothing, because a `--limit` wider than the corpus left
+///   the caller looking at the whole universe.
+///
+/// And in the one case where the caller already answered the question:
+/// [`FilterScope::Page`] declares the narrower reading on purpose.
+///
+/// # Why this is a function and not two copies of four conditions
+///
+/// GAP-SG-201 shipped with the predicate refusal wired and the count refusal
+/// written, translated and never called. Spelling the escapes out twice is how
+/// the second copy would drift from the first the next time one is added — the
+/// same "two hand-written lists with no contract between them" that produced the
+/// split relation vocabulary. One implementation, both readers.
+///
+/// The ceiling arrives as an ARGUMENT rather than being read here. It lives in a
+/// process-wide `OnceLock`, which is correct for a one-shot binary and wrong for
+/// a test binary: `OnceLock` offers no reset for a `static` — `take` and every
+/// `get_mut` need `&mut self` — so two tests in one process could never state
+/// different ceilings, and no refusal in this family had a test at all. Taking
+/// it as a parameter makes each test state its own premise. [`super::apply_with_target`]
+/// already does exactly this with the resolved target, for the same reason.
+fn a_truncated_page<'a>(
+    surface: &AgentSurface,
+    ceiling: Option<&'a QueryCeiling>,
+) -> Option<&'a QueryCeiling> {
+    let ceiling = ceiling?;
+    if ceiling.kind != CeilingKind::Pagination || !ceiling.truncated_the_universe() {
+        return None;
+    }
+    if surface.filter_scope == Some(FilterScope::Page) {
+        return None;
+    }
+    Some(ceiling)
+}
+
+/// GAP-SG-201: a predicate must not report on a set the query already cut.
 ///
 /// `--sort` and `--select` are absent by design: reordering or projecting the
 /// rows you received claims nothing about the rows you did not.
-fn refuse_a_predicate_over_a_page(surface: &AgentSurface) -> Result<(), AppError> {
+fn refuse_a_predicate_over_a_page(
+    surface: &AgentSurface,
+    ceiling: Option<&QueryCeiling>,
+) -> Result<(), AppError> {
     if surface.filters.is_empty() {
         return Ok(());
     }
-    let Some(ceiling) = universe::get() else {
+    let Some(ceiling) = a_truncated_page(surface, ceiling) else {
         return Ok(());
     };
-    if ceiling.kind != CeilingKind::Pagination || !ceiling.truncated_the_universe() {
-        return Ok(());
-    }
-    if surface.filter_scope == Some(FilterScope::Page) {
-        return Ok(());
-    }
     let total = ceiling.universe_total.unwrap_or(ceiling.applied);
     Err(refuse(
         msg::filter_scope_is_a_page(ceiling.applied, total, ceiling.source.as_str()),
         vec![FILTER_FLAG.to_string()],
     ))
+}
+
+/// GAP-SG-201: a bare count over a page reads as the inventory.
+///
+/// The sibling above turns on `--filter`, so `--count-only` ALONE slipped under
+/// it: `--count-only graph entities` answered `50` over a universe of 107 111
+/// with `exit 0`, on a command line that mentioned no limit at all, because that
+/// subcommand caps at 50 by itself. A caller that reads `{"count": 50}` cannot
+/// tell that from a corpus which really held fifty.
+///
+/// `--count-only` earns its own refusal rather than an extra clause on the
+/// sibling because the two are independent knobs: a count is a claim about the
+/// size of a set, which is exactly the claim a page cannot support, whether or
+/// not a predicate was also given.
+fn refuse_a_count_over_a_page(
+    surface: &AgentSurface,
+    ceiling: Option<&QueryCeiling>,
+) -> Result<(), AppError> {
+    if !surface.count_only {
+        return Ok(());
+    }
+    let Some(ceiling) = a_truncated_page(surface, ceiling) else {
+        return Ok(());
+    };
+    let total = ceiling.universe_total.unwrap_or(ceiling.applied);
+    Err(refuse(
+        msg::count_only_over_a_page(ceiling.applied, total),
+        vec![COUNT_ONLY_FLAG.to_string()],
+    ))
+}
+
+/// GAP-SG-209: a knob that needs the whole set was aimed at a stream.
+///
+/// `export` emits one self-contained record per line, and [`super::apply`] runs
+/// once per emitted envelope. `--count-only export --limit 10` therefore
+/// answered with ELEVEN `{"count":1}` lines — one per record plus the summary —
+/// rather than one count of ten. The other three are the same mistake in a
+/// quieter register: a byte budget spent per line is not a budget on the output,
+/// and an ordering or a dedup that cannot see the next line is not one at all.
+///
+/// `--select` and `--truncate-content` are absent by design. Each acts WITHIN one
+/// record and means exactly the same thing whether the record arrives alone or in
+/// a stream, so refusing them would remove a working feature to cure nothing.
+/// GAP-SG-215 makes that pair the WHOLE of what a stream accepts.
+///
+/// `--max-items` joined the list in v1.2.8. It was measured accepted and inert —
+/// `--max-items 2 export --limit 5` answered with all five records and `exit 0` —
+/// because it caps elements INSIDE an envelope and a record line carries no array
+/// to cap. The corrective action is the query's own `--limit`, which the message
+/// names.
+///
+/// Reached only for a read-only stream in practice: the `mutates` fence above
+/// returns first for `ingest`, which is the other streaming subcommand, and
+/// refusing after a write is the hazard that fence exists to prevent.
+fn refuse_whole_set_knobs_on_a_stream(surface: &AgentSurface) -> Result<(), AppError> {
+    if !surface.streamed {
+        return Ok(());
+    }
+    refuse_whole_set_knobs(surface)?;
+    refuse_a_predicate_on_a_stream(surface)
+}
+
+/// The body of the refusal above, with the "is this a stream" test already made.
+///
+/// Split out so [`evaluate_stream`] cannot forget it. That path is only ever
+/// reached from a stream emitter, so re-testing `surface.streamed` there would
+/// make the refusal depend on a flag being wired rather than on the caller being
+/// a stream — the same "guard anchored to a proxy instead of the real property"
+/// that GAP-SG-206 cost two attempts to unlearn.
+fn refuse_whole_set_knobs(surface: &AgentSurface) -> Result<(), AppError> {
+    let mut discarded = Vec::new();
+    if surface.count_only {
+        discarded.push(COUNT_ONLY_FLAG.to_string());
+    }
+    if surface.sort.is_some() {
+        discarded.push(SORT_FLAG.to_string());
+    }
+    if surface.dedupe_by.is_some() {
+        discarded.push(DEDUPE_FLAG.to_string());
+    }
+    if surface.max_output_bytes > 0 {
+        discarded.push(MAX_OUTPUT_BYTES_FLAG.to_string());
+    }
+    if surface.max_items > 0 {
+        discarded.push(MAX_ITEMS_FLAG.to_string());
+    }
+    if discarded.is_empty() {
+        return Ok(());
+    }
+    Err(refuse(msg::knob_needs_a_whole_set(&discarded), discarded))
+}
+
+/// GAP-SG-215: `--filter` on a stream would desynchronise the trailer's tally.
+///
+/// Filtering per record is mechanically possible, which is exactly why this
+/// needs its own refusal rather than a sixth entry in the list above: the reason
+/// is not "it cannot act". It is that the COMMAND counts the records — `export`
+/// reports `exported`, `ingest` reports `files_succeeded` — and those numbers are
+/// computed before the surface ever sees a line. A predicate that silently
+/// dropped records would leave the trailer claiming a count the stream never
+/// emitted, which is a worse failure than refusing: the caller would have no way
+/// to notice.
+///
+/// Until v1.2.8 this refused anyway, by accident, through
+/// [`refuse_inert_knobs`] — a record line carries no result array, so the
+/// predicate was rejected as having nothing to act on. Right verdict, wrong
+/// reason, and a reason that would have stopped being true the moment a stream
+/// emitted a record that happened to contain an array.
+fn refuse_a_predicate_on_a_stream(surface: &AgentSurface) -> Result<(), AppError> {
+    if surface.filters.is_empty() {
+        return Ok(());
+    }
+    let discarded = vec![FILTER_FLAG.to_string()];
+    Err(refuse(msg::filter_would_desync_a_tally(), discarded))
 }
 
 /// GAP-SG-204: a knob with nothing to act on is an argument silently discarded.

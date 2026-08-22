@@ -117,22 +117,45 @@ pub fn knn_search(
     // `distance` keep working unchanged.
 
     // Build the SQL once with the namespace IN clause shape.
+    //
+    // GAP-SG-268: when `memory_type` is set, the type filter is pushed into
+    // this single statement through a `LEFT JOIN` on `memories`. The previous
+    // code ran one `SELECT type FROM memories WHERE id = ?1` per surviving
+    // candidate, so the cost grew linearly with the candidate set. A `LEFT
+    // JOIN` (rather than an inner one) keeps `memory_embeddings` as the
+    // driving table of the scan, so the row order the loop below sees is the
+    // same one it saw before. Rows whose `memories` parent is missing yield a
+    // NULL `type`, which the comparison rejects — matching the old behaviour,
+    // where the failed `query_row` produced `None`.
     let placeholders = (0..namespaces.len())
         .map(|_| "?")
         .collect::<Vec<_>>()
         .join(",");
-    let sql = if namespaces.is_empty() {
-        "SELECT memory_id, embedding, namespace FROM memory_embeddings".to_string()
+    let ns_clause = if namespaces.is_empty() {
+        String::new()
     } else {
+        format!(" WHERE e.namespace IN ({placeholders})")
+    };
+    let sql = if memory_type.is_some() {
+        let type_clause = if namespaces.is_empty() {
+            " WHERE m.type = ?"
+        } else {
+            " AND m.type = ?"
+        };
         format!(
-            "SELECT memory_id, embedding, namespace FROM memory_embeddings \
-             WHERE namespace IN ({placeholders})"
+            "SELECT e.memory_id, e.embedding, e.namespace FROM memory_embeddings e \
+             LEFT JOIN memories m ON m.id = e.memory_id{ns_clause}{type_clause}"
         )
+    } else {
+        format!("SELECT e.memory_id, e.embedding, e.namespace FROM memory_embeddings e{ns_clause}")
     };
     let mut stmt = conn.prepare(&sql)?;
     let mut raw_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     for ns in namespaces {
         raw_params.push(Box::new(ns.clone()));
+    }
+    if let Some(mt) = memory_type {
+        raw_params.push(Box::new(mt.to_string()));
     }
     let param_refs: Vec<&dyn rusqlite::ToSql> = raw_params.iter().map(|b| b.as_ref()).collect();
     let rows = stmt.query_map(param_refs.as_slice(), |r| {
@@ -142,9 +165,8 @@ pub fn knn_search(
         Ok((id, bytes, ns))
     })?;
 
-    // Optionally restrict to a memory type by joining against the
-    // `memories` table on the fly.
-    let type_filter = memory_type.map(|t| t.to_string());
+    // The optional `type` restriction is already applied by the statement
+    // above, so this loop only scores the rows SQLite handed back.
     let mut candidates: Vec<(i64, f32)> = Vec::new();
     for row in rows {
         let (id, bytes, ns) = row?;
@@ -154,22 +176,6 @@ pub fn knn_search(
         }
         let sim = crate::similarity::cosine_similarity(embedding, &stored);
         let dist = crate::similarity::similarity_to_distance(sim);
-        if let Some(mt) = &type_filter {
-            // Look up the memory's type via a per-row check. For very
-            // large candidate sets this should be batched; for the
-            // v1.0.76 default namespace size (<10k memories) the
-            // per-row lookup is acceptable.
-            let actual: Option<String> = conn
-                .query_row(
-                    "SELECT type FROM memories WHERE id = ?1",
-                    params![id],
-                    |r| r.get(0),
-                )
-                .ok();
-            if actual.as_deref() != Some(mt.as_str()) {
-                continue;
-            }
-        }
         let _ = ns; // namespace already filtered at SQL level
         candidates.push((id, dist));
     }

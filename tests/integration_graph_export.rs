@@ -156,10 +156,15 @@ fn test_graph_stdin_accepts_from_to_aliases_and_hyphenated_relation() {
 
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let edges = json["edges"].as_array().unwrap();
+    // v1.2.8: the hyphenated input is stored hyphenated. This assertion used to
+    // expect `depends_on`, and that expectation was the defect in miniature —
+    // the crate accepted `depends-on`, converted it to `depends_on`, and every
+    // read filter then normalised the query the same way, which is why the
+    // conversion looked harmless right up until a bulk write path skipped it.
     assert!(edges.iter().any(|edge| {
         edge["from"] == "alias-tool"
             && edge["to"] == "alias-file"
-            && edge["relation"] == "depends_on"
+            && edge["relation"] == "depends-on"
     }));
 }
 

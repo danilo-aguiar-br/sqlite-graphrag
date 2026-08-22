@@ -131,6 +131,7 @@ fn recall_response_serializes_with_lists() {
         warning: None,
         backend_invoked: None,
         vec_degraded_reason: None,
+        vec_degraded_code: None,
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(json.contains("direct_matches"));
@@ -158,6 +159,7 @@ fn recall_response_serializes_vec_degraded_when_fallback_fired() {
         warning: Some("live query embedding unavailable; results are FTS5 BM25 only (semantic relevance reduced)".to_string()),
         backend_invoked: None,
         vec_degraded_reason: Some("embedding cancelled by external signal".to_string()),
+        vec_degraded_code: Some("cancelled"),
     };
     let json = serde_json::to_string(&resp).unwrap();
     assert!(json.contains("\"vec_degraded\":true"));

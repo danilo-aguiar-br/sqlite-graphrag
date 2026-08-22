@@ -20,22 +20,49 @@ pub(crate) fn call_weight_calibrate(
     let rel_id: i64 = item_key.parse().map_err(|_| {
         AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key))
     })?;
-    let (source_name, target_name, relation, current_weight): (String, String, String, f64) = conn
+    // GAP-SG-279 (class): the two entity DESCRIPTIONS ride along on the join
+    // that already runs, at no extra query. Without them the model was asked to
+    // weigh an edge between `rd_gs` and `v017` knowing only how those two
+    // strings are spelled — the same defect `entity-type-validate` carried, in
+    // an operation that also writes its answer straight to the column.
+    let (source_name, source_desc, target_name, target_desc, relation, current_weight): (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+        f64,
+    ) = conn
         .query_row(
-            "SELECT e1.name, e2.name, r.relation, r.weight \
+            "SELECT e1.name, e1.description, e2.name, e2.description, r.relation, r.weight \
              FROM relationships r \
              JOIN entities e1 ON e1.id = r.source_id \
              JOIN entities e2 ON e2.id = r.target_id \
              WHERE r.id = ?1",
             rusqlite::params![rel_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )
         .map_err(|_| {
             AppError::NotFound(crate::i18n::validation::relationship_id_not_found(rel_id))
         })?;
 
     let input_text = format!(
-        "Source: {source_name}\nTarget: {target_name}\nRelation: {relation}\nCurrent weight: {current_weight}"
+        "{}Relation: {relation}\nCurrent weight: {current_weight}",
+        super::prompts::edge_endpoints_section(
+            &source_name,
+            source_desc.as_deref(),
+            &target_name,
+            target_desc.as_deref(),
+        )
     );
     let (value, cost, is_oauth) = match mode {
         EnrichMode::OpenRouter => call_openrouter(
@@ -84,22 +111,37 @@ pub(crate) fn call_relation_reclassify(
     let rel_id: i64 = item_key.parse().map_err(|_| {
         AppError::Validation(crate::i18n::validation::invalid_relationship_id(item_key))
     })?;
-    let (source_name, target_name, current_relation): (String, String, String) = conn
+    // GAP-SG-279 (class): same join, same cost, two descriptions more. Choosing
+    // between `uses` and `depends-on` for a pair of entities the model has
+    // never been told anything about is a coin toss that lands in a column.
+    let (source_name, source_desc, target_name, target_desc, current_relation): (
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        String,
+    ) = conn
         .query_row(
-            "SELECT e1.name, e2.name, r.relation \
+            "SELECT e1.name, e1.description, e2.name, e2.description, r.relation \
              FROM relationships r \
              JOIN entities e1 ON e1.id = r.source_id \
              JOIN entities e2 ON e2.id = r.target_id \
              WHERE r.id = ?1",
             rusqlite::params![rel_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
         )
         .map_err(|_| {
             AppError::NotFound(crate::i18n::validation::relationship_id_not_found(rel_id))
         })?;
 
     let input_text = format!(
-        "Source entity: {source_name}\nTarget entity: {target_name}\nCurrent relation: {current_relation}"
+        "{}Current relation: {current_relation}",
+        super::prompts::edge_endpoints_section(
+            &source_name,
+            source_desc.as_deref(),
+            &target_name,
+            target_desc.as_deref(),
+        )
     );
     let (value, cost, is_oauth) = match mode {
         EnrichMode::OpenRouter => call_openrouter(
@@ -156,6 +198,7 @@ pub(crate) fn call_entity_connect(
         Some(ids) => ids,
         None => {
             return Ok(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: format!(
                     "legacy or invalid entity-connect key '{item_key}' \
                      (expected pair:id1:id2); re-scan to enqueue stable pair keys"
@@ -179,6 +222,7 @@ pub(crate) fn call_entity_connect(
         Some(v) => v,
         None => {
             return Ok(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: format!("entity id {e1_id} missing in namespace '{namespace}'"),
             });
         }
@@ -187,6 +231,7 @@ pub(crate) fn call_entity_connect(
         Some(v) => v,
         None => {
             return Ok(EnrichItemResult::Skipped {
+                cost: 0.0,
                 reason: format!("entity id {e2_id} missing in namespace '{namespace}'"),
             });
         }
@@ -201,7 +246,8 @@ pub(crate) fn call_entity_connect(
     )?;
     if already_seen {
         return Ok(EnrichItemResult::Skipped {
-            reason: "pair already in entity_connect_seen".into(),
+            cost: 0.0,
+            reason: crate::i18n::validation::pair_already_seen(),
         });
     }
     let already_related: bool = conn.query_row(
@@ -213,7 +259,8 @@ pub(crate) fn call_entity_connect(
     )?;
     if already_related {
         return Ok(EnrichItemResult::Skipped {
-            reason: "pair already related".into(),
+            cost: 0.0,
+            reason: crate::i18n::validation::pair_already_related(),
         });
     }
 
@@ -238,7 +285,8 @@ pub(crate) fn call_entity_connect(
             rusqlite::params![e1_id, e2_id, namespace],
         );
         return Ok(EnrichItemResult::Skipped {
-            reason: "LLM determined no relationship".into(),
+            cost: 0.0,
+            reason: crate::i18n::validation::llm_found_no_relationship(),
         });
     }
     let strength = value
@@ -267,6 +315,21 @@ pub(crate) fn call_entity_connect(
 }
 
 /// G27 P2: Validate entity type assignment via LLM.
+///
+/// The `UPDATE entities SET type` below is the only write in the crate that
+/// does not go through `upsert_entity`, so it never saw the shape normalisation
+/// every other path applies. While the vocabulary was closed the omission was
+/// invisible — the SQL `CHECK` refused anything unknown — but V017 removed that
+/// CHECK, which left this the one route by which a raw model string could reach
+/// the column: `"Issue Tracker"`, a label with a trailing newline, or a
+/// paragraph of prose would all have landed verbatim and split the entity from
+/// every row spelled the normal way. The label therefore passes through
+/// [`normalize_entity_type`] here, which enforces shape and never membership.
+///
+/// A label that fails normalisation keeps the entity's CURRENT type rather than
+/// failing the item: this operation exists to improve a type, and turning one
+/// unusable suggestion into a failed item would have the queue retry it and
+/// eventually mark it dead, trading a harmless no-op for a permanent failure.
 pub(crate) fn call_entity_type_validate(
     conn: &Connection,
     namespace: &str,
@@ -276,11 +339,12 @@ pub(crate) fn call_entity_type_validate(
     timeout: u64,
     mode: &EnrichMode,
 ) -> Result<EnrichItemResult, AppError> {
-    let (ent_id, ent_name, ent_type): (i64, String, String) = conn
+    let (ent_id, ent_name, ent_type, ent_description): (i64, String, String, Option<String>) = conn
         .query_row(
-            "SELECT id, name, type FROM entities WHERE namespace = ?1 AND name = ?2",
+            "SELECT id, name, type, description FROM entities \
+             WHERE namespace = ?1 AND name = ?2",
             rusqlite::params![namespace, item_key],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => AppError::EntityNotYetMaterialized {
@@ -289,7 +353,40 @@ pub(crate) fn call_entity_type_validate(
             },
             other => AppError::Database(other),
         })?;
-    let input_text = format!("Entity: {ent_name}\nCurrent type: {ent_type}");
+
+    // GAP-SG-279: gather the evidence BEFORE deciding whether to spend a token.
+    //
+    // `load_entity_evidence` is the same single source of truth the description
+    // path and the `--status` sampler already read from, so the three agree on
+    // what "what we know about this entity" means. Reusing it also means the
+    // four tuning keys added for this operation behave exactly like the four
+    // the description path has had all along.
+    let evidence =
+        super::descriptions::load_entity_evidence_tuned(conn, ent_id, ENTITY_TYPE_VALIDATE_TUNING)?;
+    let description = ent_description.as_deref().map(str::trim).unwrap_or("");
+    let evidence_chars = evidence.trim().chars().count();
+
+    let min_corpus_chars = crate::runtime_config::resolve_usize(
+        None,
+        "enrich.entity_type_validate.min_corpus_chars",
+        crate::preservation::DEFAULT_GROUNDING_MIN_CORPUS_CHARS,
+    );
+    if should_abstain_from_type_judgement(description, &evidence, min_corpus_chars) {
+        return Ok(EnrichItemResult::Skipped {
+            cost: 0.0,
+            reason: crate::i18n::validation::entity_type_no_evidence(
+                evidence_chars,
+                min_corpus_chars,
+            ),
+        });
+    }
+
+    let input_text = super::prompts::entity_type_validate_user_text(
+        &ent_name,
+        &ent_type,
+        ent_description.as_deref(),
+        &evidence,
+    );
     let (value, cost, is_oauth) = match mode {
         EnrichMode::OpenRouter => call_openrouter(
             ENTITY_TYPE_VALIDATE_PROMPT,
@@ -299,31 +396,178 @@ pub(crate) fn call_entity_type_validate(
             timeout,
         )?,
     };
-    let validated_type = value
-        .get("validated_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&ent_type);
+
+    // The schema carries an abstention channel now; honour it before anything
+    // else. A model that read the evidence and declined is doing exactly what
+    // it was asked, so this is `Skipped` — billed, because the completion was
+    // produced and charged — and never an error.
+    if let Some(false) = value.get("sufficient_evidence").and_then(|v| v.as_bool()) {
+        return Ok(EnrichItemResult::Skipped {
+            cost,
+            reason: crate::i18n::validation::entity_type_model_abstained(evidence_chars),
+        });
+    }
+
     let was_correct = value
         .get("was_correct")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    if !was_correct {
-        conn.execute(
-            "UPDATE entities SET type = ?1 WHERE id = ?2",
-            rusqlite::params![validated_type, ent_id],
-        )?;
+    if was_correct {
+        return Ok(EnrichItemResult::Skipped {
+            cost,
+            reason: crate::i18n::validation::entity_type_confirmed(&ent_type),
+        });
     }
-    Ok(EnrichItemResult::Done {
-        memory_id: None,
-        entity_id: Some(ent_id),
-        entities: 1,
-        rels: 0,
-        chars_before: None,
-        chars_after: None,
+
+    // An explicit null is the abstention path, not a malformed reply: the
+    // schema admits it precisely so the model has somewhere to put "I cannot
+    // tell" other than a plausible-looking label.
+    let suggested = match value.get("validated_type") {
+        Some(v) if v.is_null() => {
+            return Ok(EnrichItemResult::Skipped {
+                cost,
+                reason: crate::i18n::validation::entity_type_model_abstained(evidence_chars),
+            })
+        }
+        Some(v) => v.as_str().unwrap_or_default().to_string(),
+        None => String::new(),
+    };
+
+    let normalized = match crate::entity_type::normalize_entity_type(&suggested) {
+        Ok(normalized) => normalized,
+        Err(e) => {
+            // A label that fails normalisation keeps the entity's CURRENT type
+            // rather than failing the item: this operation exists to improve a
+            // type, and turning one unusable suggestion into a failed item
+            // would have the queue retry it and eventually mark it dead,
+            // trading a harmless no-op for a permanent failure.
+            tracing::warn!(
+                target: "enrich",
+                entity = %ent_name,
+                suggested_type = %suggested,
+                current_type = %ent_type,
+                error = %e,
+                "suggested entity type is unusable; keeping the current type"
+            );
+            return Ok(EnrichItemResult::Skipped {
+                cost,
+                reason: crate::i18n::validation::entity_type_suggestion_unusable(&suggested),
+            });
+        }
+    };
+
+    // A model may answer `was_correct: false` and then hand back the label the
+    // row already holds. Writing it would burn an UPDATE and report a change
+    // that never happened.
+    if normalized == ent_type {
+        return Ok(EnrichItemResult::Skipped {
+            cost,
+            reason: crate::i18n::validation::entity_type_confirmed(&ent_type),
+        });
+    }
+
+    if !crate::entity_type::is_canonical_entity_type(&normalized) {
+        tracing::warn!(
+            target: "enrich",
+            entity = %ent_name,
+            entity_type = %normalized,
+            "validated entity type is outside the canonical vocabulary"
+        );
+    }
+
+    // GAP-SG-283: the vocabulary policy runs HERE, between the model's verdict
+    // and the column. Anywhere later would be a policy that reports on a write
+    // it did not gate, which is what `--strict-entity-types` exists not to be.
+    let signals = crate::commands::enrich::events::count_type_signals(description, &evidence);
+    let outcome = crate::commands::enrich::events::apply_entity_type_policy(&normalized);
+    let written = match &outcome {
+        crate::commands::enrich::events::PolicyOutcome::Accept(label) => label.clone(),
+        crate::commands::enrich::events::PolicyOutcome::Fallback { applied, raw } => {
+            // The inverse of this rewrite is declared, not implied: the raw
+            // label travels into the description, so `enrich --operation
+            // entity-type-validate --allowed-types <raw>` (or a manual `edit`)
+            // can restore it without a database backup.
+            let note = crate::commands::enrich::events::raw_label_note(raw, applied);
+            conn.execute(
+                "UPDATE entities SET description = \
+                 TRIM(COALESCE(description, '') || char(10) || ?1) WHERE id = ?2",
+                rusqlite::params![note, ent_id],
+            )?;
+            applied.clone()
+        }
+        crate::commands::enrich::events::PolicyOutcome::Refuse(message) => {
+            crate::commands::enrich::events::emit_policy_event(
+                &ent_name,
+                &normalized,
+                None,
+                signals,
+                evidence_chars,
+            );
+            return Err(AppError::Validation(message.clone()));
+        }
+    };
+    crate::commands::enrich::events::emit_policy_event(
+        &ent_name,
+        &normalized,
+        Some(&written),
+        signals,
+        evidence_chars,
+    );
+
+    conn.execute(
+        "UPDATE entities SET type = ?1, updated_at = unixepoch() WHERE id = ?2",
+        rusqlite::params![written, ent_id],
+    )?;
+
+    Ok(EnrichItemResult::Retyped {
+        entity_id: ent_id,
+        previous_type: ent_type,
+        validated_type: written,
+        evidence_chars,
         cost,
         is_oauth,
     })
 }
+
+/// Whether an entity carries too little to judge its type from (GAP-SG-279).
+///
+/// Absence of evidence is a reason to ABSTAIN, not a licence to guess. This
+/// runs BEFORE the request for the same reason the description path's gate
+/// does: an item refused here costs nothing, while the previous behaviour paid
+/// for a completion whose only possible content was a guess from the spelling
+/// of a name — and then wrote that guess to the type column.
+///
+/// A description alone is thin but it is genuine evidence about the subject, so
+/// it passes on its own. Only an entity with neither a description nor enough
+/// linked corpus is refused, because for that entity every possible answer is
+/// derived from the name.
+///
+/// Extracted as a free function so the decision can be tested without a network
+/// call. The judgement of when NOT to spend money is not something to leave
+/// exercised only by a live drain.
+fn should_abstain_from_type_judgement(
+    description: &str,
+    evidence: &str,
+    min_corpus_chars: usize,
+) -> bool {
+    description.trim().is_empty()
+        && !crate::preservation::corpus_is_sufficient(evidence, min_corpus_chars)
+}
+
+/// Tuning keys and compiled defaults for the evidence `entity-type-validate`
+/// gathers (GAP-SG-279).
+///
+/// Named separately from the description path's so the two operations can be
+/// tuned apart. They start at the same values because the evidence they need is
+/// the same evidence; what differs is that one writes a sentence and the other
+/// writes a label, and an operator may well want to pay for more context before
+/// rewriting ten thousand labels than before writing one description.
+const ENTITY_TYPE_VALIDATE_TUNING: super::descriptions::EvidenceTuning =
+    super::descriptions::EvidenceTuning {
+        corpus_top_k_key: "enrich.entity_type_validate.corpus_top_k",
+        snippet_chars_key: "enrich.entity_type_validate.snippet_chars",
+        neighbour_top_k_key: "enrich.entity_type_validate.neighbour_top_k",
+    };
 
 /// G27 P2: Classify memory into domain category via LLM.
 pub(crate) fn call_domain_classify(
@@ -344,7 +588,10 @@ pub(crate) fn call_domain_classify(
         .map_err(|_| {
             AppError::NotFound(crate::i18n::validation::memory_named_not_found(item_key))
         })?;
-    let snippet: String = body.chars().take(500).collect();
+    let snippet: String = body
+        .chars()
+        .take(crate::constants::ENRICH_BODY_PREVIEW_CHARS)
+        .collect();
     let input_text = format!("Memory: {item_key}\nDescription: {desc}\nBody preview: {snippet}");
     let (value, cost, is_oauth) = match mode {
         EnrichMode::OpenRouter => call_openrouter(
@@ -395,7 +642,10 @@ pub(crate) fn call_graph_audit(
         .map_err(|_| {
             AppError::NotFound(crate::i18n::validation::memory_named_not_found(item_key))
         })?;
-    let snippet: String = body.chars().take(500).collect();
+    let snippet: String = body
+        .chars()
+        .take(crate::constants::ENRICH_BODY_PREVIEW_CHARS)
+        .collect();
     let ent_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM memory_entities WHERE memory_id = ?1",
@@ -428,4 +678,50 @@ pub(crate) fn call_graph_audit(
         cost,
         is_oauth,
     })
+}
+
+#[cfg(test)]
+mod entity_type_evidence_tests {
+    use super::should_abstain_from_type_judgement;
+
+    /// The shape GAP-SG-279 was opened for: nothing but a name.
+    ///
+    /// Before the fix this entity produced a paid completion whose only
+    /// possible basis was how `rd_gs` is spelled, and the answer landed in
+    /// `UPDATE entities SET type`.
+    #[test]
+    fn an_entity_with_neither_description_nor_corpus_is_refused() {
+        assert!(should_abstain_from_type_judgement("", "", 40));
+        assert!(should_abstain_from_type_judgement("   ", "  \n ", 40));
+    }
+
+    /// A description alone is thin, but it is a statement ABOUT the subject
+    /// rather than a reading of its name, so it is enough to proceed.
+    #[test]
+    fn a_description_alone_is_enough_to_proceed() {
+        assert!(!should_abstain_from_type_judgement(
+            "prefix of the generated folders",
+            "",
+            40
+        ));
+    }
+
+    /// Corpus alone is likewise enough: the entity appears in text someone
+    /// wrote, which is the evidence the operation was always supposed to read.
+    #[test]
+    fn corpus_alone_is_enough_to_proceed() {
+        let corpus = "Linked memory bodies:\nrd_gs marks the tree generated by the exporter";
+        assert!(!should_abstain_from_type_judgement("", corpus, 40));
+    }
+
+    /// The threshold has to bite, or the gate is decoration.
+    ///
+    /// A corpus of two words is not evidence just because it is non-empty; the
+    /// operator sets where that line falls through
+    /// `enrich.entity_type_validate.min_corpus_chars`.
+    #[test]
+    fn a_corpus_below_the_threshold_does_not_count_as_evidence() {
+        assert!(should_abstain_from_type_judgement("", "two words", 40));
+        assert!(!should_abstain_from_type_judgement("", "two words", 4));
+    }
 }

@@ -1,6 +1,9 @@
-# Cross-platform checklist (sqlite-graphrag v1.2.5)
+# Cross-platform checklist (sqlite-graphrag v1.2.8)
 
 Local-only validation (no GitHub Actions). The CLI must run on **Linux**, **macOS**, and **Windows**.
+
+- Read the Portuguese version at [CROSS_PLATFORM.pt-BR.md](CROSS_PLATFORM.pt-BR.md)
+- Back to [README.md](../README.md)
 
 ## Build matrix (run on each host)
 
@@ -39,7 +42,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Forbidden
 
-- Product `SQLITE_GRAPHRAG_*` environment variables for config
+- Product `SQLITE_GRAPHRAG_*` environment variables as a config channel — **forbidden**, and **not read** at runtime
 - Hardcoded `/tmp`, `/home/...`, or drive-letter paths in production code
 - Recreating `.github/workflows` CI in this project
 - Remote telemetry / OTEL export
@@ -63,7 +66,7 @@ cargo clippy --all-targets -- -D warnings
 - entity-connect: fully implemented (persists relationships); first-scan timeout exits **1** (not singleton **75**).
 - Recommended agent order: write → entity-descriptions (hot, optional `--enqueue-enrich`) → entity-connect (cold). Always pass `--namespace` on enrich drains.
 - Offline gate of record is Linux host + `scripts/e2e_offline_v120.sh` **20/20** (canonical; historical wrapper `e2e_offline_v118.sh` / 16/16 superseded). macOS/Windows use the same checklist; do not claim three-OS harness validation without host evidence. Schema stays **v16** (sidecar CAPA only).
-- Complete top-level CLI inventory (all 50 product commands + nested families): [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v125) (mirrored in [COOKBOOK.md](COOKBOOK.md) / [HEADLESS_INVOCATION.md](HEADLESS_INVOCATION.md)).
+- Complete top-level CLI inventory (all 50 top-level verbs, `help` included, plus nested families): [HOW_TO_USE.md](HOW_TO_USE.md#complete-cli-command-inventory-v128) (mirrored in [COOKBOOK.md](COOKBOOK.md) / [HEADLESS_INVOCATION.md](HEADLESS_INVOCATION.md)).
 - Portuguese version may retain historical narrative below the shared checklist; treat pre-v1.1.8 product-env tables as historical only.
 - Portuguese: [CROSS_PLATFORM.pt-BR.md](CROSS_PLATFORM.pt-BR.md)
 
@@ -75,7 +78,7 @@ cargo clippy --all-targets -- -D warnings
 - On Windows the custom-provider env vars `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT` flowed to the LLM subprocess identically to Linux/macOS
 - `LockFileEx` is used by the slot semaphore (ADR-0039, v1.0.82) on Windows; that release added no new lock primitives
 - The no-leak audit test `audit_no_token_leak_in_subprocess_stderr` ran on Linux only; the same assertion held on Windows by construction (env propagation was platform-agnostic in the helper)
-- The `--strict-env-clear` flag behaved identically on Windows; only `PATH` (or `Path` on Windows, which the helper normalized) was forwarded in strict mode. Product `SQLITE_GRAPHRAG_*` environment variables are FORBIDDEN as configuration and are not read at runtime — use CLI flags and XDG `config set`.
+- HISTORICAL (v1.0.83): the --strict-env-clear flag, REMOVED in v1.2.0 with the subprocess spawners, behaved identically on Windows; only `PATH` (or `Path` on Windows, which the helper normalized) was forwarded in strict mode. Product `SQLITE_GRAPHRAG_*` environment variables are FORBIDDEN as configuration and are not read at runtime — use CLI flags and XDG `config set`.
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` and `docs/COOKBOOK.md` for the historical recipe
 
 ## Operator notes v1.1.06 (all platforms)
@@ -89,7 +92,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Operator notes v1.1.05 (all platforms)
 
-- The official release name is v1.1.05; the crate manifest carries `version = "1.1.5"`; no schema migration (stays at v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
+- The official release name is v1.1.05; the crate manifest carries `version = "1.1.5"`; no schema migration (stays at v16). ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md). Regression suite: `tests/v1105_incident_bugs_regression.rs`.
 - **Bug 1 (aspect fan-out)**: `deep-research` with a single token expands into multi-aspect sub-queries (`source: "aspect"`) on every OS; the optional manual path `--sub-query-strategy manual --sub-queries-file PATH` is path-separator safe (pass a normal filesystem path for the platform).
 - **Bug 2 (atomwrite + ack)**: prefer `deep-research --output PATH` plus the global `--quiet`/`-q` so multi-MB envelopes are not truncated by shell redirection; never mix stderr into the JSON file with `&>`. Atomic JSON writes (`atomwrite`: tempfile in the same directory → fsync → rename) work on Linux, macOS, and Windows; parent-directory fsync applies on Unix. Ack fields on stdout: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`.
 - **Bug 4 (merge self-ref)**: on zsh/bash/PowerShell, prefer explicit arrays over unquoted word splitting when scripting `merge-entities` loops; the CLI rejects self-referential `--ids`/`--into-id` (or names) **before** any DB work on every target.

@@ -96,7 +96,7 @@ pub const FASTEMBED_BATCH_SIZE: usize = 32;
 /// GAP-SG-141 (B1): how many `ReEmbed` queue rows a single claim takes.
 ///
 /// Deliberately aligned with the 32-item chunk width that
-/// [`crate::embedder::embed_passages_parallel_with_embedding_choice`] uses
+/// [`crate::embedder::embed_passages_parallel_shared`] uses
 /// internally on the OpenRouter path: with 32 or fewer texts that function
 /// issues exactly ONE serial REST call, so one claim becomes one request.
 /// Raising this above 32 splits the claim into several requests again and
@@ -216,3 +216,23 @@ pub const EMBED_TIMEOUT_PER_EXTRA_BATCH_ITEM_SECS: u64 = 15;
 /// enough to stay inside the query path's own budget. Contention backoff, not a
 /// deadline, so it takes no XDG key.
 pub const EMBED_SLOT_RETRY_DELAY_MS: u64 = 750;
+
+/// Lowest REST fan-out width the batched passage embedder will use
+/// (v1.2.8, plan step 6).
+///
+/// One means serial: a single batch is one REST call, so the `JoinSet` would
+/// only add latency. Zero would mean "no worker", which is not a narrower
+/// fan-out but an absent one, so the floor is a refusal and not a preference.
+pub const MIN_EMBED_PASSAGE_FAN_OUT: usize = 1;
+
+/// Highest REST fan-out width the batched passage embedder will use
+/// (v1.2.8, plan step 6).
+///
+/// Kept inside the range Cloudflare tolerates in front of OpenRouter, and
+/// deliberately equal to [`crate::constants::MAX_ENRICH_REST_CONCURRENCY`]:
+/// both bound concurrent requests against the SAME host-scoped quota, whose key
+/// lives once in `~/.config/sqlite-graphrag/config.toml` and is spent by every
+/// folder on the machine. The joint ceiling from
+/// [`crate::constants::joint_parallelism_ceiling`] still applies on top, because
+/// only the PRODUCT of process count and per-process width describes the load.
+pub const MAX_EMBED_PASSAGE_FAN_OUT: usize = 16;

@@ -227,6 +227,23 @@ pub enum AppError {
     #[error("embedding error: {0}")]
     Embedding(String),
 
+    /// GAP-SG-270: an embedding failure that still CARRIES the retry verdict
+    /// `EmbedError` computed at its origin (exact HTTP status / provider code).
+    /// Exit code `11` and `Display` text are identical to [`Self::Embedding`],
+    /// so no operator-facing contract changes; only the enrich queue reads the
+    /// extra field, via `queue_ops::classify_enrich_outcome`. Without it every
+    /// embedding failure landed in the untyped [`Self::Embedding`] bucket and a
+    /// PERMANENT one burned every `--max-attempts` retry. Deliberately absent
+    /// from [`Self::is_retryable`], which never covered [`Self::Embedding`].
+    #[error("embedding error: {message}")]
+    EmbeddingClassified {
+        /// Failure detail, identical to the payload of [`Self::Embedding`].
+        message: String,
+        /// Retry verdict computed where the failure originated (HTTP status /
+        /// provider code), never inferred from `message`.
+        retry_class: crate::retry::AttemptOutcome,
+    },
+
     /// The `sqlite-vec` extension could not load or register its virtual table. Maps to exit code `12`.
     #[error("sqlite-vec extension failed: {0}")]
     VecExtension(String),
@@ -420,6 +437,7 @@ impl AppError {
             Self::TooManyTokens { .. } => 6,
             Self::Database(_) => 10,
             Self::Embedding(_) => 11,
+            Self::EmbeddingClassified { .. } => 11,
             Self::VecExtension(_) => 12,
             Self::BatchPartialFailure { .. } => crate::constants::BATCH_PARTIAL_FAILURE_EXIT_CODE,
             Self::DbBusy(_) => crate::constants::DB_BUSY_EXIT_CODE,
@@ -661,7 +679,7 @@ impl AppError {
                 "the token cap (EMBEDDING_REQUEST_MAX_TOKENS) fired; split the content into multiple memories, keeping each under ~25000 tokens",
                 "o teto de tokens (EMBEDDING_REQUEST_MAX_TOKENS) disparou; divida o conteúdo em várias memórias, cada uma abaixo de ~25000 tokens",
             )),
-            Self::Embedding(_) => Some((
+            Self::Embedding(_) | Self::EmbeddingClassified { .. } => Some((
                 // The product never reads an API key from the environment
                 // (G-T-XDG-04), so naming one here would send the operator down a
                 // channel that cannot work.
@@ -746,6 +764,9 @@ impl AppError {
             Self::TooManyTokens { tokens, limit } => pt::too_many_tokens(*tokens, *limit),
             Self::Database(e) => pt::database(&e.to_string()),
             Self::Embedding(msg) => pt::embedding(msg),
+            // Same PT text as `Embedding`: the retry verdict is machine-facing
+            // and never shown to the operator.
+            Self::EmbeddingClassified { message, .. } => pt::embedding(message),
             Self::VecExtension(msg) => pt::vec_extension(msg),
             Self::DbBusy(msg) => pt::db_busy(msg),
             Self::BatchPartialFailure { total, failed } => {

@@ -6,7 +6,6 @@
 
 use super::test_fixtures::*;
 use super::*;
-use crate::entity_type::EntityType;
 
 // v1.1.1 (P1): an empty embedding must NOT create a vector row, so the
 // entity stays visible to `enrich re-embed --target entities`.
@@ -16,14 +15,7 @@ fn test_upsert_entity_vec_empty_embedding_skips_row() -> TestResult {
     let e = new_entity_helper("vec-vazia");
     let entity_id = upsert_entity(&conn, "global", &e)?;
 
-    upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Project,
-        &[],
-        "vec-vazia",
-    )?;
+    upsert_entity_vec(&conn, entity_id, "global", "project", &[], "vec-vazia")?;
 
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM entity_embeddings WHERE entity_id = ?1",
@@ -46,19 +38,12 @@ fn test_upsert_entity_vec_empty_embedding_preserves_existing_row() -> TestResult
         &conn,
         entity_id,
         "global",
-        EntityType::Project,
+        "project",
         &emb,
         "vec-preservada",
     )?;
 
-    upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Project,
-        &[],
-        "vec-preservada",
-    )?;
+    upsert_entity_vec(&conn, entity_id, "global", "project", &[], "vec-preservada")?;
 
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM entity_embeddings WHERE entity_id = ?1",
@@ -77,14 +62,7 @@ fn test_upsert_entity_vec_first_time_without_conflict() -> TestResult {
     let entity_id = upsert_entity(&conn, "global", &e)?;
     let emb = embedding_zero();
 
-    let result = upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Project,
-        &emb,
-        "vec-nova",
-    );
+    let result = upsert_entity_vec(&conn, entity_id, "global", "project", &emb, "vec-nova");
     assert!(result.is_ok(), "first insertion must succeed");
 
     let count: i64 = conn.query_row(
@@ -105,24 +83,10 @@ fn test_upsert_entity_vec_second_time_replaces_without_error() -> TestResult {
     let entity_id = upsert_entity(&conn, "global", &e)?;
     let emb = embedding_zero();
 
-    upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Project,
-        &emb,
-        "vec-existente",
-    )?;
+    upsert_entity_vec(&conn, entity_id, "global", "project", &emb, "vec-existente")?;
 
     // Second call: DELETE returns 1 removed row, INSERT must succeed.
-    let result = upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Tool,
-        &emb,
-        "vec-existente",
-    );
+    let result = upsert_entity_vec(&conn, entity_id, "global", "tool", &emb, "vec-existente");
     assert!(
         result.is_ok(),
         "second insertion (replace) must succeed: {result:?}"
@@ -144,10 +108,10 @@ fn test_upsert_entity_vec_multiple_independent_entities() -> TestResult {
     let emb = embedding_zero();
 
     for i in 0..3i64 {
-        let nome = format!("ent-{i}");
-        let e = new_entity_helper(&nome);
+        let name = format!("ent-{i}");
+        let e = new_entity_helper(&name);
         let entity_id = upsert_entity(&conn, "global", &e)?;
-        upsert_entity_vec(&conn, entity_id, "global", EntityType::Project, &emb, &nome)?;
+        upsert_entity_vec(&conn, entity_id, "global", "project", &emb, &name)?;
     }
 
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM entity_embeddings", [], |r| r.get(0))?;

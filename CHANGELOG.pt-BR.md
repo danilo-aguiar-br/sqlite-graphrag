@@ -4,6 +4,479 @@
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
+## [1.2.8] - 2026-08-18
+
+### O único gate automático deste repositório estava vermelho, e o fail-fast escondia o tamanho
+
+`cargo test` é o único gate automático daqui — o `no_ci_workflows_gate` declara isso e proíbe criar outro. Medido em 2026-08-20 ele saiu com exit 101, e o fail-fast parou no primeiro alvo vermelho, então o dano visível era de dez testes num arquivo. Repetido com `--no-fail-fast`: **243 testes em 50 alvos**.
+
+Uma causa explica todos. A GAP-SG-207 instalou uma cerca que recusa verbo mutante cujo banco não foi nomeado no argv, e essa cerca foi depois ampliada de `TargetSource::Default` sozinho para incluir `TargetSource::Xdg`. A ampliação está certa, e `src/paths.rs` a argumenta por ESCOPO: `db.path` é chave de HOST, não existe configuração por projeto neste produto, então ela nomeia um banco para todos os diretórios da máquina e não designa o alvo de uma escrita específica. O que não acompanhou foi a árvore de testes. `tests/common/mod.rs` planta exatamente essa chave — herdar dela é o PROPÓSITO do helper — e não declarava dispensa nenhuma.
+
+A correção foi nos testes, nunca na cerca. `--use-active` é a dispensa que a própria regra autoriza, quatro suítes já haviam sido migradas à mão desse jeito, e reescrever os call sites para passar `--db` mudaria o que eles exercitam. Uma linha em cada harness compartilhado, mais quatro helpers locais que montavam comando à mão.
+
+**A ampliação subiu sem uma única testemunha própria.** Uma varredura por `target_not_designated` e `target_inherited_from_config` em `tests/` devolvia zero. O `tests/explicit_target_policy_gate.rs` agora cobre os quatro ramos — recusa sem alvo nomeado, recusa por herança da chave de host, aceite por `--db` e aceite por `--use-active` — e um meta-teste reprova se o texto casado sair do catálogo, então ele não vira tautologia em silêncio.
+
+### Três números que discordavam de si mesmos (GAP-SG-284, GAP-SG-285, GAP-SG-286)
+
+A V017 levou `CURRENT_SCHEMA_VERSION` para 17 e **cinco literais `16`** ficaram para trás em dois arquivos de teste, então uma migration correta reprovava um gate que acusava a migration. Os cinco passaram a derivar da constante, que já tem teste próprio amarrando-a à contagem de arquivos `V*.sql`; os dois testes que citavam a versão foram renomeados, porque nome que carrega número envelhece junto com o literal que ele guardava.
+
+As cinco suítes `schema_contract_*` saíram da feature `slow-tests` de propósito — elas são a única checagem do stdout REAL do binário contra o contrato publicado, e um gate que a invocação padrão nunca roda não é gate. O `shared_harness_gate` continuava exigindo o oposto. A asserção foi INVERTIDA em vez de apagada, então reintroduzir o gate de feature agora custa um argumento num diff.
+
+`cargo doc --no-deps` saía com exit 101 em cinco erros que o `tests/rustdoc_link_gate.rs` reportava limpos. Três eram doc público linkando item privado. Os outros dois são uma armadilha de escopo que merece nome: um cabeçalho `//!` de módulo é concatenado com o `///` escrito acima de `pub mod` em `lib.rs`, e o par resolve no escopo EXTERNO — então um `[CANONICAL_ENTITY_TYPES]` sem qualificação dentro de `entity_type.rs` é procurado em `lib.rs`, onde ele não existe. Nenhuma varredura textual honesta acha isso sem reimplementar o resolvedor do rustdoc. De passagem, o `///` acima de `pub mod entity_type` ainda anunciava "13 variants, ValueEnum + serde + rusqlite impls", que a V017 removeu.
+
+### O contrato descrevia o que o código PRETENDIA emitir (GAP-SG-290)
+
+Acrescentar casos vivos para `recall` e `hybrid-search` revelou cinco divergências nos documentos publicados dos dois, e quem achou fez a coisa certa: registrou em comentário em vez de editar o schema até o teste passar. `source` emitia `fts_fallback` contra um enum que listava apenas `direct` e `graph` — e `fts_fallback` não é intercambiável com `direct`, porque diz ao chamador que o ranking foi lexical e não semântico. As duas raízes fechavam com `additionalProperties: false` enquanto os comandos emitiam `vec_degraded`, `vec_error` e `warning`, nenhum declarado.
+
+**O silêncio tinha uma forma.** Esses três campos são guardados por `skip_serializing_if`, então somem no caminho feliz e ali o envelope validava perfeitamente. O contrato só quebrava depois que a busca caía para BM25 — exatamente quando o consumidor mais precisa confiar nele. Mesma forma de `remember-batch-summary` sob a GAP-SG-271, onde o lote vazio validava e só o lote útil era rejeitado. Campo que só aparece no ramo incomum, sob raiz fechada, é a CLASSE; estes eram duas instâncias dela.
+
+O mais fundo dos cinco não era declaração faltando. `vec_degraded_reason` publicava um enum de sete variantes, e `src/embedder/fallback.rs:130` realmente define exatamente essas sete, documentando-as como "o código estável e legível por máquina usado pelos envelopes JSON (`vec_degraded_reason`)". **O fio nunca as carregou.** `recall.rs` atribui `vec_error` — o `Display` de `FallbackReason`, prosa que embute a mensagem do próprio provedor. Então o documento não foi inventado: ele descrevia a INTENÇÃO registrada no código, e o wiring nunca a cumpriu. Nenhum enum poderia segurar um campo que carrega texto livre, e acrescentar mais uma variante fecharia este caso deixando a classe aberta.
+
+A v1.2.8 publica a metade estável **ao lado** da prosa, em vez de substituí-la: `vec_degraded_code` é campo novo, carregando `FallbackReason::reason_code()` mais `fallback_fts_only`, um enum de oito valores no qual um consumidor consegue de fato casar. Guardado por `skip_serializing_if`, então o envelope do caminho feliz fica byte a byte idêntico e nada que lê o campo antigo quebra. Dois casos vivos cobrem agora o caminho degradado dos dois comandos, que não tinha nenhum. A prova negativa foi feita e vale mais que o verde: reverter o enum de `source` para `["direct","graph"]` derruba o gate com `path=/results/0/source kind=Enum`, e restaurar devolve o verde — sem ela, teste que passa é indistinguível de teste que não olha.
+
+### Fechar um gap exige dois writes, e nada verificava o segundo (GAP-SG-297)
+
+O repositório já guardava a direção `CHANGELOG` para `gaps.md` e a consistência interna de cada arquivo. Nada guardava a direção que de fato vaza. Medido: o `tests/gaps_caveat_gate.rs` não lê o `CHANGELOG.md`, e dos sete arquivos de teste que citam o changelog, nenhum cruza a lista de identificadores resolvidos contra ele. Das 46 entradas marcadas resolvidas na v1.2.8, **três não apareciam em nenhum dos dois changelogs** — GAP-SG-259, GAP-SG-260 e GAP-SG-293. O último tinha sido fechado no dia anterior, e a entrada do changelog foi escrita para o irmão dele, o GAP-SG-292.
+
+**A auditoria então reincidiu dentro de si mesma**, e essa é a prova que importa: ela abriu acusando esses três e terminou tendo criado GAP-SG-294, GAP-SG-295 e GAP-SG-296 exatamente no mesmo estado. Acusador e réu pelo mesmo mecanismo, com horas de intervalo. Reincidir num defeito que se acabou de diagnosticar não é desatenção — é evidência de que a ESTRUTURA do trabalho o produz. O gap é escrito no ato da DESCOBERTA e o changelog no ato da RELEASE: fases diferentes, contextos diferentes abertos. Todo gap achado perto do fim de uma release nasce com essa dívida, porque a seção daquela release foi escrita antes de o gap existir.
+
+O `tests/gaps_changelog_gate.rs` colhe os identificadores cujo PRIMEIRO bullet `- Status:` carrega o verbo do veredito e a release publicada, e exige que cada um apareça literalmente em `CHANGELOG.md` E em `CHANGELOG.pt-BR.md`. A release vem de `env!("CARGO_PKG_VERSION")`, então o gate acompanha o `Cargo.toml` sem número cravado. Ele ancora na ENTRADA em vez de varrer linha a linha, porque entrada resolvida preserva o diagnóstico original e essa história carrega bullets `- Status:` próprios — a mesma armadilha de super-contagem em que o `rg -c` cai neste arquivo.
+
+Uma nota de método, porque custou uma rodada inteira de suíte: o gate anterior foi rodado isoladamente sete vezes e declarado fechado; a suíte inteira então acusou `the_workspace_is_rustfmt_clean` em quatro pontos do arquivo recém-criado. O `cargo test --test <nome>` roda UM binário, e os gates transversais vivem em OUTROS. Arquivo novo em `tests/` entra no ESCOPO deles sem entrar no COMANDO que se está rodando.
+
+### Catorze documentos anunciavam uma release que este build não é (GAP-SG-294)
+
+O `Cargo.toml` declara `version = "1.2.8"`. Medido em `docs/`: catorze documentos anunciavam outra release no CABEÇALHO. O `docs/HOW_TO_USE.md` intitulava-se `v1.2.5`, o `docs/TESTING.md` dizia `v1.0.85`, o `docs/TEST_PLAN.md` dizia `v1.0.79`, e o `docs/COOKBOOK.md` discordava de SI MESMO — `v1.2.5` no H1 e `Current crate 1.2.2` na tagline três linhas abaixo. O `docs/TESTING.md` dizia `v1.0.85` enquanto o par `.pt-BR` dizia `v1.0.83`, então as duas metades de um documento espelhado descreviam produtos diferentes.
+
+**A deriva era OBEDIÊNCIA, não descuido.** O `docs/DOCUMENTATION_FRAMEWORK.md` é a matriz que declara, arquivo por arquivo, qual release cada documento deve anunciar — e a seção do topo dele era `## v1.2.7`, com a coluna `Drift` mandando `Current→1.2.7` em dezoito linhas. Uma matriz de cobertura duas releases atrás não apenas deixa de ajudar; ela DIRIGE trabalho correto para um alvo morto. A mesma matriz declarava `51 top-level verbs`, contagem que morreu quando a família `pending` foi removida, e o erro se propagou: o `docs/CROSS_PLATFORM.md` dizia `all 50 product commands`, somando `help` ao produto.
+
+O `tests/docs_version_drift_gate.rs` fecha isso com a regra mais FRACA que ainda pega o defeito. Ele lê apenas o cabeçalho, que termina no primeiro H2 ou em catorze linhas: versão no CORPO é história, e história é o conteúdo — o `docs/MIGRATION.md` percorre a cadeia de propósito e um gate que a reescrevesse destruiria o documento. A regra não é "cite apenas a release corrente", porque guia de migração lista uma cadeia legítima; é "se o cabeçalho fala de versão, a publicada tem de estar entre elas". Um segundo teste exige que o par espelhado anuncie o mesmo conjunto. A varredura CAMINHA a árvore em vez de listar caminhos, porque lista fixa não cresce quando um documento nasce. Uma seção `## v1.2.8 — Coverage Update` foi acrescentada ao topo da matriz sem remover a histórica.
+
+**Um falso positivo do meu próprio scanner, achado por rodá-lo.** A primeira execução acusou dezesseis documentos e dois estavam errados: os dois READMEs dizem `Current release: v1.2.8.` e estavam corretos, mas o ponto final da frase era lido como quarto componente de versão. Corrigido para exigir DÍGITO depois do ponto, com teste dedicado. Gate que grita lobo é gate que alguém apaga.
+
+### Dois gates de cobertura mediam menos do que o nome deles promete (GAP-SG-295)
+
+O `tests/docs_command_coverage.rs` parseava o bloco `Commands:` do `--help` da RAIZ. Medido: 49 verbos de produto no nível um e **32 subcomandos aninhados** no nível dois, e os 32 não eram exigidos por documento nenhum — `config list-keys`, `fts rebuild`, `graph entity-types`, `vec purge-orphan`, `slots cleanup` e mais nove. O `tests/docs_xdg_coverage.rs` olhava exatamente dois documentos, `README.md` e `README.pt-BR.md`, contra um registry de 70 chaves; o `docs/AGENTS.md` já cobria as 70 sem gate nenhum protegendo, e o `docs/HOW_TO_USE.md` citava 6 de 70 enquanto as rules do projeto exigem uma seção `Configuration` nele.
+
+Os dois passam a DERIVAR do binário em vez de uma lista à mão: o gate de comandos caminha a árvore `clap` por `CommandFactory::command()` mais `build()`, e o gate XDG cobre os quatro documentos de referência. Duas decisões de calibragem foram escritas NO código em vez de presumidas. Comando oculto é filtrado por `is_hide_set()` — o `debug-schema` carrega `hide = true`, e comando oculto não é lacuna de documentação, porque o parser o esconde justamente por não o oferecer. E os caminhos aninhados são exigidos do CORPUS em cada idioma, não de cada documento: exigir os 32 dos 17 documentos de inventário produziu **189 ofensas com 17 de 17 documentos vermelhos**, enquanto exigir cada folha em algum lugar por idioma produz zero e ainda fecha o defeito real. O falso negativo declarado está escrito ao lado do motivo.
+
+O piso de sanidade lia `registry.len() >= 61` contra setenta chaves reais, então um scanner que começasse a perder nove entradas ficava verde. Ele não foi apertado — foi **removido**: o gate agora conta quantas vezes o marcador de abertura `SettingKey {` aparece e exige que esse total bata com o número de chaves extraídas. Duas leituras independentes do mesmo arquivo que só concordam quando o parse está íntegro, com `config list --effective` como terceira fonte, viva. Limiar vence; medição cruzada não.
+
+### Uma entrada de allowlist que era afirmação falsa sobre o próprio objeto (GAP-SG-296)
+
+O `tests/docs_env_channel_guard.rs` isenta uma lista de caminhos sob o comentário `Paths that may still name the variable in historical narrative`. Para `CHANGELOG.md` e `gaps.md` isso era VERDADE. Para `docs/decisions/` era FALSO, e ninguém tinha medido. Sobre os 129 arquivos: **155 linhas em 30 ADRs não narravam a superfície morta, instruíam o uso dela no presente.** O `adr-0034` carregava `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN=1` dentro de fence bash copiável. O `adr-0045` documentava `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` "para emergências". O `adr-0051` tinha uma seção inteira `## Env Vars` mais uma `## CLI Flags`, nenhuma delas citando algo que exista. O `adr-0021` afirma no presente que `daemon --stop`, `daemon --ping` e `daemon` "all still work". O `adr-0044` versa sobre `--dry-run-backend` desde o título. Quatro ADRs citam `.github/workflows/ci.yml` como gate vigente, e este repositório não tem `.github/workflows/` nenhum.
+
+**O mecanismo é contraintuitivo: foi o cuidado que criou o buraco.** Aquela allowlist foi escrita com justificativa deliberada por entrada, e a justificativa era uma afirmação FACTUAL sobre 129 arquivos que ninguém tinha aberto. Uma allowlist sem comentário teria despertado suspeita no próximo leitor; um comentário confiante desliga a suspeita.
+
+Remover a isenção seria a correção errada: o gate varre linha a linha, então quebraria com 155 ofensas, e desarmar linha a linha significaria reescrever o CORPO de trinta registros de decisão. **Um ADR é o registro de uma decisão tomada num momento, e ADR reescrito é ADR destruído.** Cada ADR ofensor passa a abrir com um bloco `HISTORICAL:` / `HISTÓRICO:` que nomeia o canal morto e o nega NA MESMA LINHA — 60 arquivos, nos dois idiomas, sem uma linha do corpo tocada. A isenção passou a ser MERECIDA em vez de presumida, e a justificativa dela agora registra o que foi medido e quando.
+
+A armadilha circular merece ser dita porque reincide em todo gate de substring: o aviso que DESARMA o gate é escrito com o mesmo token que o ARMA. Um bloco que apenas mencione `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN` para avisar que morreu conta como mais uma oferta. A negação tem de ficar na mesma linha, nunca no bullet seguinte.
+
+### Um gate que bania uma string enquanto a documentação oferecia vinte e oito (GAP-SG-292)
+
+O `tests/docs_env_channel_guard.rs` declarava `const BANNED: &str = "OPENROUTER_API_KEY"` e percorria vinte e dois caminhos listados à mão. Ele rodava a cada `cargo test` e estava verde. Enquanto isso, o corpus operacional oferecia **28 variáveis `SQLITE_GRAPHRAG_*` distintas em 99 linhas**, e o runtime lê exatamente três variáveis de ambiente no total — `CLICOLOR_FORCE`, `NO_COLOR` e `XDG_RUNTIME_DIR`. Um gate construído em torno de uma string literal cobre o exemplo que o motivou, e não a classe. Mesma forma da GAP-SG-287, em que o gate de idioma varria `src/` e nunca `tests/`.
+
+**A prova negativa já estava no repositório.** O `README.md:607` traz `FORBIDDEN product env: SQLITE_GRAPHRAG_* are not read at runtime`; o `README.md:316` traz `SQLITE_GRAPHRAG_LOW_MEMORY=1 sqlite-graphrag ingest ./docs`. O mesmo arquivo proibia e ensinava, e o gate passou por cima dos dois. Nada precisou ser construído para demonstrar o buraco — o repositório era a demonstração.
+
+Empiricamente: `SQLITE_GRAPHRAG_NAMESPACE=provaenv sqlite-graphrag namespace-detect --json` responde `{"namespace":"global","source":"default"}`, idêntico à execução sem ela. A variável não altera nada, não avisa nada, e sai com exit 0. O `INTEGRATIONS.md` chamava isso de **"Dica de ouro"** em quatro lugares, e o `INTEGRATIONS.md:110` chamava `SQLITE_GRAPHRAG_DB_PATH` de **override canônico independente de posição** — um agente que obedeça essa frase grava no banco errado e nunca é avisado. Instrução ignorada em silêncio é pior que instrução recusada: não há erro ao qual reagir. O `docs/COOKBOOK.md` é o caso mais agudo, porque livro de receitas é copiado e colado, não lido.
+
+Duas armadilhas de medição apareceram ao ampliar o gate, e as duas ficam registradas porque as duas vão reincidir. Primeira: marcador de negação por substring é derrotado por ênfase de Markdown dentro da frase — o `llms-full.txt` nega o canal como ``product `SQLITE_GRAPHRAG_*` **not** read at runtime``, e a busca por `"not read"` não casa, porque os asteriscos do negrito ficam entre as duas palavras. O gate reportou essa negação perfeita como ofensa até a linha ser normalizada. Segunda: o `DENIAL_MARKERS` pré-existente carrega as substrings soltas `ignora` e `ignored`, então qualquer frase não relacionada que as contenha desarma o gate naquela linha — e é assim que um gate reporta verde sobre um corpus que nunca leu de fato. O gate de família mantém uma lista separada e mais estrita.
+
+Ampliar a caminhada também alcançou dois diretórios de documentação que censo nenhum havia coberto: `docs_rules/` (86 arquivos) e `docs_prd/`. Os dois entraram em allowlist **com a justificativa escrita**, e não em silêncio: o `docs_prd/openrouter_modelos_texto.md` reproduz a documentação da própria API do OpenRouter, onde `Authorization: Bearer $OPENROUTER_API_KEY` é a instrução correta para AQUELE produto, e o `docs_rules/headless_opencode.md` documenta a CLI OpenCode. Banir a string ali seria um gate exigindo que documentação de terceiro mentisse.
+
+O gate agora bane a família em vez de um literal, caminha a árvore em vez de uma lista fixa — lista fixa não cresce quando um documento nasce, então documento novo nasce fora do gate —, normaliza a ênfase antes de casar, e carrega um teste-meta afirmando que a caminhada alcança o corpus de verdade, contra a falha do vazio verde da GAP-SG-288. As 99 ofensas foram reescritas para nomear a flag ou a chave XDG.
+
+**Dois resíduos ficam abertos por decisão, e não por esquecimento.** O `docs_rules/prd.md` e o `docs_rules/projeto_sqlite-graphrag.md` são a especificação original: descrevem daemon, runtime ONNX e telemetria opt-in, e o binário não tem nenhum dos três; `daemon`, `ONNX` ou `telemetri` aparecem 136 vezes só no `prd.md`. Reescrevê-los destruiria o registro do que foi projetado; que um agente os leia como contrato corrente é defeito REAL e segue sem cabeçalho histórico. E as sete suítes de contrato de documentação — `doc_contract_*` e `cookbook_recipes_*` — ficam atrás de `--features slow-tests`, então um `cargo test` simples reporta `0 passed; ok` sobre **75 testes que de fato validam a documentação**. O `Cargo.toml:356` registra a GAP-SG-271 tendo libertado as cinco suítes de schema exatamente por esse motivo, anotando que `cargo test` é o único gate automático deste projeto. A lição não foi estendida a estas sete. Elas foram rodadas explicitamente para esta release e as 75 passam.
+
+Dois gaps resolvidos na v1.2.8 não chegaram a nenhum dos dois CHANGELOGs e ficam creditados aqui: a **GAP-SG-273** (severidade alta — três verbos públicos mentiam sobre existir e nunca devolveram uma linha) e a **GAP-SG-275** (as duas assinaturas largas que pediam a cirurgia do `drain_serial`). A assimetria que os escondeu merece ser nomeada: o `gaps_caveat_gate` verifica que todo gap creditado no CHANGELOG existe no `gaps.md`, e ninguém verifica a direção inversa. São 44 entradas com status v1.2.8; 35 foram citadas.
+
+### A mesma classe, mais cinco vezes — e dois casos que não validavam nada (GAP-SG-291)
+
+Fechar a GAP-SG-290 deixou uma pergunta óbvia: se raiz fechada mais campo com `skip_serializing_if` é uma CLASSE, quantos dos 76 documentos a carregam? A varredura custou uma passada estática. Dos 47 campos guardados em `src/`, os suspeitos são aqueles que o documento do SEU comando não declara — e o critério precisava comparar contra o documento DAQUELE comando, e não contra a união de todos. A forma global achou 1 de 6; a forma por documento achou os outros 5. Essa diferença é todo o valor do critério. Seis suspeitas, cinco confirmadas rodando o binário, um falso positivo: `BatchSummary` serializa contra `remember-batch-summary`, e não contra `remember-batch`, e a GAP-SG-271 já declarara seus três campos. **Nenhum documento foi editado por suspeita estática.** Cada correção veio depois de ver o envelope real e de derrubar o gate com ele.
+
+Os cinco: `history` omitia `changes`, que o `--diff` põe no fio; `read` omitia `entities` e `relationships`, que o `--with-graph` põe; `list` omitia `truncation_warning`, que só existe quando `truncated` é verdadeiro; `related` omitia `from` e `to`, os apelidos de `source_entity` e `target_entity`; `reclassify` omitia `matched_targets`, que só o modo `--batch` emite. Cada um deles está atrás de uma flag que o operador PEDIU.
+
+**O achado de cobertura é pior que os cinco.** `related` e `list` já tinham caso vivo no gate, e os dois passavam validando nada. O fixture tinha UMA memória, então `list --limit 1` nunca truncava e o campo nunca aparecia. E `traverse_related` filtra as entidades SEED da travessia, então uma segunda memória carregando as MESMAS entidades continua devolvendo `results` vazio — com `results` vazio, `$defs/RelatedMemory` nunca era exercitado, enquanto o censo contava o contrato como coberto. Isso é a GAP-SG-288 uma camada abaixo: lá o censo contava por citação, aqui o caso roda de verdade e valida um envelope vazio. O fixture agora tem uma segunda memória dona de uma TERCEIRA entidade, alcançada por uma aresta `relates-to`, que é a única forma de a travessia sair do lugar. O custo apareceu na hora e foi pago: o teste de NDJSON do `export` afirmava uma linha de memória mais um sumário, e agora afirma duas mais um.
+
+O que a varredura NÃO cobre está escrito, e não subentendido: o critério só enxerga campo guardado por `skip_serializing_if`, então campo que muda de TIPO em runtime passa por ele intacto; ele casa arquivo Rust com documento pelo NOME do comando, que foi o que produziu o único falso positivo; e nada foi medido em macOS nem em Windows.
+
+### GAP-SG-293 — o gate que valida flag contra o parser existia, e olhava 2 documentos de 29
+
+O `tests/skills_surface_gate.rs` já tinha o `every_flag_a_skill_teaches_is_a_flag_the_parser_accepts`. Ele percorre a árvore clap CONSTRUÍDA por `CommandFactory::command()` mais `build()`, tem testes do próprio scanner, e a mensagem de falha dele NOMEIA `--extraction-backend`, `--strict-env-clear` e `--graceful-shutdown-secs` como flags que ele caçou. A constante `SKILLS` dele listava exatamente DOIS caminhos: os dois `SKILL.md`. As mesmas `--extraction-backend` e `--strict-env-clear` seguiam vivas em `README.md`, `README.pt-BR.md`, `INTEGRATIONS.md`, `INTEGRATIONS.pt-BR.md`, `SECURITY.md`, `SECURITY.pt-BR.md`, `CONTRIBUTING.md` e `CONTRIBUTING.pt-BR.md`. O defeito foi encontrado, corrigido em dois arquivos, e a mesma frase seguiu de pé em outros oito. A maquinaria estava certa e apontada para 2 documentos de 29.
+
+Medido pelo gate alargado, e não por leitura: 44 flags longas distintas que a documentação ensina e o parser NÃO define, em 182 ocorrências do corpus operacional. A família `pending`, removida na v1.2.8, seguia invocada em cinco documentos, e o `docs/CROSS_PLATFORM.pt-BR.md` ensinava `completion` onde o verbo é `completions`. Entre as mortas: `--claude-timeout`, `--codex-timeout`, `--extraction-backend`, `--gliner-variant`, `--max-entity-degree`, `--strict-env-clear`, `--dry-run-backend`, `--opencode-binary`, `--wait-embed-singleton`, `--keep-queue`, `--queue-db`, `--export-json` e `--graceful-shutdown-secs`. Uma auditoria manual de dois subagentes leitores achou cerca de 41 divergências no total; o gate achou 188 ofensas só neste eixo, e sem opinião nenhuma. Onde couber comparação mecânica contra o binário, ela vence leitura humana por ordem de grandeza.
+
+A `--gliner-variant` era pior que uma menção. Três documentos afirmavam que ela era aceita por compatibilidade e sem efeito; medido, o clap a REJEITA com exit 2 e a invocação inteira aborta. O `README.md:146` já dizia certo, então o corpus se contradizia sobre o mesmo fato. Prometer tolerância que não existe é pior que documentar a flag como removida.
+
+O projeto do gate novo está escrito, e não subentendido. Ele percorre a árvore de arquivos e nunca uma lista escrita à mão, porque lista fixa não cresce quando um documento nasce, e documento nascido fora do gate é documento que ninguém confere. Um span de código é PULADO INTEIRO quando abre com o nome de outro programa — exemptar a flag isolada seria pior, porque `--no-fail-fast` é do `cargo` e perdoá-la como nome a perdoaria também dentro de uma invocação de `sqlite-graphrag`, onde ela é fabricada. A allowlist de flag de terceiro exige o NOME DO DONO em cada entrada, com teste que verifica, porque allowlist sem dono declarado apodrece em supressão geral, que é como gate morre por dentro. O scanner de verbo só lê a linha que o `sqlite-graphrag` ABRE, e DESISTE quando o token seguinte é uma flag, em vez de adivinhar; adivinhar produziu `sqlite-graphrag openrouter`, que é o VALOR de `--embedding-backend`. Falso negativo declarado vence falso positivo, porque gate que grita lobo é gate que alguém desliga.
+
+Nenhum dos falsos positivos foi previsto: todos apareceram rodando o gate contra o corpus real. `sqlite-graphrag invocation` veio de um comentário, `sqlite-graphrag db` veio de uma mensagem de commit que rastreava o banco por LFS, e `sqlite-graphrag maintenance` veio de um campo `name:` de arquivo de workflow. Cada um virou um teste de unidade do scanner, e não uma exceção na allowlist.
+
+Revisar o trabalho dos subagentes LENDO o arquivo, e nunca pelo relato deles, pegou duas correções feitas pela metade. A seção `v1.0.76` do `SECURITY.md` foi reescrita de forma exemplar — abre com a superfície CORRENTE medida, declara o risco residual, e diz com todas as letras que as proteções descritas abaixo NÃO estão em vigor. A seção `v1.0.83`, imediatamente seguinte, ficou intocada e em presente do indicativo, afirmando que o build preserva sete variáveis ao spawnar `claude -p` ou `codex exec` e que uma guarda OAuth-only em três arquivos continua rejeitando chaves. Medido: `src/spawn/env_whitelist.rs`, `tests/claude_runner_env.rs`, `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs` NÃO existem. Seção de segurança que promete guarda inexistente é pior que seção omissa, porque o leitor PARA de procurar o risco. Corrigido nos dois idiomas, seguindo o padrão que o próprio subagente criou.
+
+### GAP-SG-259 — um `entity_type` declarado dobrado em silêncio, e a crença de que `link` não pesava aresta
+
+Duas metades sob um id, e a primeira é um canal de escrita que alterava o dado do chamador sem dizer. O `memory-entities` revelou que os tipos declarados não sobreviveram: foram escritos `value-element`, `framework`, `stakeholder` e `pyramid-level`, e o banco gravou quase tudo como `concept`. Medido: `comoditizacao` e `fadiga-de-adocao` viraram `incident`; `diretoria-c-level` e `ti-seguranca` viraram `person`, o segundo semanticamente errado, porque é área e não pessoa. Dobrar tipo customizado contra um vocabulário fechado era o padrão desde a v1.1.8, sem escapatória, sem relato e sem schema — que é exatamente a causa raiz da GAP-SG-216. O estrago alcança a orientação de modelagem, e não só uma coluna: a estrutura tinha que viver nas RELAÇÕES, porque projetar taxonomia no payload esperando filtrar depois por `entity_type` era ilusão.
+
+A `migrations/V017__open_entity_type_vocabulary.sql` acabou com a dobra em vez de relatá-la: o `CHECK` de `entities.type` saiu, e o `src/entity_type.rs` perdeu o enum, o `map_to_canonical` e o `Deserialize` manual que a executavam. O que sobrou trata só FORMA, nunca membership, então nada mais é dobrado em canal nenhum, e o `reclassify --new-type` declara no help que qualquer rótulo é aceito desde a v1.2.8. A `--strict-entity-types` em `remember` e `remember-batch` é o opt-in de quem quer o vocabulário fechado de volta, recusando antes de qualquer I/O, e o `--dry-run` reporta as dobras.
+
+A segunda metade nunca foi defeito de código. O texto afirmava que o `link` não expunha força, concluía que arestas criadas por ele nascem sem peso, e modelou 46 arestas como não-causais DE PROPÓSITO para que as causais ficassem com o `remember`. O `link` sempre teve `--weight`, em `[0.0, 1.0]`, com default `DEFAULT_RELATION_WEIGHT` de 0.5. A assimetria que gerou a crença é real e é de nome: `remember --relationships-file` e os schemas de extração chamam a propriedade de `strength`, enquanto a saída de grafo e a flag a chamam de `weight`, então um chamador que aprendeu o schema de entrada procurou `--strength`, não achou, e concluiu que a capacidade faltava. A v1.2.8 acrescenta `--strength` como alias de `--weight`, e o `docs/schemas/relationships-input.schema.json` documenta o mapeamento. Um alias custa menos que essa leitura errada.
+
+O resíduo é curadoria de corpus, e não produto. As 46 arestas nascidas sob a crença antiga seguem sem peso; revisá-las é decisão do dono do banco, com `link --strength` sobre as arestas que ele escolher, e nenhuma linha de código muda por causa delas.
+
+### GAP-SG-260 — `--select` em `export` reprovava na linha de sumário
+
+Medido, e pré-existente desde a v1.2.6: `--select name export` projetava certo as três linhas de registro e então saía com exit 2 na QUARTA. A linha de sumário carrega `namespace` e não carrega `name`, então a chave não resolvia em lugar nenhum e a linha caía em `select_fully_unresolved`. A recusa chegava DEPOIS de o stdout já ter sido entregue, que é a pior forma que uma recusa pode ter num stream, porque quem está com três linhas boas e um status não-zero não sabe o que guardar.
+
+A causa raiz é que um stream tem DUAS formas de envelope, e a superfície tratava cada linha como contrato independente, julgando a trailer pelo vocabulário do registro. A GAP-SG-215 tomou a decisão que isso pedia: registro e trailer passaram a ter caminhos distintos, a linha de registro carrega o registro e nada mais, e a trailer carrega o único registro agent-surface do stream inteiro e NUNCA é moldada. O `--select` continua em `export` como knob por registro, e a linha de sumário simplesmente está fora do alcance dele.
+
+### Oito gaps abertos fechados
+
+A GAP-SG-268 empurrou o `SELECT type` por candidato para dentro da consulta única, por `LEFT JOIN` — left e não inner, para que `memory_embeddings` continue dirigindo a varredura e a ordem das linhas que o laço vê não mude. A GAP-SG-270 leva `EmbedError::retry_class` através da conversão em vez de descartá-lo, com `Transient` ainda sendo o destino quando a origem não classificou nada. A GAP-SG-272 deu ao `purge` o nome posicional que os outros quatro verbos já aceitavam, com o conflito declarado uma vez só porque os conflitos do clap são simétricos. A GAP-SG-274 fez `agent_surface_slug` reportar dois slugs para `graph`, que foi o que finalmente permitiu declarar `kind` como sinônimo no modo em que ele é um e em nenhum outro. A GAP-SG-283 deu ao `enrich` — o canal que cria entidade em VOLUME — a política de vocabulário que os outros dois canais de escrita já tinham: `--allowed-types`, `--on-unknown-type` com `keep` por padrão, aplicada ENTRE o veredito do modelo e a coluna, e não depois dela.
+
+A GAP-SG-271 ganhou o gate que esperava: `tests/schema_type_drift_gate.rs` roda o binário e valida o envelope REAL contra o documento publicado, que é o defeito que esta família de fato tem. Ele saiu cobrindo 17 casos vivos contra 76 contratos, e encurtar essa distância é a GAP-SG-288. O array carrega agora 39 registros vivos e o arquivo roda 17 testes contra 10, verde em 18,81 s; **69 dos 76 ids são exercidos dentro do gate, contra 16 antes**. O que o próprio título do gap errava merece ser dito: o número 17 media a camada mais FORTE, e não a cobertura. O gate sempre teve três, e as outras duas já seguravam — um censo exige que todo arquivo publicado seja exercido, citado por outro teste, ou listado em `EXEMPT` com a razão ao lado. Medido antes de mexer em nada: dos 60 ids fora do array, 53 já eram citados em outro lugar e 7 já tinham testemunha nomeada. **Nenhum contrato estava órfão.** O defeito era a FORÇA da cobertura: citar um id prova que alguém pensou nele, rodar o binário prova que o documento descreve o que sai, e a distância entre as duas é exatamente a classe que a GAP-SG-271 mediu. Sete ficam de fora com a razão escrita — `agent-surface` é o documento compartilhado alcançado por `$ref` e não o envelope de comando nenhum, `deep-research` exige chave viva, `shutdown-envelope` só aparece sob sinal entregue, e os quatro eventos NDJSON de ingestão são cobertos por `tests/ingest_*` contra árvore sintetizada.
+
+Ampliar essa cobertura teve um custo que a própria suíte pegou. `tests/schema_type_drift_gate.rs` foi de 654 para 1198 linhas físicas e estourou o `CEILING` de 800 de `tests/file_size_ceiling_gate.rs`. A rodada completa reportou `error: 2 targets failed`, e **nenhum dos dois era teste de contrato** — eram o teto de tamanho e o `fmt_gate`. Quem notou foi um gate em que ninguém estava pensando. O arquivo agora se divide em `schema_type_drift_gate.rs` com 418 linhas e `schema_type_drift_write_gate.rs` com 509, sobre um `tests/schema_drift_support/` compartilhado, e o censo segue em 69 de 76 com os mesmos sete de fora. Mover é permitido; enfraquecer teste para caber sob um teto não é.
+
+A GAP-SG-287 fechou a metade cega do gate de idioma. `ROOTS` declara agora as duas árvores, e o `walk` já era recursivo, então ampliar não custou lógica nova — só as isenções que o alcance maior torna necessárias. Duas estão listadas, cada uma com seu argumento: o arquivo do próprio gate, que carrega `PORTUGUESE_WORDS` e as fixtures que provam o detector disparar, de modo que lê-lo seria acusar a wordlist de violar a wordlist; e `tests/mock-llm`, um stub de provedor compilado como crate próprio. Três meta-testes guardam a ampliação, porque estender cobertura convida a três falhas silenciosas distintas: uma raiz que resolve para nada deixa o gate verde por não ler código algum, uma isenção morta parece carregar peso enquanto não desculpa nada, e casar por prefixo deixaria `tests/mock-llm` desculpar um futuro `tests/mock-llm-adjacent.rs`. O custo foi medido antes de o alcance mudar, e não descoberto depois: 21 arquivos carregavam identificador em português em 341 linhas, 26 carregavam comentário em português em 80, e a união são os 39 arquivos que o gap declarava. Vinte nomes de função de teste foram traduzidos, junto com `validar_schema` e `remember_simples` e os 84 call sites que dependiam deles. **O gate está verde e a árvore não está, por isso, em inglês.** `optimistic_locking_conflito_exit_3` foi encontrado por leitura, não pelo gate: `conflito` nunca esteve entre as 72 palavras. A wordlist não é o idioma, então este gate encolhe a classe e não a fecha.
+
+A GAP-SG-289 se dissolveu na medição em vez de ser paga. Ela estava aberta aguardando o dono autorizar o dreno de uma fila, porque drenar chama o provedor uma vez por item. Medido em 2026-08-21, `enrich --status` respondeu `state: "empty"` para `memory-bindings` e para `augment-bindings`: **o dreno já havia acontecido**, feito pelo worker destacado, então o passo 2 nunca esperava uma decisão — esperava alguém olhar. O único resto é `entity-descriptions` com backlog de 17, e ele não pode importar aqui: `extraction_descriptions.rs` escreve `UPDATE memories SET description` e nada mais, lendo `entity_type` apenas para montar o prompt. Logo o delta é medível a custo zero, e é: 15980 entidades contra 15947, 17 rótulos contra 13. Os quatro rótulos novos — `skill`, `flag`, `document` e `artifact`, uma entidade cada — chegaram por `remember --graph-file`, cada um com `warnings` no envelope. **Nenhum veio do `enrich`.** A política que a GAP-SG-283 instalou segurou o canal que ela governa; quem produziu os quatro foi o caminho manual de escrita, que avisa e persiste como pedido.
+
+O `PRAGMA foreign_key_check` acrescentado junto do guarda de migration rodava depois de cada migration e reprovava a corrida diante de qualquer linha órfã. A intenção estava certa — um rebuild-and-rename dispara `ON DELETE CASCADE` e podia esvaziar o grafo em silêncio — mas o escopo não. A ação verificada é local: esta migration, nestas tabelas. A verificação é global: o pragma varre o arquivo inteiro. Então uma linha herdada de schema antigo, que a migration nunca tocou, reprovava a migration.
+
+`ensure_db_ready` migra ao abrir e quase todo subcomando o chama, então aquela única linha legada transformou o arquivo num banco que comando nenhum abria — `read`, `list`, `stats`, `backup`, `vacuum` e `remember` respondiam o mesmo erro. Inclusive `cleanup-orphans`, o comando que leva o nome do reparo, que chama `ensure_db_ready` na primeira linha útil e falhava antes do primeiro delete. O remédio era inalcançável pela mesma condição que o tornava necessário.
+
+A asserção agora compara as contagens de violação por par `(tabela filha, tabela pai)` antes e depois, e reprova só onde alguma contagem **cresceu**. Agrupar por par em vez de somar é o que a faz sobreviver a uma migration que apaga uma linha solta e cria outra: o total bateria enquanto uma regressão real se escondia dentro dele. Violações preexistentes viram aviso no stderr, nomeando o reparo, e deixam intacto o contrato JSON do stdout.
+
+**O reparo não existia, e depois cobria uma tabela de onze.** `cleanup-orphans` procurava entidades sem arestas; o estado que o pragma reporta é o espelho disso — arestas sem entidade. Ele ganhou `find_dangling_relationship_ids`, e o aviso passou a nomeá-lo para todo par que o pragma reportasse. Mas o `PRAGMA foreign_key_check` inspeciona onze tabelas filhas, e um rebuild de `entities` deixa quatro delas órfãs de uma vez, então um operador com uma linha solta em `memory_entities` rodaria o comando sugerido, leria `dangling_relationship_count: 0` e concluiria que o arquivo estava saudável enquanto o pragma seguia reportando.
+
+O reparo agora é agnóstico de tabela, dirigido pela própria saída `(tabela filha, rowid)` do pragma em vez de um `NOT EXISTS` escrito à mão por foreign key — o que é mais curto e imune à décima segunda tabela. Uma linha que ele reporta é inalcançável por construção: com a imposição ligada, o SQLite já a teria removido em cascata. O envelope ganhou `foreign_key_violation_count`, medido antes dos deletes, e `foreign_key_violations_remaining`, medido de novo depois, porque uma pós-condição que reporta o que o código pretendeu em vez do que o arquivo agora contém não verifica nada. A varredura geral é o único passo sem escopo, já que o pragma não conhece namespace; uma corrida com `--namespace` reporta o dano mais amplo sem tocar em linhas de outros projetos no mesmo arquivo.
+
+`docs/schemas/cleanup-orphans.schema.json` declara `additionalProperties: false` e foi atualizado com os quatro campos novos na mesma mudança. `tests/schema_contract_maintenance.rs` pega essa classe, mas está atrás de `#![cfg(feature = "slow-tests")]` junto com outros 33 arquivos, então um `cargo test` simples reportava verde sobre um envelope que violava o próprio contrato publicado.
+
+### GAP-SG-279 — a operação que julgava o tipo da entidade pelo nome dela
+
+`enrich --operation entity-type-validate` decidia o que uma entidade É e escrevia a resposta em `entities.type`. O que ela mostrava ao modelo, por inteiro, era `Entity: {nome}` e `Current type: {tipo}`. Duas linhas. Sem descrição, sem corpus ligado, sem vizinhos tipados — embora o `SELECT` acima já tivesse a linha em mãos e `entities.description` exista desde a V017.
+
+Isso pesava mais do que pesaria em outro lugar. A GAP-SG-277 mediu 10.898 de 15.744 entidades colapsadas em `concept`, e a GAP-SG-278 apontou esta operação como o caminho de volta. O comando encarregado de reparar dois terços do grafo era o que decidia com o insumo mais fraco do pipeline, uma chamada paga por entidade, julgando rótulos como `rd_gs` por como são escritos.
+
+Nada estava escondido; estava invisível, que é diferente. O `format!` ficava entre cinco irmãos cujas chamadas pareciam iguais e carregavam de três a cinco campos cada. Duas guardas já vigiavam as outras metades daquela decisão — `entity_type_vocabulary_contract` fixa o prompt, `normalize_entity_type` restringe a saída — e entre elas ficava um insumo sem testemunha.
+
+A operação passou a selecionar `description` na consulta que já rodava e a chamar `load_entity_evidence_tuned`, a mesma montagem de evidência que `entity-descriptions` e o amostrador do `--status` leem. Quatro chaves XDG novas sob `enrich.entity_type_validate.*` espelham as quatro que o caminho de descrição sempre teve; são chaves separadas porque uma operação escreve uma frase e a outra reescreve um rótulo em dez mil linhas. Entidade sem descrição e sem corpus suficiente é recusada **antes** da chamada, com custo zero, e o schema de resposta ganhou `sufficient_evidence` mais `validated_type` nulável, para o modelo ter onde pôr "não sei" que não seja um rótulo plausível.
+
+O envelope passou a dizer o que um dreno pago mudou. Reclassificação, confirmação e sugestão descartada emitiam um `Done { entities: 1 }` idêntico; `EnrichItemResult::Retyped` carrega o rótulo anterior, o novo e o tamanho da evidência, `retyped` os conta no resumo, e um skip leva a razão ao chamador em vez de deixá-la só no sidecar.
+
+**O defeito estava em três operações, não em uma.** `tests/enrich_input_evidence_gate.rs` foi escrito para impedir a volta dele e, na primeira execução, reprovou `weight-calibrate` e `relation-reclassify` — as duas escrevendo em `relationships` depois de ver dois nomes de entidade e o rótulo em disputa. As duas foram corrigidas selecionando a `description` de cada extremo: duas colunas a mais num join que já rodava, e nenhuma consulta nova. Ver ADR-0070.
+
+### GAP-SG-280 — um gate de contagem que só vigiava a frase que um documento usava
+
+`src/config/registry.rs` tem 68 chaves depois deste release. `README.md` e `README.pt-BR.md` diziam 64 e eram os dois únicos vigiados; outros seis documentos diziam 63 e nada reclamava. A causa era uma linha em `tests/docs_declared_facts_gate.rs`, que pulava toda linha sem o literal `config set`. O filtro existia por razão real — `10 chaves` dentro de um exemplo não é um total — mas reconhecia uma forma de declarar o total enquanto o corpus usava outras cinco. O mesmo arquivo tinha um segundo ponto cego: `claims_the_schema_catalogue` reconhecia só `schemas cover` / `schemas cobrem`, e foi por isso que `75 contracts` no CHANGELOG e no `llms.txt` passou contra 76 arquivos em disco. Os dois detectores foram ampliados para as formas que o corpus de fato usa, cada um com meta-teste alimentando essas formas mais uma que não é total.
+
+### GAP-SG-281 — um contrato publicado descrevendo outro envelope
+
+`docs/schemas/enrich-summary.schema.json` declarava `agent_surface`, `count` e `truncated`, que o `enrich` nunca emite, e omitia onze campos que ele emite — `summary`, `operation`, `items_total`, `failed`, `skipped`, `elapsed_ms`, `backend_invoked`, `budget_exhausted`, `pairs_remaining_estimate`, `yields`, `preempted_for_gate`. As três chaves fantasma vêm da camada `agent_surface`, da qual o `enrich` é excluído pela decisão registrada em `src/output/stream.rs`: o schema tinha sido escrito a partir da camada genérica, e não da struct que o comando emite. `tests/enrich_status_schema_drift_gate.rs` vigiava apenas o contrato do `--status`, então summary e item-event não tinham testemunha nenhuma; agora ele vigia os três.
+
+### Um processo one-shot que dormiria pela palavra do servidor
+
+Os dois laços de retry HTTP dormiam exatamente os segundos que uma resposta `429` pedisse. `Retry-After: 86400` significava um dia, dentro de uma CLI cujo contrato inteiro é nascer, executar e morrer na mesma invocação — e o processo simplesmente parava de responder, sem nada no log dizendo por quê.
+
+`MAX_RETRY_AFTER_SECS` limita uma tentativa a 60s. O número é derivado, não escolhido: `enrich.rate_limit_deadline_secs` tem default 3600s e governa a espera TOTAL, e `openrouter_http::MAX_RETRIES` é 4, então o pior caso de quatro tentativas rate-limited é 240s — menos de 7 por cento do deadline, o que deixa o orçamento do operador decidindo quando desistir. Um teto de 900s deixaria quatro tentativas consumirem o deadline exato, e o deadline pararia de significar algo. É distinto de `ENRICH_BACKOFF_CEILING_SECS` (900s), que limita o backoff ENTRE itens do dreno, e não uma tentativa HTTP.
+
+A política vive em `clamp_retry_after_secs`, ao lado da constante em vez de copiada nos dois transportes, e avisa com `requested_secs` e `applied_secs` só quando o teto de fato corta: um teto que apara em silêncio é indistinguível de um provedor que pediu a espera menor.
+
+### Permissão do config: uma checagem que só existiu no Unix, agora dita em voz alta
+
+`load_config` avisa quando o `config.toml` está mais aberto que `0600`, sob `#[cfg(unix)]`, e não há contraparte Windows — enquanto `permissions.rs` se lia como se o comportamento estivesse coberto nos dois. A afirmação passou a ser escopada: o módulo documenta que cobre ESCRITA apenas, onde `restrict_to_current_user` instala DACL protegida de ACE único, então todo arquivo que esta CLI escreveu já está restrito e uma ACL frouxa só pode vir de outra ferramenta.
+
+A checagem ficou Unix-only de propósito. Ela apenas avisa, então o que o Windows perde é uma linha de log e não uma garantia; e julgar "aberto demais" a partir de uma DACL exige enumerar ACEs em `unsafe` Win32, num módulo cujo ramo Windows nunca executou em lugar nenhum por falta de CI. Somar uma segunda superfície unsafe inverificável para ganhar um aviso é a troca pior.
+
+### Testes que só rodavam no Unix
+
+`queue_lifecycle_tests.rs` e `queue_test_fixtures.rs` criavam arquivos reais em caminhos `/tmp` fixos. O produto é entregue para Linux, macOS e Windows, então isso é cobertura faltando exatamente onde ela é menos exercitada. Os dois passaram a usar `tempfile`, que já era dependência.
+
+### GAP-SG-282 — um comentário de manifesto que o lockfile contradizia
+
+`Cargo.toml` afirmava manter "a mesma configuração livre de C da dependência de runtime". Medido no `Cargo.lock`: `cc` está no grafo por `libsqlite3-sys`, `ring`, `blake3`, `generator` e `iana-time-zone-haiku`. Neutralizar `blake3` com `features = ["pure"]` foi correto e continua valendo, mas a afirmação descrevia a aresta do blake3 e foi escrita como se descrevesse o projeto. O comentário passou a dizer o que é verdade; nenhuma dependência mudou. Este não é um build livre de C, e não pode ser sem trocar o SQLite embutido pelo do sistema — `aws-lc-rs` no lugar de `ring` também usa `cc`.
+
+### Uma família de comandos que ninguém conseguia usar, e trinta releases de silêncio
+
+`pending list`, `pending show` e `pending cleanup` existiam desde a V014 e sempre devolviam vazio. Medido: `insert_validated` em `src/storage/pending_memories.rs` era a única escrita, seus únicos chamadores eram o próprio módulo e um teste, e `remember` nunca referenciava o módulo. O pipeline de três estágios foi adiado para a 1.0.83 e nunca foi ligado; `tests/pending_memories_staging.rs` dizia isso num comentário, e nenhum gate lê comentário. A família foi removida, não consertada: um verbo que não há como fazer devolver uma linha não é funcionalidade esperando backend, é promessa que o catálogo fazia em nome do binário.
+
+NÃO confunda com `pending-embeddings`, que é alias de `embedding` e está vivo. O catálogo de topo cai de 51 para 50 verbos, e o de schemas permanece em 76 contratos.
+
+### GAP-SG-267 — um campo de contrato que o código nunca preencheu
+
+`hybrid-search` declarava `fts_bm25: Option<f64>` e `docs/schemas/hybrid-search.schema.json` o documentava. As três atribuições do código eram `None`. O `skip_serializing_if` o mantinha fora do fio, então o stdout era honesto e o contrato publicado não era — e o contrato é o que um agente lê antes de rodar o comando pela primeira vez. Campo, atribuições e entrada de schema saíram.
+
+### GAP-SG-261 — um reaper que reportava zero sem ter medido
+
+`src/reaper.rs` varria `/proc` sob `#[cfg(unix)]`. `cfg(unix)` é verdadeiro em macOS, que não tem `/proc`, então a varredura falhava ao abrir o diretório e reportava nenhum órfão — o modo de falha que se lê exatamente como sucesso. A enumeração agora roda sobre `sysinfo`, já dependência, pura Rust e portátil, então nenhum toolchain C e nenhuma FFI de plataforma entram no build. O critério de idade mínima sobrevive em `Process::run_time`, e a única divisão de plataforma restante é a própria terminação: `SIGTERM` no Unix, `Process::kill` no Windows.
+
+### GAP-SG-263 — uma depreciação sem para onde ir
+
+`embed_passages_parallel_with_embedding_choice` foi deprecada na 1.2.3, tinha zero chamadores internos, e a substituta `embed_passages_parallel_shared` era `pub(crate)`. Quem consumia a lib recebia o aviso e nenhum destino. O wrapper saiu e a substituta é pública, então a superfície perde uma cópia — o wrapper recebia `&[String]` e clonava o corpus inteiro a cada chamada — e não perde capacidade. A migração é um `Arc::from`, que é o que `tests/openrouter_live_concurrency.rs` agora faz.
+
+### GAP-SG-264 — vinte supressões de lint no lugar de vinte assinaturas
+
+`drain_serial` recebia 23 parâmetros posicionais. Nessa aridade o tipo deixa de proteger: `provider_model` e `op_label` são ambos `&str`, `provider_timeout` e `total` são ambos inteiros, e trocar qualquer um dos pares compila. Ele passa a receber cinco structs por responsabilidade — sessão, provedor, escopo, relógios, progresso — e seu `#[allow(clippy::too_many_arguments)]` saiu porque deixou de ser necessário, e não porque foi silenciado.
+
+A mesma cirurgia correu depois por todas as outras funções que o lint nomeava. Medido antes e depois: `emit_remember_result` de 21 parâmetros para 5, `drain_parallel` de 13 para 4, `call_body_enrich` de 13 para 7, `execute_sub_query` de 12 para 6, `call_entity_description` de 9 para 6, `stage_file` de 9 para 5, `call_body_extract` de 8 para 5, `stage_one_body` de 8 para 4 e `reembed_memory_vector` de 8 para 4. Os agregados são `FinishContext`, `FinishIdentity`, `FinishOutcome`, `FinishExtraction`, `ParallelSession`, `ProviderCall`, `BodyEnrichTuning`, `RetrievalKnobs`, `StagingEnv` e `MemoryRowRef` — cada um agrupado por RESPONSABILIDADE e não por tipo, para o nome dizer o que o grupo é em vez do que ele guarda.
+
+O par `llm_backend` mais `embedding_backend` foi junto. Dois enums que viajam sempre juntos e na mesma ordem são a definição de um tipo faltando, então `BackendChoice` o nomeia uma vez em `src/backend_choice.rs`, o `main` o resolve uma vez antes do dispatch, e 29 assinaturas deixaram de carregar dois parâmetros onde um diz o mesmo. A GAP-SG-265 fecha com ele.
+
+Duas classes de quebra se esconderam do `cargo build --lib` e merecem nome, porque um relatório de meio de migração chamou a árvore de verde com as duas presentes: call sites de teste, que só aparecem sob `--all-targets`, e doze funções que continuaram desestruturando o par em nomes que já não liam, o que são 24 avisos de `unused variable` que o `-D warnings` transforma em build reprovado. O portão de release é `cargo clippy --all-targets --features slow-tests -- -D warnings`, e nada aquém dele sustenta a afirmação de que o trabalho terminou.
+
+Vinte supressões viraram sete, e as sete são permanentes em vez de pendentes. Cinco têm a mesma forma: `insert_version`, `pending_embeddings::insert`, `queue_ops::mark_done`, `queue_ops::record_item_failure_typed` e `fts::sync_fts_after_update` escrevem uma coluna por parâmetro, então um agregado ali seria a tabela escrita uma segunda vez. `sync_fts_after_update` tem a razão mais forte: o trio velho e o trio novo DEVEM ficar posicionalmente distintos, porque uma struct convidaria a passar o texto novo como o velho, que é exatamente o defeito que um par delete/insert de FTS5 external-content não sobrevive. As outras duas, `traverse_related` e `process_line`, não formam um segundo grupo com nome depois que o par de backends é agregado. Cada uma das sete carrega agora uma linha de justificativa acima do atributo, para o próximo leitor herdar o raciocínio e não apenas a supressão.
+
+### GAP-SG-276 — o índice e o catálogo eram dois arquivos que podiam discordar
+
+Remover a família `pending` apagou `pending-list.schema.json` e deixou duas linhas de tabela apontando para ele, uma em cada metade de idioma de `docs/schemas/README.md`. `docs_consistency`, `docs_command_coverage` e `docs_declared_facts_gate` passaram por cima: os três comparam documentos entre si e contra o binário, e nenhum compara o índice com o diretório.
+
+`tests/schema_index_gate.rs` passa a comparar, nos DOIS sentidos, e lê SOMENTE linha de tabela — nunca prosa, para o índice poder registrar que um documento foi removido sem reprovar o gate que a remoção motivou. Na primeira execução ele achou o defeito oposto e maior: cinco contratos publicados que o índice nunca listou — `graph-input`, `remember-dry-run`, `entities-input`, `relationships-input` e `agent-surface`. Um contrato fora do índice é um contrato que o agente não encontra antes de invocar, que é o dano desta própria entrada correndo na direção contrária. Os cinco estão indexados agora, em tabela própria, porque não são mapeamento de comando para envelope.
+
+A outra metade do problema — schema contra TIPO, onde o documento publicado e o tipo em Rust são duas fontes de verdade sobre a mesma forma — é um gap separado e ainda aberto, e não é tocada aqui. O `gaps.md` carrega a referência cruzada nos dois sentidos.
+
+### GAP-SG-235 — fechado rodando a ferramenta que a varredura estática aproxima
+
+O gate de rustdoc da 1.2.8 é uma varredura estática, e é por isso que custa milissegundos. O veredito `Unresolved` só falhava para caminho qualificado com `crate::`; `Self::` e segmento único estavam declarados fora de escopo. Em vez de crescer a aproximação até ela alegar uma paridade que não prova, o gate agora também roda `cargo doc --no-deps --all-features` atrás da feature `slow-tests`, num `CARGO_TARGET_DIR` isolado, para o caminho quente nunca disputar o lock de build.
+
+Ele justificou a existência de imediato: pegou quatro links que a varredura estática não via, no instante em que `embed_passages_parallel_shared` ficou pública.
+
+### GAP-SG-262 — identificadores em português num código que deve ser inglês
+
+Medido em `src/`, fora de strings de tradução: `teto` em `src/cli/globals.rs`, `inicio` em seis módulos de comando, e os parâmetros `nome` e `versao` em cinco funções de `src/i18n/mod.rs`. Todos renomeados. `tests/source_language_gate.rs` agora reprova identificador e comentário em português em qualquer ponto de `src/`, e isenta literal de string em toda parte. A isenção é incondicional em vez de restrita a `src/i18n/`, porque mensagem localizada não vive só ali — braços `Language::Portuguese` a carregam nos call sites de `src/cli/globals.rs` e `src/errors.rs`, e um gate que reprovasse ali estaria exigindo que o produto pare de falar português. Ela cobre string apenas, nunca comentário e nunca identificador.
+
+Duas classes de falso positivo foram medidas e eliminadas, e as duas exigiram carregar estado ENTRE linhas. Um literal de string em Rust pode conter quebra de linha real, então um leitor por linha leria a segunda metade de uma mensagem em português como identificadores — que é exatamente o que teria forçado isentar `src/i18n/` por inteiro, cegando o gate para defeito real ali dentro. E um doc-comment que cita um documento de regras em português abre a citação numa linha e fecha na seguinte. Cinquenta e quatro ocorrências legítimas foram achadas e traduzidas depois que essas duas caíram; o primeiro rascunho da varredura as reportava uma linha antes, porque uma continuação de linha com contrabarra dentro de string era pulada sem contar a quebra.
+
+### GAP-SG-266 — o teto que protege a cota escrito como número solto
+
+`range(1..=16)` no parser clap e `clamp(1, 16)` no dimensionamento do drain eram o mesmo limite de política escrito duas vezes sem se conhecerem. Os dois derivam agora de `MIN_ENRICH_REST_CONCURRENCY` e `MAX_ENRICH_REST_CONCURRENCY`, cujo doc nomeia o recurso protegido — a cota da OpenRouter, escassez de HOST, uma chave para a máquina inteira — e declara por que a checagem dupla é deliberada: o parser RECUSA flag fora da faixa, o clamp protege o que não passou pelo parser.
+
+Uma terceira cópia do mesmo limite apareceu depois: `src/embedder/batch/passages.rs` escrevia `clamp(1, 16)` para a largura de fan-out do embedder em lote. `MIN_EMBED_PASSAGE_FAN_OUT` e `MAX_EMBED_PASSAGE_FAN_OUT` a nomeiam, e o doc delas declara que os dois tetos são deliberadamente iguais porque limitam requisições contra a MESMA cota de HOST — baixe um sem o outro e a cota passa a ser gasta por duas portas de larguras diferentes.
+
+### A única ferramenta capaz de ver o defeito era a que ninguém roda
+
+O `Cargo.toml` nega três lints do rustdoc, e o comentário ali afirmava que `cargo doc` e `cargo test --doc` passavam, por isso, a "reprovar sozinhos". Medido na 1.2.8: `cargo doc --no-deps` sai com 101 diante de um defeito real, enquanto `cargo test`, `cargo test --doc` e `cargo clippy -- -D warnings` saem todos com 0. O livro do rustdoc explica a metade verdadeira — os lints "only available when running rustdoc, not rustc" — e o `rustdoc --test` extrai doctests sem resolver link intra-doc, que é a metade falsa.
+
+O defeito em si é a terceira repetição de uma classe que este projeto já cataloga. O `Commands::persists` nasceu do GAP-SG-206, e o doc comment dele apontava para `crate::cli::Cli::install_write_policy`, declarado sem `pub`. A correção do GAP-SG-206 violou o gate que o GAP-SG-211 acabara de instalar, e o `no_ci_workflows_gate` explica por que nada avisou: não há CI, o `cargo test` é o único gate automático, e o `cargo doc` não está entre o que ele executa.
+
+### GAP-SG-228 — o gate que enxerga o que o `cargo test` não pode
+
+- **Varredura estática, e não uma chamada a `cargo doc`.** O `fmt_gate` pode invocar o `cargo fmt` porque ele não toca em `target/` nem no lock de build. O `cargo doc` toma os dois, então executá-lo dentro do `cargo test` trava no mesmo diretório de destino, e dar a ele um destino isolado custa recompilar todas as dependências em cada máquina limpa — exatamente o custo que faz um gate deixar de ser executado. O `tests/rustdoc_link_gate.rs` custa milissegundos.
+- **O índice é chaveado por `(dono, nome)`, e isso sustenta tudo.** `install_write_policy` existe duas vezes: pública e livre em `src/paths.rs`, privada dentro de `impl Cli` em `src/cli/globals.rs`. Um resolvedor chaveado pelo último segmento acha a pública, responde "público" e se cala sobre o defeito embarcado. A auto-verificação fixa essa colisão exata.
+- **`pub(crate)` não é conserto, e o gate diz isso.** O rustdoc o trata como privado, então ele é reportado como qualquer outro alvo privado, e a mensagem de falha o nomeia como a correção errada mais tentadora.
+- **A cegueira falha em vermelho.** Um link com prefixo `crate::` que não resolve é falha dura, salvo se constar da lista de isenção com razão escrita. Assim, quando o parser de item deixar de reconhecer uma forma de declaração, o índice esvazia e os links param de resolver em massa — em vez de o gate passar por não estar olhando.
+
+### GAP-SG-229 — um stream que aceitava quatro flags e não honrava nenhuma
+
+O `graph --format ndjson` streamava desde a 1.0.35 e nunca respondeu `true` ao `Commands::streams()`. A consequência era pior do que uma recusa ausente: o `render_ndjson_streaming` retornava antes da camada agent-native, então `--select`, `--filter`, `--sort` e `--dedupe-by` eram parseados e descartados, sem recusa e sem aviso.
+
+- **O formato agora é legível onde importa.** O `streams()` casa em `args` exatamente como o `mutates()` já fazia para `graph recompute-degree`, e espelha o override do `--json`, que promove o formato a envelope único. O `agent_surface_slug` não consegue fazer isso — devolve um `&'static str` — e é por isso que o escopo mora no predicado e não no slug.
+- **O stream é resolvido antes da primeira linha.** Pular o `stream::open` não é inofensivo: os emissores caem num estado inerte cuja projeção compilada é vazia, então `--select name` reduzia cada registro a `{}` em vez de projetá-lo. A amostra abrange nós E arestas, porque um stream de grafo é heterogêneo e um vocabulário julgado só pelos nós recusaria `--select from,to` num stream que carrega esses campos em toda linha de aresta.
+- **O destino arquivo continua gravando bytes completos.** Um stream cortado em disco é indistinguível de um export truncado.
+- **O `stream_contract_gate` agora varre call sites.** Os três testes comportamentais dele provavam o contrato apenas para o `export`, invocando aquele único caminho; a varredura nova dobra o `src/` em unidades de comando e reprova qualquer unidade que emita sem abrir. Um quarto teste comportamental teria fixado o comando recém-consertado e continuado cego ao próximo.
+
+### GAP-SG-230 — um campo, duas grafias, e uma perda silenciosa entre elas
+
+`graph entities`, `memory-entities`, `read --with-graph` e `deep-research` emitem `entity_type`. `graph --format json` e `--format ndjson` emitem `type` para a mesma coluna. Quem aprendeu o nome numa superfície e o usou na outra recebia `unresolved_keys` e exit 0 — uma perda silenciosa, sobre um pedido que não estava errado.
+
+A assimetria é o que faz disso um defeito e não uma escolha de nome: o lado da ENTRADA aceita o sinônimo desde que `NewEntity` ganhou `#[serde(alias = "type")]`, e o `entities-input.schema.json` documenta isso. Só a saída recusava.
+
+- **O sinônimo resolve num lugar só.** `filter::lookup` é o único acessador por onde `--filter`, `--sort`, `--dedupe-by` e `--select` alcançam o payload, então a tabela é consultada ali e em nenhum outro ponto. O fallback só roda depois que a busca direta já falhou, então um payload que carrega a grafia pedida nunca o toca.
+- **O wire não muda.** Nenhum envelope ganha, perde ou renomeia membro. A projeção responde sob a grafia que você pediu — peça `entity_type` contra o snapshot e o resultado vem chaveado como `entity_type` — porque `project_with` já era construído com o nome de saída e o caminho de busca como argumentos separados.
+- **`kind` fica DELIBERADAMENTE fora da tabela.** Ele significa o tipo da entidade no snapshot JSON e o discriminador de linha — `node`, `edge`, `summary` — no NDJSON. Tratá-los como um campo só faria `--filter kind=concept` casar linhas de aresta.
+- **Chave que resolve deixa de ser reportada como não resolvida,** e não levanta `vocabulary_partial`. Chave que genuinamente não nomeia nada continua sendo.
+
+### GAP-SG-231 — schemas publicados que contradiziam o binário
+
+O `agent-surface.schema.json` declara `additionalProperties: false` e não declarava `stream` nem `records_truncated`, que o trailer carrega desde a 1.2.8 — então o envelope que este projeto emite não validava contra o schema que este projeto publica. O `graph.schema.json` descrevia `type` como "Duplicate of kind for compatibility", o inverso exato do que o `NodeOut` documenta: `kind` é o alias deprecado, `type` é o canônico. Os dois foram corrigidos.
+
+### GAP-SG-232 — um canal de configuração removido que ainda ensinava
+
+Nenhum `env::var` em `src/` lê nome com prefixo `SQLITE_GRAPHRAG_`; o `is_kill_switch_active` lê a chave XDG `retry.disable`. Ainda assim módulos de teste chamavam `set_var`/`remove_var` sobre esse prefixo, então quem lia concluía que a variável fazia algo. O `env_channel_guard` bania o prefixo mas varria apenas texto de help e mensagem de erro, nunca o código-fonte. Agora varre também, com uma isenção que carrega a razão: `resolve_api_key_ignores_product_env` define a variável justamente para provar que ela é ignorada.
+
+### GAP-SG-233 — o gate sobre o `gaps.md` lia 12 de 40 seções
+
+O `gaps_caveat_gate` ancorava no literal `## GAP-SG-`, e a própria guarda de cegueira dele contava cabeçalhos com o MESMO literal, então não podia detectar o que não estava vendo. Medido: 28 seções `### Erro` fora de todo gate; `### Erro 24` duplicado byte a byte; um segundo H1 indentado com dois espaços, invisível a qualquer busca ancorada; e 131 identificadores `GAP-SG-NNN` citados em `src/` e `tests/` contra 12 declarados, com 204, 208, 210 e 227 órfãos acima da fronteira de recuperação de 203 que o próprio documento declara.
+
+As 27 seções `Erro` viraram entradas no formato canônico, os quatro órfãos foram escritos, e um teste novo exige que todo identificador citado na árvore exista no documento — com a faixa anterior a 203 isenta, porque o cabeçalho do documento declara essa perda.
+
+O schema segue em **v16**; `DEFAULT_EMBEDDING_DIM=1024`. Sem migração.
+
+### O help ensinava uma validação que o parser tinha removido dois minors antes
+
+`remember --help` afirmava que `reference`, `skill`, `document`, `note`, `user` e `feedback` eram "MEMORY types only — NOT valid for entities". O parser aceitava os seis desde a 1.1.8, quando o `Deserialize` de `EntityType` passou a dobrar todo rótulo não canônico no tipo mais próximo em vez de rejeitá-lo. O `docs/AGENTS.md` documentava o oposto do help, sobre a mesma função.
+
+O bloco era duplamente inalcançável: `RememberArgs` carregava um `after_long_help` que o clap descarta em silêncio, porque `Commands::Remember` declara o mesmo atributo no variant do enum e é esse que vence. A afirmação falsa nunca chegou a um terminal, e nenhum lint podia dizê-lo.
+
+Três armadilhas nasceram de uma superfície que enuncia seu contrato de entrada só em prosa:
+
+- O nome vai por `--name`, diferente de `recall` e `hybrid-search`, que aceitam a query posicional. Oito comandos irmãos já aceitavam o posicional; `remember` recusava com o `unexpected argument` genérico do clap, que não nomeia nem `--name` nem o motivo.
+- `--graph-file` e `--graph-stdin` exigem `entity_type` em cada entidade, e a falha era uma mensagem crua do serde com deslocamento de byte, ao lado de uma `suggestion` sobre kebab-case e corpo vazio.
+- `--type` (o kind da memória) e `entity_type` (o tipo do nó no grafo) são vocabulários fechados distintos, nos quais `project`, `decision` e `incident` existem nos dois com significados diferentes.
+
+### GAP-SG-216 — o contrato de entrada, publicado e imposto
+
+- **O nome pode ser posicional ou `--name`, nunca os dois.** `conflicts_with` recusa o par; a falta dos dois recusa com a mensagem que os oito comandos irmãos já compartilham.
+- **Uma dobra continua sendo dobra, e agora é recusável.** `--strict-entity-types` em `remember` e `remember-batch` rejeita a escrita em vez de reescrever a taxonomia, antes de qualquer I/O. A dobra continua sendo o padrão porque a extração por LLM depende dela — não se pede a um extrator que emita treze rótulos, enquanto a um chamador que digitou um basta avisar. É o padrão de `--strict-name` aplicado ao campo irmão.
+- **`remember-batch` reporta suas dobras.** O canal de visibilidade criado na 1.2.8 só tinha sido ligado ao `remember`; o batch desserializava o mesmo `NewEntity` e dobrava em silêncio total.
+- **`--dry-run` reporta o que a validação achou.** Ele emitia quatro campos e respondia `warnings: null` a um payload com três dobras. Agora carrega `entities_parsed`, `relationships_parsed` e cada dobra — o modo cujo propósito inteiro é dizer o que aconteceria era o único que não dizia.
+- **Dois contratos de entrada passam a ser publicados.** `schema --name graph-input` descreve a forma de fio `{body, entities, relationships}`, que não tinha nenhum. `schema --name remember-dry-run` descreve um envelope que não satisfazia schema algum: `remember.schema.json` exige catorze campos que uma execução sem escrita não tem como fornecer. O catálogo vai de 74 para 76.
+- **O help autoritativo mudou para onde ele renderiza,** e `tests/remember_input_contract_gate.rs` lê esse texto renderizado: cada seta de mapeamento impressa é conferida contra `map_to_canonical`, cada tipo canônico precisa ser nomeado, e o help não pode prometer recusa que o parser não faz. O gate alimenta a si mesmo com o texto da 1.2.8 para provar que ainda detecta.
+
+Schema permanece **v16**; `DEFAULT_EMBEDDING_DIM=1024`. Sem migração.
+
+### Uma recusa chegou depois de três linhas boas já escritas
+
+`--select name export --limit 3` emitiu três registros corretamente projetados e então saiu com `2` na quarta linha — a de sumário, que carrega `namespace` e não `name`. A projeção que resolvia contra todo registro reprovou na única linha que não é um registro, depois que o stdout já tinha sido entregue a um consumidor.
+
+O gêmeo silencioso é pior. `--select namespace export` saiu com **0** e reduziu o sumário a `{"namespace": …}`, apagando `summary: true` — o único sinal de fim-de-stream que um consumidor tem, e uma chave que `docs/schemas/export-summary.schema.json` marca como `required`. Um export truncado passa então a se ler como um completo.
+
+Os dois vêm do mesmo lugar: `apply` roda uma vez por envelope emitido, e um stream é N registros mais uma trailer. A superfície não tinha como distinguir os dois.
+
+### Sem flag alguma, cada linha carregava 278 bytes de metadado de processo
+
+Medido sobre 200 linhas: 4 818 608 bytes com o membro `agent_surface`, 4 762 730 sem ele. No limite default `--limit 100000` são cerca de **27,8 MB** restatando um fato sobre o processo uma vez por memória — com o caminho absoluto do banco incluído — dentro do arquivo que `docs/AGENTS.md` recomenda criar com `export > backup.ndjson`.
+
+É schema-válido, então nenhum contrato publicado quebrou. Mas a especificação do NDJSON é explícita em que o formato não carrega cabeçalho, metadado nem schema por linha, e o próprio doc de `agent_surface` declara desde a introdução da superfície na 1.2.2 que *NDJSON streams bypass the surface*.
+
+### GAP-SG-215 — o contrato de stream, decidido
+
+`src/output/stream.rs` pedia esta decisão por escrito desde a 1.2.2: `--select` e `--truncate-content` são *"per-line, safe to add later — needs its own contract decision"*. Ela nunca foi tomada, e `export` nunca chamou `emit_json_line`. Esta release a toma.
+
+- **A linha de registro carrega o registro e nada mais.** Sem `agent_surface`, sem `truncated`. A invariante que `mod.rs` declara volta a ser verdadeira.
+- **A trailer nunca é moldada e carrega o único registro do stream** — alvo resolvido, teto de consulta, findings da projeção e quantos registros o `--truncate-content` encurtou. A truncagem segue não silenciosa; passa a ser reportada uma vez em vez de N.
+- **O gate roda ANTES do primeiro byte.** `gate::evaluate_stream` resolve `--select` contra um prefixo limitado dos registros, então a recusa chega com o stdout ainda intocado. O prefixo é um limite de memória e é declarado como tal: um registro mediu ~24 KB como `Value`, então julgar todos no limite default custaria ~2,4 GB, e a trailer reporta `vocabulary_partial` quando o stream foi mais longo que o julgado.
+- `--max-items` passa a recusar num stream. Ele foi medido **aceito e inerte** — `--max-items 2 export --limit 5` respondeu com os cinco registros e exit `0` — porque limita elementos DENTRO de um envelope e uma linha de registro não carrega array. A mensagem aponta `--limit`.
+- `--filter` recusa com motivo próprio. Ele já recusava, por acidente, como knob inerte; a razão real é que `exported` na trailer é contado pelo COMANDO, então um predicado aplicado aqui deixaria essa contagem descrevendo linhas que o chamador nunca recebeu.
+
+`ingest` migrou para o mesmo contrato. A cerca de escrita segue intacta: `mutates` continua retornando antes de qualquer recusa, porque recusar depois de um arquivo persistido faz o chamador que retenta ingeri-lo duas vezes.
+
+### A causa raiz era uma invariante sem testemunha
+
+`mod.rs:29` enunciava a regra; nada a testava. `stream.rs` implementava um desvio; nada exigia usá-lo. Duas releases se passaram com uma invariante documentada silenciosamente falsa. É a mesma classe que a 1.2.8 fechou um nível abaixo — mensagem de recusa sem call site — e recebe a mesma contramedida.
+
+- **`tests/stream_contract_gate.rs`** verifica o contrato contra o binário real e os schemas publicados: nenhuma linha de registro carrega o bloco da superfície, a trailer carrega, um registro sem flag satisfaz o `required` do seu schema, e todo knob inutilizável recusa com exatamente uma linha no stdout. Ele carrega a própria checagem de premissa, então não passa produzindo zero registros para inspecionar.
+
+### Uma guarda escrita, traduzida, revisada — e nunca chamada
+
+`count_only_over_a_page` estava em `i18n::validation::messages_agent_surface` com o doc-comment `GAP-SG-201: --count-only over an incomplete universe emits a bare number that reads as an inventory`, nos dois idiomas, e **zero call sites**. O gate irmão `refuse_a_predicate_over_a_page` entrava em `!surface.filters.is_empty()`, então `--count-only` sozinho passava por baixo dele.
+
+Medido no corpus vivo: `--count-only graph entities` respondeu `{"count": 50}` com `count_scope: "matched"` sobre um universo de **107 111**, exit 0, numa linha de comando que não mencionou limite algum — aquele subcomando capa em 50 por conta própria. A mesma requisição com `--filter` já recusava com exit 2. Um knob guardado, o gêmeo não.
+
+`cargo clippy --all-targets -- -D warnings` passou limpo o tempo inteiro. Sempre passaria: `dead_code` avalia alcançabilidade DENTRO da crate, e item `pub` de lib crate é alcançável de fora por definição. Nenhuma configuração de lint muda isso. Cobertura de call site tem de ser teste.
+
+- **A recusa de contagem está ligada.** `--count-only` sobre teto `Pagination` que de fato cortou linhas agora sai com exit `2`, nomeando-se em `discarded_flags`. `--filter-scope page` é o escape, exatamente como a mensagem sempre disse.
+- **As duas recusas compartilham um único predicado de escape.** `a_truncated_page` guarda as quatro condições uma vez, então sem-teto, top-k, teto-que-nada-cortou e página-declarada não divergem na próxima vez que alguém acrescentar uma — a mesma "duas listas escritas à mão sem contrato entre elas" que produziu o vocabulário de relação partido em 1.2.8.
+- **Um teste de contrato falha diante de qualquer mensagem de recusa órfã.** Ele varre o catálogo por `pub fn` e as fontes do produto por call sites, recusando contar um teste como um. Carrega a própria autoverificação, então não pode passar por não funcionar.
+
+### `count_scope` descrevia o teto errado
+
+O campo comparava a contagem emitida com a casada, o que detecta `--max-items` e é estruturalmente cego ao `LIMIT` do SQL, que está a montante dele. Os dois números são medidos depois que a consulta devolveu a página, então cinquenta linhas de 107 111 respondiam `matched` — o mais forte dos três rótulos.
+
+Isso sobreviveu à recusa acima, porque a recusa tem escape: `--count-only --filter-scope page graph entities` era liberado de propósito e então recebia `count_scope: "matched"` mesmo assim. Medido.
+
+- `count_scope` agora é função pura de três entradas e reporta `page` quando o teto de consulta cortou linhas, `emitted` quando só o `--max-items` cortou, `matched` quando nenhum dos dois. O teto de consulta vence, porque reportar `emitted` ali nomeia a omissão menor e esconde a maior.
+
+### GAP-SG-201 cobria duas das superfícies paginadas, não todas
+
+`export`, `pending list` e `embedding list` paginam e não declaravam teto algum, então nenhuma das recusas podia disparar em nenhuma delas e o envelope reportava `query_limited: null`. Medido em `export --limit 10 --offset 5`, onde offset diferente de zero trunca por definição.
+
+- As três passam a declarar teto `Pagination` com `COUNT` real, acrescentado como `count_by_status` ao lado de cada `list_by_status` e como `count_rows` no `export`, cada um espelhando exatamente a cláusula `WHERE` da sua listagem. `pending list` conta os MESMOS cinco buckets que varre, agora nomeados uma vez em `PENDING_LIST_BUCKETS`.
+
+### A superfície de saída era aplicada uma vez por linha num stream
+
+`export` emite um registro autocontido por linha via `emit_json_compact`, que roteia pelo caminho de envelope e alcança `apply_global`. O próprio doc do módulo declara a invariante que ele violava: *NDJSON streams bypass the surface*. O bypass documentado, `emit_json_line`, nunca foi usado ali.
+
+Medido: `--count-only export --limit 10` emitiu **onze linhas `{"count":1}` separadas** em vez de uma contagem.
+
+- **GAP-SG-209.** `Commands::streams` reporta a propriedade, e os knobs que precisam do conjunto completo — `--count-only`, `--sort`, `--dedupe-by`, `--max-output-bytes` — são recusados com exit `2` em `export` e `ingest`. A propriedade pertence ao subcomando e não à função de emissão: `config path`, `slots release` e `pending list` também usam `emit_json_compact` para UM envelope, e ancorar a recusa nela teria rejeitado requisições que eles respondem perfeitamente.
+- `--select`, `--filter`, `--max-items` e `--truncate-content` ficam intocados: cada um age dentro de um registro e significa o mesmo sozinho ou em stream.
+
+### `--count-only` podia destruir um recibo de escrita
+
+A cerca de recusa corretamente permanece calada depois de um subcomando que alterou estado durável — reportar falha para um `remember` bem-sucedido faz o chamador que retenta gravar duas vezes. O risco simétrico não tinha guarda: a MODELAGEM ainda substituía o envelope por `{"count": N}`, descartando `memory_id`, `entities_created` e `enrich_recommended`, que o contrato manda o chamador parsear. `remember` emite envelope escalar, exatamente o ramo em que a contagem responderia `1`.
+
+- **GAP-SG-206.** Num envelope de escrita SEM array de resultado o knob é suprimido em vez de honrado, e `agent_surface.count_only_suppressed` reporta isso. A supressão é escopada a esse ramo: ali a contagem é sempre a constante `1`, então honrá-la troca o recibo por nenhuma informação. Envelope que carrega array segue respondendo com a contagem real — `mutates` lista as variantes só-leitura explicitamente e assume `true` para o resto, então ancorar a supressão nele sozinho teria tirado `--count-only` do `config list-keys`, que não escreve nada.
+
+### As recusas não tinham testes, e não podiam ter
+
+`universe::CEILING` é um `OnceLock` de processo, e `OnceLock` não oferece reset algum para um `static` — `take` e todo `get_mut` exigem `&mut self`. Dois testes no mesmo binário nunca poderiam declarar tetos diferentes, e nenhuma recusa desta família tinha teste. Essa é a causa raiz: a decisão lia estado ambiente de dentro de si mesma, o que deixou o compilador como único leitor, e o compilador não enxerga item `pub`.
+
+- `apply_with_premises` recebe o teto como argumento e `apply` é o único ponto que lê as duas células de processo. `apply_with_target` mantém a forma, então os dezessete testes que só se importam com o alvo resolvido não precisam declarar opinião sobre teto. É o padrão que o próprio `apply_with_target` já estabelecera pelo mesmo motivo.
+
+### A projeção re-dividia toda chave pontilhada, uma vez por elemento
+
+`project_one` compilava `key.split('.')` dentro do laço e `project` o chamava por elemento, então `graph entities --select name` alocava um `Vec<String>` mais uma `String` por segmento **107 135 vezes** para responder com um campo, descartando cada uma em seguida. `sort` e `dedupe` no mesmo arquivo já içavam a divisão para fora dos seus laços.
+
+- `project` compila os caminhos uma vez. A saída é idêntica byte a byte, fixada por teste.
+
+### O crate validava uma grafia e gravava outra
+
+`parsers::validate_relation_format` exigia `^[a-z][a-z0-9_]*$` e `CANONICAL_RELATIONS` era snake_case, enquanto o JSON Schema entregue ao modelo de extração declarava os mesmos doze nomes em kebab-case e `enrich::extraction_body` persistia a resposta do modelo verbatim, sem normalizar nem validar. `enrich::postprocess` — o outro caminho do mesmo comando — normalizava. Dois caminhos de escrita de um binário, políticas opostas.
+
+Medido em três bancos de produção: **67 651 arestas em kebab-case contra 3 578 em snake_case**. A grafia que a constante chamava de canônica era a usada por 5% dos dados, e só as três relações multi-palavra podem divergir — `applies-to`, `depends-on`, `tracked-in`, que são exatamente as que carregam hierarquia.
+
+Nada falhava, porque todo filtro de leitura normaliza antes de um `WHERE` LITERAL. `related <hub> --relation applies-to` devolvia zero linhas com exit 0 num hub que tem arestas `applies-to`. `health.applies_to_ratio` reportava 0,0085% onde a fração real é 17,8%, um fator de 2098 — e dentro do mesmo comando `top_relation` esteve certo o tempo todo, porque agrupa pelo valor armazenado em vez de comparar com um literal. `enrich --operation relation-reclassify` via 24 candidatas onde existiam 50 346, então a ferramenta de conserto era cega aos mesmos 95% do grafo.
+
+- **Relações canônicas são kebab-case, em um lugar só.** `CANONICAL_RELATIONS` e a nova `GENERIC_RELATION` são a fonte única; `normalize_relation` converge para hífen e `validate_relation_format` o aceita. `enrich::predicates`, `enrich::scan::relationships` e `health` derivam o literal em vez de cada um guardar uma cópia.
+- **A canonização desceu para a fronteira de persistência.** `create_or_fetch_relationship` e `upsert_relationship` normalizam elas mesmas, então a omissão que produziu a divisão fica impossível em vez de apenas ausente. Os chamadores que já normalizavam não mudam; a operação é idempotente.
+- **Os filtros de relação casam as duas grafias.** `graph::walk` compara com a forma canônica E com a contraparte, alcançando linhas escritas por binários anteriores sem migrar nada.
+- **Um teste de contrato confronta os prompts com a constante.** Ele varre o texto-fonte em vez de uma lista, então cobre os sete bullets em prosa junto com o enum JSON, e `mentions` está nomeado em `RELATIONS_WITHHELD_FROM_MODEL` para que um estreitamento deliberado não seja confundido com deriva.
+
+### O `related` devolvia resposta diferente a cada pergunta
+
+`WalkOutcome.depth` é um `HashMap` com `RandomState`, semeado por processo, e a ordenação comparava só `(hop, weight)` com um sort ESTÁVEL — então todo empate herdava uma ordem aleatória, e num grafo empate é a norma porque os pesos se concentram em 0,5 e 1,0. Medido: **oito invocações idênticas no mesmo banco devolveram oito conjuntos de resultados diferentes**, não apenas reordenados, já que o corte de top-k caía em lugar distinto a cada vez. Exit 0 em todas.
+
+- O comparador agora é total, desempatando por `entity_id`, e a consulta de memórias por entidade declara `ORDER BY m.id`. Verificado em 20 invocações idênticas devolvendo uma assinatura, e refutado removendo o desempate e medindo oito assinaturas de novo.
+
+### A extração parou de sobrescrever tipo que alguém declarou
+
+`upsert_entity` escreve `type = excluded.type` incondicionalmente e o worker de enriquecimento roda depois de cada escrita bem-sucedida, então um `person` declarado por `remember --graph-stdin` era substituído pelo palpite do modelo minutos depois, sem envelope nenhum reportando. Medido num corpus vivo: uma área de uma empresa gravada como `person`.
+
+- **`upsert_entity_preserving_type`** mantém o tipo existente a menos que ele seja o genérico `concept`, e só `enrich::postprocess` e `enrich::extraction_body` a chamam. `remember`, `link`, `ingest` e `split_body` seguem autoritativos.
+- **O `remember` reporta tipos não canônicos.** Um `entity_type` declarado fora dos treze recomendados agora aparece em `warnings`, no turno em que o chamador ainda pode agir. Mais adiante nesta mesma release a dobra em si foi removida — veja abaixo — então o aviso é consultivo e o rótulo é gravado como escrito.
+
+### GAP-SG-277 e GAP-SG-278 — o vocabulário de entity_type é aberto
+
+`entity_type` era um enum fechado de treze tipos, e todo outro rótulo era substituído pelo mais próximo, terminando em `concept`. A substituição era destrutiva no sentido estrito: a string que o chamador escreveu era consumida dentro do `Deserialize` e nunca voltava a existir como valor, então nenhuma camada acima podia reportá-la, gravá-la ou decidir política sobre ela. Medido no banco deste workspace: **10.902 de 15.744 entidades estavam em `concept`, 69,25% do grafo**, o que torna filtrar por `concept` indistinguível de não filtrar nada.
+
+A correção abre o vocabulário em vez de alargá-lo, espelhando o que `V010__open_relation_vocabulary.sql` fez com as relações na v1.0.49. `migrations/V017__open_entity_type_vocabulary.sql` remove o `CHECK` SQL de `entities.type`, o enum some, o rótulo viaja como `String` simples, e `CANONICAL_ENTITY_TYPES` passa a ser conselho em vez de porteiro. Como nada mais é dobrado, o rótulo do chamador sobrevive por construção — ele não precisa de uma segunda coluna para ser preservado, apenas da ausência de algo que o destrua.
+
+- **O que continua imposto é a forma, nunca a filiação.** `normalize_entity_type` aplica exatamente três transformações — trim, minúsculas, hífen vira underscore — então `Issue-Tracker` e `issue_tracker` continuam sendo uma linha só, não duas. Ela recusa apenas rótulos que não poderiam ser palavra em vocabulário nenhum: vazio, só dígitos, com quebra de linha, ou maior que 64 caracteres.
+- **Os treze continuam recomendados.** Eles aparecem no texto de ajuda, são oferecidos como candidatos de completion, e são impostos sob `--strict-entity-types`, que recusa a escrita com exit 1. Sem essa flag o rótulo é aceito, gravado como escrito, e reportado em `warnings` como `entity_type 'X' on entity 'Y' is outside the canonical set` — uma frase sem veredito dentro, para que o mesmo texto sirva à aceitação e à recusa.
+- **`concept` é um padrão, não um destino.** Ele é aplicado somente quando o chamador não declara tipo algum. Um rótulo que apenas difere do conjunto canônico agora é gravado como ele mesmo.
+- **O schema vai de v16 para v17.** Os schemas de entrada publicados `graph-input` e `entities-input` perdem o `enum` de treze valores; o campo passa a ser `"type": "string"` com a política na `description`.
+- **`graph entity-types` lê de volta o que o código-fonte não consegue mais informar.** Abrir um vocabulário cobra do leitor justamente o que o enum fechado dava de graça: a lista. O comando novo reporta `{types[{type, count, canonical}], total_types, total_entities, namespace, elapsed_ms}`, ordenado por contagem decrescente, e o `graph-entity-types.schema.json` o publica. `graph entities --entity-type` só filtra por rótulo já adivinhado; é aqui que o rótulo é descoberto. `canonical: false` é linha normal, não defeito.
+
+### Uma migration que dropava tabela levava o grafo junto
+
+Encontrado ao escrever a V017 e corrigido junto. O SQLite não consegue remover um `CHECK` no lugar, então a migration reconstrói `entities` — e o refinery roda migrations dentro de transação com foreign keys LIGADAS, onde `DROP TABLE entities` cascateia em toda tabela que a referencia. Medido numa cópia do banco deste workspace: **213.029 arestas viraram 0**, com a migration reportando sucesso.
+
+`PRAGMA foreign_keys` é no-op dentro de transação, e é exatamente por isso que o defeito sobrevive a uma leitura do arquivo de migration: o pragma precisa ser desligado FORA da transação que o refinery abre. `storage::connection::run_migrations_with_foreign_keys_off` faz isso, restaura o pragma depois, e passa a ser o único caminho que aplica migrations.
+
+Duas salvaguardas entraram junto, porque desligar a enforcement só é seguro se algo conferir o resultado. Um `PRAGMA foreign_key_check` roda depois da migration, então uma reconstrução que deixe referência pendurada é reportada em vez de comitada em silêncio. E um banco existente é copiado para backup antes de ser migrado, então um defeito dessa classe custa um restore em vez de um corpus.
+
+### Resíduo declarado
+
+- Entidades gravadas antes desta release mantêm o rótulo que a dobra produziu. A string original era destruída no parse em toda versão anterior, então não há de onde restaurar — uma reextração é o único caminho para recuperar um tipo mais verdadeiro, e ela produz um novo julgamento em vez do antigo.
+- Filtrar por `--entity-type concept` passa portanto a devolver MENOS linhas com o tempo, à medida que as escritas novas param de cair ali. Uma consulta salva que contava com `concept` sendo o balde geral agora mede outra coisa, e a mudança é silenciosa: a consulta continua tendo sucesso.
+
+### Outros
+
+- **`link --strength`** é alias de `--weight`. A mesma propriedade se chama `strength` nos schemas de entrada e `weight` na saída do grafo, e a falta do alias levou um chamador a concluir que o comando não sabia pesar aresta.
+- **`--names` / `--entity-names` alcançam a linha armazenada.** Os predicados de scan comparavam a entrada crua com nomes kebab-ASCII, então `--entity-names "Relatório Anual"` não casava nada; o filtro agora carrega as duas formas, preservando a crua porque as mesmas flags também carregam nomes de memória.
+- **`resolve_name_filter` é linear**, não O(n²), e reserva sua capacidade.
+- **Os permits do `deep-research` consideram memória**, `min(cpus, ram_disponível / 2 / llm.worker_rss_mb)` com teto 8, em vez de `cpus.min(8)` em qualquer host.
+
+### Dado de exemplo passa a ser sintético em todo lugar
+
+A documentação, comentários de doc e fixtures de teste usavam um nome pessoal real como sujeito de query de exemplo, como entidade `person` de exemplo e como nome de um binário de teste. Dado de exemplo não é autoria: ele é lido, copiado e reexecutado por todo mundo que usa este crate. Cada ocorrência passa a usar a persona sintética `alice` / `alice-martins-souza`, que o repositório já usava em outros pontos e que preserva a propriedade exercitada por essas fixtures — um apelido curto que é prefixo de um nome kebab-case mais longo.
+
+- **A suite de regressão da v1.1.05 agora é `tests/v1105_incident_bugs_regression.rs`.** O nome de arquivo anterior embutia o sujeito; a invocação é `cargo test --test v1105_incident_bugs_regression`.
+- **A ADR-0065 mudou de lugar**, para `docs/decisions/adr-0065-v1-1-05-incident-bugs.md`, nos dois idiomas. O incidente passa a ser nomeado pelo que ele foi — uma query de deep-research de token único — e não pelo sujeito dele.
+- Copyright, a URL de `repository`, os URIs `$id`/`$ref` dos schemas, o owner no crates.io e o contato de segurança são autoria e permanecem inalterados.
+
 ## [1.2.7] - 2026-08-10
 
 ### O alvo resolvido chega a todo envelope, e uma escrita precisa nomeá-lo
@@ -395,10 +868,10 @@ Fecha **GAP-ENTITY-CONNECT-SCAN-CARTESIAN** (P0): `enrich --operation entity-con
 
 ## [1.1.05] - 2026-07-11
 
-Fecha os cinco bugs operacionais do relato de incidente deep-research sobre o sujeito "danilo" (2026-07-08; ver `gaps.md`). Sem migração de schema. Nome oficial do release: v1.1.05; o manifest do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no patch.
+Fecha os cinco bugs operacionais do relato de incidente deep-research sobre um sujeito de token único (2026-07-08; ver `gaps.md`). Sem migração de schema. Nome oficial do release: v1.1.05; o manifest do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no patch.
 
 ### Corrigido
-- Bug 1 — `deep-research` com query de palavra única (ex.: `"danilo"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 1 — `deep-research` com query de palavra única (ex.: `"alice"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
 - Bug 2 — envelopes JSON grandes deixam de ser frágeis sob redirecionamento de shell: novo `--output PATH` grava o envelope completo via algoritmo atomwrite (tempfile → fsync → rename) e emite um ack curto no stdout com checksum `blake3`; `--quiet`/`-q` global suprime tracing não-erro; o help documenta o contrato stdout-JSON / stderr-logs (nunca `&>` no mesmo arquivo).
 - Bug 3 — `graph traverse --from <nome-curto>` não falha mais de forma opaca: match exato continua prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões ranqueadas (Jaro-Winkler / prefixo) dos nomes canônicos; com `--fuzzy`, um vencedor claro é auto-resolvido com warning em stderr (`rapidfuzz`).
 - Bug 4 — `merge-entities` rejeita merges auto-referenciais (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB, para que erros de word-splitting do zsh não corrompam o grafo sob `--cross-namespace`. Re-checagem em profundidade permanece no resolve.
@@ -407,7 +880,7 @@ Fecha os cinco bugs operacionais do relato de incidente deep-research sobre o su
 ### Adicionado
 - `src/atomic_io.rs` — helpers de escrita atômica (`write_atomic`, `write_json_atomic`) usados por `deep-research --output`.
 - `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity`.
-- Suite de integração `tests/v1105_danilo_bugs_regression.rs` cobrindo os cinco bugs na fronteira da CLI.
+- Suite de integração `tests/v1105_incident_bugs_regression.rs` cobrindo os cinco bugs na fronteira da CLI.
 
 ### Documentação
 - Help longo do `deep-research`: contrato stdout/stderr e exemplos de `--output` / estratégia manual.
@@ -763,7 +1236,7 @@ A auditoria end-to-end que seguiu a selagem dos 56 gaps expôs um bloco de dívi
 ## [1.0.88] - 2026-06-19
 
 ### Corrigido
-- **BUG-11 CRÍTICO** — `src/embedder.rs` agora invoca `preflight_check` antes de `Command::spawn()` no pipeline de embedding LLM. Bypass anterior significava que um `CLAUDE_CONFIG_DIR` populado (ex.: instalação real do Claude Code em `/home/comandoaguiar/.claude01`) era aceito pelo caminho de embedding enquanto rejeitado pelos outros 3 spawners, produzindo comportamento inconsistente. Restaura paridade com `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs`.
+- **BUG-11 CRÍTICO** — `src/embedder.rs` agora invoca `preflight_check` antes de `Command::spawn()` no pipeline de embedding LLM. Bypass anterior significava que um `CLAUDE_CONFIG_DIR` populado (ex.: instalação real do Claude Code em `$HOME/.claude01`) era aceito pelo caminho de embedding enquanto rejeitado pelos outros 3 spawners, produzindo comportamento inconsistente. Restaura paridade com `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs`.
 - **BUG-12 MÉDIO** — `src/output.rs:141` (`output::emit_error`) remove a chamada redundante de `eprintln!`. Apenas `tracing::error!` agora renderiza violação de OAuth-only para stderr. Stderr emite exatamente 1 linha por violação (eram 2). Validado por `oauth_stderr_emits_single_line_v1088`.
 - **BUG-13 MÉDIO** — `src/commands/link.rs` agora rejeita abreviações ALL_CAPS de 4 caracteres ou menos na camada de link (anteriormente aceitas apesar do validador de entidade as rejeitar). Restaura simetria com `remember --graph-stdin` e `ingest --mode claude-code`.
 

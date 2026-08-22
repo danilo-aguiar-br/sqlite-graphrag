@@ -50,7 +50,7 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 - The global `--quiet`/`-q` flag suppresses non-error tracing on stderr, cutting noise in agent pipelines without altering the envelope
 - Prefer `link --from-id`/`--to-id` when the identity is a numeric entity ID; purely numeric names are rejected by `validate_entity_name` (v1.1.05) so `--create-missing` cannot create phantom entities
 - Self-referential merges in `merge-entities` (target ID/name also listed as a source) are rejected BEFORE any database work (v1.1.05), protecting graph integrity against shell word-splitting
-- The shared helpers in `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) are unit-tested; the `tests/v1105_danilo_bugs_regression.rs` suite covers the CLI path
+- The shared helpers in `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) are unit-tested; the `tests/v1105_incident_bugs_regression.rs` suite covers the CLI path
 - Output-file integrity: check the `blake3` checksum from the stdout ack against the written content when the pipeline needs end-to-end verification
 
 
@@ -94,25 +94,29 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 - Supply chain is enforced via pinned `constant_time_eq = "=0.4.2"` to protect MSRV 1.88
 - Transitive dependency MSRV drift is monitored proactively per PRD policy
 
-## v1.0.76 OAuth-Only LLM Credential Enforcement
-- The default build is LLM-only and one-shot. Every embedding call spawns a headless `claude code` or `codex` subprocess.
-- The spawn ABORTS with `AppError::Validation` and exit code 1 when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` is detected in the environment.
-- The OAuth flow (Claude Pro/Max or ChatGPT Pro subscription) is the ONLY accepted credential mechanism.
-- Both API-key env vars are INTENTIONALLY ABSENT from the env-clear whitelist in `claude_runner.rs`, `codex_spawn.rs`, and `ingest_claude.rs`. Defence in depth: even if a future refactor moves the OAuth-only guard, the variable never reaches the child.
-- The `--bare` flag (which would also demand an API key) is REMOVED from every executable path since v1.0.69.
-- Four `#[serial_test::serial(env)]` tests validate the canonical flag set and the abort behaviour.
-- See `docs/decisions/adr-0011-oauth-only-enforcement.md` for the full rationale and `docs/decisions/adr-0025-oauth-only-embedding.md` for the v1.0.76 embedding-specific application.
-- Migration: any operator currently relying on `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` must migrate to OAuth before upgrading.
+## v1.0.76 OAuth-Only LLM Credential Enforcement — HISTORICAL, the guarded mechanism no longer exists
+- CURRENT SURFACE, measured on the 1.2.8 binary of this working tree: NOTHING in `src/` starts a subprocess. Embedding and enrichment are HTTPS calls to OpenRouter, made in-process and one shot, selected by `--embedding-backend openrouter|auto` and `--llm-backend openrouter|none`.
+- CURRENT CREDENTIAL PATH: `config add-key --provider openrouter --from-stdin` stores the key at rest under XDG and keeps it out of shell history and out of the process table; `--openrouter-api-key <KEY>` overrides that store for a single invocation and IS visible in the process table, so prefer the store. `config list-keys` shows masked fingerprints, `config remove-key` deletes one, and `config doctor` reports which layer resolved the key. Product environment variables are not read at runtime and are not a configuration channel.
+- CURRENT RESIDUAL RISK, stated without invention: the key sits in an XDG file protected by filesystem permissions, and it is transmitted to the provider over TLS. There is no OAuth-only guard, no env-clear whitelist and no spawn boundary in this build, because there is no child process — the protections described in the rest of this section are NOT in force and must not be relied upon.
+- EVERY BULLET BELOW IS HISTORICAL. It records the subprocess era, removed in v1.2.0, and is kept as a register of what was built rather than as a guarantee. Verification: `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` occur zero times in `src/`, and `claude_runner.rs`, `codex_spawn.rs` and `ingest_claude.rs` are not files of this repository any more.
+- HISTORICAL: the default build was LLM-only and one-shot, and every embedding call spawned a headless `claude code` or `codex` subprocess.
+- HISTORICAL: the spawn ABORTED with `AppError::Validation` and exit code 1 when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` was detected in the environment. No such abort exists today, and no code reads either variable.
+- HISTORICAL: the OAuth flow (Claude Pro/Max or ChatGPT Pro subscription) was the ONLY accepted credential mechanism. Today the accepted mechanism is an OpenRouter API key held at rest under XDG.
+- HISTORICAL: both API-key env vars were INTENTIONALLY ABSENT from the env-clear whitelist in `claude_runner.rs`, `codex_spawn.rs` and `ingest_claude.rs`, as defence in depth against a future refactor moving the guard. That defence disappeared together with the risk it covered: no child is started, so no variable can reach one.
+- HISTORICAL: the `--bare` flag (which would also demand an API key) was REMOVED from every executable path in v1.0.69.
+- HISTORICAL: four `#[serial_test::serial(env)]` tests validated the canonical flag set and the abort behaviour.
+- HISTORICAL RATIONALE: `docs/decisions/adr-0011-oauth-only-enforcement.md` for the full reasoning and `docs/decisions/adr-0025-oauth-only-embedding.md` for the v1.0.76 embedding-specific application.
+- Migration: an operator still relying on `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` must move to an OpenRouter key, because since v1.2.0 neither variable is read by anything.
 
 ## v1.0.83 Custom Provider Credential Preservation (ADR-0041)
-- The default build now PRESERVES seven custom-provider env vars when spawning `claude -p` or `codex exec` subprocesses, enabling Anthropic-compatible providers (MiniMax/api.minimax.io, OpenRouter, AWS Bedrock, corporate gateways)
+- HISTORICAL: the default build PRESERVED seven custom-provider env vars when spawning `claude -p` or `codex exec` subprocesses, enabling Anthropic-compatible providers (MiniMax/api.minimax.io, OpenRouter, AWS Bedrock, corporate gateways)
 - The preserved vars are `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CODEX_ACCESS_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, and `OTEL_EXPORTER_OTLP_ENDPOINT`
-- These vars are SEMANTICALLY DISTINCT from the OAuth-only-rejected `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`; the OAuth-only guard in `claude_runner.rs`, `codex_spawn.rs`, and `ingest_claude.rs` continues to reject the API keys with exit 1 (defence in depth preserved)
-- The whitelist now lives in a single shared helper `src/spawn/env_whitelist.rs` exposing `apply_env_whitelist(cmd, strict)` and `is_strict_env_clear()`; the three spawners delegate instead of duplicating the inline array
-- For compliance environments that forbid credential forwarding via env vars (PCI-DSS, SOC2, HIPAA), operators pass `--strict-env-clear` (or persist via XDG if supported); strict mode preserves only `PATH` and drops every other env var. Product env `SQLITE_GRAPHRAG_*` is not the configuration path in v1.1.8
-- Five `#[serial_test::serial(env)]` regression tests live in `tests/claude_runner_env.rs` covering custom-provider propagation, OAuth-only abort preservation, codex base-URL inheritance, strict-mode credential dropping, and a no-leak audit that scans subprocess stderr for the literal token value with `RUST_LOG=trace`
-- No telemetry is emitted; the fix is silent unless the OAuth-only guard fires (which surfaces an orientative marker arg pointing to `ANTHROPIC_AUTH_TOKEN` or `~/.codex/auth.json` as legitimate resolutions)
-- Threat model: credential values for custom providers flow from the orchestrator process to the LLM subprocess over the process boundary. The audit-of-no-leak test prevents future regressions where a `tracing` macro might print the raw token to stderr. Operators on shared hosts should prefer `--strict-env-clear` to avoid forwarding secrets
+- HISTORICAL: those vars were SEMANTICALLY DISTINCT from the OAuth-only-rejected `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and the OAuth-only guard rejected the API keys with exit 1. Measured on this working tree: `claude_runner.rs`, `codex_spawn.rs` and `ingest_claude.rs` are not files of this repository any more, and no guard runs
+- HISTORICAL: the whitelist lived in a shared helper `src/spawn/env_whitelist.rs` exposing `apply_env_whitelist(cmd, strict)` and `is_strict_env_clear()`, and the three spawners delegated to it. The whole `src/spawn/` directory was removed with the subprocess backends
+- HISTORICAL: for compliance environments that forbid credential forwarding via env vars (PCI-DSS, SOC2, HIPAA), operators passed --strict-env-clear, and strict mode preserved only `PATH` while dropping every other env var. The flag lived on the global surface until v1.2.2, as `src/cli/globals.rs` still records; a 1.2.8 binary answers unexpected argument '--strict-env-clear' found with exit 2. Nothing forwards a credential today, because nothing spawns. Product env `SQLITE_GRAPHRAG_*` is not read at runtime, so it is not the configuration path either
+- HISTORICAL: five `#[serial_test::serial(env)]` regression tests lived in `tests/claude_runner_env.rs`, a file this repository no longer contains, covering custom-provider propagation, OAuth-only abort preservation, codex base-URL inheritance, strict-mode credential dropping, and a no-leak audit that scans subprocess stderr for the literal token value with `RUST_LOG=trace`
+- No telemetry is emitted anywhere in this product, then or now. HISTORICAL: the fix was silent unless the OAuth-only guard fired, surfacing an orientative marker arg pointing to `ANTHROPIC_AUTH_TOKEN` or `~/.codex/auth.json` as legitimate resolutions; that guard no longer exists
+- HISTORICAL threat model: credential values for custom providers flowed from the orchestrator process to the LLM subprocess over the process boundary, the audit-of-no-leak test guarded against a `tracing` macro printing the raw token to stderr, and operators on shared hosts were told to prefer --strict-env-clear. That boundary does not exist in v1.2.8 and the flag is rejected with exit 2; the credential surface is now a single OpenRouter key read from the XDG store and sent over TLS
 - See `docs/decisions/adr-0041-preserve-custom-provider-env.md` (EN) and `.pt-BR.md` for the full architectural decision and the alternatives considered
 
 ## v1.0.87+ Pre-flight Validation Layer (ADR-0045)
@@ -124,8 +128,8 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 
 ## v1.0.89 Embedding Pipeline Remediation and Safety Fixes (ADR-0050)
 - BUG-YES-FLAG-IGNORED: three destructive commands (slots release, purge, cleanup-orphans) declared --yes but executed deletions without it. All now abort with AppError::Validation when --yes is absent, matching the 5 other destructive commands that already enforced this
-- BUG-BOOLISH-ENV: four boolean CLI flags (--skip-embedding-on-failure, --strict-env-clear, --dry-run-backend, --llm-slot-no-wait) rejected standard Unix env values (1, yes, on) with exit 2. Fixed via BoolishValueParser. Scripts setting SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE=1 now work correctly
-- BUG-STRICT-ENV-PROPAGATION: --strict-env-clear CLI flag was silently ignored because main.rs did not propagate it to the env var. Fixed: now propagated via set_var before command dispatch
+- BUG-BOOLISH-ENV: four boolean CLI flags (--skip-embedding-on-failure, --strict-env-clear, --dry-run-backend, --llm-slot-no-wait) rejected standard Unix env values (1, yes, on) with exit 2. Fixed via BoolishValueParser. The `SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE` form is historical and was removed; pass the flag value on the command line instead
+- BUG-STRICT-ENV-PROPAGATION (HISTORICAL): the --strict-env-clear CLI flag was silently ignored because main.rs did not propagate it to the env var. Fixed at the time via set_var before command dispatch; the flag itself was removed after v1.2.2 and a 1.2.8 binary rejects it with exit 2
 - GAP-FLAGS-MORTAS: 7 global LLM flags were accepted by clap but silently ignored because internal modules read env vars directly. Fixed: main.rs now bridges CLI flags to env vars via set_var
 - GAP-RECALL-001: embedding deadlock from stale LLM subprocess slots resolved via explicit drop(stdin), reduced timeout (300s to 30s), stale slot reaper, and sqlite-graphrag orphan process cleanup
 - See docs/decisions/adr-0050-embedding-deadlock-remediation.md for the full architectural decision
@@ -158,8 +162,8 @@ Read this document in [Portuguese (pt-BR)](SECURITY.pt-BR.md).
 - JAMAIS disable the memory guard in production via undocumented flags
 - JAMAIS raise heavy-command concurrency blindly on memory-constrained hosts; prefer serial execution during audits
 - JAMAIS bypass `cargo audit` warnings without opening a tracked security advisory
-- JAMAIS set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment; the spawn will abort with exit 1
-- JAMAIS rely on `ANTHROPIC_AUTH_TOKEN` forwarding when the host is shared with untrusted processes; prefer `--strict-env-clear` so credentials stay in the parent process only
+- HISTORICAL advice, kept as a record: JAMAIS set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment, because the spawn would abort with exit 1. A 1.2.8 binary reads neither variable and spawns nothing, so setting them changes nothing — and removing them protects nothing.
+- HISTORICAL advice: JAMAIS rely on `ANTHROPIC_AUTH_TOKEN` forwarding when the host is shared with untrusted processes, preferring --strict-env-clear so credentials stayed in the parent process only. Both the forwarding and the flag are gone; on a shared host the exposure to watch today is `--openrouter-api-key` on the command line, visible in the process table — store the key with `config add-key --provider openrouter --from-stdin` instead.
 - Prefer `link --from-id`/`--to-id` over name-based linking when the identity is an integer entity ID; pure-numeric entity names are rejected by `validate_entity_name` (v1.1.05) so `--create-missing` cannot create ghost numeric entities
 - Self-referential `merge-entities` (target ID/name also listed as a source) is rejected BEFORE any DB work (v1.1.05), protecting graph integrity against shell word-splitting mistakes
 - v1.1.06: first-scan wall-clock for `enrich --operation entity-connect` / `cross-domain-bridges` uses `InterruptHandle` and returns Timeout exit **1** (not singleton exit **75**). Orchestrators must not treat scan timeout as a lock contention signal. See ADR-0066 and `docs/HEADLESS_INVOCATION.md`.

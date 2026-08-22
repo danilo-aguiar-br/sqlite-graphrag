@@ -1,4 +1,7 @@
 # ADR-0049 — `--db` Flag Scope Per Subcommand (NOT Global)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `SQLITE_GRAPHRAG_DB_PATH` is never read at runtime by the v1.2.8 binary and has no effect, including the `#[arg(long, env = ...)]` snippet shown below.
+- HISTORICAL: the live channels are the `--db <PATH>` flag AFTER the subcommand and `sqlite-graphrag config set db.path`.
 
 **Status**: Accepted
 **Date**: 2026-06-19

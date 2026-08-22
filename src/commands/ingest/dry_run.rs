@@ -36,7 +36,7 @@ pub(super) fn emit_preview(
                 original_filename,
                 reason,
             } => {
-                output::emit_json_compact(&IngestFileEvent {
+                output::emit_stream_record(&IngestFileEvent {
                     file: file_str,
                     name: derived_base,
                     status: "skip",
@@ -58,7 +58,7 @@ pub(super) fn emit_preview(
                 original_name,
                 original_filename,
             } => {
-                output::emit_json_compact(&IngestFileEvent {
+                output::emit_stream_record(&IngestFileEvent {
                     file: file_str,
                     name: derived_name,
                     status: "preview",
@@ -77,7 +77,9 @@ pub(super) fn emit_preview(
         }
     }
 
-    output::emit_json_compact(&IngestSummary {
+    // GAP-SG-215: the trailer, not a record. It carries the one `agent_surface`
+    // block for the whole preview.
+    output::emit_stream_trailer(&IngestSummary {
         summary: true,
         dir: args.dir.to_string_lossy().into_owned(),
         pattern: args.pattern.clone(),
@@ -99,7 +101,7 @@ fn emit_budget(file_str: &str, derived_name: &str) -> Result<(), AppError> {
     match std::fs::read_to_string(file_str) {
         Ok(body) => {
             let budget = chunking::assess_body_budget(&body);
-            output::emit_json_compact(&IngestDryRunBudget {
+            output::emit_stream_record(&IngestDryRunBudget {
                 budget: true,
                 file: file_str,
                 name: derived_name,

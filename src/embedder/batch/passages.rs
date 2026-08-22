@@ -1,8 +1,7 @@
 //! Multi-passage embedding entry points.
 //!
-//! The two public ways a caller hands a corpus of passages to the embedder:
-//! the borrowed-slice compatibility shim and the shared `Arc` implementation
-//! that drives the OpenRouter REST batch API
+//! The single public way a caller hands a corpus of passages to the embedder:
+//! the shared `Arc` implementation that drives the OpenRouter REST batch API
 //! (v1.0.93 GAP-OR-INGEST / GAP-SG-147).
 
 use super::fan_out::{chunk_ranges, fan_out_chunk, reassemble_ordered};
@@ -19,72 +18,40 @@ use tokio::task::JoinSet;
 /// input order after out-of-order `JoinSet` completion.
 type EmbedChunkResult = (usize, Result<Vec<Vec<f32>>, AppError>);
 
-/// v1.0.93 (GAP-OR-INGEST): embeds multiple passages with
-/// `EmbeddingBackendChoice` awareness. When the resolved chain starts
-/// with `OpenRouter` and the client is initialised, uses the HTTP batch
-/// API (`embed_batch`) — no LLM slot consumed, ~200ms per batch.
-///
-/// # Deprecated
-///
-/// This entry point takes a BORROWED slice, which cannot be handed to the
-/// `'static` fan-out tasks, so it clones the entire corpus on every call — a
-/// 36k-passage backfill copies every string before a single request is sent.
-/// `embed_passages_parallel_shared` takes an `Arc<[String]>` instead and is
-/// the real implementation this delegates to; migrating costs one
-/// `Arc::from(vec)` at the call site and removes the copy.
-#[deprecated(
-    since = "1.2.3",
-    note = "clones the whole corpus; use `embed_passages_parallel_shared`, which takes an \
-            `Arc<[String]>` and is the real implementation this delegates to"
-)]
-pub fn embed_passages_parallel_with_embedding_choice(
-    models_dir: &Path,
-    texts: &[String],
-    parallelism: usize,
-    local_batch_size: usize,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
-) -> Result<Vec<Vec<f32>>, AppError> {
-    // GAP-SG-147: COMPATIBILITY SHIM, not the main path. A borrowed slice
-    // cannot be handed to `'static` tasks without owning it, so this copies
-    // once and delegates. Do not add logic here — put it in
-    // `embed_passages_parallel_shared`, which is the real implementation.
-    embed_passages_parallel_shared(
-        models_dir,
-        Arc::from(texts.to_vec()),
-        parallelism,
-        local_batch_size,
-        embedding_backend,
-        llm_backend,
-    )
-}
-
 /// Embeds many passages with `EmbeddingBackendChoice` awareness (GAP-SG-147).
 ///
-/// THIS IS THE REAL IMPLEMENTATION.
-/// [`embed_passages_parallel_with_embedding_choice`] is a thin compatibility
-/// shim that copies a borrowed slice and calls straight into this function; it
-/// only exists because that borrowed-slice signature is published API. Every
-/// in-crate caller should land here, and any new behaviour belongs here.
+/// THIS IS THE ONLY MULTI-PASSAGE ENTRY POINT. v1.0.93 (GAP-OR-INGEST): when
+/// the resolved chain starts with `OpenRouter` and the client is initialised,
+/// it uses the HTTP batch API (`embed_batch`) — no LLM slot consumed, ~200ms
+/// per batch.
 ///
-/// Takes ownership of the corpus through an `Arc<[String]>` so the OpenRouter
-/// fan-out can hand each task a refcount bump plus an index range instead of a
-/// cloned `Vec<String>` per chunk. `Arc::from(vec)` MOVES the string buffers
-/// into the `Arc` allocation — only the 24-byte headers are memcpy'd, never the
-/// heap data — so a 36k-text backfill no longer copies the whole corpus.
+/// # Why the corpus arrives as an `Arc<[String]>`
+///
+/// A BORROWED slice cannot be handed to the `'static` fan-out tasks, so an
+/// entry point taking `&[String]` has to clone the entire corpus on every
+/// call: a 36k-passage backfill copies every string before a single request
+/// leaves the process. That borrowed-slice shim existed until v1.2.8 and was
+/// removed; this signature is the reason it was never needed.
+///
+/// Taking ownership through an `Arc<[String]>` lets the OpenRouter fan-out
+/// hand each task a refcount bump plus an index range instead of a cloned
+/// `Vec<String>` per chunk. `Arc::from(vec)` MOVES the string buffers into the
+/// `Arc` allocation — only the 24-byte headers are memcpy'd, never the heap
+/// data — so the same 36k-text backfill copies nothing. Callers that hold a
+/// `Vec<String>` pay one `Arc::from(vec)` and are done.
 ///
 /// Chunk boundaries and ordering are unchanged: chunk `i` still covers
-/// `[i * chunk, min((i + 1) * chunk, len))` and [`reassemble_ordered`] still
+/// `[i * chunk, min((i + 1) * chunk, len))` and `reassemble_ordered` still
 /// sorts on that same index.
 ///
 /// # Why `local_batch_size` reaches only ONE branch
 ///
 /// The name is deliberate: this value governs the LOCAL (subprocess) branch and
 /// is IGNORED under OpenRouter, which sizes its requests from XDG
-/// `embedding.batch_size` through [`fan_out_chunk`]. That is not an oversight,
+/// `embedding.batch_size` through `fan_out_chunk`. That is not an oversight,
 /// and "fixing" it would be a regression.
 ///
-/// [`super::adaptive_batch_for_dim`], which produces the value callers pass
+/// `adaptive_batch_for_dim`, which produces the value callers pass
 /// here, was calibrated against SUBPROCESS backends. Its failure mode is an LLM
 /// completing a prompt and truncating the JSON reply: at dim 384 with a fixed
 /// batch of 8, claude returned 3 of 8 items and codex timed out at 300s.
@@ -102,14 +69,17 @@ pub fn embed_passages_parallel_with_embedding_choice(
 ///
 /// `openrouter_branch_ignores_local_batch_size` in this module's tests fails if
 /// the OpenRouter branch ever starts reading this parameter.
-pub(crate) fn embed_passages_parallel_shared(
+pub fn embed_passages_parallel_shared(
     _models_dir: &Path,
     texts: Arc<[String]>,
     parallelism: usize,
     _local_batch_size: usize,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<Vec<Vec<f32>>, AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     let texts: &Arc<[String]> = &texts;
     let chain = embedding_backend.to_chain(llm_backend);
     if chain.first() == Some(&LlmBackendKind::OpenRouter) && is_openrouter_initialized() {
@@ -127,9 +97,12 @@ pub(crate) fn embed_passages_parallel_shared(
         // CLI processes run, this bounds how wide each one fans out, and only
         // their PRODUCT describes the load on the host.
         let k = parallelism
-            .clamp(1, 16)
+            .clamp(
+                crate::constants::MIN_EMBED_PASSAGE_FAN_OUT,
+                crate::constants::MAX_EMBED_PASSAGE_FAN_OUT,
+            )
             .min(crate::constants::joint_parallelism_ceiling())
-            .max(1);
+            .max(crate::constants::MIN_EMBED_PASSAGE_FAN_OUT);
         // Same knob as the fan-out slice: a corpus that fits in ONE request has
         // nothing to fan out, so the JoinSet would only add latency. Using a
         // literal here meant a lowered `embedding.batch_size` still sent short
@@ -139,12 +112,16 @@ pub(crate) fn embed_passages_parallel_shared(
         if texts.len() <= chunk || k == 1 {
             let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
             // GAP-001 (v1.1.04): canonical nested-runtime guard.
+            // GAP-SG-270: preserve the origin-computed retry verdict instead of
+            // letting `?` unwrap it away through `From<EmbedError>`.
             let vecs = match tokio::runtime::Handle::try_current() {
                 Ok(handle) => tokio::task::block_in_place(|| {
                     handle.block_on(client.embed_batch(&refs, client.default_input_type()))
-                })?,
+                })
+                .map_err(crate::embedder::app_error_preserving_retry_class)?,
                 Err(_) => shared_runtime()?
-                    .block_on(client.embed_batch(&refs, client.default_input_type()))?,
+                    .block_on(client.embed_batch(&refs, client.default_input_type()))
+                    .map_err(crate::embedder::app_error_preserving_retry_class)?,
             };
             return Ok(vecs);
         }
@@ -182,13 +159,13 @@ pub(crate) fn embed_passages_parallel_shared(
                 set.spawn(async move {
                     let refs: Vec<&str> =
                         shared[range.clone()].iter().map(|s| s.as_str()).collect();
-                    // `EmbedChunkResult` carries `AppError` (retry_class is
-                    // only consumed by callers that match `EmbedError`
-                    // directly, e.g. the enrich re-embed path).
+                    // GAP-SG-270: `EmbedChunkResult` carries `AppError`, and the
+                    // fan-out keeps the origin-computed `retry_class` inside it
+                    // so the enrich re-embed queue still reads the verdict.
                     let r = client
                         .embed_batch(&refs, client.default_input_type())
                         .await
-                        .map_err(AppError::from);
+                        .map_err(crate::embedder::app_error_preserving_retry_class);
                     (idx, r)
                 });
             }

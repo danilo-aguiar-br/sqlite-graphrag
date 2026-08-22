@@ -30,17 +30,9 @@ pub(super) fn emit_preview(args: &EnrichArgs, keys: &[String], started: Instant)
         emit_json(&ItemEvent {
             item: key,
             status: "preview",
-            memory_id: None,
-            entity_id: None,
-            entities: None,
-            rels: None,
-            chars_before: None,
-            chars_after: None,
-            cost_usd: None,
-            elapsed_ms: None,
-            error: None,
             index: idx,
             total,
+            ..Default::default()
         });
     }
     emit_json(&EnrichSummary {
@@ -50,6 +42,8 @@ pub(super) fn emit_preview(args: &EnrichArgs, keys: &[String], started: Instant)
         completed: 0,
         failed: 0,
         skipped: 0,
+        // A preview writes nothing, so it never reports a reclassification.
+        retyped: None,
         cost_usd: 0.0,
         elapsed_ms: started.elapsed().as_millis() as u64,
         backend_invoked: take_enrich_backend(),

@@ -5,6 +5,65 @@
 
 use crate::i18n::{current, Language};
 
+/// Entity type label that is empty once trimmed.
+///
+/// The four `entity_type_*` refusals below guard SHAPE only. v1.2.8 opened the
+/// vocabulary, so an unknown label is no longer an error — these fire on labels
+/// that could not be a word in any vocabulary, which is the only bound left
+/// after V017 dropped the SQL `CHECK`.
+pub fn entity_type_blank() -> String {
+    match current() {
+        Language::English => {
+            "entity type must not be empty; omit the field to accept the default `concept`"
+                .to_string()
+        }
+        Language::Portuguese => {
+            "tipo de entidade não pode ser vazio; omita o campo para aceitar o padrão `concept`"
+                .to_string()
+        }
+    }
+}
+
+/// Entity type label containing a line break.
+pub fn entity_type_has_newline(value: &str) -> String {
+    let shown = value.replace('\n', "\\n").replace('\r', "\\r");
+    match current() {
+        Language::English => {
+            format!("entity type must not contain a line break: '{shown}'")
+        }
+        Language::Portuguese => {
+            format!("tipo de entidade não pode conter quebra de linha: '{shown}'")
+        }
+    }
+}
+
+/// Entity type label made only of digits.
+pub fn entity_type_digits_only(value: &str) -> String {
+    match current() {
+        Language::English => {
+            format!("entity type must not be digits only: '{value}'")
+        }
+        Language::Portuguese => {
+            format!("tipo de entidade não pode ser apenas dígitos: '{value}'")
+        }
+    }
+}
+
+/// Entity type label longer than the allowed character count.
+pub fn entity_type_too_long(value: &str, max: usize) -> String {
+    let len = value.chars().count();
+    match current() {
+        Language::English => {
+            format!("entity type must be at most {max} characters, got {len}: '{value}'")
+        }
+        Language::Portuguese => {
+            format!(
+                "tipo de entidade deve ter no máximo {max} caracteres, recebeu {len}: '{value}'"
+            )
+        }
+    }
+}
+
 /// Localized message for `name_length`.
 pub fn name_length(max: usize) -> String {
     match current() {
@@ -14,13 +73,13 @@ pub fn name_length(max: usize) -> String {
 }
 
 /// Localized message for `name_kebab`.
-pub fn name_kebab(nome: &str) -> String {
+pub fn name_kebab(name: &str) -> String {
     match current() {
         Language::English => {
-            format!("name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'")
+            format!("name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'")
         }
         Language::Portuguese => {
-            format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
+            format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'")
         }
     }
 }
@@ -72,13 +131,13 @@ pub fn reserved_name() -> String {
 }
 
 /// Localized message for `new_name_kebab`.
-pub fn new_name_kebab(nome: &str) -> String {
+pub fn new_name_kebab(name: &str) -> String {
     match current() {
         Language::English => format!(
-            "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
+            "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'"
         ),
         Language::Portuguese => {
-            format!("novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
+            format!("novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'")
         }
     }
 }
@@ -101,6 +160,41 @@ pub fn strict_name_not_canonical(original: &str, normalized: &str) -> String {
         Language::Portuguese => format!(
             "--strict-name está ativo mas '{original}' não é kebab-case canônico; \
              reexecute com --name '{normalized}' (ou remova --strict-name para permitir auto-normalização)"
+        ),
+    }
+}
+
+/// GAP-SG-216: `--strict-entity-types` refused a silent taxonomy rewrite.
+///
+/// Placed beside [`strict_name_not_canonical`] because it is the same refusal
+/// about the sibling field: one guards the name the caller typed, the other the
+/// type they typed. Both name the offending value, the value it would become,
+/// and the way out — a refusal that only states a verdict leaves the caller
+/// guessing which of the two contracts they broke.
+///
+/// `folds` arrives pre-phrased by
+/// `crate::commands::remember::graph_input::collect_entity_type_folds`, which
+/// already names the declared label, the canonical kind and the entity. Listing
+/// them verbatim keeps ONE phrasing of the fold instead of two that drift.
+pub fn strict_entity_type_folded(folds: &[String]) -> String {
+    let list = folds.join("; ");
+    let allowed = crate::entity_type::CANONICAL_ENTITY_TYPES.join(", ");
+    match current() {
+        Language::English => format!(
+            "--strict-entity-types is set and {} declared type(s) are outside the \
+             recommended vocabulary: {list}. The thirteen canonical kinds are {allowed}. \
+             Re-declare each entity with one of them, or drop --strict-entity-types to \
+             store the label as written (it is reported in the response `warnings` \
+             either way)",
+            folds.len()
+        ),
+        Language::Portuguese => format!(
+            "--strict-entity-types está ativo e {} tipo(s) declarado(s) estão fora do \
+             vocabulário recomendado: {list}. Os treze tipos canônicos são {allowed}. \
+             Redeclare cada entidade com um deles, ou remova --strict-entity-types para \
+             gravar o rótulo como foi escrito (que é reportado em `warnings` de todo \
+             modo)",
+            folds.len()
         ),
     }
 }

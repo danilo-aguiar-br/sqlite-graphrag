@@ -54,6 +54,15 @@ pub fn run(args: GraphArgs) -> Result<(), AppError> {
             }
             run_entities(a)
         }
+        Some(GraphSubcommand::EntityTypes(mut a)) => {
+            if a.db.is_none() {
+                a.db = args.db;
+            }
+            if a.namespace.is_none() {
+                a.namespace = args.namespace;
+            }
+            run_entity_types(a)
+        }
         Some(GraphSubcommand::RecomputeDegree(mut a)) => {
             if a.db.is_none() {
                 a.db = args.db;
@@ -159,7 +168,7 @@ pub(crate) fn recompute_degrees(
 }
 
 pub(crate) fn run_recompute_degree(args: GraphRecomputeDegreeArgs) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
     crate::storage::connection::ensure_db_ready(&paths)?;
     let mut conn = crate::storage::connection::open_rw(&paths.db)?;
@@ -173,7 +182,7 @@ pub(crate) fn run_recompute_degree(args: GraphRecomputeDegreeArgs) -> Result<(),
         updated: summary.updated,
         zeroed: summary.zeroed,
         unchanged: summary.unchanged,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
     Ok(())
 }
@@ -185,7 +194,7 @@ pub(crate) fn run_entities_snapshot(
     json: bool,
     output_path: Option<&std::path::Path>,
 ) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let paths = AppPaths::resolve(db)?;
 
     crate::storage::connection::ensure_db_ready(&paths)?;
@@ -206,6 +215,7 @@ pub(crate) fn run_entities_snapshot(
             namespace: n.namespace,
             r#type: n.kind.clone(),
             kind: n.kind,
+            description: n.description,
         })
         .collect();
 
@@ -249,7 +259,7 @@ pub(crate) fn run_entities_snapshot(
     };
 
     if effective_format == GraphExportFormat::Ndjson {
-        let elapsed_ms = inicio.elapsed().as_millis() as u64;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
         render_ndjson_streaming(&nodes, &edges, elapsed_ms, output_path)?;
         return Ok(());
     }
@@ -259,15 +269,19 @@ pub(crate) fn run_entities_snapshot(
     // to reach stdout as pre-serialized text and bypassed that layer entirely.
     // The file destination keeps `fs::write`, but serializes via `render_json`,
     // which applies the same surface, so both destinations stay in sync.
-    // `dot`, `mermaid` and the NDJSON stream are not single JSON envelopes and
-    // deliberately keep their unshaped text paths.
+    // `dot` and `mermaid` are rendered text, not JSON, so there is no record for
+    // a knob to act on and they deliberately keep their unshaped paths.
+    // GAP-SG-229: the NDJSON stream used to be listed here too. It is not text —
+    // it is one JSON object per line — and leaving it out meant the surface flags
+    // were parsed and then dropped in silence. It now emits through the stream
+    // pair in `formats::render_ndjson_streaming`, like `export`.
     if effective_format == GraphExportFormat::Json {
         let entities = nodes.clone();
         let snapshot = GraphSnapshot {
             nodes,
             entities,
             edges,
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
         if let Some(path) = output_path.filter(|_| !json) {
             fs::write(path, render_json(&snapshot)?)?;
@@ -344,7 +358,7 @@ pub(super) fn traverse_hops(
 }
 
 pub(crate) fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let _ = args.format;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -399,7 +413,7 @@ pub(crate) fn run_traverse(args: GraphTraverseArgs) -> Result<(), AppError> {
         namespace,
         depth: args.depth,
         hops,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
 
     Ok(())
@@ -446,7 +460,7 @@ pub(crate) fn measure_max_degree(
 }
 
 pub(crate) fn run_stats(args: GraphStatsArgs) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
     crate::storage::connection::ensure_db_ready(&paths)?;
@@ -491,7 +505,7 @@ pub(crate) fn run_stats(args: GraphStatsArgs) -> Result<(), AppError> {
         edge_count,
         avg_degree,
         max_degree,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     let effective_format = if args.json {
@@ -539,7 +553,7 @@ pub(crate) fn build_order_by(sort_by: Option<EntitySortField>, order: SortOrder)
 }
 
 pub(crate) fn run_entities(args: GraphEntitiesArgs) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
     crate::storage::connection::ensure_db_ready(&paths)?;
@@ -573,10 +587,7 @@ pub(crate) fn run_entities(args: GraphEntitiesArgs) -> Result<(), AppError> {
                         e.description
                  FROM entities e";
 
-    let (total_count, items) = match (
-        args.namespace.as_deref(),
-        args.entity_type.map(|et| et.as_str()),
-    ) {
+    let (total_count, items) = match (args.namespace.as_deref(), args.entity_type.as_deref()) {
         (Some(ns), Some(et)) => {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM entities WHERE namespace = ?1 AND type = ?2",
@@ -658,6 +669,75 @@ pub(crate) fn run_entities(args: GraphEntitiesArgs) -> Result<(), AppError> {
         limit: args.limit,
         offset: args.offset,
         namespace: args.namespace,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// Reports the entity-type vocabulary actually present in the database.
+///
+/// v1.2.8 opened the vocabulary, which removed the one place the set of valid
+/// labels used to be written down. `graph entities --entity-type` can only
+/// filter by a label the caller already knows, so without this command an
+/// unknown label is unreachable: you cannot filter for what you cannot name.
+/// GROUP BY answers it from the data instead of from a constant.
+pub(crate) fn run_entity_types(args: GraphEntityTypesArgs) -> Result<(), AppError> {
+    let started = Instant::now();
+    let paths = AppPaths::resolve(args.db.as_deref())?;
+
+    crate::storage::connection::ensure_db_ready(&paths)?;
+
+    let conn = open_ro(&paths.db)?;
+
+    // One bound parameter serves both scopes: NULL means every namespace, so
+    // the SQL text is fixed and no branch interpolates a caller value.
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(type, ''), COUNT(*) AS count
+         FROM entities
+         WHERE (?1 IS NULL OR namespace = ?1)
+         GROUP BY type
+         ORDER BY count DESC, type ASC",
+    )?;
+    let types = stmt
+        .query_map(rusqlite::params![args.namespace.as_deref()], |r| {
+            let entity_type: String = r.get(0)?;
+            let count: i64 = r.get(1)?;
+            Ok(EntityTypeCount {
+                canonical: crate::entity_type::is_canonical_entity_type(&entity_type),
+                entity_type,
+                count,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let total_types = types.len();
+    let total_entities = types.iter().map(|t| t.count).sum();
+
+    let response = GraphEntityTypesResponse {
+        types,
+        total_types,
+        total_entities,
+        namespace: args.namespace,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    };
+
+    match args.format {
+        GraphEntityTypesFormat::Json => output::emit_json(&response),
+        GraphEntityTypesFormat::Text => {
+            let lines: Vec<String> = response
+                .types
+                .iter()
+                .map(|t| {
+                    let mark = if t.canonical { "canonical" } else { "custom" };
+                    format!("{:>8}  {}  [{}]", t.count, t.entity_type, mark)
+                })
+                .collect();
+            output::emit_text(&format!(
+                "{}\n{} types, {} entities",
+                lines.join("\n"),
+                response.total_types,
+                response.total_entities
+            ));
+            Ok(())
+        }
+    }
 }

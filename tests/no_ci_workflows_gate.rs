@@ -93,10 +93,34 @@ fn the_github_directory_holds_only_templates() {
 }
 
 /// Documents that must not instruct a contributor to create a pipeline.
-const POLICY_DOCS: [&str; 3] = [
+///
+/// GAP-SG-214: the first four were the whole list, and `CONTRIBUTING` and
+/// `SECURITY` — the two documents a contributor actually reads before their
+/// first change — were absent. That omission is what let
+/// `CONTRIBUTING.md` keep claiming, inside its live "Release Process"
+/// section, that pushing a tag triggers `.github/workflows/release.yml`, in a
+/// repository where that file is forbidden and does not exist.
+const POLICY_DOCS: [&str; 7] = [
     "docs/DOCUMENTATION_FRAMEWORK.md",
     "docs/CROSS_PLATFORM.md",
     "docs/CROSS_PLATFORM.pt-BR.md",
+    "CONTRIBUTING.md",
+    "CONTRIBUTING.pt-BR.md",
+    "SECURITY.md",
+    "SECURITY.pt-BR.md",
+];
+
+/// Headings that open a HISTORICAL record rather than a live instruction.
+///
+/// Release notes describe a repository that existed; `CONTRIBUTING` really did
+/// run a CI matrix until v1.0.79, and deleting that record to satisfy a gate is
+/// the documenting-by-deleting `gaps.md` bans. Everything from one of these
+/// headings until the next same-level heading is exempt.
+const HISTORICAL_HEADINGS: [&str; 4] = [
+    "## recent releases",
+    "## releases recentes",
+    "## historical",
+    "## histórico",
 ];
 
 /// Words that turn a mention of a workflow into an INSTRUCTION to create one.
@@ -105,13 +129,18 @@ const POLICY_DOCS: [&str; 3] = [
 /// reader learns they are forbidden and why. Matching the name alone would
 /// force the policy to be unwritable. What must not appear is a name inside a
 /// line that reads as a requirement or as a completed deliverable.
-const INSTRUCTION_MARKERS: [&str; 6] = [
+const INSTRUCTION_MARKERS: [&str; 8] = [
     "[x]",
     "obrigatóri",
     "mandatory",
     "required",
     "crie",
     "criado com",
+    // GAP-SG-214: asserting that something HAPPENS is as false as asking for
+    // it. `CONTRIBUTING.md` said "pushing the tag triggers release.yml" and
+    // carried none of the markers above, so it read as neutral prose.
+    "triggers",
+    "dispara",
 ];
 
 /// Words that make a line a DENIAL, overriding any instruction marker on it.
@@ -140,6 +169,74 @@ const DENIAL_MARKERS: [&str; 12] = [
     "até a v",
 ];
 
+/// Phrases that promise something runs REMOTELY and BY ITSELF.
+///
+/// GAP-SG-214's blind spot: the scanner only looked at lines naming a workflow
+/// file, so "the CI runs `cargo audit` on every push" — which names no file at
+/// all — was invisible. The promise is the defect, not the filename.
+const REMOTE_EXECUTION_CLAIMS: [&str; 8] = [
+    "on every push",
+    "on every commit",
+    "a cada push",
+    "a cada commit",
+    "a cada envio",
+    "green pipeline",
+    "pipeline verde",
+    "automatically on push",
+];
+
+/// Words naming the ACTOR a remote-execution claim attributes the work to.
+///
+/// Required alongside a claim above, because "run the suite on every commit"
+/// addressed to the operator is correct advice: this project's whole point is
+/// that a human runs the gates locally. What is false is attributing it to a
+/// service.
+const CI_ACTORS: [&str; 5] = ["ci", "pipeline", "github action", "runner", "remote"];
+
+/// True for a line inside a historical section, given the last heading seen.
+fn is_historical(current_heading: &str) -> bool {
+    HISTORICAL_HEADINGS
+        .iter()
+        .any(|h| current_heading.starts_with(h))
+}
+
+#[test]
+fn no_policy_document_promises_remote_automatic_execution() {
+    for doc in POLICY_DOCS {
+        let path = root().join(doc);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut heading = String::new();
+        for (index, line) in text.lines().enumerate() {
+            let lowered = line.to_lowercase();
+            if lowered.starts_with("## ") {
+                heading = lowered.clone();
+            }
+            if is_historical(&heading) {
+                continue;
+            }
+            let claims_remote = REMOTE_EXECUTION_CLAIMS.iter().any(|c| lowered.contains(c));
+            if !claims_remote {
+                continue;
+            }
+            if DENIAL_MARKERS.iter().any(|m| lowered.contains(m)) {
+                continue;
+            }
+            let names_an_actor = CI_ACTORS.iter().any(|a| lowered.contains(a));
+            assert!(
+                !names_an_actor,
+                "{doc}:{} promises that a remote service runs something \
+                 automatically, in a project where `cargo test` on the \
+                 operator's machine is the only automatic gate. This is the \
+                 half of GAP-SG-214 the filename scanner could never see, \
+                 because the line names no workflow file:\n{line}",
+                index + 1
+            );
+        }
+    }
+}
+
 #[test]
 fn no_policy_document_prescribes_a_workflow() {
     for doc in POLICY_DOCS {
@@ -147,8 +244,15 @@ fn no_policy_document_prescribes_a_workflow() {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
+        let mut heading = String::new();
         for (index, line) in text.lines().enumerate() {
             let lowered = line.to_lowercase();
+            if lowered.starts_with("## ") {
+                heading = lowered.clone();
+            }
+            if is_historical(&heading) {
+                continue;
+            }
             let names_a_workflow = lowered.contains("workflows/")
                 || lowered.contains("ci.yml")
                 || lowered.contains("release.yml");
@@ -169,6 +273,58 @@ fn no_policy_document_prescribes_a_workflow() {
             );
         }
     }
+}
+
+#[test]
+fn the_remote_execution_scanner_separates_the_actor_from_the_operator() {
+    // The offence GAP-SG-214 recorded, reconstructed: it names no workflow
+    // file, so the filename scanner is blind to it by construction.
+    let offence = "- The CI runs `cargo audit` and `cargo deny` on every push".to_lowercase();
+    assert!(
+        REMOTE_EXECUTION_CLAIMS.iter().any(|c| offence.contains(c))
+            && CI_ACTORS.iter().any(|a| offence.contains(a)),
+        "the line this test exists to catch must trip both lists"
+    );
+    assert!(
+        !offence.contains("workflows/") && !offence.contains(".yml"),
+        "the point of this scanner is that the offending line names no file"
+    );
+
+    // Correct advice addressed to the human, using the same time phrase. This
+    // MUST pass, or the gate would forbid the project from telling operators
+    // to run its own gates.
+    let advice = "- Run `cargo test` on every commit before you push".to_lowercase();
+    assert!(
+        REMOTE_EXECUTION_CLAIMS.iter().any(|c| advice.contains(c)),
+        "the time phrase is shared by both, which is why the actor decides"
+    );
+    assert!(
+        !CI_ACTORS.iter().any(|a| advice.contains(a)),
+        "advice to the operator names no service and must not be rejected"
+    );
+
+    // A withdrawal notice quotes the false promise; the denial override wins.
+    let withdrawal = "- Nunca houve pipeline rodando a cada push neste repositório".to_lowercase();
+    assert!(
+        REMOTE_EXECUTION_CLAIMS
+            .iter()
+            .any(|c| withdrawal.contains(c))
+            && CI_ACTORS.iter().any(|a| withdrawal.contains(a))
+            && DENIAL_MARKERS.iter().any(|m| withdrawal.contains(m)),
+        "the override must be exercised, or a correction becomes unwritable"
+    );
+}
+
+#[test]
+fn the_historical_section_exemption_is_bounded() {
+    // A record of what the repository once was is exempt...
+    assert!(is_historical("## recent releases"));
+    assert!(is_historical("## releases recentes"));
+    // ...and nothing else is, or the exemption would swallow the live sections
+    // where the false claims actually lived.
+    assert!(!is_historical("## release process"));
+    assert!(!is_historical("## security"));
+    assert!(!is_historical(""));
 }
 
 #[test]

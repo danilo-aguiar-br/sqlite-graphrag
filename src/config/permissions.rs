@@ -23,6 +23,16 @@
 //! decision worth asserting — that the DACL is PROTECTED and carries exactly
 //! one ACE — is only observable by reading the descriptor back from a real
 //! file, which is precisely what the `cfg(windows)` test already does.
+//!
+//! # Declared scope limit: this module covers WRITING only
+//!
+//! Platform parity here is about the file this CLI writes. The READ side —
+//! [`crate::config::load_config`] warning that an existing `config.toml` is
+//! more permissive than `0o600` — has no Windows counterpart and is not
+//! claimed to have one. Do not read the parity below as "loose permissions are
+//! detected on every platform"; they are detected on Unix and restricted (not
+//! detected) on Windows. That function's `# Declared limit` section carries
+//! the reasoning.
 
 /// Restricts `path` so that only the current user account may access it.
 ///
@@ -164,9 +174,10 @@ mod restrict_permissions_tests {
     #[test]
     #[cfg(not(windows))]
     fn restriction_is_a_noop_on_unix_where_chmod_already_applies() {
-        // Unix reaches the same guarantee through `0o700`/`0o600` in
-        // `save_config`; this must stay a cheap success so the shared call
-        // site needs no `cfg` of its own.
+        // Unix reaches the same WRITE-side guarantee through `0o700`/`0o600`
+        // in `save_config`; this must stay a cheap success so the shared call
+        // site needs no `cfg` of its own. It says nothing about the read-side
+        // permission check, which `load_config` declares as Unix-only.
         let dir = tempfile::tempdir().expect("tempdir");
         let file = dir.path().join("config.toml");
         std::fs::write(&file, "x = 1").expect("write");

@@ -54,14 +54,14 @@ fn filter_parses_every_operator_form() {
     );
     assert!(FilterExpr::parse("a!=b")
         .unwrap()
-        .matches(&json!({"a": "c"})));
+        .matches(&json!({"a": "c"}), None));
     assert!(FilterExpr::parse("a~B")
         .unwrap()
-        .matches(&json!({"a": "abc"})));
+        .matches(&json!({"a": "abc"}), None));
     // `!=` wins over the `=` it contains.
     assert!(!FilterExpr::parse("a!=b")
         .unwrap()
-        .matches(&json!({"a": "b"})));
+        .matches(&json!({"a": "b"}), None));
 }
 
 #[test]
@@ -74,9 +74,11 @@ fn filter_rejects_malformed_expressions() {
 #[test]
 fn filter_treats_missing_key_as_not_equal_but_never_as_equal() {
     let element = json!({ "other": 1 });
-    assert!(!FilterExpr::parse("name=x").unwrap().matches(&element));
-    assert!(FilterExpr::parse("name!=x").unwrap().matches(&element));
-    assert!(!FilterExpr::parse("name~x").unwrap().matches(&element));
+    assert!(!FilterExpr::parse("name=x").unwrap().matches(&element, None));
+    assert!(FilterExpr::parse("name!=x")
+        .unwrap()
+        .matches(&element, None));
+    assert!(!FilterExpr::parse("name~x").unwrap().matches(&element, None));
 }
 
 #[test]

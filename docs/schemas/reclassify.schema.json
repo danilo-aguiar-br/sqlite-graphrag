@@ -4,15 +4,48 @@
   "title": "ReclassifyResponse",
   "description": "Response emitted by `sqlite-graphrag reclassify --json` on stdout as a single JSON line.",
   "type": "object",
-  "required": ["action", "count", "namespace", "elapsed_ms"],
+  "required": [
+    "action",
+    "count",
+    "namespace",
+    "elapsed_ms"
+  ],
   "additionalProperties": false,
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "action":     { "type": "string", "const": "reclassified", "description": "Always 'reclassified' on success." },
-    "count":      { "type": "integer", "minimum": 0, "description": "Number of entities whose type was updated by this operation." },
-    "description_updated": { "type": "boolean", "description": "Present and true when --description was applied in single mode." },
-    "namespace":  { "type": "string", "description": "Namespace in which the reclassification was performed." },
-    "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "action": {
+      "type": "string",
+      "const": "reclassified",
+      "description": "Always 'reclassified' on success."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of entities whose type was updated by this operation."
+    },
+    "description_updated": {
+      "type": "boolean",
+      "description": "Present and true when --description was applied in single mode."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Namespace in which the reclassification was performed."
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Handler wall-clock time in milliseconds."
+    },
+    "matched_targets": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Entities matching `--from-type`, counted BEFORE the update. Present ONLY in `--batch` mode; skipped on the wire for the single-entity form, which is why the closed root validated that one while rejecting the batch (GAP-SG-291). It exists so a caller can tell a real batch from one whose `--from-type` was a typo, now that the vocabulary is open and clap cannot catch that."
+    }
   }
 }

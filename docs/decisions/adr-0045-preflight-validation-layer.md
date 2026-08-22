@@ -1,9 +1,12 @@
 # ADR-0045: Pre-Flight Validation Layer for LLM Subprocess Spawners
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1`, documented below as an emergency opt-out, is never read at runtime by the v1.2.8 binary and has no effect; the same holds for `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` and for `SQLITE_GRAPHRAG_STRICT_PREFLIGHT=1`, which was planned and never shipped.
+- HISTORICAL: `ingest --extraction-backend llm` is refused by the parser: `ingest --mode` accepts only `none` today.
 
 - **Status**: Accepted
 - **Data**: 2026-06-19
 - **Versão**: v1.0.87 (closes GAP-META-005)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Context
 

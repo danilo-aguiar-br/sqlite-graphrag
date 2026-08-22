@@ -8,6 +8,10 @@
 use crate::errors::AppError;
 use crate::paths::AppPaths;
 use crate::pragmas::{apply_connection_pragmas, apply_init_pragmas, ensure_wal_mode};
+use crate::storage::foreign_keys::{
+    assert_migration_orphaned_nothing, foreign_key_violation_counts,
+    warn_about_pre_existing_violations,
+};
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -55,12 +59,123 @@ fn adopt_embedding_dim(conn: &Connection) {
     }
 }
 
-/// Ensure schema.
-pub fn ensure_schema(conn: &mut Connection) -> Result<(), AppError> {
-    crate::migrations::runner()
+/// Runs the pending refinery migrations with foreign key enforcement disabled,
+/// then restores it and verifies that nothing was orphaned.
+///
+/// GAP-SG-277 follow-up: `PRAGMA foreign_keys` is a documented no-op while a
+/// transaction is pending, and refinery opens one transaction per migration
+/// (`refinery-core::drivers::rusqlite`). Every `PRAGMA foreign_keys = OFF`
+/// written at the top of a migration file — V006, V008, V009, V010, V013 — has
+/// therefore never taken effect: the connection arrives with enforcement ON
+/// from [`apply_connection_pragmas`] and keeps it for the whole run.
+///
+/// That matters because `DROP TABLE` under enforcement performs an implicit
+/// `DELETE FROM` before dropping, which fires the `ON DELETE CASCADE` of every
+/// child table. `entities` has four such children (`relationships`,
+/// `memory_entities`, `entity_embeddings`, `entity_connect_seen`), so the
+/// rebuild-and-rename pattern those migrations use would silently empty the
+/// whole graph on a populated database. Fresh databases never showed it
+/// because the cascade has nothing to delete when the tables are still empty.
+///
+/// Toggling the pragma here — outside refinery's transaction — is what the
+/// SQLite "making other kinds of table schema changes" procedure prescribes as
+/// its very first step, before the transaction is opened.
+///
+/// # Errors
+/// Returns `Err` when the pragma cannot be toggled, when a migration fails, or
+/// when the migration itself leaves rows orphaned that were not orphaned before.
+///
+/// Pre-existing violations do NOT fail the run. `PRAGMA foreign_key_check`
+/// inspects the whole database, not the slice a migration touched, so a single
+/// dangling row inherited from an older schema — written back when enforcement
+/// was effectively off — used to abort every migration on that file. Since
+/// `ensure_db_ready` migrates on open, and nearly every subcommand calls it,
+/// that turned one legacy row into a database no command could open: even
+/// `cleanup-orphans`, the repair path, failed before reaching its first delete.
+/// The assertion exists to prove that THIS migration broke nothing, and a row
+/// that was already broken proves nothing about it.
+pub(crate) fn run_migrations_with_foreign_keys_off(
+    conn: &mut Connection,
+    failure_label: &str,
+) -> Result<(), AppError> {
+    // Baseline first: what is already broken is not this migration's doing.
+    let before = foreign_key_violation_counts(conn)?;
+
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+    let migrated = crate::migrations::runner()
         .set_abort_divergent(false)
         .run(conn)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("{failure_label}: {e}")));
+
+    // Restore enforcement before propagating, so a failed migration never
+    // hands back a connection that silently accepts orphan rows.
+    let restored = conn.execute_batch("PRAGMA foreign_keys = ON;");
+
+    migrated?;
+    restored?;
+
+    let after = foreign_key_violation_counts(conn)?;
+    assert_migration_orphaned_nothing(&before, &after)?;
+    warn_about_pre_existing_violations(&after);
+    Ok(())
+}
+
+/// Copies the database aside before migrations touch an existing file.
+///
+/// There is no down migration in this project and refinery only moves forward,
+/// so a migration that goes wrong has exactly one remedy: an earlier copy of the
+/// file. Until v1.2.8 none was taken, while `ensure_db_ready` would happily
+/// auto-migrate from inside a plain `recall`.
+///
+/// Uses the SQLite Online Backup API rather than a filesystem copy, because the
+/// database runs in WAL mode: copying the `.sqlite` alone would silently omit
+/// whatever still lives in the `-wal` sidecar.
+///
+/// A failure here ABORTS the migration. Migrating without the one available
+/// remedy is the situation this function exists to prevent, so falling through
+/// on error would defeat it.
+///
+/// # Errors
+/// Returns `Err` when the destination cannot be created or the copy fails.
+fn back_up_before_migrating(
+    conn: &Connection,
+    db_path: &Path,
+    applied_schema_version: i64,
+) -> Result<(), AppError> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut destination = db_path.as_os_str().to_os_string();
+    destination.push(format!(".bak.pre-schema-{applied_schema_version}.{stamp}"));
+    let destination = std::path::PathBuf::from(destination);
+
+    /// Pages copied per `sqlite3_backup_step`, matching the default the
+    /// `backup` subcommand exposes as `--backup-step-size`.
+    const STEP_PAGES: std::os::raw::c_int = 1_000;
+
+    let mut target = Connection::open(&destination)?;
+    {
+        let backup = rusqlite::backup::Backup::new(conn, &mut target)?;
+        backup.run_to_completion(
+            STEP_PAGES,
+            std::time::Duration::from_millis(crate::constants::BACKUP_BUSY_RETRY_DELAY_MS),
+            None,
+        )?;
+    }
+    apply_secure_permissions(&destination);
+
+    tracing::warn!(target: "storage",
+        backup = %destination.display(),
+        "database copied aside before auto-migration"
+    );
+    Ok(())
+}
+
+/// Ensure schema.
+pub fn ensure_schema(conn: &mut Connection) -> Result<(), AppError> {
+    run_migrations_with_foreign_keys_off(conn, "migration failed")?;
     conn.execute_batch(&format!(
         "PRAGMA user_version = {};",
         crate::constants::SCHEMA_USER_VERSION
@@ -106,14 +221,40 @@ pub fn ensure_db_ready(paths: &AppPaths) -> Result<(), AppError> {
         .unwrap_or(0);
     let target_user_version = crate::constants::SCHEMA_USER_VERSION;
 
-    if current_user_version < target_user_version {
+    // v1.2.8: `user_version` alone cannot gate this. It is an IDENTITY marker —
+    // the constant is 50 so external tools recognise a sqlite-graphrag file at a
+    // glance, and its own doc-comment states that bumping migrations does not
+    // change it. A value that never changes cannot signal "there is something
+    // new to apply": every database that reached 50 would stay there forever,
+    // and V017 would never reach an existing database. The binary would then
+    // accept `crate` (it no longer checks membership) while the un-migrated
+    // schema still carried V008's CHECK and refused the write, surfacing as a
+    // raw SQLite constraint error about a guard the caller cannot see.
+    //
+    // Ask the migration history instead, which is the thing that actually knows.
+    let applied_schema_version: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM refinery_schema_history",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    let target_schema_version = i64::from(crate::constants::CURRENT_SCHEMA_VERSION);
+
+    let needs_migration = current_user_version < target_user_version
+        || applied_schema_version < target_schema_version;
+
+    if needs_migration {
         if db_existed {
             tracing::warn!(target: "storage",
                 from = current_user_version,
                 to = target_user_version,
+                schema_from = applied_schema_version,
+                schema_to = target_schema_version,
                 path = %paths.db.display(),
                 "auto-migrating database schema"
             );
+            back_up_before_migrating(&conn, &paths.db, applied_schema_version)?;
         }
         // GAP-SG-140: `V002__vec_tables.sql` was edited after it had already been
         // applied in the field, so every legacy database carries a divergent
@@ -122,10 +263,7 @@ pub fn ensure_db_ready(paths: &AppPaths) -> Result<(), AppError> {
         // divergence is inert: `V013__drop_vec_use_blob_embeddings.sql` already
         // drops the tables V002 created, so the historical text no longer
         // describes any live object. Tolerate divergence and keep migrating.
-        crate::migrations::runner()
-            .set_abort_divergent(false)
-            .run(&mut conn)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("auto-migration failed: {e}")))?;
+        run_migrations_with_foreign_keys_off(&mut conn, "auto-migration failed")?;
         conn.execute_batch(&format!("PRAGMA user_version = {target_user_version};"))?;
 
         if !db_existed {
@@ -278,6 +416,108 @@ pub fn open_ro(path: &Path) -> Result<Connection, AppError> {
 }
 
 #[cfg(test)]
+mod migration_cascade_tests {
+    use super::*;
+
+    /// The regression that motivated `run_migrations_with_foreign_keys_off`.
+    ///
+    /// Measured on 2026-08-18 against a copy of this workspace's database:
+    /// migrating 16 → 17 through a bare `runner().run(conn)` reported success,
+    /// moved the schema to 17, and left `relationships` at ZERO rows, down from
+    /// 213 029. `V017` rebuilds `entities`, and `DROP TABLE` under foreign key
+    /// enforcement performs an implicit `DELETE FROM` that fires the children's
+    /// `ON DELETE CASCADE`.
+    ///
+    /// Every pre-existing migration test bootstraps an EMPTY database, where a
+    /// cascade has nothing to delete — which is exactly why nine migrations
+    /// shipped this pattern unnoticed. This test therefore inserts rows FIRST
+    /// and asserts they are still there afterwards. Without the guard it fails;
+    /// with it, the edge survives.
+    #[test]
+    fn migrating_a_populated_database_preserves_the_edges() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("populated.sqlite");
+
+        // Stop one migration short of V017, so the rebuild is still ahead.
+        let mut conn = open_rw(&db_path).expect("open");
+        crate::migrations::runner()
+            .set_abort_divergent(false)
+            .set_target(refinery::Target::Version(16))
+            .run(&mut conn)
+            .expect("migrate to 16");
+
+        conn.execute_batch(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global', 'alpha', 'tool');
+             INSERT INTO entities (namespace, name, type) VALUES ('global', 'beta', 'tool');
+             INSERT INTO relationships (namespace, source_id, target_id, relation)
+               VALUES ('global', 1, 2, 'uses');",
+        )
+        .expect("seed rows");
+
+        let edges_before: i64 = conn
+            .query_row("SELECT COUNT(*) FROM relationships", [], |r| r.get(0))
+            .expect("count before");
+        assert_eq!(edges_before, 1, "fixture must actually have an edge");
+
+        // Enforcement is ON here, exactly as `open_rw` leaves it in production.
+        let enforced: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .expect("read pragma");
+        assert_eq!(enforced, 1, "the guard is only meaningful with FK enforced");
+
+        run_migrations_with_foreign_keys_off(&mut conn, "test migration failed")
+            .expect("guarded migration must succeed");
+
+        let edges_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM relationships", [], |r| r.get(0))
+            .expect("count after");
+        assert_eq!(
+            edges_after, 1,
+            "V017 rebuilt `entities` and the cascade emptied `relationships`"
+        );
+
+        let entities_after: i64 = conn
+            .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
+            .expect("count entities");
+        assert_eq!(entities_after, 2, "entities must survive the rebuild");
+
+        // Enforcement restored, and no row left pointing at a missing parent.
+        let restored: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .expect("read pragma");
+        assert_eq!(restored, 1, "enforcement must be back on afterwards");
+        assert!(foreign_key_violation_counts(&conn)
+            .expect("read violations")
+            .is_empty());
+    }
+
+    /// With the vocabulary open, the column must accept a label the old CHECK
+    /// would have refused. Pinned here because it is the schema half of the
+    /// change: `entity_type.rs` can stop folding, and the write still fails if
+    /// V017 never reached the database.
+    #[test]
+    fn the_migrated_column_accepts_a_non_canonical_label() {
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let db_path = tmp.path().join("open-vocab.sqlite");
+        let mut conn = open_rw(&db_path).expect("open");
+        run_migrations_with_foreign_keys_off(&mut conn, "test migration failed").expect("migrate");
+
+        conn.execute(
+            "INSERT INTO entities (namespace, name, type) VALUES ('global', 'axum', ?1)",
+            rusqlite::params!["crate"],
+        )
+        .expect("a label outside the canonical thirteen must be storable");
+
+        let stored: String = conn
+            .query_row("SELECT type FROM entities WHERE name = 'axum'", [], |r| {
+                r.get(0)
+            })
+            .expect("read back");
+        assert_eq!(stored, "crate", "the label must survive verbatim");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -300,7 +540,9 @@ mod tests {
             )
             .expect("seed schema_meta");
         }
-        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
+        // GAP-SG-232: nothing to clear, because the product reads no variable
+        // of its own. The dim comes from `--embedding-dim`, then the XDG key
+        // `embedding.dim`, then `schema_meta`, then the compiled default.
         let _conn = open_rw(&db).expect("open_rw");
         let adopted = crate::constants::embedding_dim();
         // Restore the process-wide default before asserting so a failure
@@ -324,7 +566,6 @@ mod tests {
             )
             .expect("seed schema_meta");
         }
-        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
         let _conn = open_ro(&db).expect("open_ro");
         let adopted = crate::constants::embedding_dim();
         crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
@@ -364,7 +605,6 @@ mod tests {
     fn open_rw_on_virgin_db_is_a_noop() {
         let dir = tempfile::tempdir().expect("tempdir");
         let db = dir.path().join("g43-virgin.sqlite");
-        std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
         crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
         let _conn = open_rw(&db).expect("open_rw on virgin db must not fail");
         assert_eq!(

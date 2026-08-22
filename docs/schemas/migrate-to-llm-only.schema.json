@@ -2,56 +2,50 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/migrate-to-llm-only.schema.json",
   "title": "sqlite-graphrag migrate --to-llm-only response",
-  "description": "JSON contract for the `migrate --to-llm-only --drop-vec-tables --json` subcommand added in v1.0.76, updated in v1.0.77 with null_rows_fixed (G40) and vec_tables_removed_via_writable_schema, updated in v1.0.78 with v013_tables_created (G41 phantom registration repair). The one-shot upgrade for v1.0.74 / v1.0.75 databases: rehash + apply V013 + report vec-table state. Requires --drop-vec-tables as an explicit safety guard.",
+  "description": "JSON contract for the `migrate --to-llm-only --drop-vec-tables --json` subcommand added in v1.0.76, updated in v1.0.77 with null_rows_fixed (G40) and vec_tables_removed_via_writable_schema, updated in v1.0.78 with v013_tables_created (G41 phantom registration repair). The one-shot upgrade for v1.0.74 / v1.0.75 databases: rehash + apply V013 + report vec-table state. Requires --drop-vec-tables as an explicit safety guard. Corrected by GAP-SG-271, which ran the command and validated the real envelope for the first time: the document required `action` and `vec_tables_dropped` and typed `rewritten` as an integer, none of which `ToLlmOnlyReport` in src/commands/migrate.rs has ever serialized, and it declared `embedding_tables_created` and `namespace`, which it never emits either. The dropped tables are reported by the COUNT in `vec_tables_removed_via_writable_schema`, not by name. Under `additionalProperties: false` that rejected every real answer, and the published example did not validate against its own schema either.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["action", "rewritten", "v013_applied", "vec_tables_were_present", "vec_tables_dropped", "v013_tables_created", "elapsed_ms"],
+  "required": ["db_path", "schema_version", "rehashed", "vec_tables_were_present", "v013_applied", "null_rows_fixed", "vec_tables_removed_via_writable_schema", "v013_tables_created", "status", "elapsed_ms"],
   "properties": {
     "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
     "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
-    "action": {
+    "status": {
       "type": "string",
-      "const": "migrated_to_llm_only"
+      "const": "ok",
+      "description": "The single value the handler writes. A failure never reaches this envelope; it is reported through error-envelope.schema.json."
     },
-    "rewritten": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Number of migration rows whose checksum was rewritten by the rehash step."
+    "rehashed": {
+      "type": "array",
+      "description": "One element per migration row whose checksum the rehash step rewrote. Empty when every checksum already matched. Same element shape as `rewritten` in migrate-rehash.schema.json.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "name", "old_checksum", "new_checksum"],
+        "properties": {
+          "version": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" },
+          "old_checksum": { "type": "string" },
+          "new_checksum": { "type": "string" }
+        }
+      }
     },
     "v013_applied": {
       "type": "boolean",
       "description": "True when migration V013 was applied during this invocation. False when the schema was already at or beyond V013."
     },
     "schema_version": {
-      "type": ["integer", "null"],
-      "description": "Current schema_version after the operation. Null when the database is uninitialized."
+      "type": "integer",
+      "minimum": 0,
+      "description": "Current schema_version after the operation. Never null: an unreadable history reports 0."
     },
     "vec_tables_were_present": {
       "type": "boolean",
       "description": "True when vec_memories, vec_entities, or vec_chunks virtual tables were detected in sqlite_master before the drop."
     },
-    "vec_tables_dropped": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": ["vec_memories", "vec_entities", "vec_chunks"]
-      },
-      "description": "Names of the vec tables that were actually dropped. Empty when the tables were not present or the user declined --drop-vec-tables."
-    },
-    "embedding_tables_created": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": ["memory_embeddings", "entity_embeddings", "chunk_embeddings"]
-      },
-      "description": "Names of the BLOB-backed embedding tables created by V013. Empty when V013 was a no-op."
-    },
-    "namespace": {
-      "type": ["string", "null"]
-    },
     "db_path": {
-      "type": "string"
+      "type": "string",
+      "description": "Absolute path of the database file that was processed."
     },
     "null_rows_fixed": {
       "type": "integer",
@@ -74,17 +68,14 @@
   },
   "examples": [
     {
-      "action": "migrated_to_llm_only",
-      "rewritten": 1,
+      "status": "ok",
+      "rehashed": [],
       "v013_applied": true,
       "schema_version": 13,
       "vec_tables_were_present": true,
-      "vec_tables_dropped": ["vec_memories", "vec_entities", "vec_chunks"],
-      "embedding_tables_created": ["memory_embeddings", "entity_embeddings", "chunk_embeddings"],
       "null_rows_fixed": 0,
-      "vec_tables_removed_via_writable_schema": 0,
+      "vec_tables_removed_via_writable_schema": 3,
       "v013_tables_created": false,
-      "namespace": "global",
       "db_path": "/home/user/graphrag.sqlite",
       "elapsed_ms": 47
     }

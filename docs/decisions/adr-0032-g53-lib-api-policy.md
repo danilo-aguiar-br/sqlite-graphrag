@@ -1,8 +1,11 @@
 # ADR-0032: G53 Library API Stability Policy
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it declares a `cargo semver-checks` job running in CI from v1.0.80 and points at `.github/workflows/ci.yml`, and this repository has no `.github/workflows/` directory at all.
+- HISTORICAL: the CI gate was removed with no replacement; `cargo semver-checks` runs only when an operator invokes it locally before a manual release.
 
 ## Status
 - Accepted (2026-06-13)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: `Cargo.toml`, `README.md`, `README.pt-BR.md`, `.github/workflows/ci.yml` (semver-checks job)
 - v1.0.80 — this ADR formalises the decision the G53 audit flagged as ABERTO.
 

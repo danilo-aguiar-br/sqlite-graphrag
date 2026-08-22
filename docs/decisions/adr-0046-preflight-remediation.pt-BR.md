@@ -1,9 +1,12 @@
 # ADR-0046: Remediação do Preflight — Correções da Auditoria (v1.0.88)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele pressupõe `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` viva; essa variável nunca é lida em runtime pelo binário v1.2.8 e não tem efeito.
+- HISTÓRICO: os backends LLM por subprocesso que a camada de preflight validava foram removidos na v1.2.0, então o objeto não tem substituto.
 
 - **Status**: Aceito
 - **Data**: 2026-06-19
 - **Versão**: v1.0.88 (fecha followup do GAP-META-005)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Contexto
 

@@ -73,6 +73,23 @@ pub fn parse_hops_range_u32(s: &str) -> Result<u32, String> {
     parse_usize_in_range(s, 1, crate::constants::K_MAX_HOPS_CEILING as usize).map(|v| v as u32)
 }
 
+/// Validates `enrich --quality-sample`.
+///
+/// Zero is ADMITTED and is not a degenerate case: `status.rs` treats
+/// `sample_n == 0` as "skip the quality sample entirely", so the lower bound of
+/// the shared [`parse_k_range`] would reject a documented, meaningful value.
+///
+/// The upper bound guards memory rather than the engine.
+/// `quality_sample::sample_entity_description_quality` sizes a `Vec<f64>` from
+/// this number before a single row is read, so an absurd value aborted the
+/// process on allocation instead of returning the exit code this crate reserves
+/// for memory pressure — the same failure `related --limit` had under
+/// GAP-SG-213, in a field that gate could not see because it is declared as
+/// `Option<usize>` rather than `usize`.
+pub fn parse_quality_sample_range(s: &str) -> Result<usize, String> {
+    parse_usize_in_range(s, 0, crate::constants::K_QUERY_RANGE_MAX)
+}
+
 /// Validates `deep-research --max-sub-queries`.
 ///
 /// This ceiling guards spend rather than memory: every sub-query is a separate
@@ -193,13 +210,30 @@ mod tests {
     }
 }
 
-/// The 12 well-known relation types from v1.0.0.
+/// The 12 well-known relation types, in the ONE spelling this crate stores.
+///
+/// v1.2.8: kebab-case. The list used to be snake_case while the JSON Schema
+/// handed to the extraction model (`enrich::schemas`) declared the same twelve
+/// names in kebab-case, and `enrich::extraction_body` persisted the model's
+/// answer verbatim. The result was a store split across two spellings of the
+/// same relation — measured at 67 651 kebab edges against 3 578 snake ones over
+/// three production databases, so the spelling this constant called canonical
+/// was the one 5% of the data used.
+///
+/// The split was invisible because every read filter normalises before a
+/// LITERAL `WHERE`: `related --relation applies-to` returned zero rows, exit 0,
+/// on a hub that has `applies-to` edges. Instruments read the wrong scale for
+/// the same reason — `health.applies_to_ratio` reported 0.0085% where the true
+/// share is 17.8%, a factor of 2098.
+///
+/// Only the three multi-word relations can differ at all, and those are exactly
+/// the ones carrying hierarchy: `applies-to`, `depends-on`, `tracked-in`.
 ///
 /// Non-canonical relations are accepted but emit a `tracing::warn!`.
 pub const CANONICAL_RELATIONS: &[&str] = &[
-    "applies_to",
+    "applies-to",
     "uses",
-    "depends_on",
+    "depends-on",
     "causes",
     "fixes",
     "contradicts",
@@ -208,17 +242,27 @@ pub const CANONICAL_RELATIONS: &[&str] = &[
     "related",
     "mentions",
     "replaces",
-    "tracked_in",
+    "tracked-in",
 ];
+
+/// The generic relation, named once so consumers stop repeating the literal.
+///
+/// `enrich::predicates`, `enrich::scan::relationships` and `health` each held
+/// their own copy of this string, and each held the snake_case one. A literal
+/// repeated in four places drifts in four places.
+pub const GENERIC_RELATION: &str = "applies-to";
 
 /// Returns `true` when the relation is one of the 12 canonical types.
 pub fn is_canonical_relation(s: &str) -> bool {
     CANONICAL_RELATIONS.contains(&s)
 }
 
-/// Normalizes a relation string: lowercase + hyphens to underscores.
+/// Normalizes a relation string: lowercase + underscores to hyphens.
+///
+/// v1.2.8 reversed the direction along with [`CANONICAL_RELATIONS`]. Callers
+/// keep passing either spelling; what changed is which one survives to SQL.
 pub fn normalize_relation(s: &str) -> String {
-    s.to_lowercase().replace('-', "_")
+    s.to_lowercase().replace('_', "-")
 }
 
 /// Normalizes an entity name to kebab-case ASCII.
@@ -232,10 +276,10 @@ pub fn normalize_relation(s: &str) -> String {
 /// ```
 /// use sqlite_graphrag::parsers::normalize_entity_name;
 ///
-/// assert_eq!(normalize_entity_name("Danilo Aguiar"), "danilo-aguiar");
+/// assert_eq!(normalize_entity_name("Alice Martins"), "alice-martins");
 /// assert_eq!(normalize_entity_name("CANONICAL_RELATIONS"), "canonical-relations");
 /// assert_eq!(normalize_entity_name("  hello  world  "), "hello-world");
-/// assert_eq!(normalize_entity_name("danilo-aguiar"), "danilo-aguiar"); // idempotent
+/// assert_eq!(normalize_entity_name("alice-martins"), "alice-martins"); // idempotent
 /// ```
 pub fn normalize_entity_name(s: &str) -> String {
     // NFKD: decompose precomposed characters into base + combining marks.
@@ -264,7 +308,16 @@ pub fn normalize_entity_name(s: &str) -> String {
     result.trim_matches('-').to_string()
 }
 
-/// Validates that a normalized relation matches `^[a-z][a-z0-9_]*$`.
+/// Validates that a NORMALIZED relation matches `^[a-z][a-z0-9-]*$`.
+///
+/// v1.2.8: hyphen replaced underscore here together with [`normalize_relation`].
+/// The pair must agree, and before they did this function rejected the very
+/// spelling the crate was persisting: `applies-to` failed validation while
+/// 50 346 rows of it sat in one database, because the write path that produced
+/// them called neither this nor the normaliser.
+///
+/// Takes the normalised form. Callers that hold raw input run it through
+/// [`normalize_relation`] or [`parse_relation`] first.
 pub fn validate_relation_format(s: &str) -> Result<(), String> {
     if s.is_empty() {
         return Err("relation must not be empty".to_string());
@@ -276,10 +329,10 @@ pub fn validate_relation_format(s: &str) -> Result<(), String> {
     }
     if !s
         .bytes()
-        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
     {
         return Err(format!(
-            "relation must contain only lowercase letters, digits and underscores, got '{s}'"
+            "relation must contain only lowercase letters, digits and hyphens, got '{s}'"
         ));
     }
     Ok(())
@@ -297,7 +350,10 @@ pub fn validate_relation_format(s: &str) -> Result<(), String> {
 ///
 /// Alias table (mirrors the project's canonical relation map):
 /// `adds`/`creates` → `causes`, `implements` → `supports`,
-/// `blocks` → `contradicts`, `tested_by` → `related`, `part_of` → `applies_to`.
+/// `blocks` → `contradicts`, `tested-by` → `related`, `part-of` → `applies-to`.
+///
+/// The arms are written in kebab-case because [`normalize_relation`] hands this
+/// `match` kebab-case: an arm spelled `part_of` would be unreachable.
 pub fn map_to_canonical_relation(s: &str) -> String {
     let normalized = normalize_relation(s);
     if is_canonical_relation(&normalized) {
@@ -307,8 +363,8 @@ pub fn map_to_canonical_relation(s: &str) -> String {
         "adds" | "creates" => "causes",
         "implements" => "supports",
         "blocks" => "contradicts",
-        "tested_by" | "related_to" => "related",
-        "part_of" => "applies_to",
+        "tested-by" | "related-to" => "related",
+        "part-of" => "applies-to",
         // Any other non-canonical relation folds onto the generic canonical
         // kind rather than being persisted raw.
         _ => "related",
@@ -350,10 +406,15 @@ mod relation_tests {
         }
     }
 
+    // v1.2.8: the expectations below changed direction because the CONTRACT
+    // changed, by decision, not to make a red test green. The crate now stores
+    // kebab-case, which is the spelling 95% of the existing rows already used
+    // and the one every prompt and document already taught; snake_case was the
+    // spelling only this constant believed in.
     #[test]
-    fn normalize_converts_hyphens_and_uppercase() {
-        assert_eq!(normalize_relation("Depends-On"), "depends_on");
-        assert_eq!(normalize_relation("TESTED-BY"), "tested_by");
+    fn normalize_converts_underscores_and_uppercase() {
+        assert_eq!(normalize_relation("Depends_On"), "depends-on");
+        assert_eq!(normalize_relation("TESTED_BY"), "tested-by");
         assert_eq!(normalize_relation("uses"), "uses");
     }
 
@@ -374,15 +435,51 @@ mod relation_tests {
 
     #[test]
     fn validate_accepts_custom_relations() {
+        // Takes the NORMALISED form, so the multi-word cases arrive hyphenated.
         assert!(validate_relation_format("implements").is_ok());
-        assert!(validate_relation_format("tested_by").is_ok());
-        assert!(validate_relation_format("part_of").is_ok());
+        assert!(validate_relation_format("tested-by").is_ok());
+        assert!(validate_relation_format("part-of").is_ok());
         assert!(validate_relation_format("blocks").is_ok());
+    }
+
+    /// The normaliser and the validator must agree, in both directions.
+    ///
+    /// They disagreed before v1.2.8, and that disagreement is the whole defect:
+    /// the validator demanded underscores while the bulk write path stored
+    /// hyphens, so the crate rejected as malformed the exact spelling it held
+    /// 67 651 rows of. Nothing compared the two, so nothing said so.
+    #[test]
+    fn normaliser_output_always_passes_the_validator() {
+        for raw in [
+            "Applies-To",
+            "applies_to",
+            "DEPENDS_ON",
+            "depends-on",
+            "tracked_in",
+            "uses",
+            "tested-by",
+            "part_of",
+        ] {
+            let normalized = normalize_relation(raw);
+            assert!(
+                validate_relation_format(&normalized).is_ok(),
+                "normalize_relation({raw:?}) produced {normalized:?}, which the                  validator rejects — the two disagree about the stored form"
+            );
+        }
+        for rel in CANONICAL_RELATIONS {
+            assert_eq!(
+                &normalize_relation(rel),
+                rel,
+                "normalize_relation is not idempotent on the canonical relation                  {rel:?}, so the constant names a form the crate never stores"
+            );
+            assert!(validate_relation_format(rel).is_ok());
+        }
     }
 
     #[test]
     fn parse_relation_normalizes_and_validates() {
-        assert_eq!(parse_relation("Tested-By").unwrap(), "tested_by");
+        assert_eq!(parse_relation("Tested_By").unwrap(), "tested-by");
+        assert_eq!(parse_relation("Tested-By").unwrap(), "tested-by");
         assert_eq!(parse_relation("uses").unwrap(), "uses");
         assert!(parse_relation("").is_err());
     }
@@ -390,7 +487,11 @@ mod relation_tests {
     #[test]
     fn is_canonical_detects_known() {
         assert!(is_canonical_relation("uses"));
-        assert!(is_canonical_relation("applies_to"));
+        assert!(is_canonical_relation("applies-to"));
+        // The snake spelling is no longer canonical, and saying so out loud is
+        // the point: a database written by an older binary holds it, and only
+        // the reader tolerates it — the writer never produces it again.
+        assert!(!is_canonical_relation("applies_to"));
         assert!(!is_canonical_relation("implements"));
         assert!(!is_canonical_relation("blocks"));
     }
@@ -398,15 +499,19 @@ mod relation_tests {
     #[test]
     fn map_to_canonical_relation_passes_through_canonical() {
         assert_eq!(map_to_canonical_relation("uses"), "uses");
-        assert_eq!(map_to_canonical_relation("Applies-To"), "applies_to");
-        assert_eq!(map_to_canonical_relation("DEPENDS_ON"), "depends_on");
+        assert_eq!(map_to_canonical_relation("Applies-To"), "applies-to");
+        assert_eq!(map_to_canonical_relation("DEPENDS_ON"), "depends-on");
+        // Both spellings converge on the stored one, which is what lets the
+        // persistence boundary canonicalise without rejecting any caller.
+        assert_eq!(map_to_canonical_relation("applies_to"), "applies-to");
+        assert_eq!(map_to_canonical_relation("tracked_in"), "tracked-in");
     }
 
     #[test]
     fn map_to_canonical_relation_rewrites_known_aliases() {
         // GAP-SG-48: part-of was previously accepted raw with only a WARN.
-        assert_eq!(map_to_canonical_relation("part-of"), "applies_to");
-        assert_eq!(map_to_canonical_relation("part_of"), "applies_to");
+        assert_eq!(map_to_canonical_relation("part-of"), "applies-to");
+        assert_eq!(map_to_canonical_relation("part_of"), "applies-to");
         assert_eq!(map_to_canonical_relation("implements"), "supports");
         assert_eq!(map_to_canonical_relation("blocks"), "contradicts");
         assert_eq!(map_to_canonical_relation("adds"), "causes");
@@ -430,12 +535,12 @@ mod entity_name_tests {
 
     #[test]
     fn strips_diacritics_from_accented_name() {
-        assert_eq!(normalize_entity_name("Danilo Aguiar"), "danilo-aguiar");
+        assert_eq!(normalize_entity_name("Alice Martins"), "alice-martins");
     }
 
     #[test]
     fn strips_diacritics_unicode_accents() {
-        // é → e, ã → a, ç → c
+        // `é → e, ã → a, ç → c`
         assert_eq!(normalize_entity_name("São Paulo"), "sao-paulo");
         assert_eq!(normalize_entity_name("Ünit Tëst"), "unit-test");
     }
@@ -466,7 +571,7 @@ mod entity_name_tests {
 
     #[test]
     fn idempotent_on_already_normalized() {
-        let name = "danilo-aguiar";
+        let name = "alice-martins";
         assert_eq!(normalize_entity_name(name), name);
         let name2 = "canonical-relations";
         assert_eq!(normalize_entity_name(name2), name2);

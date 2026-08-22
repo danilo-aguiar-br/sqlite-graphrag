@@ -1,6 +1,7 @@
 # Integrations
 
-> **v1.2.7 (current):** ten global agent-native flags (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--filter-scope`, `--allow-unknown-keys`; failure envelopes are never filtered) plus `--no-input`. An unresolvable key or a predicate over a truncated page is refused with exit 2 instead of answering empty, and the failure envelope names the dropped arguments in `discarded_flags`. Every envelope of a process that resolved a database reports `db_path_source` and `db_path_resolved` inside the `agent_surface` block, with no flag required. A subcommand that changes durable state exits 2 without touching anything when NOTHING named its target — no `--db` and no `db.path` in the configuration. An XDG target is permitted, because `config set db.path` is a designation made once rather than per invocation; `--use-active` accepts the compiled default on purpose. Schema stays **v16**; `DEFAULT_EMBEDDING_DIM=1024`. Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
+> **v1.2.8 (current):** the dead `pending` family is removed — three verbs that could never return a row — taking the top-level catalogue to 50 verbs and the schema catalogue to 76 contracts. `hybrid-search` drops `fts_bm25`, a field the schema published and no code path ever filled. The orphan reaper runs on `sysinfo` instead of `/proc`, so macOS stops reporting zero orphans without having measured. A new gate refuses Portuguese identifiers and comments in `src/`, exempting only translated string literals under `src/i18n/`. Inherited from v1.2.8: `tests/rustdoc_link_gate.rs` closes the class of defect only `cargo doc` could see — a public doc comment linking a private item — statically, in milliseconds, with no build lock. `graph --format ndjson` now honours the agent-native surface instead of parsing its flags and discarding them: `--select` and `--truncate-content` apply per record, the whole-set knobs are refused before the first byte, and the summary line carries the `agent_surface` block. `--select`, `--filter`, `--sort` and `--dedupe-by` accept `entity_type` and `type` as one field, so a key learned on `graph entities` also resolves against the `graph --format json` snapshot; the wire is unchanged and the projection answers under the spelling you asked for. Inherited from v1.2.8: `remember` accepts the memory name positionally or via `--name`, never both, closing the last gap with `edit` / `read` / `forget` / `history`. A declared `entity_type` outside the canonical thirteen is ACCEPTED AND STORED AS WRITTEN: the fold onto a canonical kind is HISTORICAL, removed by the V017 migration that opened the vocabulary, and `normalize_entity_type` (`src/entity_type.rs`) now only trims, lowercases and turns `-` into `_`. Every non-canonical label is reported in `warnings` on `remember` AND `remember-batch`, and `--strict-entity-types` refuses the write instead — the sibling of `--strict-name`. `remember --dry-run` reports `entities_parsed`, `relationships_parsed` and the non-canonical labels it would store, instead of four members and `warnings: null`. Two input contracts are published: `schema --name graph-input` for the `--graph-stdin` / `--graph-file` wire shape, and `schema --name remember-dry-run` for an envelope that satisfied no schema at all. Inherited from v1.2.8: `--count-only` is REFUSED with exit `2` over a paginated command whose limit actually cut rows — `--filter-scope page` accepts the narrower reading and `agent_surface.count_scope` then reports `page` instead of `matched`. A top-k bound is never refused. The same knob, plus `--sort`, `--dedupe-by` and `--max-output-bytes`, is refused on `export` and `ingest`, which emit one record per line. After a write with no result array the knob is suppressed rather than honoured, and `count_only_suppressed` says so. `export` and `embedding list` now declare their query ceiling, so the surface stops reporting `query_limited: null` over a page. Inherited from v1.2.8: the canonical relation vocabulary is kebab-case (`applies-to`, `depends-on`, `tracked-in`) in ONE place — `parsers::CANONICAL_RELATIONS` — and `create_or_fetch_relationship` / `upsert_relationship` canonicalise at the persistence boundary, so no write path can store a divergent spelling. Relation filters in `related` match both spellings, reaching rows written by earlier binaries. `link` accepts `--strength` as an alias of `--weight`. `remember` reports in `warnings` every declared `entity_type` outside the canonical thirteen — until V017 that label was folded onto a canonical kind, and since V017 it is stored as written. Enrichment no longer overwrites an entity type that is not the generic `concept`. `related` is deterministic: its ordering is total, so identical invocations return identical results. Schema is **v17** — the V017 migration opened the entity-type vocabulary and `health --json` reports `schema_version: 17`; `DEFAULT_EMBEDDING_DIM=1024`.
+> **v1.2.7:** ten global agent-native flags (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--filter-scope`, `--allow-unknown-keys`; failure envelopes are never filtered) plus `--no-input`. An unresolvable key or a predicate over a truncated page is refused with exit 2 instead of answering empty, and the failure envelope names the dropped arguments in `discarded_flags`. Every envelope of a process that resolved a database reports `db_path_source` and `db_path_resolved` inside the `agent_surface` block, with no flag required. A subcommand that changes durable state exits 2 without touching anything when NOTHING named its target — no `--db` and no `db.path` in the configuration. An XDG target is permitted, because `config set db.path` is a designation made once rather than per invocation; `--use-active` accepts the compiled default on purpose. Schema was **v16** at that release; V017 advanced it to **v17**, which is what a 1.2.8 binary reports; `DEFAULT_EMBEDDING_DIM=1024`. Per-release detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 
 > Read this document in [Portuguese (pt-BR)](INTEGRATIONS.pt-BR.md)
@@ -20,13 +21,13 @@
 - Auto-init via `remember`/`ingest`/etc. now activates `journal_mode = wal` correctly (regression fix).
 
 ## New Flags (since v1.0.45)
-- NER entity extraction is **disabled by default**. Pass `--enable-ner` on `remember` or `ingest` to opt in; set `SQLITE_GRAPHRAG_ENABLE_NER=1` for a persistent session override.
+- NER entity extraction is **disabled by default**. Pass `--enable-ner` on `remember` or `ingest` to opt in; there is no XDG key and no environment override for it.
 - `--skip-extraction` is deprecated and has no effect since v1.0.45 (NER is off by default); the flag is kept as a hidden no-op for backwards compatibility — remove it from scripts.
 - `--graph-stdin` on `remember` reads a single JSON object from stdin containing `body`, `entities`, and `relationships`, making it the preferred way to supply curated graphs from an LLM.
 
 ## New Flags (since v1.0.47)
 - The GLiNER zero-shot NER pipeline was REMOVED in v1.0.79 with the `ner-legacy` feature; `--enable-ner` now performs URL-regex extraction only.
-- `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` and `SQLITE_GRAPHRAG_GLINER_THRESHOLD` are accepted for compatibility but have NO effect since v1.0.79.
+- --gliner-variant was REMOVED in v1.1.02: clap REJECTS it with exit 2, so an invocation carrying it aborts before any work — it is NOT tolerated as a silent no-op. The product env vars `SQLITE_GRAPHRAG_GLINER_VARIANT` and `SQLITE_GRAPHRAG_GLINER_THRESHOLD` are historical as well: product env is not read at runtime and has no effect.
 - For LLM-curated entity/relationship extraction run a SEPARATE `enrich --mode openrouter` pass after `ingest --mode none`.
 - Entity types now include `organization`, `location`, `date` alongside `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
@@ -59,7 +60,7 @@
 - `enrich --operation entity-connect|cross-domain-bridges` is safe on large `global` namespaces (no cartesian hang); both share the fully-implemented `entity_connect_seen` path.
 
 ## New Commands and Flags (since v1.1.05)
-- The official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.5`. No schema migration (schema stays at v16 from v1.1.04). Closes the five operator-blocking bugs from the 2026-07-08 deep-research "danilo" incident (`gaps.md`): agent pipeline safety via `deep-research --output PATH` (atomic write + stdout ack with `blake3`), global `--quiet`/`-q`, single-token aspect fan-out for deep-research, `graph traverse --fuzzy` with NotFound name suggestions, `link --from-id`/`--to-id` (pure-numeric names rejected), and `merge-entities` self-ref rejection before any DB work. Never mix stderr into JSON with `&>`.
+- The official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.5`. No schema migration (schema stays at v16 from v1.1.04). Closes the five operator-blocking bugs from the 2026-07-08 single-subject deep-research incident (`gaps.md`): agent pipeline safety via `deep-research --output PATH` (atomic write + stdout ack with `blake3`), global `--quiet`/`-q`, single-token aspect fan-out for deep-research, `graph traverse --fuzzy` with NotFound name suggestions, `link --from-id`/`--to-id` (pure-numeric names rejected), and `merge-entities` self-ref rejection before any DB work. Never mix stderr into JSON with `&>`.
 - `deep-research --output PATH` — atomwrite (tempfile same dir → fsync → rename); short stdout ack `{written, bytes, blake3, ...}`; use with `--quiet` in headless agent pipelines
 - `deep-research --sub-query-strategy` / `--sub-queries-file` — manual strategy; single-token queries expand to multi-aspect sub-queries (`source: "aspect"`, EN/PT facets)
 - Global `--quiet` / `-q` — suppress non-error tracing on stderr so stdout JSON stays parseable
@@ -69,7 +70,7 @@
 
 ## New Commands and Flags (since v1.1.02)
 - The official release name is v1.1.04; the crate manifest carries `version = "1.1.4"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.4`. The HTTP `User-Agent` is `sqlite-graphrag/1.1.4` (derived from `CARGO_PKG_VERSION`); the release binary is approximately 19 MiB. v1.1.04 closes the two structural gaps tracked in `gaps.md` after v1.1.03: GAP-001 (the `deep-research` nested-Tokio-runtime panic is fixed — the sync entry point computes per-sub-query embeddings before building its dedicated runtime, and the three OpenRouter embedding paths adopt the `Handle::try_current` + `block_in_place` reentry pattern) and GAP-002 (`entity-connect` now converges via the new `entity_connect_seen` table recording the LLM verdict per pair). Database migration REQUIRED: `migrate --json` applies V016 (`entity_connect_seen`); schema advances v15→v16
-- The official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.2`. The HTTP `User-Agent` is `sqlite-graphrag/1.1.2` (derived from `CARGO_PKG_VERSION`); the release binary is approximately 19 MiB; the schema stays at version 15 with no migration. v1.1.02 closes the two residual gaps left after v1.1.01 (the deprecated `--gliner-variant` argument is dropped from `remember`/`ingest` with clap exit 2; the embedding token ceiling becomes the typed `AppError::TooManyTokens { tokens, limit }` enforced at the write boundary), ships a regression test for the re-embed entity dispatch (tests/reembed_entities_integration.rs), and adds `enrich --prune-dead-entity-orphans` to prune entity-keyed dead-letter rows from the queue sidecar
+- The official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` because the SemVer parser rejects a leading zero in the patch component — pin with `=1.1.2`. The HTTP `User-Agent` is `sqlite-graphrag/1.1.2` (derived from `CARGO_PKG_VERSION`); the release binary is approximately 19 MiB; the schema stays at version 15 with no migration. v1.1.02 closes the two residual gaps left after v1.1.01 (the deprecated --gliner-variant argument is dropped from `remember`/`ingest` with clap exit 2; the embedding token ceiling becomes the typed `AppError::TooManyTokens { tokens, limit }` enforced at the write boundary), ships a regression test for the re-embed entity dispatch (tests/reembed_entities_integration.rs), and adds `enrich --prune-dead-entity-orphans` to prune entity-keyed dead-letter rows from the queue sidecar
 - Entity vectors are written through the OpenRouter REST path even under `--llm-backend none` (the entity-embedding chain resolves to `[OpenRouter]`, no subprocess), and an empty-embedding guard in `upsert_entity_vec`/`upsert_chunk_vec`/`memories::upsert_vec` keeps vector-less rows visible to the re-embed backfill instead of masking them behind an empty BLOB (P1)
 - `enrich --operation re-embed --target memories|entities|chunks|all` — retroactive embedding backfill per vector table (default `memories`, fully retro-compatible); `enrich --status` reports the `scan_backlog` per target; the re-embed predicates also select rows whose stored `dim` diverges from the configured `--embedding-dim` or whose blob is empty (P2, P10)
 - `graph recompute-degree` — reconciles the cached `entities.degree` with the real edge counts in one IMMEDIATE transaction, per namespace (or all), with `--dry-run` and the envelope `{namespace, dry_run, total, updated, zeroed, unchanged, elapsed_ms}` (P3)
@@ -106,7 +107,7 @@
 - `ingest --force-merge` — updates duplicate files instead of skipping (dedup by `body_hash`); oversized bodies auto-split natively into chunks
 - `read --format raw` — prints the pure body with no JSON envelope; `unlink --memory <name> --entity <name>` — removes a single curated memory-to-entity binding
 - `embedding status --json` adds a `coverage` object (real vector counts per table); `stats --json` adds a top-level `total_memories`
-- `--db <PATH>` must be placed AFTER the subcommand; `SQLITE_GRAPHRAG_DB_PATH` is the canonical position-independent override (SG-32). The per-namespace enrich singleton is unchanged, with `--rest-concurrency` (clamp 1..=16, default 8) as the throughput remedy (GAP-20)
+- `--db <PATH>` must be placed AFTER the subcommand; no position-independent override exists, so the canonical alternative is the XDG key `db.path` via `config set` (SG-32). The per-namespace enrich singleton is unchanged, with `--rest-concurrency` (clamp 1..=16, default 8) as the throughput remedy (GAP-20)
 
 ## New Commands and Flags (since v1.0.96)
 - `enrich --until-empty` — internal scan→drain loop that runs until the queue holds no eligible items or `--max-runtime` expires; replaces the external bash retry loop (GAP-ENRICH-BACKLOG-CONVERGE, ADR-0055)
@@ -119,9 +120,9 @@
 ## New Commands and Flags (since v1.0.68)
 ### Process Lifecycle (G28)
 - `enrich` acquires a per-namespace singleton before doing real work.  A second concurrent invocation against the same database fails fast with `AppError::JobSingletonLocked { job_type, namespace }` (exit 75) instead of stacking up subprocess trees.
-- `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` env var (opt-in) — when set to an existing empty directory, the Claude Code subprocess is spawned with `CLAUDE_CONFIG_DIR=<that dir>`, suppressing user-scoped MCP servers and their 8-10-process fan-out.  This is the only mechanism upstream Claude Code actually honours (see [anthropics/claude-code#10787]).  We deliberately do NOT pass `--strict-mcp-config` or `--mcp-config '{}'` because both are ignored.
+- Historical, removed in v1.2.0 — the `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` env var (opt-in) once pointed at an existing empty directory, and the Claude Code subprocess was spawned with `CLAUDE_CONFIG_DIR=<that dir>`, suppressing user-scoped MCP servers and their 8-10-process fan-out.  That was the only mechanism upstream Claude Code actually honoured (see [anthropics/claude-code#10787]).  We deliberately did NOT pass `--strict-mcp-config` or `--mcp-config '{}'` because both are ignored.  The headless subprocess backends are gone, so the mechanism no longer exists.
 - `retry::CircuitBreaker` (Rust crate API) — opt-in helper with `AttemptOutcome::{Success, Transient, HardFailure}`.  Rate-limited and timeout errors are explicitly excluded from the failure count.  Use in custom retry loops to cap persistent-failure iterations.
-- `enrich` emits a `tracing::warn!` (visible with `-v`) when `--llm-parallelism > 4`, recommending to combine with `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` to keep subprocess fan-out manageable.
+- `enrich` emits a `tracing::warn!` (visible with `-v`) when `--llm-parallelism > 4`; the `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` remedy it once named was removed in v1.2.0, so lower `--llm-parallelism` instead.
 ### Windows Build (G29)
 - `cargo install sqlite-graphrag` on Windows now succeeds.  `HANDLE` type is treated type-safely via `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.  `windows-sys` is pinned to `=0.59.0` exact in `Cargo.toml`.  New CI job `windows-build-check` runs `cargo check --target x86_64-pc-windows-msvc --lib --all-features` on every push and PR.
 
@@ -155,8 +156,8 @@
 ### Hybrid Search Refinement (G24)
 - `hybrid-search` uses FTS5 for coarse filtering and refines the candidate set with a pure-Rust cosine over the BLOB embeddings.  FTS5 stays healthy because the rebuild is gated by `optimize --fts-skip-when-functional` (G36 from v1.0.69).
 ### Extraction Backend Selector
-- New `--extraction-backend llm|embedding|none|both` global flag (default `llm`) selects the extraction backend.  `llm` is the LLM-backed path; `embedding` is a permanent stub since v1.0.79 (legacy pipeline removed) that returns a migration error; `none` is a no-op; `both` runs them in parallel and merges the results.
-- `src/extract/` exposes the `ExtractionBackend` trait with the four implementations.  `src/spawn/` exposes the `VersionAdapter` trait with `CodexAdapter` (detects `codex 0.130.0` through `0.138+` and adapts flags — `codex 0.137.0` removed `--ask-for-approval` in favour of `-a never`), `ClaudeAdapter` (claude code 2.1.0+), and `OpencodeAdapter` (opencode headless).
+- HISTORICAL (subprocess era): the global flag --extraction-backend llm|embedding|none|both, default `llm`, selected the extraction backend — `llm` was the subprocess-backed path, `embedding` a permanent stub returning a migration error, `none` a no-op, `both` a parallel merge. The flag is GONE: a 1.2.8 binary answers `unexpected argument` with exit 2, and the subprocess extraction path it selected was removed in v1.2.0. Today extraction is chosen per command — `ingest --mode none` for body-only ingestion, then a SEPARATE `enrich --mode openrouter` pass for LLM-curated entities and relationships.
+- `src/extract/` still exposes the `ExtractionBackend` trait with the four implementations, and none of them spawns a process any more. HISTORICAL: `src/spawn/` exposed the `VersionAdapter` trait with `CodexAdapter` (detected `codex 0.130.0` through `0.138+` and adapted flags — `codex 0.137.0` removed `--ask-for-approval` in favour of `-a never`), `ClaudeAdapter` (claude code 2.1.0+) and `OpencodeAdapter` (opencode headless). That directory does not exist in the 1.2.8 tree: the three headless backends were removed in v1.2.0.
 ### Daemon Removal (ADR-0021)
 - The `daemon` subcommand was DEPRECATED in v1.0.76 and FULLY REMOVED in v1.0.79 (ahead of the v1.1.0 schedule).  The LLM subprocess is the "model loader"; the CLI is 100% one-shot with zero IPC.
 
@@ -165,7 +166,7 @@
 - `--llm-parallelism <N>` is now available on `remember` (default 4), `ingest` (default 2) and `edit` — bounded fan-out via `Semaphore` + `JoinSet`, permits clamp [1, 32]
 - `enrich --operation re-embed --limit N --resume` is the canonical one-shot re-embed path (e.g. after changing `--embedding-dim`)
 - `edit --force-reembed` regenerates the embedding of one memory without changing its body
-- `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` overrides the claude embedding model (symmetric to the codex variable); `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` bounds each LLM embedding call (default 300)
+- Historical, removed in v1.2.0 — `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` overrode the claude embedding model (symmetric to the codex variable); the embedding deadline is now `--openrouter-timeout <SECONDS>` or the XDG key `embedding.timeout_secs` (default 300)
 - LLM calls are batched (`{items:[{i,v}]}` schema — calibration bases of 8 chunks / 25 entity names at dim 64, dim-adaptive as clamp(base×64/dim, 1, base) since G44) and every subprocess uses `kill_on_drop` plus an explicit timeout
 
 ## New Commands and Flags (since v1.0.67)
@@ -194,7 +195,7 @@
 - `normalize-entities --yes` normalizes all entity names to lowercase kebab-case ASCII; auto-merges collisions; `--dry-run` previews
 - `enrich --operation <op> --mode claude-code|codex|opencode|openrouter` LLM-augmented graph quality; current FULLY-IMPLEMENTED ops: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`, `entity-connect` (v1.1.06 O(k) + pair keys), `cross-domain-bridges`; `--dry-run` previews without LLM; `--max-cost-usd`, `--resume`, `--retry-failed`, `--until-empty`, `--max-runtime`
 - `deep-research` new flags: `--rrf-k` (default 60), `--graph-decay` (default 0.7), `--graph-min-score` (default 0.05)), `--max-neighbors-per-hop`
-- `--max-entity-degree` flag REMOVED from `link` and `remember` in v1.0.99 — writes are now purely additive and NEVER prune, delete edges, or emit a degree warning (passing the flag now yields a clap exit 2)
+- --max-entity-degree flag REMOVED from `link` and `remember` in v1.0.99 — writes are now purely additive and NEVER prune, delete edges, or emit a degree warning (passing the flag now yields a clap exit 2)
 - `health` reports `top_relation`, `top_relation_ratio`, `applies_to_ratio`, `relation_concentration_warning` when any relation exceeds 40%
 - Entity names are normalized to lowercase kebab-case on every write path (remember, ingest, link, rename-entity)
 
@@ -227,7 +228,7 @@
 - `unlink --relation` is now optional (removes all between pair); `--entity <name> --all` for bulk
 - `graph entities --sort-by degree|name|created_at --order asc|desc`; `degree` field in response
 - `ingest --max-name-length N` configures name truncation; `body_length` in NDJSON; auto-prefix `doc-` for numeric names
-- `daemon --ping` added `model_name`, `model_variant` fields (HISTORICAL — the daemon was removed in v1.0.79)
+- daemon --ping added `model_name`, `model_variant` fields (HISTORICAL — the daemon was removed in v1.0.79)
 - ALL error paths now emit JSON on stdout: `{"error": true, "code": N, "message": "..."}`
 - FTS5 sync fixed in `edit`, `rename`, `restore` — edited memories are now immediately findable via full-text search
 
@@ -278,9 +279,9 @@
 - Minimum version requires Claude Code 1.0 or later for stable `.claude/hooks/` directory support
 - Official docs live at https://docs.anthropic.com/claude-code describing hook lifecycle events
 - Golden tip is to capture exit code `75` as retry-later and keep the agent alive gracefully
-- Since v1.0.61, `ingest --mode claude-code` uses the Claude Code binary for LLM-curated entity/relationship extraction during bulk ingestion
-- The ingest mode spawns `claude -p` headless per file — requires Claude Code >= 2.1.0 with active Pro/Max subscription
-- Use `--claude-timeout <S>` (default 300s) to prevent hung subprocesses in CI/cron pipelines
+- HISTORICAL (v1.0.61 until v1.2.0): `ingest --mode claude-code` used the Claude Code binary for LLM-curated entity/relationship extraction during bulk ingestion, spawning `claude -p` headless per file against a Pro/Max subscription. A 1.2.8 binary REFUSES it — `invalid value 'claude-code' for '--mode <MODE>'`, exit 2 — because `none` is the only accepted value.
+- Today the same result is two steps with no subprocess: `ingest --mode none` for the body, then a SEPARATE `enrich --mode openrouter --openrouter-model <MODEL>` pass that reaches the provider over HTTP.
+- HISTORICAL: --claude-timeout <S> (default 300s) bounded that subprocess and is rejected with exit 2 today. Nothing spawns, so nothing can hang: the only time budget is the global `--openrouter-timeout <SECONDS>`, applied per OpenRouter REST call.
 
 
 ## Codex CLI
@@ -292,13 +293,12 @@
 - Minimum version requires Codex CLI 0.5 or later for deterministic AGENTS.md parsing rules
 - Official docs live at https://github.com/openai/codex covering AGENTS.md discovery order
 - Golden tip is to include a working invocation example under each listed command for Codex
-- Since v1.0.62, `ingest --mode codex` uses the Codex CLI binary for LLM-curated entity/relationship extraction during bulk ingestion
-- The ingest mode spawns `codex exec --json` headless per file — requires Codex CLI >= 0.120.0 with active ChatGPT OAuth session (codex login)
-- Use `--codex-timeout <S>` (default 300s) to prevent hung subprocesses in CI/cron pipelines
+- HISTORICAL (v1.0.62 until v1.2.0): `ingest --mode codex` used the Codex CLI binary for LLM-curated entity/relationship extraction during bulk ingestion, spawning `codex exec --json` headless per file against a ChatGPT OAuth session. A 1.2.8 binary REFUSES it — `none` is the only accepted value of `--mode`, exit 2 otherwise.
+- Today the recipe is `ingest --mode none` followed by a SEPARATE `enrich --mode openrouter --openrouter-model <MODEL>` pass over HTTP; the `AGENTS.md` contract above is unaffected, because it only documents read verbs.
+- HISTORICAL: --codex-timeout <S> (default 300s) bounded that subprocess and is rejected with exit 2 today. The only remaining time budget is the global `--openrouter-timeout <SECONDS>`.
 
-> **Authentication:** OAuth is the ONLY accepted credential flow. API keys are PROHIBITED.
-> `--mode claude-code` reads OAuth from `~/.claude/.credentials.json` (Claude Pro/Max/Team).
-> `--mode codex` reads device auth from `codex login` (OpenAI ChatGPT).
+> **Authentication (current):** there is no subprocess and no OAuth flow. Embedding and enrichment are HTTP calls to OpenRouter with a key stored at rest under XDG by `config add-key --provider openrouter --from-stdin`; `config doctor` shows which layer resolved it.
+> **Historical:** until v1.2.0 OAuth was the only accepted flow and API keys were refused — `--mode claude-code` read `~/.claude/.credentials.json` (Claude Pro/Max/Team) and `--mode codex` read the device auth of `codex login` (OpenAI ChatGPT). Both modes are rejected by a 1.2.8 binary.
 > Defining `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the environment ABORTS the spawn with `AppError::Validation` and exit code 1. The `--bare` flag (which would also demand an API key) is REMOVED from all executable code paths.
 > See `docs/decisions/adr-0011-oauth-only-enforcement.md` for the full rationale.
 
@@ -310,7 +310,7 @@
 - Use `sqlite-graphrag hybrid-search "query" --k 5 --json` for recall with mixed keyword intent
 - Minimum version supports any recent Gemini CLI release with subprocess invocation enabled
 - Official docs live at https://github.com/google-gemini/gemini-cli for tool integration patterns
-- Golden tip is to set `SQLITE_GRAPHRAG_LANG=pt` when prompting Gemini in Portuguese contexts
+- Golden tip is to pass the global `--lang pt` flag, or persist `config set i18n.lang pt`, when prompting Gemini in Portuguese contexts
 
 
 ## Opencode
@@ -387,7 +387,7 @@
 - Use `sqlite-graphrag remember --name cursor-ctx --type project --body "$SELECTION"` from a key binding
 - Minimum version requires Cursor 0.40 or later for stable AI rules and terminal env override
 - Official docs live at https://cursor.com/docs covering AI rules and terminal integration patterns
-- Golden tip is to set `SQLITE_GRAPHRAG_NAMESPACE=${workspaceFolderBasename}` per project workspace
+- Golden tip is to pass `--namespace ${workspaceFolderBasename}` per project workspace, or persist `config set namespace.default <NAME>`
 
 
 ## Zed
@@ -409,7 +409,7 @@
 - Use `sqlite-graphrag recall "refactor target" --k 5 --json` invoked before each Aider prompt
 - Minimum version requires Aider 0.60 or later for stable subprocess and hook invocation
 - Official docs live at https://aider.chat describing configuration and custom shell commands
-- Golden tip is to scope memory by repository via `SQLITE_GRAPHRAG_NAMESPACE=$(basename $(pwd))`
+- Golden tip is to scope memory by repository via `--namespace $(basename $(pwd))` on every invocation
 
 
 ## Jules
@@ -530,7 +530,7 @@ sqlite-graphrag --embedding-backend openrouter \
 - Recipe ready to route Claude Code through any Anthropic-compatible endpoint without breaking the OAuth-only mandate
 - While the OAuth-only guard still rejects `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` with exit 1 (defence in depth from v1.0.69), the new whitelist preserves `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CODEX_ACCESS_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, and `OTEL_EXPORTER_OTLP_ENDPOINT`
 - Purpose is to enable Anthropic-compatible providers (MiniMax/api.minimax.io, OpenRouter, AWS Bedrock custom routes, corporate gateways) without forcing operators to pay the official Anthropic API key path
-- Use the env vars below before invoking any `sqlite-graphrag` command that triggers embedding (`remember`, `edit`, `ingest --mode claude-code`)
+- HISTORICAL RECIPE: the env vars below were exported before any `sqlite-graphrag` command that triggered embedding (`remember`, `edit`, `ingest --mode claude-code`). None of it applies to a 1.2.8 binary: there is no subprocess to inherit an env var, `ingest --mode claude-code` is rejected, and the maintenance section below states that product environment variables are ignored at runtime. The current path to a custom provider is `config add-key --provider openrouter --from-stdin` plus `--llm-backend openrouter` / `--embedding-backend openrouter`, both of which are CLI flags with XDG counterparts set through `config set`
 - Minimum version requires `sqlite-graphrag` 1.0.83 or later; older releases will spawn the subprocess without the custom-provider env vars and the provider will return `401 Invalid authentication credentials`
 - Official docs live at https://platform.minimax.io/document and `docs/decisions/adr-0041-preserve-custom-provider-env.md` explains the architectural rationale
 - Golden tip is to verify the provider reachability with `curl -fsS "$ANTHROPIC_BASE_URL/v1/models" -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN"` before running any `sqlite-graphrag` command
@@ -583,7 +583,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
   - Confirm `sqlite-graphrag --version` reports `1.0.83` or later
   - Confirm the env vars are exported in the SAME shell where the command runs (not a parent shell, not a `.envrc` consumed only by direnv)
   - Run with `env | rg "ANTHROPIC_(AUTH_TOKEN|BASE_URL)"` to confirm presence
-  - If the host enforces env-var isolation, drop the strict mode override: `unset SQLITE_GRAPHRAG_STRICT_ENV_CLEAR` or remove `--strict-env-clear`
+  - HISTORICAL: --strict-env-clear was the compliance switch of the subprocess era and lived on the global surface until v1.2.2, as `src/cli/globals.rs` still records; a 1.2.8 binary answers unexpected argument '--strict-env-clear' found with exit 2. Nothing to strip today: the process forwards no credential to any child, because it starts none
   - Capture the exact error with `RUST_LOG=trace sqlite-graphrag remember ... 2> trace.log` and grep for `apply_env_whitelist`
 - **Defense-in-depth confirmation**: the OAuth-only guard still rejects `ANTHROPIC_API_KEY` if accidentally set; verify with `export ANTHROPIC_API_KEY=sk-ant-test && sqlite-graphrag remember --name test --body x` returning exit 1
 ## POSIX Shells
@@ -637,7 +637,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 ### Linux systemd user / cron — macOS launchd — Windows Task Scheduler
 - The product **forbids** GitHub Actions / CI workflows in-repo (manual releases only).
 - Use **local** multi-platform schedulers for one-shot maintenance:
-  - Linux: `systemd --user` timer or `cron` running `sqlite-graphrag purge --days 30 --yes` and `vacuum`
+  - Linux: a systemd --user timer (--user is a systemd flag, not a sqlite-graphrag one) or `cron` running `sqlite-graphrag purge --days 30 --yes` and `vacuum`
   - macOS: `launchd` plist invoking the cargo-installed binary
   - Windows: Task Scheduler with the same one-shot binary
 - While MCPs require a dedicated server, sqlite-graphrag installs via cargo and exits after each run

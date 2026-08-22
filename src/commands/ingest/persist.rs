@@ -2,7 +2,7 @@
 
 use super::report::FileSuccess;
 use super::stage::StagedFile;
-use crate::entity_type::EntityType;
+use crate::entity_type::{is_canonical_entity_type, DEFAULT_ENTITY_TYPE};
 use crate::errors::AppError;
 use crate::i18n::errors_msg;
 use crate::paths::AppPaths;
@@ -23,6 +23,21 @@ pub(crate) fn link_staged_graph(
         return Ok(());
     }
     for (idx, entity) in staged.entities.iter().enumerate() {
+        // v1.2.8: a type outside the canonical set is stored as written, so the
+        // only thing left to do about it is say so. Ingest has no warnings
+        // channel — `FileSuccess` carries an id, an action, a body length and a
+        // backend, and `link_staged_graph` answers with `()` — so a log line is
+        // where the observation lands. Without it, ingest was the quietest of
+        // the write paths: `remember` at least collects type folds for its
+        // envelope, while this one reported nothing at all.
+        if !is_canonical_entity_type(&entity.entity_type) {
+            tracing::warn!(
+                target: "ingest",
+                entity = %entity.name,
+                entity_type = %entity.entity_type,
+                "entity type is outside the canonical vocabulary; stored as written"
+            );
+        }
         let entity_id = entities::upsert_entity(tx, namespace, entity)?;
         if let Some(ref entity_embeddings) = staged.entity_embeddings {
             if let Some(entity_embedding) = entity_embeddings.get(idx) {
@@ -30,7 +45,7 @@ pub(crate) fn link_staged_graph(
                     tx,
                     entity_id,
                     namespace,
-                    entity.entity_type,
+                    &entity.entity_type,
                     entity_embedding,
                     &entity.name,
                 )?;
@@ -38,10 +53,10 @@ pub(crate) fn link_staged_graph(
         }
         entities::link_memory_entity(tx, memory_id, entity_id)?;
     }
-    let entity_types: std::collections::HashMap<&str, EntityType> = staged
+    let entity_types: std::collections::HashMap<&str, &str> = staged
         .entities
         .iter()
-        .map(|entity| (entity.name.as_str(), entity.entity_type))
+        .map(|entity| (entity.name.as_str(), entity.entity_type.as_str()))
         .collect();
 
     let mut affected_entity_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
@@ -57,7 +72,8 @@ pub(crate) fn link_staged_graph(
             entity_type: entity_types
                 .get(rel.source.as_str())
                 .copied()
-                .unwrap_or(EntityType::Concept),
+                .unwrap_or(DEFAULT_ENTITY_TYPE)
+                .to_string(),
             description: None,
         };
         let target_entity = NewEntity {
@@ -65,7 +81,8 @@ pub(crate) fn link_staged_graph(
             entity_type: entity_types
                 .get(rel.target.as_str())
                 .copied()
-                .unwrap_or(EntityType::Concept),
+                .unwrap_or(DEFAULT_ENTITY_TYPE)
+                .to_string(),
             description: None,
         };
         let source_id = entities::upsert_entity(tx, namespace, &source_entity)?;

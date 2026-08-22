@@ -77,23 +77,15 @@ fn adaptive_wrappers_follow_active_dim() {
     assert_eq!(entity, 4, "384-dim entity batch must shrink to 4 (G44)");
 }
 
-/// The retired product env must not move the batch size.
-///
-/// Asserting the negative is the point: without it, reintroducing an env
-/// read would go unnoticed by the suite.
-#[test]
-#[serial_test::serial(env)]
-fn retired_embedding_dim_env_is_inert() {
-    crate::constants::set_active_embedding_dim(crate::constants::DEFAULT_EMBEDDING_DIM);
-    let before = chunk_embed_batch_size();
-    std::env::set_var("SQLITE_GRAPHRAG_EMBEDDING_DIM", "384");
-    let during = chunk_embed_batch_size();
-    std::env::remove_var("SQLITE_GRAPHRAG_EMBEDDING_DIM");
-    assert_eq!(
-        before, during,
-        "SQLITE_GRAPHRAG_EMBEDDING_DIM must not change the active dim"
-    );
-}
+// GAP-SG-232: the retired `SQLITE_GRAPHRAG_EMBEDDING_DIM` was asserted inert HERE,
+// by setting it and observing that the batch size did not move. That proof cost
+// a runtime test that set the very variable the product must never read, so a
+// reader of this file learnt the channel exists. The same negative is now
+// enforced statically, and more strictly, by
+// `tests/env_channel_guard.rs::no_source_file_manipulates_a_product_environment_variable`:
+// no source file may so much as touch the variable, which no runtime assertion
+// could have caught. The dim comes from `--embedding-dim`, then the XDG key
+// `embedding.dim`, then the compiled default.
 
 // ---------------------------------------------------------------
 // G58/S1: FallbackReason + try_embed_query_with_fallback tests
@@ -344,10 +336,10 @@ fn g56_entity_embed_cache_populates_and_hits() {
     assert!((hit[0] - 0.42).abs() < 1e-6);
 }
 
-// v1.1.1 (P1): com `--embedding-backend openrouter` a chain de embedding
-// de entidade é exatamente `[OpenRouter]` mesmo com `--llm-backend none`
-// — o short-circuit de vetor vazio de embed_entity_texts_cached (chain ==
-// [None]) NÃO dispara, então a entidade ganha vetor via REST na escrita.
+// v1.1.1 (P1): with `--embedding-backend openrouter` the entity embedding
+// chain is exactly `[OpenRouter]` even under `--llm-backend none` — the
+// empty-vector short-circuit of embed_entity_texts_cached (chain ==
+// [None]) does NOT fire, so the entity gains a vector over REST on write.
 #[test]
 fn p1_openrouter_chain_ignores_llm_backend_none() {
     use crate::cli::{EmbeddingBackendChoice, LlmBackendChoice};
@@ -357,8 +349,8 @@ fn p1_openrouter_chain_ignores_llm_backend_none() {
         vec![LlmBackendKind::OpenRouter],
         "openrouter embedding must not be silenced by --llm-backend none"
     );
-    // O curto-circuito de vetor vazio existe SOMENTE para a chain [None]
-    // (`--llm-backend none` sem cliente OpenRouter inicializado).
+    // The empty-vector short-circuit exists ONLY for the [None] chain
+    // (`--llm-backend none` with no OpenRouter client initialised).
     let none_chain = LlmBackendChoice::None.to_chain();
     assert_eq!(none_chain, vec![LlmBackendKind::None]);
 }

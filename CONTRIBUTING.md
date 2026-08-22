@@ -87,7 +87,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - `cargo test` is the ONLY automatic gate in this repository, and it runs on your machine: `tests/no_ci_workflows_gate.rs` forbids CI workflows outright, so every other check in this document is a LOCAL step the operator has to remember
 - Run `cargo test --lib lock::tests retry::circuit_breaker_tests` after touching `lock.rs` or `retry.rs` to exercise the new v1.0.68 singleton and circuit-breaker helpers
 - Run `cargo test --test terminal_compile_windows` after touching `src/terminal.rs` to confirm the public surface stays callable; there is no `windows-build-check` CI job, so run `cargo check --target x86_64-pc-windows-msvc --lib --all-features` locally for the full cross-platform type check
-- Test assertions involving timestamps MUST be timezone-agnostic — parse ISO via `chrono::DateTime::parse_from_rfc3339` and compare `timestamp()` against `DateTime::UNIX_EPOCH` instead of hardcoded `1970-01-01T00:00:00` strings; this rule was added after a `SQLITE_GRAPHRAG_DISPLAY_TZ` leak in v1.0.66/v1.0.67 made three pre-existing tests flaky
+- Test assertions involving timestamps MUST be timezone-agnostic — parse ISO via `chrono::DateTime::parse_from_rfc3339` and compare `timestamp()` against `DateTime::UNIX_EPOCH` instead of hardcoded `1970-01-01T00:00:00` strings; this rule was added after a `SQLITE_GRAPHRAG_DISPLAY_TZ` leak in v1.0.66/v1.0.67 made three pre-existing tests flaky. That leak is historical: no product env is read at runtime today
 - OpenRouter embedding tests live in `tests/openrouter_embedding.rs` using `wiremock` for HTTP mocking; run with `cargo test --test openrouter_embedding`
 - E2E OpenRouter tests with real API are opt-in: use `config add-key openrouter` (or `--openrouter-api-key`) and `--embedding-model` to run against a live endpoint; product never reads `OPENROUTER_API_KEY`; these are NOT part of the default `cargo test` suite
 - v1.2.1 enrich-queue CAPA regressions: when editing enqueue/dequeue/re-embed predicates, run `cargo test --lib commands::enrich` and confirm `enqueue_candidate_accepts_entity_prefixed_reembed_key` + `dequeue_next_pending_isolates_by_namespace` stay green (namespace claim isolation / `entity:` strip)
@@ -135,7 +135,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - Maintainers bump `version` in `Cargo.toml` following Semantic Versioning 2.0.0
 - Maintainers update the CHANGELOG moving Unreleased entries under the new version with ISO date
 - Maintainers tag the release commit as `vX.Y.Z` using `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
-- Pushing the tag triggers `.github/workflows/release.yml` which builds release artifacts and GitHub release assets
+- Pushing the tag builds NOTHING on its own: this project forbids CI, `.github/workflows/` does not exist, and `tests/no_ci_workflows_gate.rs` fails if it ever appears. Release artifacts are built locally by the maintainer with `cargo build --release`
 - Final publication to crates.io is done manually with `cargo publish --locked`
 
 ## Recent Releases
@@ -157,8 +157,8 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.06]`, `gaps.md` (GAP Fechado), and ADR-0066.
 - When touching `scan.rs`, `queue.rs`, or enrich drain paths: run `cargo test --test v1106_entity_connect_scan_regression` and `cargo test --lib commands::enrich`. Do not treat scan wall-clock timeout as exit 75.
 
-### v1.1.05 - 2026-07-11 — Danilo deep-research incident (Bugs 1–5)
-- Integration suite `tests/v1105_danilo_bugs_regression.rs` covers all five operator-blocking bugs at the CLI boundary: single-token deep-research aspect fan-out, `--output` atomwrite + blake3 ack, `graph traverse` fuzzy/suggestions, `merge-entities` self-ref pre-DB rejection, `link --from-id`/`--to-id` plus pure-numeric name rejection.
+### v1.1.05 - 2026-07-11 — Deep-research incident (Bugs 1–5)
+- Integration suite `tests/v1105_incident_bugs_regression.rs` covers all five operator-blocking bugs at the CLI boundary: single-token deep-research aspect fan-out, `--output` atomwrite + blake3 ack, `graph traverse` fuzzy/suggestions, `merge-entities` self-ref pre-DB rejection, `link --from-id`/`--to-id` plus pure-numeric name rejection.
 - No schema migration (schema stays at v16). See `CHANGELOG.md` `[1.1.05]` and `gaps.md` Status v1.1.05.
 
 ### v1.0.96 - 2026-06-27 — Enrich Dead-letter and Bounded REST Fan-out (ADR-0055)
@@ -175,7 +175,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - **Custom Anthropic-compatible providers** now work end-to-end: `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CODEX_ACCESS_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, and `OTEL_EXPORTER_OTLP_ENDPOINT` flow from the orchestrator process to the `claude -p` / `codex exec` subprocess. Provider MiniMax/api.minimax.io (the trigger of this release), OpenRouter, AWS Bedrock custom routes, and corporate Anthropic-compatible gateways are now first-class.
 - **OAuth-only mandate intact** as defence in depth: the guards in `claude_runner.rs`, `codex_spawn.rs`, and `ingest_claude.rs` still reject `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` with `AppError::Validation` (exit 1). The eight pre-existing `#[serial_test::serial(env)]` tests in `claude_runner.rs` and `codex_spawn.rs` remain green.
 - **DRY achieved** via new helper module `src/spawn/env_whitelist.rs` exposing `apply_env_whitelist(cmd, strict)` and `is_strict_env_clear()`. The three spawners (`claude_runner`, `codex_spawn`, `ingest_claude`) delegate to the helper instead of carrying identical inline whitelist arrays.
-- **Compliance opt-in** via flag `--strict-env-clear` (v1.1.8: product env is not the config path). Strict mode preserves only `PATH` and drops every other env var; targets PCI-DSS, SOC2, and HIPAA environments that forbid credential forwarding via env vars.
+- **Compliance opt-in** via flag --strict-env-clear (v1.1.8: product env is not the config path). Strict mode preserved only `PATH` and dropped every other env var, targeting PCI-DSS, SOC2 and HIPAA environments that forbid credential forwarding via env vars. HISTORICAL since v1.2.2: the flag was removed from the global surface — `src/cli/globals.rs` records where it lived — and a 1.2.8 binary answers unexpected argument '--strict-env-clear' found with exit 2. Nothing is left to clear, because the subprocess spawners were removed in v1.2.0 and no credential crosses a process boundary any more.
 - **New regression tests** in `tests/claude_runner_env.rs` (311 lines, five `#[serial_test::serial(env)]` scenarios): custom-provider propagation, OAuth-only abort preservation, codex base-URL inheritance, strict-mode credential dropping, and a no-leak audit that scans subprocess stderr for the literal token value with `RUST_LOG=trace`. Three companion unit tests live in `src/spawn/env_whitelist.rs::tests`.
 - **No telemetry emitted** by the fix itself; the only new log lines are the existing OAuth-only guard warnings now augmented with orientative marker args `--oauth-only-resolution-use-anthropic-auth-token` (claude) and `--oauth-only-resolution-use-codex-auth-json-or-openai-base-url` (codex).
 - **One new ADR**: `docs/decisions/adr-0041-preserve-custom-provider-env.md` (EN + PT-BR) explaining why custom-provider env vars are preserved, why `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` remain rejected, the three alternatives considered (flag opt-in, workaround documentation, full spawner refactor), and cross-references to `gap-g58-recall-sem-fallback-deterministic-2026-06-13` (partially resolved by this release).
@@ -197,7 +197,7 @@ RUSTDOCFLAGS="-D warnings" timeout 120 cargo doc --no-deps --all-features
 - See `gaps.md` for the full resolution history and `CHANGELOG.md` for the v1.0.76 entry
 
 ### v1.0.68 - 2026-06-03 — Process Lifecycle Governance and Windows Compile Fix
-- **G28-A** MCP server isolation via `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` (subprocess receives `CLAUDE_CONFIG_DIR=<empty dir>`; `--strict-mcp-config` and `--mcp-config '{}'` are ignored upstream per anthropics/claude-code#10787)
+- **G28-A** (historical, subsystem removed in v1.2.0) MCP server isolation via `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` (subprocess receives `CLAUDE_CONFIG_DIR=<empty dir>`; `--strict-mcp-config` and `--mcp-config '{}'` are ignored upstream per anthropics/claude-code#10787)
 - **G28-B** `lock::acquire_job_singleton(JobType, namespace, wait_seconds)` plus `AppError::JobSingletonLocked { job_type, namespace }` (exit 75) integrated into `enrich`, `ingest --mode claude-code`, and `ingest --mode codex` to prevent process proliferation against the same database
 - **G28-D** `retry::CircuitBreaker` helper with `AttemptOutcome::{Success, Transient, HardFailure}`; rate-limited and timeout errors are explicitly excluded from the failure count; `enrich` emits a `tracing::warn!` when `--llm-parallelism > 4`
 - **G29** `src/terminal.rs` rewritten with `!handle.is_null() && handle != INVALID_HANDLE_VALUE` so `cargo install sqlite-graphrag` succeeds on Windows; `windows-sys` pinned to `=0.59.0` exact; new CI job `windows-build-check` runs `cargo check --target x86_64-pc-windows-msvc --lib --all-features` on every push

@@ -16,6 +16,20 @@ pub(super) struct ChatRequest<'a> {
     pub(super) reasoning: Option<ReasoningPrefs>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) max_tokens: Option<u32>,
+    /// Sampling temperature (G-PR-7).
+    ///
+    /// Every caller of this client is an EXTRACTION task — bind entities to a
+    /// memory, describe an entity from evidence, classify a relation. None of
+    /// them wants invention, and the request previously carried no
+    /// `temperature` at all, so each one ran at whatever the provider's
+    /// default happened to be. Stochastic sampling on an extraction task buys
+    /// nothing and costs factual variance.
+    ///
+    /// `seed` is deliberately NOT sent: `provider.require_parameters` is true,
+    /// so demanding a parameter that fewer providers implement would narrow
+    /// routing for a reproducibility guarantee nothing here depends on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) temperature: Option<f64>,
 }
 
 #[derive(Serialize)]

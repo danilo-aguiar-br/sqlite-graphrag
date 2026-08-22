@@ -171,8 +171,10 @@ fn ctx<'a>(
         op_label: "ReEmbed",
         backoff_clause: "",
         paths,
-        llm_backend: LlmBackendChoice::None,
-        embedding_backend: EmbeddingBackendChoice::Openrouter,
+        backends: crate::cli::BackendChoice::new(
+            LlmBackendChoice::None,
+            EmbeddingBackendChoice::Openrouter,
+        ),
         max_attempts: 8,
         total: 0,
         stdout_mu: None,
@@ -250,8 +252,7 @@ async fn backfill_of_64_items_issues_two_requests() {
         "global",
         "mem-oracle",
         &paths,
-        LlmBackendChoice::None,
-        EmbeddingBackendChoice::Openrouter,
+        crate::cli::BackendChoice::new(LlmBackendChoice::None, EmbeddingBackendChoice::Openrouter),
     )
     .expect("oracle re-embed succeeds");
     assert_eq!(

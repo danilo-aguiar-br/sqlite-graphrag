@@ -1,7 +1,7 @@
 //! Handler for the `link` CLI subcommand.
 
 use crate::constants::DEFAULT_RELATION_WEIGHT;
-use crate::entity_type::EntityType;
+use crate::entity_type::{is_canonical_entity_type, normalize_entity_type, DEFAULT_ENTITY_TYPE};
 use crate::errors::AppError;
 use crate::i18n::{errors_msg, validation};
 use crate::output::{self, OutputFormat};
@@ -68,8 +68,18 @@ pub struct LinkArgs {
     /// is also accepted as a custom relation.
     #[arg(long, value_parser = crate::parsers::parse_relation, value_name = "RELATION")]
     pub relation: String,
-    /// Relationship weight.
-    #[arg(long)]
+    /// Relationship weight in `[0.0, 1.0]`; defaults to
+    /// `DEFAULT_RELATION_WEIGHT` (0.5). Also accepts the alias `--strength`.
+    ///
+    /// v1.2.8 added the alias because the same property carries two names on
+    /// the two wire shapes: `remember --relationships-file` and the extraction
+    /// schemas call it `strength`, while graph output and this flag call it
+    /// `weight` (`docs/schemas/relationships-input.schema.json` documents the
+    /// mapping). A caller who learned the input schema looked for `--strength`,
+    /// did not find it, and concluded `link` could not weight an edge at all —
+    /// then modelled dozens of edges around a capability that was always here.
+    /// One alias is cheaper than that misreading.
+    #[arg(long, alias = "strength")]
     pub weight: Option<f64>,
     /// Namespace scope.
     #[arg(long)]
@@ -88,8 +98,16 @@ pub struct LinkArgs {
     #[arg(long, default_value_t = false)]
     pub create_missing: bool,
     /// Entity type assigned to auto-created entities (only effective with `--create-missing`).
-    #[arg(long, value_enum, default_value = "concept")]
-    pub entity_type: EntityType,
+    ///
+    /// The vocabulary is open (v1.2.8): any label is stored as written, after
+    /// shape normalisation (trim, lowercase, hyphen to underscore). The
+    /// canonical thirteen — concept, dashboard, date, decision, file, incident,
+    /// issue_tracker, location, memory, organization, person, project, tool —
+    /// are RECOMMENDED, not exhaustive; a non-canonical label is accepted and
+    /// reported as a warning in the response envelope. Defaults to
+    /// `DEFAULT_ENTITY_TYPE`.
+    #[arg(long, default_value = DEFAULT_ENTITY_TYPE, value_name = "TYPE")]
+    pub entity_type: String,
     /// Reject non-canonical relation types with exit 1.
     ///
     /// When set, any relation not in the canonical list causes an immediate error.
@@ -123,7 +141,7 @@ struct LinkResponse {
 
 /// Run.
 pub fn run(args: LinkArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -225,11 +243,24 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
     }
     let relation_str = &args.relation;
 
+    // v1.2.8: the entity-type vocabulary is open. Shape is still enforced (an
+    // unusable label is refused here, before any write); membership is only
+    // advisory, so a non-canonical label is accepted with the same warning
+    // treatment the relation vocabulary has had since v1.0.49.
+    let entity_type = normalize_entity_type(&args.entity_type)?;
+    if !is_canonical_entity_type(&entity_type) {
+        warnings.push(format!("non-canonical entity type '{entity_type}'"));
+        tracing::warn!(target: "link",
+            entity_type = %entity_type,
+            "non-canonical entity type accepted; consider using a well-known value"
+        );
+    }
+
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
     let mut created_entities: Vec<String> = Vec::with_capacity(2);
 
-    if args.entity_type.as_str() == "memory" {
+    if entity_type == "memory" {
         tracing::warn!(target: "link",
             entity_type = "memory",
             "entity_type 'memory' may conflict with memory table semantics; consider using 'concept' or another type"
@@ -246,7 +277,7 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
             None if args.create_missing => {
                 let new_entity = NewEntity {
                     name: norm_from.clone(),
-                    entity_type: args.entity_type,
+                    entity_type: entity_type.clone(),
                     description: None,
                 };
                 created_entities.push(norm_from.clone());
@@ -269,7 +300,7 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
             None if args.create_missing => {
                 let new_entity = NewEntity {
                     name: norm_to.clone(),
-                    entity_type: args.entity_type,
+                    entity_type: entity_type.clone(),
                     description: None,
                 };
                 created_entities.push(norm_to.clone());
@@ -320,7 +351,7 @@ pub fn run(args: LinkArgs) -> Result<(), AppError> {
         relation: relation_str.to_string(),
         weight: actual_weight,
         namespace: namespace.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
         created_entities,
         warnings,
     };

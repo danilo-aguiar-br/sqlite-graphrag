@@ -108,7 +108,7 @@ fn test_exit_01_validation_invalid_namespace() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_02_duplicate_memoria_repetida() {
+fn test_exit_02_duplicate_repeated_memory() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -214,11 +214,11 @@ fn test_exit_04_not_found_forget_nonexistent() {
 }
 
 // ---------------------------------------------------------------------------
-// Exit code 5 — NamespaceError (testado via exit_code() da variante)
+// Exit code 5 — NamespaceError (tested through the variant exit_code())
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_05_namespace_error_exit_code_correto() {
+fn test_exit_05_namespace_error_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::NamespaceError("limite excedido".into());
     assert_eq!(err.exit_code(), 5, "NamespaceError deve mapear para exit 5");
@@ -229,20 +229,20 @@ fn test_exit_05_namespace_error_exit_code_correto() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_06_limit_exceeded_exit_code_correto() {
+fn test_exit_06_limit_exceeded_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::LimitExceeded("body excede limite de 512000 bytes".into());
     assert_eq!(err.exit_code(), 6, "LimitExceeded deve mapear para exit 6");
 }
 
 #[test]
-fn test_exit_06_limit_exceeded_body_gigante_via_cli() {
+fn test_exit_06_limit_exceeded_huge_body_via_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let corpo_gigante = "a".repeat(512_001);
+    let huge_body = "a".repeat(512_001);
     let body_path = tmp.path().join("body-grande.txt");
-    std::fs::write(&body_path, corpo_gigante).unwrap();
+    std::fs::write(&body_path, huge_body).unwrap();
 
     cmd_base(&tmp)
         .args([
@@ -293,7 +293,7 @@ fn remember_name_over_80_bytes_returns_exit_6() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_10_database_arquivo_corrompido() {
+fn test_exit_10_database_corrupted_file() {
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("corrompido.sqlite");
 
@@ -313,7 +313,7 @@ fn test_exit_10_database_arquivo_corrompido() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_11_embedding_exit_code_correto() {
+fn test_exit_11_embedding_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::Embedding("failure no modelo de embedding".into());
     assert_eq!(err.exit_code(), 11, "Embedding deve mapear para exit 11");
@@ -324,7 +324,7 @@ fn test_exit_11_embedding_exit_code_correto() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_12_vec_extension_exit_code_correto() {
+fn test_exit_12_vec_extension_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::VecExtension("failure na extensao vec".into());
     assert_eq!(err.exit_code(), 12, "VecExtension deve mapear para exit 12");
@@ -335,7 +335,7 @@ fn test_exit_12_vec_extension_exit_code_correto() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_13_batch_partial_failure_exit_code_correto() {
+fn test_exit_13_batch_partial_failure_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::BatchPartialFailure {
         total: 10,
@@ -354,15 +354,15 @@ fn test_exit_13_batch_partial_failure_exit_code_correto() {
 
 #[test]
 #[cfg(unix)]
-fn test_exit_14_io_sem_permissao_escrita() {
+fn test_exit_14_io_without_write_permission() {
     use std::os::unix::fs::PermissionsExt;
 
     let tmp = TempDir::new().unwrap();
-    let dir_sem_perm = tmp.path().join("readonly");
-    std::fs::create_dir_all(&dir_sem_perm).unwrap();
-    std::fs::set_permissions(&dir_sem_perm, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let dir_without_perm = tmp.path().join("readonly");
+    std::fs::create_dir_all(&dir_without_perm).unwrap();
+    std::fs::set_permissions(&dir_without_perm, std::fs::Permissions::from_mode(0o444)).unwrap();
 
-    let db_path = dir_sem_perm.join("test.sqlite");
+    let db_path = dir_without_perm.join("test.sqlite");
 
     let mut c = sgr_cmd();
     common::wire_assert_cmd(&tmp, &mut c, "unused.sqlite");
@@ -371,7 +371,7 @@ fn test_exit_14_io_sem_permissao_escrita() {
 
     c.assert().failure();
 
-    std::fs::set_permissions(&dir_sem_perm, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&dir_without_perm, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +379,7 @@ fn test_exit_14_io_sem_permissao_escrita() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_15_db_busy_exit_code_correto() {
+fn test_exit_15_db_busy_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::DbBusy("retries esgotados".into());
     assert_eq!(err.exit_code(), 15, "DbBusy deve mapear para exit 15");
@@ -390,14 +390,14 @@ fn test_exit_15_db_busy_exit_code_correto() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_75_lock_busy_exit_code_correto() {
+fn test_exit_75_lock_busy_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::LockBusy("outra instancia ativa".into());
     assert_eq!(err.exit_code(), 75, "LockBusy deve mapear para exit 75");
 }
 
 #[test]
-fn test_exit_75_all_slots_full_exit_code_correto() {
+fn test_exit_75_all_slots_full_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::AllSlotsFull {
         max: 4,
@@ -411,7 +411,7 @@ fn test_exit_75_all_slots_full_exit_code_correto() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_exit_77_low_memory_exit_code_correto() {
+fn test_exit_77_low_memory_exit_code_is_correct() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::LowMemory {
         available_mb: 512,
@@ -421,12 +421,12 @@ fn test_exit_77_low_memory_exit_code_correto() {
 }
 
 #[test]
-fn test_exit_77_low_memory_guard_direto() {
+fn test_exit_77_low_memory_guard_direct() {
     use sqlite_graphrag::memory_guard::check_available_memory;
-    let resultado = check_available_memory(u64::MAX);
+    let result = check_available_memory(u64::MAX);
     assert!(
         matches!(
-            resultado,
+            result,
             Err(sqlite_graphrag::errors::AppError::LowMemory { .. })
         ),
         "check_available_memory com u64::MAX deve retornar LowMemory"
@@ -434,7 +434,7 @@ fn test_exit_77_low_memory_guard_direto() {
 }
 
 // ---------------------------------------------------------------------------
-// Exit code 0 — Sucesso
+// Exit code 0 — Success
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -455,7 +455,7 @@ fn test_exit_00_success_health_after_init() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_constantes_exit_codes_alinhadas() {
+fn test_exit_code_constants_aligned() {
     use sqlite_graphrag::constants::{
         BATCH_PARTIAL_FAILURE_EXIT_CODE, CLI_LOCK_EXIT_CODE, DB_BUSY_EXIT_CODE,
         LOW_MEMORY_EXIT_CODE,
@@ -494,7 +494,7 @@ fn test_exit_codes_messages_non_empty_in_all_languages() {
     use sqlite_graphrag::errors::AppError;
     use sqlite_graphrag::i18n::Language;
 
-    let variantes: Vec<AppError> = vec![
+    let variants: Vec<AppError> = vec![
         AppError::Validation("campo".into()),
         AppError::Duplicate("ns/mem".into()),
         AppError::Conflict("stale".into()),
@@ -519,11 +519,11 @@ fn test_exit_codes_messages_non_empty_in_all_languages() {
         },
     ];
 
-    for variante in variantes {
-        let msg_en = variante.localized_message_for(Language::English);
-        let msg_pt = variante.localized_message_for(Language::Portuguese);
-        assert!(!msg_en.is_empty(), "mensagem EN vazia para: {variante:?}");
-        assert!(!msg_pt.is_empty(), "mensagem PT vazia para: {variante:?}");
+    for variant in variants {
+        let msg_en = variant.localized_message_for(Language::English);
+        let msg_pt = variant.localized_message_for(Language::Portuguese);
+        assert!(!msg_en.is_empty(), "mensagem EN vazia para: {variant:?}");
+        assert!(!msg_pt.is_empty(), "mensagem PT vazia para: {variant:?}");
     }
 }
 
@@ -533,7 +533,7 @@ fn test_exit_codes_messages_non_empty_in_all_languages() {
 
 #[test]
 #[serial]
-fn test_fluxo_remember_edit_read_forget() {
+fn test_flow_remember_edit_read_forget() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 

@@ -73,11 +73,7 @@ struct RestoreResponse {
 }
 
 /// Run.
-pub fn run(
-    args: RestoreArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: RestoreArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let _ = args.format;
     tracing::debug!(target: "restore", name = ?args.name_positional.as_deref().or(args.name.as_deref()), version = ?args.version, "restoring version");
@@ -175,8 +171,7 @@ pub fn run(
     let embedding: Option<Vec<f32>> = match crate::embedder::embed_passage_with_embedding_choice(
         &paths.models,
         &old_body,
-        embedding_backend,
-        llm_backend,
+        backends,
     ) {
         Ok((emb, _backend)) => Some(emb),
         // v1.1.2 (Gap 2): typed payload rejections are permanent and must not

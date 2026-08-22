@@ -24,8 +24,7 @@ pub use envelope::{HybridSearchItem, HybridSearchResponse, Weights};
 #[tracing::instrument(skip_all, level = "debug", name = "hybrid_search")]
 pub fn run(
     args: HybridSearchArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
     fail_on_degraded: bool,
 ) -> Result<(), AppError> {
     let start = std::time::Instant::now();
@@ -52,8 +51,7 @@ pub fn run(
         "Calculando embedding da consulta...",
     );
     let conn = open_ro(&paths.db)?;
-    let resolved =
-        retrieval::resolve_query_embedding(&args, &paths.models, embedding_backend, llm_backend);
+    let resolved = retrieval::resolve_query_embedding(&args, &paths.models, backends);
     // `--fail-on-degraded` decides BEFORE any query runs: without this the read
     // answered FTS-only with exit 0 and the flag was a placebo.
     // `degradation_failure` exempts `--fallback-fts-only`, which is degradation
@@ -70,7 +68,7 @@ pub fn run(
         degraded: vec_degraded,
         error: vec_error,
         backend_invoked,
-        ..
+        reason_code: vec_degraded_code,
     } = resolved;
 
     let memory_type_str = args.r#type.map(|t| t.as_str());
@@ -119,6 +117,11 @@ pub fn run(
         },
         backend_invoked,
         vec_degraded_reason: if vec_degraded { vec_error } else { None },
+        vec_degraded_code: if vec_degraded {
+            vec_degraded_code
+        } else {
+            None
+        },
         elapsed_ms: start.elapsed().as_millis() as u64,
     })?;
 

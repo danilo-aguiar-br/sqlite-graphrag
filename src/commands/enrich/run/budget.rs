@@ -26,7 +26,12 @@ pub(super) struct Budget {
 /// ceiling so a hung SQL cannot pin the singleton forever when the operator
 /// omits --max-runtime without --until-empty.
 pub(super) fn resolve(args: &EnrichArgs) -> Budget {
-    let max_runtime_secs = args.max_runtime.unwrap_or(3600);
+    // The fallback is the SAME constant the `--max-runtime` help text and the
+    // arg default advertise: spelled as a bare `3600` here it could drift from
+    // the documented default without anything failing.
+    let max_runtime_secs = args
+        .max_runtime
+        .unwrap_or(crate::constants::DEFAULT_ENRICH_MAX_RUNTIME_SECS);
     let until_deadline = Instant::now() + std::time::Duration::from_secs(max_runtime_secs);
     let pair_scan_ops = matches!(
         args.operation(),

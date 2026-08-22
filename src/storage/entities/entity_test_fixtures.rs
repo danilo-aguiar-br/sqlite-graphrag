@@ -5,7 +5,6 @@
 
 use super::*;
 use crate::constants::embedding_dim;
-use crate::entity_type::EntityType;
 use crate::storage::connection::register_vec_extension;
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -25,7 +24,7 @@ pub(super) fn setup_db() -> Result<(TempDir, Connection), Box<dyn std::error::Er
 pub(super) fn new_entity_helper(name: &str) -> NewEntity {
     NewEntity {
         name: name.to_string(),
-        entity_type: EntityType::Project,
+        entity_type: "project".to_string(),
         description: None,
     }
 }

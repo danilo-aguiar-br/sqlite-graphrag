@@ -1,4 +1,4 @@
-# TESTES — Adições à Suite de Testes da v1.0.83 (ADR-0041)
+# Histórico: TESTES — Adições à Suite de Testes da v1.0.83 (ADR-0041)
 - `claude_subprocess_inherits_custom_anthropic_provider_env` — documenta a decisão de design de que o caminho de integração equivalente é coberto pela variante codex abaixo (a instalação real de `claude` em CI colide com o truque de prefixar PATH com o mock); veja ADR-0041 §Verification
 - `claude_subprocess_rejects_prohibited_anthropic_api_key` — confirma que o guard OAuth-only ainda aborta o spawn com exit não-zero quando `ANTHROPIC_API_KEY` está setada; o script mock pode ou não rodar dependendo se o guard dispara primeiro
 - `codex_subprocess_inherits_openai_base_url` — verifica que a env var `OPENAI_BASE_URL` propaga do pai para o subprocesso codex, o caminho canônico de teste de integração cross-process
@@ -8,7 +8,7 @@
 - Todos os testes carregam `#[serial_test::serial(env)]` para serializar mutações de env no runner de testes paralelo
 - Contagem total de testes: 818 (de 812 na v1.0.82; os 6 novos testes estão divididos entre 3 testes unitários em `env_whitelist.rs` e 3 testes de integração em `claude_runner_env.rs` mais os 2 testes estilo auditoria)
 - Testes OAuth-only pré-existentes em `claude_runner.rs:574-666` e `codex_spawn.rs:684-758` permanecem verdes; a extensão do env whitelist NÃO enfraquece o guard
-# Guia de Testes — v1.0.89 Suite de Testes Preflight + BUG-11/12/13 + Schema Drift (ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049)
+# Guia de Testes (v1.2.8)
 
 
 - Leia a versão em inglês em [TESTING.md](TESTING.md)
@@ -244,16 +244,16 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 - Cobertura unitária também em `src/commands/enrich/scan.rs`, `queue.rs` e testes de interrupt/deadline em `mod.rs`. Rode com `cargo test --test v1106_entity_connect_scan_regression` e `cargo test --lib commands::enrich`.
 - Sem migração de schema (permanece v16). Nome oficial v1.1.06; crate `1.1.6`.
 
-## v1.1.05 — Testes de Regressão dos Cinco Bugs "danilo"
+## v1.1.05 — Testes de Regressão dos Cinco Bugs do Incidente deep-research
 
-- Suite de integração [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) cobre os cinco bugs na fronteira da CLI. ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
-  - **Bug 1**: `deep-research "danilo"` emite mais de uma sub-query; a primeira é o token original e as demais têm `source: "aspect"`. Caminho manual opcional (operador): `--sub-query-strategy manual --sub-queries-file PATH`.
+- Suite de integração [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs) cobre os cinco bugs na fronteira da CLI. ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md).
+  - **Bug 1**: `deep-research "alice"` emite mais de uma sub-query; a primeira é o token original e as demais têm `source: "aspect"`. Caminho manual opcional (operador): `--sub-query-strategy manual --sub-queries-file PATH`.
   - **Bug 2**: `--output PATH` grava o envelope completo via **atomwrite** (tempfile → fsync → rename); o stdout carrega o ack com `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`; **`--quiet`** / `-q` suprime tracing não-erro.
   - **Bug 3**: `graph traverse --from <nome-curto>` sem `--fuzzy` retorna NotFound (exit 4) com sugestões; com `--fuzzy`, resolve o vencedor canônico.
   - **Bug 4**: `merge-entities` com **self-ref** (`--ids` contendo `--into-id`, ou nomes) é rejeitado **pré-DB** com exit de validação.
   - **Bug 5**: `link --from-id`/`--to-id` aceitos pelo clap; nomes só de dígitos rejeitados sob `--create-missing`.
 - Helpers cobertos por testes unitários: `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`); `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity` (Jaro-Winkler + prefixo kebab).
-- Sem migração de schema (permanece v16). Nome oficial v1.1.05; crate `1.1.5`. Rode com `cargo test --test v1105_danilo_bugs_regression`.
+- Sem migração de schema (permanece v16). Nome oficial v1.1.05; crate `1.1.5`. Rode com `cargo test --test v1105_incident_bugs_regression`.
 
 ## v1.1.04 — Testes de Fechamento de GAPs (ADR-0064)
 
@@ -298,7 +298,7 @@ Todos os cinco testes são gated por `#[serial_test::serial(env)]` para prevenir
 
 ## Tamanho Atual da Suite de Testes
 
-A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / scan O(k), chaves pair, interrupt no primeiro scan, NDJSON de backlog dual) mais unitários de enrich. A v1.1.05 adiciona `tests/v1105_danilo_bugs_regression.rs` (cinco bugs do incidente deep-research "danilo"). ~1072+ testes de lib a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
+A v1.1.06 adiciona a suite `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / scan O(k), chaves pair, interrupt no primeiro scan, NDJSON de backlog dual) mais unitários de enrich. A v1.1.05 adiciona `tests/v1105_incident_bugs_regression.rs` (cinco bugs do incidente deep-research de sujeito único). ~1072+ testes de lib a partir de v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 adicionam chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entidades, regressão de nested-runtime do deep-research, convergência do entity_connect_seen); `cargo nextest -P ci` a partir de v1.0.93; a v1.0.95 adiciona testes unitários wiremock de `chat_api` mais o teste real-LLM de 13 modelos em `tests/openrouter_chat_real.rs`; a v1.0.96 leva o total nextest a 1086 passed, 0 failed, 6 skipped, adicionando 8 testes unitários de dead-letter, o teste de ordem do embedder e o teste vivo de concorrência `#[ignore]`. Use `--test-threads=2` para desenvolvimento local; o profile `ci` em `.config/nextest.toml` controla paralelismo em CI.
 
 ## O Que Mudou nas versões v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: testes do backend OpenCode (875 testes de lib)

@@ -123,8 +123,7 @@ pub struct RecallArgs {
 #[tracing::instrument(skip_all, level = "debug", name = "recall")]
 pub fn run(
     args: RecallArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
     fail_on_degraded: bool,
 ) -> Result<(), AppError> {
     if args.print_schema {
@@ -184,8 +183,7 @@ pub fn run(
         args.fallback_fts_only,
         &paths.models,
         &query,
-        embedding_backend,
-        llm_backend,
+        backends,
         "recall",
     );
     // `--fail-on-degraded` decides BEFORE any query runs: without this the read
@@ -202,7 +200,7 @@ pub fn run(
         degraded: vec_degraded,
         error: vec_error,
         backend_invoked,
-        ..
+        reason_code: vec_degraded_code,
     } = resolved;
 
     let memory_type_str = args.r#type.map(|t| t.as_str());
@@ -421,6 +419,11 @@ pub fn run(
         warning,
         backend_invoked,
         vec_degraded_reason: if vec_degraded { vec_error } else { None },
+        vec_degraded_code: if vec_degraded {
+            vec_degraded_code
+        } else {
+            None
+        },
     })?;
 
     Ok(())
@@ -483,6 +486,7 @@ mod tests {
             warning: None,
             backend_invoked: None,
             vec_degraded_reason: None,
+            vec_degraded_code: None,
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -522,6 +526,7 @@ mod tests {
             warning: None,
             backend_invoked: None,
             vec_degraded_reason: None,
+            vec_degraded_code: None,
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");
@@ -546,6 +551,7 @@ mod tests {
             warning: None,
             backend_invoked: None,
             vec_degraded_reason: None,
+            vec_degraded_code: None,
         };
 
         let json = serde_json::to_value(&resp).expect("serialization failed");

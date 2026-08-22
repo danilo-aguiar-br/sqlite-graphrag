@@ -39,6 +39,10 @@ fn cmd_base(tmp: &TempDir) -> Command {
         .arg(common::openrouter_mock::STUB_MODEL);
     c.arg("--config-dir").arg(tmp.path().join("config"));
     c.arg("--cache-dir").arg(tmp.path().join("cache"));
+    // GAP-SG-207: `init_db` selects the database with `config set db.path`, and
+    // a mutating verb resolving through that key is refused without the
+    // declared dispensation.
+    c.arg("--use-active");
     c.arg("--skip-memory-guard");
     c
 }

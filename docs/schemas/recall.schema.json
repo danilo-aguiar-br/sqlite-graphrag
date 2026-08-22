@@ -6,59 +6,202 @@
   "$defs": {
     "RecallItemRequired": {
       "description": "GAP-SG-142: the full row contract, applied only when no `agent_surface` record is present. Projection under `--select`/`--fields` legitimately removes members from every row.",
-      "required": ["memory_id", "name", "namespace", "type", "description", "snippet", "distance", "score", "source"]
+      "required": [
+        "memory_id",
+        "name",
+        "namespace",
+        "type",
+        "description",
+        "snippet",
+        "distance",
+        "score",
+        "source"
+      ]
     },
     "RecallItem": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "memory_id":   { "type": "integer" },
-        "name":        { "type": "string" },
-        "namespace":   { "type": "string" },
-        "type":        { "type": "string" },
-        "description": { "type": "string" },
-        "snippet":     { "type": "string", "description": "First 200 chars of the body." },
-        "distance":    { "type": "number",  "description": "Cosine distance (lower = more similar)." },
-        "score":       { "type": "number",  "minimum": 0.0, "maximum": 1.0, "description": "Cosine similarity in [0, 1] derived as 1 - distance and clamped. Always populated (M-A5 fix in v1.0.40)." },
-        "source":      { "type": "string",  "enum": ["direct", "graph"] },
-        "graph_depth": { "type": "integer", "minimum": 0, "description": "Number of graph hops between this match and the seed memories. Present only for traversal results." }
+        "memory_id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "snippet": {
+          "type": "string",
+          "description": "First 200 chars of the body."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Cosine distance (lower = more similar)."
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Cosine similarity in [0, 1] derived as 1 - distance and clamped. Always populated (M-A5 fix in v1.0.40)."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "fts_fallback",
+            "graph"
+          ],
+          "description": "GAP-SG-290 (v1.2.8): which retrieval path produced this item. direct is the vector KNN, graph is multi-hop traversal, and fts_fallback marks an item ranked by FTS5 BM25 alone because the embedding degraded. fts_fallback was emitted by src/commands/recall.rs since the fallback existed and went undeclared until v1.2.8; it is not interchangeable with direct, since it tells the caller the ranking was lexical, not semantic."
+        },
+        "graph_depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of graph hops between this match and the seed memories. Present only for traversal results."
+        }
       }
     }
   },
   "type": "object",
-  "required": ["query", "k", "results", "elapsed_ms"],
+  "required": [
+    "query",
+    "k",
+    "results",
+    "elapsed_ms"
+  ],
   "additionalProperties": false,
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
-    "query":          { "type": "string" },
-    "k":              { "type": "integer", "minimum": 1 },
-    "direct_matches": { "type": "array", "items": { "$ref": "#/$defs/RecallItem" } },
-    "graph_matches":  { "type": "array", "items": { "$ref": "#/$defs/RecallItem" } },
-    "results":        { "type": "array", "items": { "$ref": "#/$defs/RecallItem" }, "description": "Aggregate alias of direct_matches + graph_matches." },
-    "elapsed_ms":     { "type": "integer", "minimum": 0 },
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
+    "query": {
+      "type": "string"
+    },
+    "k": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "direct_matches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecallItem"
+      }
+    },
+    "graph_matches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecallItem"
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RecallItem"
+      },
+      "description": "Aggregate alias of direct_matches + graph_matches."
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
     "backend_invoked": {
       "description": "v1.0.84 (ADR-0042): embedding backend that ran the live embedding for this query (openrouter or none). Omitted when embedding was skipped or the response fell back fully to graph.",
       "type": "string",
-      "enum": ["openrouter", "none"]
+      "enum": [
+        "openrouter",
+        "none"
+      ]
     },
     "vec_degraded_reason": {
-      "description": "v1.0.84 (ADR-0042) / v1.0.85 (ADR-0043): structured reason why live embedding degraded. Seven-variant enum discriminates embedding_failed, slot_exhausted (GAP-003), oauth_quota (G58, G45-CR5), backend_mismatch, dim_zero, cancelled, timeout. Omitted when live embedding succeeded. Null when no degradation path was triggered.",
-      "type": ["string", "null"],
-      "enum": ["embedding_failed", "slot_exhausted", "oauth_quota", "backend_mismatch", "dim_zero", "cancelled", "timeout", null]
+      "description": "GAP-SG-290 (v1.2.8): operator-facing PROSE for the degradation. NOT a closed set: what lands here is FallbackReason's Display, which embeds the provider's own message (e.g. \"embedding failed: {msg}\"), so any new provider error is a new string. The enum this field carried through v1.2.7 described the INTENT recorded in src/embedder/fallback.rs, never what the wire actually held. Match on vec_degraded_code instead.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "vec_degraded_code": {
+      "description": "GAP-SG-290 (v1.2.8): stable, machine-readable code for the degradation, and the field a consumer should branch on. Seven values come from FallbackReason::reason_code(); fallback_fts_only marks the degradation the operator ASKED for via --fallback-fts-only. Absent when vec_degraded is false.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "embedding_failed",
+        "slot_exhausted",
+        "oauth_quota",
+        "backend_mismatch",
+        "dim_zero",
+        "cancelled",
+        "timeout",
+        "fallback_fts_only",
+        null
+      ]
+    },
+    "vec_degraded": {
+      "description": "GAP-SG-290 (v1.2.8): true when the live query embedding failed or was skipped and the handler ranked on FTS5 BM25 alone. Absent on the wire when false. Symmetric to fts_degraded.",
+      "type": "boolean"
+    },
+    "vec_error": {
+      "description": "GAP-SG-290 (v1.2.8): human-readable description of the embedding failure that triggered the fallback. Same prose as vec_degraded_reason. Absent when vec_degraded is false.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warning": {
+      "description": "GAP-SG-290 (v1.2.8): advisory warning for callers that branch on top-level status, distinguishing an FTS5-only fallback from a clean hybrid response. Absent when not degraded.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
-},
+  },
   "allOf": [
     {
       "description": "GAP-SG-142: `direct_matches` and `graph_matches` are the two halves `results` concatenates. The agent-native surface reshapes `results` and drops both, recording them under `agent_surface.aliases_removed`, so they are required only for an unshaped envelope. The per-row `required` list is guarded the same way because `--select`/`--fields` projects rows down to the requested keys.",
-      "if": { "not": { "required": ["agent_surface"] } },
+      "if": {
+        "not": {
+          "required": [
+            "agent_surface"
+          ]
+        }
+      },
       "then": {
-        "required": ["direct_matches", "graph_matches"],
+        "required": [
+          "direct_matches",
+          "graph_matches"
+        ],
         "properties": {
-          "direct_matches": { "items": { "$ref": "#/$defs/RecallItemRequired" } },
-          "graph_matches":  { "items": { "$ref": "#/$defs/RecallItemRequired" } },
-          "results":        { "items": { "$ref": "#/$defs/RecallItemRequired" } }
+          "direct_matches": {
+            "items": {
+              "$ref": "#/$defs/RecallItemRequired"
+            }
+          },
+          "graph_matches": {
+            "items": {
+              "$ref": "#/$defs/RecallItemRequired"
+            }
+          },
+          "results": {
+            "items": {
+              "$ref": "#/$defs/RecallItemRequired"
+            }
+          }
         }
       }
     }

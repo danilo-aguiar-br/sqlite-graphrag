@@ -222,8 +222,8 @@ mod tests {
     #[test]
     fn test_insert_chunks_empty_ok() {
         let (_tmp, conn) = setup_db();
-        let resultado = insert_chunks(&conn, &[]);
-        assert!(resultado.is_ok());
+        let result = insert_chunks(&conn, &[]);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -266,8 +266,8 @@ mod tests {
     #[test]
     fn test_get_chunks_missing_memory_returns_empty() {
         let (_tmp, conn) = setup_db();
-        let resultado = get_chunks_by_memory(&conn, 9999).unwrap();
-        assert!(resultado.is_empty());
+        let result = get_chunks_by_memory(&conn, 9999).unwrap();
+        assert!(result.is_empty());
     }
 
     // GAP-SG-40: count_for_memory reports the real persisted chunk-row count.
@@ -338,8 +338,8 @@ mod tests {
     #[test]
     fn test_delete_chunks_memory_without_chunks_ok() {
         let (_tmp, conn) = setup_db();
-        let resultado = delete_chunks(&conn, 9999);
-        assert!(resultado.is_ok());
+        let result = delete_chunks(&conn, 9999);
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -411,10 +411,10 @@ mod tests {
 
         upsert_chunk_vec(&conn, chunk_id, memory_id, 0, &embedding).unwrap();
 
-        let resultados = knn_search_chunks(&conn, &embedding, 1).unwrap();
-        assert_eq!(resultados.len(), 1);
-        assert_eq!(resultados[0].0, memory_id);
-        assert_eq!(resultados[0].1, 0);
+        let results = knn_search_chunks(&conn, &embedding, 1).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, memory_id);
+        assert_eq!(results[0].1, 0);
     }
 
     #[test]
@@ -422,8 +422,8 @@ mod tests {
     fn test_knn_search_chunks_without_data_returns_empty() {
         let (_tmp, conn) = setup_db();
         let embedding = vec![0.0f32; embedding_dim()];
-        let resultado = knn_search_chunks(&conn, &embedding, 5).unwrap();
-        assert!(resultado.is_empty());
+        let result = knn_search_chunks(&conn, &embedding, 5).unwrap();
+        assert!(result.is_empty());
     }
 
     // v1.1.1 (P1): an empty embedding must NOT create a chunk vector row, so
@@ -465,7 +465,7 @@ mod tests {
             end_offset: 7,
             token_count: 1,
         };
-        let resultado = insert_chunks(&conn, &[chunk]);
-        assert!(resultado.is_err());
+        let result = insert_chunks(&conn, &[chunk]);
+        assert!(result.is_err());
     }
 }

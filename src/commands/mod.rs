@@ -28,7 +28,6 @@ pub mod migrate;
 pub mod namespace_detect;
 pub mod normalize_entities;
 pub mod optimize;
-pub mod pending;
 pub mod pending_embeddings;
 pub mod prune_ner;
 pub mod prune_relations;

@@ -13,9 +13,9 @@ fn assert_all_health_keys_in_schema() {
         .as_object()
         .expect("schema must have properties");
 
-    // 23 chaves sempre presentes + 13 condicionais = 36 chaves totais.
+    // 23 keys always present + 13 conditional = 36 keys total.
     let required_keys = [
-        // Sempre presentes (23)
+        // Always present (23)
         "status",
         "namespace",
         "integrity",
@@ -39,7 +39,7 @@ fn assert_all_health_keys_in_schema() {
         "sqlite_version",
         "checks",
         "elapsed_ms",
-        // Campos condicionais (Option<T> via skip_serializing_if, 13)
+        // Conditional fields (Option<T> via skip_serializing_if, 13)
         "mentions_ratio",
         "mentions_warning",
         "top_relation",
@@ -66,6 +66,56 @@ fn assert_all_health_keys_in_schema() {
         "schema has only {} keys, expected at least {}",
         properties.len(),
         required_keys.len()
+    );
+}
+
+/// The list above only catches keys REMOVED from the schema. It cannot catch a
+/// key ADDED to the type that never reached the file — the list would have to
+/// grow by hand first, and a list that must be edited to detect a defect
+/// detects nothing.
+///
+/// That is the exact direction that bit `enrich-status`: `sampled_without_corpus`
+/// and `grounding_percentiles` were added to the type and the checked-in schema
+/// stayed frozen through both, silently, because `additionalProperties: true`
+/// makes an undeclared key validate anyway.
+///
+/// This assertion derives the expected set from the TYPE, so it never rots and
+/// needs no maintenance when `HealthResponse` changes.
+#[test]
+fn every_key_health_response_emits_is_declared_in_the_schema() {
+    let schema_str =
+        fs::read_to_string("docs/schemas/health.schema.json").expect("schema file must exist");
+    let published: std::collections::BTreeSet<String> =
+        serde_json::from_str::<serde_json::Value>(&schema_str).expect("schema must be valid JSON")
+            ["properties"]
+            .as_object()
+            .expect("schema must declare `properties`")
+            .keys()
+            .cloned()
+            .collect();
+
+    let generated_value = serde_json::to_value(schemars::schema_for!(
+        sqlite_graphrag::commands::health::HealthResponse
+    ))
+    .expect("generated schema must serialize");
+    let generated: std::collections::BTreeSet<String> = generated_value["properties"]
+        .as_object()
+        .expect("generated schema must declare `properties`")
+        .keys()
+        .cloned()
+        .collect();
+
+    assert!(
+        !generated.is_empty(),
+        "the generated schema declared no properties, so this gate is reading \
+         the wrong place rather than the type being empty"
+    );
+
+    let missing: Vec<&String> = generated.difference(&published).collect();
+    assert!(
+        missing.is_empty(),
+        "`HealthResponse` emits key(s) the published schema does not declare: \
+         {missing:?}.\nRegenerate with `cargo run --bin dump_schema -- health`."
     );
 }
 
@@ -98,7 +148,7 @@ fn assert_draft_2020_12() {
 
 #[test]
 fn assert_dump_schema_is_idempotent() {
-    // Executa o binário duas vezes e verifica que o checksum do schema é idêntico.
+    // Runs the binary twice and verifies that the schema checksum is identical.
     let output1 = std::process::Command::new("cargo")
         .args(["run", "--quiet", "--bin", "dump_schema", "--", "health"])
         .output()

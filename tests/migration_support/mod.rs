@@ -45,6 +45,11 @@ pub fn sgr_cmd() -> Command {
 
 /// GAP-SG-101: isolated command bound to `db_path` via planted `db.path`
 /// (product env is not read — G-T-XDG-04).
+///
+/// GAP-SG-207: carries `--use-active` for the same reason
+/// [`common::wire_assert_cmd`] does. Binding through the planted key IS what
+/// this helper is for, and the fence refuses a mutating verb that resolved that
+/// way unless the dispensation is declared.
 pub fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
     let mut c = sgr_cmd();
     common::plant_db_path(&tmp.path().join("config"), db_path);
@@ -59,6 +64,7 @@ pub fn sgr_on(tmp: &TempDir, db_path: &std::path::Path) -> Command {
         .arg(common::openrouter_mock::STUB_MODEL)
         .arg("--cache-dir")
         .arg(tmp.path().join("cache"))
+        .arg("--use-active")
         .arg("--skip-memory-guard");
     c
 }

@@ -67,7 +67,32 @@ pub(crate) const DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD: u32 = 5;
 /// Minimum similarity for an enriched body to be accepted as preserving.
 pub(crate) const DEFAULT_ENRICH_PRESERVE_THRESHOLD: f64 = 0.7;
 /// Minimum grounding score for a generated entity description.
-pub(crate) const DEFAULT_ENRICH_GROUNDING_THRESHOLD: f64 = 0.12;
+///
+/// `grounding_coverage` is
+/// `|trigrams(candidate) ∩ trigrams(evidence)| / |trigrams(candidate)|`, not
+/// symmetric Jaccard, because a description is short (10–20 words) against
+/// multi-sentence bodies.
+///
+/// Raised from 0.12 to 0.30 (G-PR-7): 0.12 accepted a description whose
+/// trigrams were 88% absent from the very evidence it claimed to summarise.
+///
+/// This is the SINGLE definition. A second constant carrying the same meaning
+/// lived in `extraction_descriptions` and diverged to 0.30 while this one still
+/// read 0.12 — and because clap supplied this value through `default_value_t`,
+/// the other was unreachable.
+///
+/// CALIBRATED, not guessed. Measured 2026-08-13 over a 400-entity sample of a
+/// 106k-entity graph: p10 0.344, p25 0.404, p50 0.484, p75 0.604, p90 0.712.
+/// 0.30 therefore sits BELOW the tenth percentile — it rejects the worst decile
+/// and leaves the bulk of the distribution untouched, which is what a
+/// second-line filter should do now that the pre-LLM corpus gate stops
+/// evidence-free descriptions from being generated at all. Moving it to p25
+/// would reject a QUARTER of what the corpus can support.
+///
+/// Re-measure with `--status --quality-sample N`, which reports the same
+/// percentiles under `grounding_percentiles`; never adjust this by intuition.
+/// Override per host with XDG `enrich.entity_description.grounding_threshold`.
+pub(crate) const DEFAULT_ENRICH_GROUNDING_THRESHOLD: f64 = 0.30;
 
 pub use args::{EnrichArgs, EnrichMode, EnrichOperation, ReEmbedTarget};
 pub use queue::{cleanup_queue_entry, DeadItem, DeadSummary, EnrichStatus, WaitingItem};
@@ -105,22 +130,91 @@ mod tests {
     use rusqlite::{Connection, ErrorCode};
     use std::time::{Duration, Instant};
 
+    /// Every response schema must be valid JSON and obey OpenAI strict mode.
+    ///
+    /// GAP-SG-279 widened this from three hand-picked constants to all twelve.
+    /// The three that were covered were the three someone happened to touch;
+    /// `ENTITY_TYPE_VALIDATE_SCHEMA` — the one this gap edits — was not among
+    /// them, so a malformed edit to it would have reached the provider and come
+    /// back as a runtime rejection per item rather than a red test.
+    ///
+    /// The strict-mode rules are the transport's, not this crate's:
+    /// `chat_api/client.rs` sends every schema under `strict: true`, and that
+    /// mode requires EVERY key in `properties` to also appear in `required`,
+    /// plus `additionalProperties: false`. A schema that marks a field optional
+    /// is not leniently handled — the request is refused. Checking it here
+    /// turns a per-item provider error into a compile-time-adjacent failure.
     #[test]
-    fn bindings_schema_is_valid_json() {
-        let _: serde_json::Value =
-            serde_json::from_str(BINDINGS_SCHEMA).expect("BINDINGS_SCHEMA must be valid JSON");
-    }
+    fn every_response_schema_is_valid_json_and_strict_mode_clean() {
+        let schemas: [(&str, &str); 12] = [
+            ("BINDINGS_SCHEMA", BINDINGS_SCHEMA),
+            ("BODY_ENRICH_SCHEMA", BODY_ENRICH_SCHEMA),
+            ("BODY_EXTRACT_SCHEMA", super::schemas::BODY_EXTRACT_SCHEMA),
+            (
+                "DEEP_RESEARCH_SYNTH_SCHEMA",
+                super::schemas::DEEP_RESEARCH_SYNTH_SCHEMA,
+            ),
+            (
+                "DESCRIPTION_ENRICH_SCHEMA",
+                super::schemas::DESCRIPTION_ENRICH_SCHEMA,
+            ),
+            (
+                "DOMAIN_CLASSIFY_SCHEMA",
+                super::schemas::DOMAIN_CLASSIFY_SCHEMA,
+            ),
+            (
+                "ENTITY_CONNECT_SCHEMA",
+                super::schemas::ENTITY_CONNECT_SCHEMA,
+            ),
+            ("ENTITY_DESCRIPTION_SCHEMA", ENTITY_DESCRIPTION_SCHEMA),
+            (
+                "ENTITY_TYPE_VALIDATE_SCHEMA",
+                super::schemas::ENTITY_TYPE_VALIDATE_SCHEMA,
+            ),
+            ("GRAPH_AUDIT_SCHEMA", super::schemas::GRAPH_AUDIT_SCHEMA),
+            (
+                "RELATION_RECLASSIFY_SCHEMA",
+                super::schemas::RELATION_RECLASSIFY_SCHEMA,
+            ),
+            (
+                "WEIGHT_CALIBRATE_SCHEMA",
+                super::schemas::WEIGHT_CALIBRATE_SCHEMA,
+            ),
+        ];
 
-    #[test]
-    fn entity_description_schema_is_valid_json() {
-        let _: serde_json::Value = serde_json::from_str(ENTITY_DESCRIPTION_SCHEMA)
-            .expect("ENTITY_DESCRIPTION_SCHEMA must be valid JSON");
-    }
+        for (name, text) in schemas {
+            let parsed: serde_json::Value = serde_json::from_str(text)
+                .unwrap_or_else(|e| panic!("{name} must be valid JSON: {e}"));
 
-    #[test]
-    fn body_enrich_schema_is_valid_json() {
-        let _: serde_json::Value = serde_json::from_str(BODY_ENRICH_SCHEMA)
-            .expect("BODY_ENRICH_SCHEMA must be valid JSON");
+            assert_eq!(
+                parsed.get("additionalProperties"),
+                Some(&serde_json::Value::Bool(false)),
+                "{name} must set additionalProperties to false; strict mode refuses anything else"
+            );
+
+            let properties = parsed
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .unwrap_or_else(|| panic!("{name} must declare an object of properties"));
+            let required: Vec<&str> = parsed
+                .get("required")
+                .and_then(|r| r.as_array())
+                .unwrap_or_else(|| panic!("{name} must declare a required array"))
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+
+            let missing: Vec<&String> = properties
+                .keys()
+                .filter(|k| !required.contains(&k.as_str()))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{name} declares propertie(s) absent from `required`: {missing:?}. \
+                 Under strict mode that is a REFUSED request, not an optional field; \
+                 model an optional value as a nullable type inside `required` instead."
+            );
+        }
     }
 
     // v1.1.06 — GAP-ENTITY-CONNECT-SCAN-CARTESIAN observability + interrupt

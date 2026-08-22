@@ -1,4 +1,4 @@
-//! v1.1.05 regression suite for the "danilo" deep-research incident report.
+//! v1.1.05 regression suite for the single-subject deep-research incident report.
 //!
 //! Covers Bugs 1–5 at the CLI boundary (assert_cmd):
 //! 1. single-token deep-research fan-out
@@ -35,14 +35,14 @@ fn init_db(tmp: &TempDir) {
     cmd_base(tmp).arg("init").assert().success();
 }
 
-/// Bug 1: `deep-research "danilo"` must emit more than one sub-query (aspect fan-out).
+/// Bug 1: `deep-research "alice"` must emit more than one sub-query (aspect fan-out).
 #[test]
 fn bug1_single_token_deep_research_fans_out_sub_queries() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
     let out = cmd_base(&tmp)
-        .args(["deep-research", "danilo", "--max-sub-queries", "7", "-q"])
+        .args(["deep-research", "alice", "--max-sub-queries", "7", "-q"])
         .output()
         .expect("run deep-research");
     assert!(
@@ -58,7 +58,7 @@ fn bug1_single_token_deep_research_fans_out_sub_queries() {
         subs.len() > 1,
         "expected aspect fan-out for single token, got {subs:?}"
     );
-    assert_eq!(subs[0]["text"], "danilo");
+    assert_eq!(subs[0]["text"], "alice");
     assert_eq!(subs[0]["source"], "original");
     assert!(
         subs.iter().skip(1).any(|s| s["source"] == "aspect"),
@@ -76,7 +76,7 @@ fn bug2_output_writes_atomic_json_with_blake3_ack() {
     let out = cmd_base(&tmp)
         .args([
             "deep-research",
-            "danilo",
+            "alice",
             "--max-sub-queries",
             "3",
             "--output",
@@ -116,15 +116,15 @@ fn bug3_traverse_short_name_suggests_and_fuzzy_resolves() {
 
     // Seed a memory that will create a long canonical entity via graph-stdin.
     let graph = r#"{
-      "body":"Danilo Aguiar Teixeira works on GraphRAG.",
-      "entities":[{"name":"danilo-aguiar-teixeira","type":"person"}],
+      "body":"Alice Martins Souza works on GraphRAG.",
+      "entities":[{"name":"alice-martins-souza","type":"person"}],
       "relationships":[]
     }"#;
     cmd_base(&tmp)
         .args([
             "remember",
             "--name",
-            "seed-danilo",
+            "seed-persona",
             "--type",
             "user",
             "--description",
@@ -143,7 +143,7 @@ fn bug3_traverse_short_name_suggests_and_fuzzy_resolves() {
             "graph",
             "traverse",
             "--from",
-            "danilo",
+            "alice",
             "--depth",
             "1",
             "--namespace",
@@ -159,7 +159,7 @@ fn bug3_traverse_short_name_suggests_and_fuzzy_resolves() {
         String::from_utf8_lossy(&fail.stderr)
     );
     assert!(
-        err_text.contains("danilo-aguiar-teixeira") || err_text.contains("Did you mean"),
+        err_text.contains("alice-martins-souza") || err_text.contains("Did you mean"),
         "expected fuzzy suggestions in error, got: {err_text}"
     );
 
@@ -169,7 +169,7 @@ fn bug3_traverse_short_name_suggests_and_fuzzy_resolves() {
             "graph",
             "traverse",
             "--from",
-            "danilo",
+            "alice",
             "--fuzzy",
             "--depth",
             "1",
@@ -185,7 +185,7 @@ fn bug3_traverse_short_name_suggests_and_fuzzy_resolves() {
         String::from_utf8_lossy(&ok.stderr)
     );
     let json: Value = serde_json::from_slice(&ok.stdout).unwrap();
-    assert_eq!(json["from"], "danilo-aguiar-teixeira");
+    assert_eq!(json["from"], "alice-martins-souza");
 }
 
 /// Bug 4: merge-entities with target in --ids must exit 1 (self-ref).

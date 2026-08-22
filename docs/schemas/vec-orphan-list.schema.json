@@ -2,37 +2,36 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/blob/main/docs/schemas/vec-orphan-list.schema.json",
   "title": "vec orphan-list response (v1.0.69)",
-  "description": "Response shape of `sqlite-graphrag vec orphan-list --json`. Added in v1.0.69 as part of G39 to surface vec_memories, vec_entities, and vec_chunks rows whose parent was soft-deleted or never existed.",
+  "description": "Response shape of `sqlite-graphrag vec orphan-list --json`. Added in v1.0.69 as part of G39. Corrected by GAP-SG-271, which ran the command and validated the real envelope for the first time: the document declared `namespace` and an `orphans` array of `{vector_hash, kind}`, neither of which `VecOrphanListResponse` in src/commands/vec.rs has ever serialized, and omitted the `action` and `items` members it always emits. Under `additionalProperties: false` that rejected every real answer. The scan reads only the active memory embedding table, so no `kind` discriminator exists.",
   "type": "object",
   "properties": {
     "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
     "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "namespace": {
+    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope. Otherwise the number of elements in `items`." },
+    "action": {
       "type": "string",
-      "description": "Namespace the orphan scan ran in"
+      "const": "orphan_list"
     },
-    "count": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Total number of orphan vector rows across all three vec tables"
-    },
-    "orphans": {
+    "items": {
       "type": "array",
-      "description": "List of orphan vectors, each tagged with the source table kind",
+      "description": "Orphan rows of the active memory embedding table, i.e. rows whose parent memory is missing or soft-deleted. Empty when no embedding table exists yet.",
       "items": {
         "type": "object",
         "properties": {
+          "memory_id": {
+            "type": "integer",
+            "description": "The `memory_id` recorded on the orphan row; the memory it points at is gone or soft-deleted"
+          },
           "vector_hash": {
             "type": "string",
-            "description": "Hex-encoded BLAKE3 hash of the orphan vector, used as the deduplication key in vec_purge"
+            "description": "Hex-encoded BLAKE3 hash of the embedding blob, which fingerprints duplicate vectors across re-embeddings"
           },
-          "kind": {
-            "type": "string",
-            "enum": ["memory", "entity", "chunk"],
-            "description": "Source table of the orphan row"
+          "created_at": {
+            "type": "integer",
+            "description": "Unix timestamp of the row insertion, read as an INTEGER"
           }
         },
-        "required": ["vector_hash", "kind"],
+        "required": ["memory_id", "vector_hash", "created_at"],
         "additionalProperties": false
       }
     },
@@ -41,6 +40,6 @@
       "minimum": 0
     }
   },
-  "required": ["namespace", "count", "orphans", "elapsed_ms"],
+  "required": ["action", "count", "items", "elapsed_ms"],
   "additionalProperties": false
 }

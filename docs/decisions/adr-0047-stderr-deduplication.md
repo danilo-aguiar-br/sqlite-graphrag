@@ -1,9 +1,12 @@
 # ADR-0047: Stderr Deduplication — OAuth Single-Line + slots.rs Tracing Gate (v1.0.88)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the flag `--log-level` named below was never delivered and the parser refuses it; `RUST_LOG` is not a configuration channel of this product either.
+- HISTORICAL: the live channels are the `-v` / `-vv` / `-vvv` flags and `sqlite-graphrag config set log.level`.
 
 - **Status**: Accepted
 - **Data**: 2026-06-19
 - **Versão**: v1.0.88 (closes GAP-15 + BUG-12 followup)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Context
 

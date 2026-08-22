@@ -50,6 +50,25 @@ pub fn non_canonical_relation(relation: &str, allowed: &str) -> String {
     }
 }
 
+/// Batch reclassification whose `--from-type` matches no entity at all.
+///
+/// v1.2.8: with a closed enum, a typo in `--from-type` was refused by clap. The
+/// vocabulary is open now, so the same typo would parse, match nothing, and
+/// report success over zero rows. Counting the targets first turns that silent
+/// no-op back into a refusal.
+pub fn reclassify_batch_no_targets(from_type: &str, namespace: &str) -> String {
+    match current() {
+        Language::English => format!(
+            "--from-type '{from_type}' matches no entity in namespace '{namespace}'; \
+             list the stored types with `graph entities` before retrying"
+        ),
+        Language::Portuguese => format!(
+            "--from-type '{from_type}' não corresponde a nenhuma entidade no namespace '{namespace}'; \
+             liste os tipos gravados com `graph entities` antes de repetir"
+        ),
+    }
+}
+
 /// Relation format error scoped to a source→target edge.
 pub fn relation_format_for_relationship(
     err: &impl std::fmt::Display,

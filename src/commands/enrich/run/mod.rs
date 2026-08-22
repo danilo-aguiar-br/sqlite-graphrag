@@ -17,7 +17,7 @@ use super::args::{EnrichArgs, EnrichMode, EnrichOperation};
 use super::events::ConcurrencyEvent;
 use super::queue::{
     count_eligible_pending, enqueue_candidate, item_type_for, item_type_for_key, open_queue_db,
-    skipped_item_keys,
+    retain_unskipped,
 };
 use super::scheduler;
 use super::DEFAULT_RATE_LIMIT_WAIT;
@@ -35,12 +35,12 @@ mod queue_prep;
 mod scan_phase;
 
 /// Run.
-pub fn run(
-    args: &EnrichArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
-    if guards::handle_pre_db_guards(args, llm_backend, embedding_backend)? {
+pub fn run(args: &EnrichArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
+    if guards::handle_pre_db_guards(args, backends)? {
         return Ok(());
     }
 
@@ -215,10 +215,11 @@ pub fn run(
                 // re-scan converges instead of re-enqueuing a non-expandable short
                 // body every iteration (body-enrich only; the verdict persists in
                 // the sidecar queue and is cleared by cleanup_queue_entry on edit).
+                // The veto is asked about THESE candidates only: loading the
+                // operation's whole skipped set here re-read and re-allocated it
+                // once per iteration, and the set grows as the drain runs.
                 if matches!(args.operation(), EnrichOperation::BodyEnrich) {
-                    if let Ok(vetoed) = skipped_item_keys(&queue_conn, &op_label) {
-                        rescan.retain(|k| !vetoed.contains(k));
-                    }
+                    let _ = retain_unskipped(&queue_conn, &op_label, &mut rescan);
                 }
                 // v1.1.2 (Bug 4, D5): batch the re-scan INSERTs in one transaction.
                 {
@@ -239,46 +240,61 @@ pub fn run(
         // The queue DB claim is atomic via UPDATE...RETURNING — no external lock needed.
         if parallelism > 1 {
             super::drain_parallel::drain_parallel(
-                args,
-                &paths,
-                &queue_path,
-                &namespace,
-                provider_binary.as_deref(),
-                provider_model,
-                provider_timeout,
-                &op_label,
-                backoff_clause,
-                parallelism,
-                total,
-                llm_backend,
-                embedding_backend,
+                super::drain_parallel::ParallelSession {
+                    args,
+                    paths: &paths,
+                    queue_path: &queue_path,
+                    namespace: &namespace,
+                    parallelism,
+                },
+                super::drain_serial::DrainProvider {
+                    binary: provider_binary.as_deref(),
+                    model: provider_model,
+                    timeout: provider_timeout,
+                    backends: crate::cli::BackendChoice::new(llm_backend, embedding_backend),
+                },
+                super::drain_serial::DrainScope {
+                    op_label: &op_label,
+                    backoff_clause,
+                    item_type,
+                    total,
+                },
                 &mut counters,
             )?;
         } else {
             super::drain_serial::drain_serial(
-                args,
-                &paths,
-                &conn,
-                &queue_conn,
-                &namespace,
-                provider_binary.as_deref(),
-                provider_model,
-                provider_timeout,
-                &op_label,
-                backoff_clause,
-                item_type,
-                total,
-                llm_backend,
-                embedding_backend,
-                yield_every,
-                &mut counters,
-                &mut items_since_yield,
-                &mut yield_count,
-                &mut preempted_for_gate,
-                enrich_started,
-                budget.until_deadline,
-                rate_limit_deadline,
-                backoff_secs,
+                super::drain_serial::DrainSession {
+                    args,
+                    paths: &paths,
+                    conn: &conn,
+                    queue_conn: &queue_conn,
+                    namespace: &namespace,
+                },
+                super::drain_serial::DrainProvider {
+                    binary: provider_binary.as_deref(),
+                    model: provider_model,
+                    timeout: provider_timeout,
+                    backends: crate::cli::BackendChoice::new(llm_backend, embedding_backend),
+                },
+                super::drain_serial::DrainScope {
+                    op_label: &op_label,
+                    backoff_clause,
+                    item_type,
+                    total,
+                },
+                super::drain_serial::DrainClocks {
+                    started: enrich_started,
+                    until_deadline: budget.until_deadline,
+                    rate_limit_deadline,
+                    yield_every,
+                    backoff_secs,
+                },
+                super::drain_serial::DrainProgress {
+                    counters: &mut counters,
+                    items_since_yield: &mut items_since_yield,
+                    yield_count: &mut yield_count,
+                    preempted_for_gate: &mut preempted_for_gate,
+                },
             )?;
         }
 

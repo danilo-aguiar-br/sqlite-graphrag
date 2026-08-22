@@ -31,7 +31,28 @@ pub enum Commands {
         # Body from stdin (pipe)\n  \
         cat README.md | sqlite-graphrag remember --name doc1 --type document --description \"...\" --body-stdin\n\n  \
         # Enable automatic URL extraction (URL-regex only since v1.0.79)\n  \
-        sqlite-graphrag remember --name rich --type note --description \"...\" --body \"...\" --enable-ner")]
+        sqlite-graphrag remember --name rich --type note --description \"...\" --body \"...\" --enable-ner\n\n  \
+        # Positional name, the same form edit/read/forget/history accept\n  \
+        sqlite-graphrag remember onboarding --type user --description \"intro\" --body \"hello\"\n\n\
+        NOTES:\n  \
+        - The name may be given positionally OR via --name, never both.\n  \
+        - Pick exactly one body source: --body, --body-file, --body-stdin or --graph-stdin.\n  \
+        - --graph-file combines with any of the first three.\n\n\
+        ENTITY TYPES (for graph entities, NOT the memory --type):\n  \
+        The entity vocabulary is OPEN since v1.2.8: any label is stored as\n  \
+        you write it, and none is ever rewritten into another.\n  \
+        RECOMMENDED labels: concept, tool, person, file, project, decision,\n  \
+        incident, organization, location, date, dashboard, issue_tracker,\n  \
+        memory. A label outside them is accepted and reported in the\n  \
+        response `warnings` array, never substituted.\n  \
+        Pass --strict-entity-types to refuse anything outside the thirteen.\n  \
+        Shape is still checked: a label cannot be empty, digits only,\n  \
+        contain a line break, or exceed 64 characters.\n  \
+        The memory --type is a DIFFERENT and CLOSED vocabulary (user,\n  \
+        feedback, project, reference, decision, incident, skill, document,\n  \
+        note); the three names in both mean different things.\n  \
+        Inspect what your database actually uses: sqlite-graphrag graph entity-types\n  \
+        Wire contract: sqlite-graphrag schema --name graph-input")]
     Remember(remember::RememberArgs),
     /// Batch-create memories from NDJSON stdin (one invocation, one slot)
     #[command(after_long_help = "EXAMPLES:\n  \
@@ -118,8 +139,6 @@ pub enum Commands {
     PruneNer(prune_ner::PruneNerArgs),
     /// Inspect and manage cross-process LLM slot semaphore (GAP-004, v1.0.82)
     Slots(slots::SlotsArgs),
-    /// Inspect and manage the `remember` checkpoint queue (GAP-001, v1.0.82)
-    Pending(pending::PendingArgs),
     /// Health and per-entry inspection of the pending-embeddings queue (GAP-005, v1.0.82)
     Embedding(embedding::EmbeddingArgs),
     /// Batch operations over the pending-embeddings queue (GAP-005, v1.0.82)
@@ -184,15 +203,41 @@ impl Commands {
     /// `None` for every subcommand that declares no alias, which makes the
     /// default fail-safe: a new command is never suppressed until someone adds
     /// it to the table deliberately.
+    /// GAP-SG-274: `graph` reports TWO slugs, because it emits two shapes.
+    ///
+    /// The NDJSON snapshot emits one self-contained record per line, discriminated
+    /// by a `kind` field valued `node`, `edge` or `summary`; every other form of
+    /// `graph` emits a single envelope in which `kind` is instead the deprecated
+    /// alias of an entity's `type`. One slug for both made the vocabulary layer
+    /// blind to a distinction [`Self::streams`] was already computing three
+    /// methods away, which is why a field name meaning two different things had
+    /// to be excluded everywhere rather than scoped where it is unambiguous.
     #[must_use]
     pub fn agent_surface_slug(&self) -> Option<&'static str> {
         match self {
             Self::List(_) => Some("list"),
-            Self::Graph(_) => Some("graph"),
+            Self::Graph(args) => Some(if Self::is_graph_ndjson(args) {
+                "graph-ndjson"
+            } else {
+                "graph"
+            }),
             Self::Recall(_) => Some("recall"),
             Self::Related(_) => Some("related"),
             _ => None,
         }
+    }
+
+    /// `true` when this invocation is the NDJSON snapshot form of `graph`.
+    ///
+    /// GAP-SG-274. Both [`Self::streams`] and [`Self::agent_surface_slug`] need
+    /// this answer, and before it was named they disagreed: one computed it, the
+    /// other ignored the args entirely. Asking the question in one place is what
+    /// stops the two from drifting apart again — the same argument the
+    /// [`Self::persists`] conjunction records for its own pair.
+    fn is_graph_ndjson(args: &graph_export::GraphArgs) -> bool {
+        !args.json
+            && args.subcommand.is_none()
+            && args.format == crate::cli::GraphExportFormat::Ndjson
     }
 
     /// `true` when this subcommand can change durable state.
@@ -230,13 +275,89 @@ impl Commands {
             | Self::Schema(_)
             | Self::DebugSchema(_)
             | Self::Completions(_) => false,
-            // `graph` is read-only in three of its four forms; `recompute-degree`
+            // `graph` is read-only in four of its five forms; `recompute-degree`
             // rewrites the cached degree column.
             Self::Graph(args) => matches!(
                 args.subcommand,
                 Some(crate::commands::graph_export::GraphSubcommand::RecomputeDegree(_))
             ),
             _ => true,
+        }
+    }
+
+    /// `true` when this subcommand actually persists, so its envelope is a receipt.
+    ///
+    /// GAP-SG-206. Neither half answers this on its own. [`Self::mutates`] lists
+    /// the read-only variants explicitly and answers `true` for all the rest, so
+    /// it reports `true` for `config list-keys`, `embedding list` and `fts check`,
+    /// which write nothing — right default for a refusal fence, wrong one for
+    /// withholding an answer. [`Self::may_inherit_target`] classifies exactly
+    /// those split families at the subcommand level.
+    ///
+    /// The conjunction is not a new list: `Cli::install_write_policy` already
+    /// asks precisely this question to decide whether the target must be named
+    /// in the argv, which is the same question — "did something get written".
+    /// Naming it once is what stops a third hand-written copy from drifting away
+    /// from the other two.
+    ///
+    /// That hook is a plain code span rather than an intra-doc link because it is
+    /// private, and `rustdoc::private_intra_doc_links` — denied in `Cargo.toml`
+    /// — rejects a link from public documentation to an item the public
+    /// documentation does not contain. `tests/rustdoc_link_gate.rs` now catches
+    /// that class, which `cargo test` and `cargo clippy` are both blind to.
+    pub fn persists(&self) -> bool {
+        self.mutates() && !self.may_inherit_target()
+    }
+
+    /// `true` when this subcommand emits one self-contained record per line.
+    ///
+    /// GAP-SG-209. [`crate::agent_surface::gate`] reads it to refuse the knobs
+    /// that need a complete set, because the surface runs once per emitted
+    /// envelope and a stream has no complete set by construction. Measured:
+    /// `--count-only export --limit 10` answered with eleven `{"count":1}` lines.
+    ///
+    /// The property belongs to the SUBCOMMAND and not to the emitting function,
+    /// which is the distinction that makes this a list rather than a flag on
+    /// `emit_json_compact`. That function is also how `config path`, `slots
+    /// release` and `embedding list` emit ONE envelope; keying the refusal off it
+    /// would have rejected `--count-only config path`, which is perfectly
+    /// answerable.
+    ///
+    /// Streaming variants are listed EXPLICITLY and everything else answers
+    /// `false`. The conservative default is the opposite of [`Self::mutates`]
+    /// here, and deliberately so: a subcommand added later and forgotten keeps
+    /// exactly today's behaviour, while the opposite default would refuse flags
+    /// on a command that can honour them perfectly well.
+    ///
+    /// GAP-SG-229 added `graph --format ndjson`, which had been streaming since
+    /// v1.0.35 without ever answering `true` here. The consequence was worse than
+    /// a missing refusal: `render_ndjson_streaming` returns before the surface
+    /// layer runs, so `--select`, `--filter`, `--sort` and `--dedupe-by` were
+    /// ACCEPTED and then IGNORED, with no refusal and no warning — the exact
+    /// shape of "flag aceita e silenciosamente ignorada" this project catalogues.
+    ///
+    /// The format has to be read from `args`, and it can be: this predicate
+    /// matches on the parsed arguments exactly as [`Self::mutates`] already does
+    /// for `graph recompute-degree`. GAP-SG-274 gave
+    /// [`Self::agent_surface_slug`] the same reach through the shared
+    /// `is_graph_ndjson` helper, so the two no longer disagree about which shape
+    /// of `graph` is in front of them. That helper is a plain code span rather
+    /// than an intra-doc link because it is private, and
+    /// `rustdoc::private_intra_doc_links` — denied in `Cargo.toml` — rejects a
+    /// link from public documentation to an item the public documentation does
+    /// not contain, exactly as [`Self::persists`] records for its own hook. The
+    /// `--json` override is mirrored from
+    /// `graph_export::handlers`, where it promotes the format to `Json` and turns
+    /// the streaming path off entirely; forgetting it here would refuse
+    /// whole-set knobs on an invocation that emits a single envelope.
+    ///
+    /// `dot` and `mermaid` stay outside: they are rendered text, not JSON, so
+    /// there is no record for a knob to act on.
+    pub fn streams(&self) -> bool {
+        match self {
+            Self::Export(_) | Self::Ingest(_) => true,
+            Self::Graph(args) => Self::is_graph_ndjson(args),
+            _ => false,
         }
     }
 
@@ -250,7 +371,7 @@ impl Commands {
     /// output-time refusal fence and the WRONG one here. For the fence a
     /// mistaken `true` costs a diagnostic; here it would cost a false refusal on
     /// a command that has no side effect to protect — `fts check`, `vec stats`,
-    /// `pending list` and `embedding status` all read and write nothing.
+    /// `embedding list` and `embedding status` all read and write nothing.
     ///
     /// So the families whose subcommands split between reading and writing are
     /// classified at the SUBCOMMAND level. The Explicit Target Designation rule
@@ -263,7 +384,6 @@ impl Commands {
     pub fn may_inherit_target(&self) -> bool {
         use crate::commands::embedding::EmbeddingCmd;
         use crate::commands::fts::FtsSubcommand;
-        use crate::commands::pending::PendingCmd;
         use crate::commands::pending_embeddings::PendingEmbeddingsCmd;
         use crate::commands::vec::VecSubcommand;
 
@@ -285,9 +405,6 @@ impl Commands {
                 args.command,
                 VecSubcommand::OrphanList(_) | VecSubcommand::Stats(_)
             ),
-            Self::Pending(args) => {
-                matches!(args.cmd, PendingCmd::List(_) | PendingCmd::Show(_))
-            }
             Self::Embedding(args) => {
                 matches!(args.cmd, EmbeddingCmd::List(_) | EmbeddingCmd::Status(_))
             }
@@ -394,7 +511,6 @@ impl std::fmt::Debug for Commands {
             Self::PruneRelations(_) => "PruneRelations",
             Self::PruneNer(_) => "PruneNer",
             Self::Slots(_) => "Slots",
-            Self::Pending(_) => "Pending",
             Self::Embedding(_) => "Embedding",
             Self::PendingEmbeddings(_) => "PendingEmbeddings",
             Self::CleanupOrphans(_) => "CleanupOrphans",

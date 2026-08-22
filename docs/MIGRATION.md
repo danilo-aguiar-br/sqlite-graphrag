@@ -1,7 +1,39 @@
-# MIGRATING TO v1.2.5 (No Schema Migration — Contract Corrections)
+# MIGRATING TO v1.2.8 (Schema Migration V017 — Open entity_type Vocabulary)
 
 - Portuguese version: [MIGRATION.pt-BR.md](MIGRATION.pt-BR.md)
 - Back to [README.md](../README.md)
+
+> This guide covers upgrading from **v1.2.5**, **v1.2.6** or **v1.2.7** to **v1.2.8**. This hop DOES carry a numbered main-DB migration — `CURRENT_SCHEMA_VERSION` moves from **16** to **17** through `migrations/V017__open_entity_type_vocabulary.sql`. Crate `version = "1.2.8"`. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.8`. Earlier upgrade paths remain below, newest first.
+
+## Operator action (1.2.5 / 1.2.6 / 1.2.7 → 1.2.8)
+
+- Reinstall: `cargo install sqlite-graphrag --locked --force`.
+- Confirm version: `sqlite-graphrag --version` (expect `1.2.8`).
+- Library API pin: change to `=1.2.8`.
+- **Run the migration.** `sqlite-graphrag migrate` applies V017 and moves the schema from **v16** to **v17**.
+- An existing database is backed up before it is migrated, and `PRAGMA foreign_key_check` runs after, so a rebuild that leaves a dangling reference is reported instead of committed in silence.
+- Nothing to re-embed. No vector table or index changed.
+- **A mutating verb must name its database.** Pass `--db <PATH>`, or pass `--use-active` to accept the database the configuration already designates; a write that names neither is refused with exit 2 (GAP-SG-207).
+
+## Behaviour notes (→ 1.2.8)
+
+- **`entity_type` is an open vocabulary** (GAP-SG-277, GAP-SG-278). The closed enum of thirteen kinds is gone: a label outside the recommended set is stored as written and reported in `warnings`, instead of being folded into the nearest kind and terminating at `concept`. Shape is still enforced — trim, lowercase, hyphen to underscore — so `Issue-Tracker` and `issue_tracker` stay one row. **If your automation relied on the fold, it now sees the caller's label.** Pass `--strict-entity-types` to refuse anything outside the thirteen with exit 1.
+- **`graph entity-types` reads the vocabulary back.** An open vocabulary costs the reader the list a closed enum gave for free; this command reports every label present in the database with its count and whether it is canonical.
+- **The published input schemas lost their thirteen-value enum.** `graph-input` and `entities-input` now declare `"type": "string"`, with the policy in the description.
+- **`recall` and `hybrid-search` gained `vec_degraded_code`** (GAP-SG-290), an eight-value enum a consumer can match on, published beside the free-text `vec_degraded_reason` rather than replacing it. The `source` enum gained `fts_fallback`, which both commands already emitted against a document declaring only `direct` and `graph`.
+- **`link --strength` is an alias of `--weight`.** The same property is called `strength` on the input schemas and `weight` on graph output.
+- **`purge` takes the positional name** the other four verbs already took (GAP-SG-272).
+- **`enrich` gained `--allowed-types` and `--on-unknown-type`** (GAP-SG-283), the vocabulary policy the other two write channels already had; `--on-unknown-type` defaults to `keep`.
+- **`cleanup-orphans` repairs any child table the pragma reports**, not only entities carrying no edges, and its envelope gained `foreign_key_violation_count` and `foreign_key_violations_remaining`. **If you validate that envelope against `docs/schemas/cleanup-orphans.schema.json`, take the updated file with this release.**
+- **A `429` no longer parks a one-shot process for a day.** `Retry-After` is capped at 60s per attempt, and the clamp warns with the requested and the applied figure only when it actually bites.
+
+## Known limitations carried into 1.2.8
+
+- **Entities written before this release keep the label the fold produced.** The original string was destroyed at parse time in every earlier version, so there is nothing to restore from; a re-extraction produces a new judgement rather than the old one.
+- **`--entity-type concept` returns fewer rows over time**, as new writes stop landing there. A saved query that counted on `concept` being the catch-all now measures something different, and it still succeeds — the change is silent.
+- **Toolchain C via SQLite** (GAP-SG-196) is carried forward unchanged from v1.2.5, recorded below.
+
+## Historical: MIGRATING TO v1.2.5 (No Schema Migration — Contract Corrections)
 
 > This guide covers upgrading from **v1.2.2**, **v1.2.3** or **v1.2.4** to **v1.2.5**. **No numbered main-DB migration** — `CURRENT_SCHEMA_VERSION` stays at **16** for every hop. Crate `version = "1.2.5"`. Reinstall with `cargo install sqlite-graphrag --locked --force` (or `cargo install --path . --locked --force` for a local tree). Library consumers pin `=1.2.5`. Earlier upgrade paths remain below, newest first.
 
@@ -242,7 +274,7 @@ Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). 
 
 ---
 
-# MIGRATING TO v1.1.05 — Five Danilo Incident Bugs Fixed (No Schema Migration)
+# MIGRATING TO v1.1.05 — Five Deep-Research Incident Bugs Fixed (No Schema Migration)
 
 > Historical: upgrade from v1.1.04 to v1.1.05. **No numbered database migration** — schema stays at v16. Official release name v1.1.05; crate `1.1.5`. Reinstall with `cargo install sqlite-graphrag --locked --force`. Library consumers pin `=1.1.5`.
 
@@ -250,7 +282,7 @@ Decision record: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.md). 
 
 > Upgrade from v1.1.04. The main database schema STAYS at v16 — `migrate` is NOT required. The official release name is v1.1.05; `Cargo.toml` carries `1.1.5`. Reinstall with `cargo install sqlite-graphrag --locked --force`.
 
-Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md). Regression suite: [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs).
 
 ### What changed (behaviour only)
 
@@ -265,8 +297,8 @@ Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regressi
 - Reinstall: `cargo install sqlite-graphrag --locked --force`.
 - Confirm version: `sqlite-graphrag --version` (expect 1.1.5 / v1.1.05 branding in docs).
 - Library API pin: change from `=1.1.4` to `=1.1.5`.
-- Optional smoke: `deep-research "danilo" --max-sub-queries 7 --json` (expect more than one sub-query with `source: "aspect"`); `deep-research "danilo" --output /tmp/dr.json --quiet --json` then parse the stdout ack (`written`/`bytes`/`blake3`/`sub_queries_total`/`unique_memories_found`/`elapsed_ms`) and the file.
-- Optional regression: `cargo test --test v1105_danilo_bugs_regression`.
+- Optional smoke: `deep-research "alice" --max-sub-queries 7 --json` (expect more than one sub-query with `source: "aspect"`); `deep-research "alice" --output /tmp/dr.json --quiet --json` then parse the stdout ack (`written`/`bytes`/`blake3`/`sub_queries_total`/`unique_memories_found`/`elapsed_ms`) and the file.
+- Optional regression: `cargo test --test v1105_incident_bugs_regression`.
 
 ---
 

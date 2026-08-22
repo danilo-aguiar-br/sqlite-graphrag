@@ -165,7 +165,7 @@ fn smoke_07_forget() {
         .output()
         .expect("forget failed");
     assert_json_stdout(&out);
-    // v2.0.4: forget retorna {forgotten: true, name, namespace} — sem campo status
+    // v2.0.4: forget returns {forgotten: true, name, namespace} — no status field
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(
         json["forgotten"], true,
@@ -183,7 +183,7 @@ fn smoke_08_purge() {
     let env = Env::new();
     env.init();
     env.remember("smoke-purge-01", "memória para purgar");
-    // Soft-delete primeiro
+    // Soft-delete first
     env.cmd()
         .args(["forget", "--name", "smoke-purge-01"])
         .output()
@@ -219,7 +219,7 @@ fn smoke_09_rename() {
         .output()
         .expect("rename failed");
     assert_json_stdout(&out);
-    // v2.0.4: rename retorna {memory_id, name, version} — sem campo status
+    // v2.0.4: rename returns {memory_id, name, version} — no status field
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(
         json["name"], "smoke-rename-dst",
@@ -253,7 +253,7 @@ fn smoke_10_edit() {
         .output()
         .expect("edit failed");
     assert_json_stdout(&out);
-    // v2.0.4: edit retorna {memory_id, name, action: "updated", version} — sem campo status
+    // v2.0.4: edit returns {memory_id, name, action: "updated", version} — no status field
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(
         json["action"], "updated",

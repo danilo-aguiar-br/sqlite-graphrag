@@ -73,7 +73,7 @@ Second line should be ignored.
 
     #[test]
     fn falls_back_to_stem_when_only_headers() {
-        // FALTA-6: documento markdown com apenas headers (sem texto > 20 chars).
+        // FALTA-6: markdown document with headers only (no text > 20 chars).
         let body = "\
 # Header 1
 ## Header 2
@@ -103,7 +103,7 @@ Second line should be ignored.
 
     #[test]
     fn back_compat_single_arg_returns_body_only() {
-        // Confirma o caminho simplificado (sem path_hint) ainda funciona.
+        // Confirms the simplified path (no `path_hint`) still works.
         let body = "\
 # H
 

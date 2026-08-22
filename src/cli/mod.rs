@@ -13,7 +13,7 @@ mod globals;
 mod value_enums;
 
 // Backend choice enums live in `backend_choice` (Wave C1).
-pub use crate::backend_choice::{EmbeddingBackendChoice, LlmBackendChoice};
+pub use crate::backend_choice::{BackendChoice, EmbeddingBackendChoice, LlmBackendChoice};
 pub use commands::Commands;
 pub use globals::Cli;
 pub use value_enums::{GraphExportFormat, MemoryType};

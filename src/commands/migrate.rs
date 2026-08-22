@@ -240,10 +240,14 @@ pub fn run(args: MigrateArgs) -> Result<(), AppError> {
     // dropped. Aborting here would make plain `migrate` fail on exactly the
     // databases the auto-migration path can now upgrade. `--rehash` remains the
     // way to normalize `refinery_schema_history` when the operator wants it.
-    crate::migrations::runner()
-        .set_abort_divergent(false)
-        .run(&mut conn)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
+    // Foreign keys must be off around the runner, not inside the migration
+    // files: see `storage::connection::run_migrations_with_foreign_keys_off`.
+    // Measured on a populated 213k-edge database, running the V017 rebuild
+    // through the bare runner emptied `relationships` via ON DELETE CASCADE.
+    crate::storage::connection::run_migrations_with_foreign_keys_off(
+        &mut conn,
+        "migration failed",
+    )?;
 
     conn.execute_batch(&format!(
         "PRAGMA user_version = {};",
@@ -490,9 +494,7 @@ fn run_to_llm_only(
     //    If the user is on v1.0.75 the V013 migration was already applied,
     //    so this is a no-op; if they're on v1.0.74 the V013 drop will run.
     //    If vec tables were removed in step 1.75, V013 DROP is a no-op.
-    crate::migrations::runner()
-        .run(conn)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
+    crate::storage::connection::run_migrations_with_foreign_keys_off(conn, "migration failed")?;
 
     conn.execute_batch(&format!(
         "PRAGMA user_version = {};",

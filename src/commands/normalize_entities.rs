@@ -65,7 +65,7 @@ struct NormalizeEntitiesResponse {
 
 /// Run.
 pub fn run(args: NormalizeEntitiesArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
 
     if !args.dry_run && !args.yes {
         return Err(AppError::Validation(
@@ -141,7 +141,7 @@ pub fn run(args: NormalizeEntitiesArgs) -> Result<(), AppError> {
             normalized_count: rename_count_preview,
             merged_count: merge_count_preview,
             namespace,
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
         match args.format {
             OutputFormat::Json => output::emit_json(&response)?,
@@ -247,7 +247,7 @@ pub fn run(args: NormalizeEntitiesArgs) -> Result<(), AppError> {
         normalized_count,
         merged_count,
         namespace,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

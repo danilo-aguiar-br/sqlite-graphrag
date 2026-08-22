@@ -46,6 +46,7 @@
 | `graph traverse` | `graph-traverse.schema.json` |
 | `graph stats` | `graph-stats.schema.json` |
 | `graph entities` | `graph-entities.schema.json` |
+| `graph entity-types` (v1.2.8) | `graph-entity-types.schema.json` |
 | `graph recompute-degree` (v1.1.01, P3) | `graph-recompute-degree.schema.json` |
 | `cleanup-orphans` | `cleanup-orphans.schema.json` |
 | `prune-relations` | `prune-relations.schema.json` |
@@ -83,7 +84,6 @@
 | `vec purge-orphan` (v1.0.69) | `vec-purge-orphan.schema.json` |
 | `vec stats` (v1.0.69) | `vec-stats.schema.json` |
 | `slots status` (v1.0.82, GAP-004) | `slots-status.schema.json` |
-| `pending list` (v1.0.82, GAP-001) | `pending-list.schema.json` |
 | `embedding status` (v1.0.82, GAP-005, updated v1.0.84, ADR-0042) | `embedding-status.schema.json` |
 | `embedding list` (v1.0.82, GAP-005) | `embedding-list.schema.json` |
 | shutdown envelope (v1.0.82, GAP-002) | `shutdown-envelope.schema.json` |
@@ -121,7 +121,7 @@
 - See `docs/decisions/adr-0042-claude-backend-split.md` (EN) and `.pt-BR.md` for the full rationale
 ### Schema Changes in v1.0.85 (ADR-0043 / five-gap remediation)
 - `recall` and `hybrid-search` response schemas extended `vec_degraded_reason` enum from 3 to 7 variants: `embedding_failed | slot_exhausted | oauth_quota | backend_mismatch | dim_zero | cancelled | timeout`
-- `slot_exhausted` (GAP-003) discriminates LLM subprocess semaphore contention from quota exhaustion; callers can retry with `SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS` override
+- `slot_exhausted` (GAP-003) discriminates LLM subprocess semaphore contention from quota exhaustion; callers can retry with the global `--wait-lock` flag or the XDG key `llm.slot_wait_secs`
 - `oauth_quota` (G58, G45-CR5) discriminates Anthropic usage limit exhaustion from structural embedding errors; triggers deterministic codex <-> claude backend swap before falling back to FTS5
 - `backend_mismatch` discriminates requested vs resolved backend divergence (e.g. `--llm-backend claude` resolved to codex via PATH-probe)
 - `dim_zero` discriminates an embedding that returned a zero-dimension vector (structural bug indicator distinct from quota or contention)
@@ -133,7 +133,7 @@
 - See `docs/decisions/adr-0043-five-gap-remediation.md` (EN) and `.pt-BR.md` for the full rationale
 ### Mudancas de Schema em v1.0.85 (ADR-0043 / remediacao dos cinco gaps)
 - Schemas de resposta `recall` e `hybrid-search` estenderam o enum `vec_degraded_reason` de 3 para 7 variantes: `embedding_failed | slot_exhausted | oauth_quota | backend_mismatch | dim_zero | cancelled | timeout`
-- `slot_exhausted` (GAP-003) discrimina contencao do semaforo de subprocessos LLM de exaustao de cota; chamadores podem re-tentar com override `SQLITE_GRAPHRAG_LLM_SLOT_WAIT_SECS`
+- `slot_exhausted` (GAP-003) discrimina contencao do semaforo de subprocessos LLM de exaustao de cota; chamadores podem re-tentar com a flag global `--wait-lock` ou a chave XDG `llm.slot_wait_secs`
 - `oauth_quota` (G58, G45-CR5) discrimina exaustao de cota Anthropic de erros estruturais de embedding; dispara troca deterministica codex <-> claude antes de cair em FTS5-puro
 - `backend_mismatch` discrimina divergencia entre backend solicitado e resolvido (ex. `--llm-backend claude` resolvido para codex via PATH-probe)
 - `dim_zero` discrimina embedding que retornou vetor de dimensao zero (indicador de bug estrutural distinto de cota ou contencao)
@@ -143,17 +143,26 @@
 - `read` `AppError::MemoryNotFound` / `MemoryNotFoundById` Display e bilingue via `pt::memory_not_found` / `pt::memory_not_found_by_id` (G55 docs, preservado desde v1.0.80)
 - Todos os schemas mantem `"additionalProperties": false`; o enum de sete variantes e o discriminador canonico para degradacao de embedding live
 - Veja `docs/decisions/adr-0043-five-gap-remediation.md` (EN) e `.pt-BR.md` para a justificativa completa
-### Input Payload Schemas
-- `entities-input.schema.json` validates the JSON array accepted by `remember --entities-file`
-- `relationships-input.schema.json` validates the JSON array accepted by `remember --relationships-file`
+### Input and Cross-Cutting Contracts
+These are indexed as a separate table because they are not command-to-envelope
+mappings: three describe what a command READS, one describes a preview envelope,
+and one is referenced by every envelope that accepts the agent-native flags.
+
+| Contract | Schema |
+| --- | --- |
+| `remember --entities-file` (input array) | `entities-input.schema.json` |
+| `remember --relationships-file` (input array) | `relationships-input.schema.json` |
+| `remember --graph-stdin` / `--graph-file` (input document) | `graph-input.schema.json` |
+| `remember --dry-run` (preview envelope) | `remember-dry-run.schema.json` |
+| agent-native surface (`$defs`, referenced by every envelope) | `agent-surface.schema.json` |
 ### Usage
 - Inspect a `recall` response shape quickly: `sqlite-graphrag recall "query" | jaq '.'`
-- Validate with a real JSON Schema validator: `jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
+- Validate with a real JSON Schema validator: `python3 -m jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
 - The `debug-schema` subcommand is hidden and intended for diagnostic tooling only — the binary exposes it with a double-underscore prefix (`debug-schema`) while the schema file uses the kebab-case name `debug-schema.schema.json` following the directory convention
 
 
 ### Schema Evolution in v1.0.86 → v1.0.89 (ADR-0045, ADR-0046, ADR-0047, ADR-0048, ADR-0049)
-- v1.0.86 added 6 schemas for new LLM-pipeline subcommands: `slots-status.schema.json`, `pending-list.schema.json`, `embedding-status.schema.json` (updated v1.0.84 ADR-0042), `embedding-list.schema.json`, `shutdown-envelope.schema.json` (exit 19 envelope). `pending-embeddings process` reuses `pending-list.schema.json`
+- v1.0.86 added 6 schemas for new LLM-pipeline subcommands: `slots-status.schema.json`, `pending-list.schema.json`, `embedding-status.schema.json` (updated v1.0.84 ADR-0042), `embedding-list.schema.json`, `shutdown-envelope.schema.json` (exit 19 envelope). `pending-list.schema.json` was REMOVED in v1.2.8 with the `pending` family; the claim that `pending-embeddings process` reused it was wrong on both halves, since that subcommand never shipped either — the live family is `pending-embeddings list|status|abandon`
 - v1.0.87 added `AppError::PreFlightFailed` (exit 16 `EX_CONFIG`) documented in `error-envelope.schema.json` with 8 variants: `ArgvExceedsArgMax`, `BinaryNotFound`, `McpConfigInlineJsonRejected`, `McpConfigPathMissing`, `McpConfigPathInvalidJson`, `WalkUpMcpJsonInvalid`, `OutputBufferTooSmall`, `ClaudeConfigDirNotEmpty`
 - v1.0.88 fixed: `oauth_stderr_emits_single_line_v1088` regression test validates exit-19 envelope now emits 1 stderr line (was 2). All other schemas unchanged
 - v1.0.89 (GAP-E2E-007) regenerated `health.schema.json` via `schemars 0.8` derive macro. Switched from `additionalProperties: false` to `true` (Must-Ignore). 17 new fields added. New `src/bin/dump_schema.rs` regenerates the schema idempotently via `schema_for!()` + BTreeMap ordering + recursive `apply_must_ignore` policy enforcement
@@ -237,7 +246,7 @@
 ### Schema Changes in v1.1.05 (ADR-0065)
 - **No required database migration.** `CURRENT_SCHEMA_VERSION` stays at **16**. Operators do **not** need `migrate` for this release.
 - `deep-research` — `sub_queries[].source` now also emits `aspect` (single-token facet fan-out) and `manual` (`--sub-query-strategy manual --sub-queries-file PATH`). `deep-research.schema.json` enum is updated in v1.1.05 to `original | decomposed | aspect | manual`. No new *required* output fields on the full envelope.
-- `deep-research --output PATH` — when set, stdout is a short **ack** after atomwrite (tempfile same dir → fsync → rename); the full research envelope is on disk. Dedicated schema: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Required fields: `written` (string path), `bytes` (u64 file size), `blake3` (hex digest of written bytes), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Regression suite: `tests/v1105_danilo_bugs_regression.rs`.
+- `deep-research --output PATH` — when set, stdout is a short **ack** after atomwrite (tempfile same dir → fsync → rename); the full research envelope is on disk. Dedicated schema: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Required fields: `written` (string path), `bytes` (u64 file size), `blake3` (hex digest of written bytes), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Regression suite: `tests/v1105_incident_bugs_regression.rs`.
 - `link --from-id` / `--to-id` — **CLI input flags only**. The `link.schema.json` **output** envelope is unchanged (`from`/`to` remain entity **names** after resolution). Digit-only strings are rejected as names (`validate_entity_name`); that is validation behaviour, not a new JSON property. Schema description notes the ID flags.
 - `graph traverse --fuzzy` — resolution UX: with `--fuzzy`, the `from` field in `graph-traverse.schema.json` is the **resolved canonical name** (may differ from the CLI `--from` argument). NotFound name suggestions remain error UX only.
 - Global `--quiet` / `-q` — affects stderr tracing volume only; no stdout schema impact.
@@ -250,12 +259,22 @@
 - NO main-database schema migration: the SQLite schema stays at v15 across both releases. The v1.0.97 queue-sidecar path change (ADR-0057) is a path-derivation fix, not a schema change
 
 ### Input Payload Schemas (Reference)
-- `entities-input.schema.json` validates the JSON array accepted by `remember --entities-file`
-- `relationships-input.schema.json` validates the JSON array accepted by `remember --relationships-file`
+### Contratos de Entrada e Transversais
+Indexados em tabela própria porque não são mapeamentos de comando para envelope:
+três descrevem o que um comando LÊ, um descreve o envelope de prévia, e um é
+referenciado por todo envelope que aceita as flags agent-native.
+
+| Contrato | Schema |
+| --- | --- |
+| `remember --entities-file` (array de entrada) | `entities-input.schema.json` |
+| `remember --relationships-file` (array de entrada) | `relationships-input.schema.json` |
+| `remember --graph-stdin` / `--graph-file` (documento de entrada) | `graph-input.schema.json` |
+| `remember --dry-run` (envelope de prévia) | `remember-dry-run.schema.json` |
+| superfície agent-native (`$defs`, referenciada por todo envelope) | `agent-surface.schema.json` |
 
 ### Usage
 - Inspect a `recall` response shape quickly: `sqlite-graphrag recall "query" | jaq '.'`
-- Validate with a real JSON Schema validator: `jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
+- Validate with a real JSON Schema validator: `python3 -m jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
 - The `debug-schema` subcommand is hidden and intended for diagnostic tooling only — the binary exposes it with a double-underscore prefix (`debug-schema`) while the schema file uses the kebab-case name `debug-schema.schema.json` following the directory convention
 
 
@@ -302,6 +321,7 @@
 | `graph traverse` | `graph-traverse.schema.json` |
 | `graph stats` | `graph-stats.schema.json` |
 | `graph entities` | `graph-entities.schema.json` |
+| `graph entity-types` (v1.2.8) | `graph-entity-types.schema.json` |
 | `graph recompute-degree` (v1.1.01, P3) | `graph-recompute-degree.schema.json` |
 | `cleanup-orphans` | `cleanup-orphans.schema.json` |
 | `prune-relations` | `prune-relations.schema.json` |
@@ -339,7 +359,6 @@
 | `vec purge-orphan` (v1.0.69) | `vec-purge-orphan.schema.json` |
 | `vec stats` (v1.0.69) | `vec-stats.schema.json` |
 | `slots status` (v1.0.82, GAP-004) | `slots-status.schema.json` |
-| `pending list` (v1.0.82, GAP-001) | `pending-list.schema.json` |
 | `embedding status` (v1.0.82, GAP-005, atualizado v1.0.84, ADR-0042) | `embedding-status.schema.json` |
 | `embedding list` (v1.0.82, GAP-005) | `embedding-list.schema.json` |
 | envelope de shutdown (v1.0.82, GAP-002) | `shutdown-envelope.schema.json` |
@@ -401,7 +420,7 @@
 ### Mudanças de Schema na v1.1.05 (ADR-0065)
 - **Sem migração de banco obrigatória.** `CURRENT_SCHEMA_VERSION` permanece em **16**. Operadores **não** precisam de `migrate` nesta release.
 - `deep-research` — `sub_queries[].source` também emite `aspect` (fan-out de facetas em token único) e `manual` (`--sub-query-strategy manual --sub-queries-file PATH`). O enum em `deep-research.schema.json` na v1.1.05 é `original | decomposed | aspect | manual`. Nenhum campo *obrigatório* novo no envelope completo.
-- `deep-research --output PATH` — quando definido, o stdout é um **ack** curto após atomwrite (tempfile no mesmo diretório → fsync → rename); o envelope completo fica em disco. Schema dedicado: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Campos obrigatórios: `written` (caminho string), `bytes` (tamanho u64 do arquivo), `blake3` (digest hex dos bytes gravados), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`.
+- `deep-research --output PATH` — quando definido, o stdout é um **ack** curto após atomwrite (tempfile no mesmo diretório → fsync → rename); o envelope completo fica em disco. Schema dedicado: `deep-research-output-ack.schema.json` (Bug 2 / ADR-0065). Campos obrigatórios: `written` (caminho string), `bytes` (tamanho u64 do arquivo), `blake3` (digest hex dos bytes gravados), `sub_queries_total` (usize), `unique_memories_found` (usize), `elapsed_ms` (u64). `additionalProperties: false`. Suite de regressão: `tests/v1105_incident_bugs_regression.rs`.
 - `link --from-id` / `--to-id` — **apenas flags de entrada CLI**. O envelope de **saída** de `link.schema.json` permanece inalterado (`from`/`to` continuam sendo **nomes** de entidade após resolução). Strings só de dígitos são rejeitadas como nomes (`validate_entity_name`); isso é comportamento de validação, não uma nova propriedade JSON. A descrição do schema menciona as flags por ID.
 - `graph traverse --fuzzy` — UX de resolução: com `--fuzzy`, o campo `from` em `graph-traverse.schema.json` é o **nome canônico resolvido** (pode diferir do argumento CLI `--from`). Sugestões de nome em NotFound permanecem apenas UX de erro.
 - Global `--quiet` / `-q` — afeta apenas o volume de tracing em stderr; sem impacto no schema de stdout.

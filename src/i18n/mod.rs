@@ -168,8 +168,8 @@ pub fn error_prefix() -> &'static str {
 /// `localized_message_for(Language::Portuguese)`.
 pub mod errors_msg {
     /// Localized message for `memory_not_found`.
-    pub fn memory_not_found(nome: &str, namespace: &str) -> String {
-        format!("memory '{nome}' not found in namespace '{namespace}'")
+    pub fn memory_not_found(name: &str, namespace: &str) -> String {
+        format!("memory '{name}' not found in namespace '{namespace}'")
     }
 
     /// Localized message for `memory_or_entity_not_found`.
@@ -183,8 +183,8 @@ pub mod errors_msg {
     }
 
     /// Localized message for `entity_not_found`.
-    pub fn entity_not_found(nome: &str, namespace: &str) -> String {
-        format!("entity \"{nome}\" does not exist in namespace \"{namespace}\"")
+    pub fn entity_not_found(name: &str, namespace: &str) -> String {
+        format!("entity \"{name}\" does not exist in namespace \"{namespace}\"")
     }
 
     /// Localized message for `relationship_not_found`.
@@ -195,9 +195,9 @@ pub mod errors_msg {
     }
 
     /// Localized message for `duplicate_memory`.
-    pub fn duplicate_memory(nome: &str, namespace: &str) -> String {
+    pub fn duplicate_memory(name: &str, namespace: &str) -> String {
         format!(
-            "memory '{nome}' already exists in namespace '{namespace}'. Use --force-merge to update."
+            "memory '{name}' already exists in namespace '{namespace}'. Use --force-merge to update."
         )
     }
 
@@ -217,8 +217,8 @@ pub mod errors_msg {
     }
 
     /// Localized message for `version_not_found`.
-    pub fn version_not_found(versao: i64, nome: &str) -> String {
-        format!("version {versao} not found for memory '{nome}'")
+    pub fn version_not_found(version: i64, name: &str) -> String {
+        format!("version {version} not found for memory '{name}'")
     }
 
     /// Localized message for `no_recall_results`.
@@ -229,8 +229,8 @@ pub mod errors_msg {
     }
 
     /// Localized message for `soft_deleted_memory_not_found`.
-    pub fn soft_deleted_memory_not_found(nome: &str, namespace: &str) -> String {
-        format!("soft-deleted memory '{nome}' not found in namespace '{namespace}'")
+    pub fn soft_deleted_memory_not_found(name: &str, namespace: &str) -> String {
+        format!("soft-deleted memory '{name}' not found in namespace '{namespace}'")
     }
 
     /// Localized message for `concurrent_process_conflict`.

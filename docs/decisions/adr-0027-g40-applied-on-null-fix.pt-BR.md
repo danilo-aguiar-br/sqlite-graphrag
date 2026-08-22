@@ -3,7 +3,7 @@
 
 ## Status
 - Aceito (2026-06-09)
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: `src/commands/migrate.rs`, `src/commands/debug_schema.rs`
 - Abrange o fluxo de migração v1.0.74 para v1.0.77
 

@@ -2,7 +2,7 @@
 
 - Status: Accepted (2026-06-07)
 - Update (v1.0.79): the `embedding-legacy` escape hatch mentioned below was removed ahead of the v1.1.0 schedule; the transition window is closed
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: migrations/V013, src/storage/connection.rs, src/storage/memories.rs, src/storage/entities.rs, src/storage/chunks.rs
 
 ## Context

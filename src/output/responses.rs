@@ -245,9 +245,25 @@ pub struct RecallResponse {
     /// on the wire when `None` (kept for happy-path envelope cleanliness).
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     pub backend_invoked: Option<&'static str>,
-    /// v1.0.84 (ADR-0042): reason code discriminating the degradation
-    /// (`"embedding_failed" | "cancelled" | "timeout"`). Absent when
-    /// `vec_degraded` is false.
+    /// Operator-facing PROSE for the degradation, not a closed set.
+    ///
+    /// The name says `reason` and the published document said `enum` for four
+    /// releases, but what lands here is `FallbackReason`'s `Display` —
+    /// `"embedding failed: {msg}"`, carrying the provider's own message. Any
+    /// new provider error is a new string, so no enum could ever have held.
+    /// GAP-SG-290 measured this; the machine-readable half now travels beside
+    /// it in [`Self::vec_degraded_code`] rather than replacing this field,
+    /// because the envelope has always carried the prose and changing it would
+    /// break consumers reading it.
     #[serde(skip_serializing_if = "std::option::Option::is_none")]
     pub vec_degraded_reason: Option<String>,
+    /// v1.2.8 (GAP-SG-290): stable, machine-readable code for the degradation.
+    ///
+    /// This is `FallbackReason::reason_code()` — the eight-value set a consumer
+    /// can actually match on: the seven from that method plus
+    /// `FALLBACK_FTS_ONLY_CODE` for the degradation an operator ASKED for.
+    /// Absent on the wire when `vec_degraded` is false, so the happy-path
+    /// envelope is byte-identical and no existing consumer sees a new field.
+    #[serde(skip_serializing_if = "std::option::Option::is_none")]
+    pub vec_degraded_code: Option<&'static str>,
 }

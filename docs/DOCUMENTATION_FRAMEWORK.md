@@ -1,12 +1,59 @@
+## v1.2.8 — Coverage Update (documentation surface closed by mechanical gates)
+
+- Current product docs target **crate 1.2.8**, schema **v17** (V017 opened the `entity_type` vocabulary).
+- Releases sealed since the previous matrix: **1.2.8**.
+- **v1.2.8 themes (must appear in README, HOW_TO, AGENTS, COOKBOOK, MIGRATION, HEADLESS, TESTING, INTEGRATIONS, SECURITY, llms, skills, FRAMEWORK):**
+  1. CLI surface is **50 top-level verbs** counting `help`, therefore **49 product verbs**; the previous matrix said 51, a count that died when the `pending` family was removed
+  2. The surface is **two levels deep**: 49 product verbs plus **32 nested subcommands** under `cache`, `config`, `embedding`, `fts`, `graph`, `pending-embeddings`, `slots` and `vec`
+  3. Configuration surface is **70 XDG config keys**; product env `SQLITE_GRAPHRAG_*` is NOT a configuration channel and is not read on the hot path
+  4. Machine contracts are **76 JSON schemas**, all indexed in `docs/schemas/README.md`
+  5. `tests/docs_command_coverage.rs` requires the product verbs across **17 documents**
+  6. `tests/docs_xdg_coverage.rs` requires the 70 XDG keys in the reference documents
+  7. `tests/docs_surface_gate.rs` refuses any flag or subcommand a document cites that the parser rejects — it found **188 offences** on first run
+  8. `tests/docs_env_channel_guard.rs` refuses any document that OFFERS the dead env channel — it found **155 offering lines** across 27 documents
+  9. `tests/docs_version_drift_gate.rs` refuses a document whose HEADER announces a release this build is not, and refuses a mirrored pair that announces different releases
+  10. `tests/docs_language_parity.rs` requires an **equal `##` section count** in every EN/PT pair
+  11. v1.2.8 resolved **46 gaps**, from GAP-SG-201 through GAP-SG-293
+  12. **GAP-SG-234 and GAP-SG-269 remain OPEN** by the owner's decision, not by oversight
+- Machine contracts: no schema field change in this pass; `$schema` documents remain exempt from reshaping.
+- See [CHANGELOG.md](../CHANGELOG.md) `[1.2.8]`, [MIGRATION.md](MIGRATION.md), [gaps.md](../gaps.md).
+
+- WHY THIS MATRIX EXISTS AND WHY IT MUST NOT LAG: measured on 2026-08-21, this file still targeted 1.2.7 while the crate shipped 1.2.8, and fourteen documents under `docs/` announced 1.2.5 or older in their headers. The drift was not carelessness — those documents were obeying a matrix that had stopped moving. A coverage matrix two releases behind does not merely fail to help; it actively directs correct work at a dead target. Update this section in the SAME delivery as the release it names.
+
+| Document | EN Coverage | PT-BR Coverage | Drift |
+|---|---|---|---|
+| `README.md` / `README.pt-BR.md` | v1.2.8 (50-verb surface + the 70 XDG keys; reference scope of the XDG gate) | v1.2.8 (espelhado; same 70 keys) | Current→1.2.8 |
+| `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.8 (owned by the release track) | v1.2.8 (must include `[1.2.8]`) | Current→1.2.8 |
+| `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.8 banner + pin | v1.2.8 (espelhado) | Current→1.2.8 |
+| `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.8 notes; pre-v1.2.0 entries carry a HISTORICAL prefix | espelhado | Current→1.2.8 |
+| `CONTRIBUTING.md` / `CONTRIBUTING.pt-BR.md` | v1.2.1 release log retained (historical) | espelhado | Historical entries only |
+| `llms.txt` / `llms.pt-BR.txt` | v1.2.8 surface block + verb inventory | v1.2.8 (espelhado) | Current→1.2.8 |
+| `llms-full.txt` | v1.2.8 patch notes | N/A | Current→1.2.8 |
+| `docs/AGENTS.md` / `docs/AGENTS.pt-BR.md` | v1.2.8 REQUIRED block + verb inventory + all 70 XDG keys | v1.2.8 (espelhado) | Current→1.2.8 |
+| `COOKBOOK.md` / `COOKBOOK.pt-BR.md` | v1.2.8 title + inventory flags + nested subcommands | v1.2.8 (espelhado) | Current→1.2.8 |
+| `HOW_TO_USE.md` / `HOW_TO_USE.pt-BR.md` | v1.2.8 title + all 70 XDG keys + nested subcommands | v1.2.8 (espelhado) | Current→1.2.8 |
+| `MIGRATION.md` / `MIGRATION.pt-BR.md` | v1.2.2→1.2.8 additive upgrade | v1.2.8 (espelhado) | Current→1.2.8 |
+| `TESTING.md` / `TESTING.pt-BR.md` | v1.2.8 docs gates (command coverage, XDG coverage, surface, env channel, version drift, language parity) | v1.2.8 (espelhado) | Current→1.2.8 |
+| `CROSS_PLATFORM.md` / `CROSS_PLATFORM.pt-BR.md` | v1.2.8 title | v1.2.8 (espelhado) | Current→1.2.8 |
+| `HEADLESS_INVOCATION.md` / `HEADLESS_INVOCATION.pt-BR.md` | v1.2.8 inventory + pin | v1.2.8 (espelhado) | Current→1.2.8 |
+| `TEST_PLAN.md` / `TEST_PLAN.pt-BR.md` | v1.2.8 gate rows | espelhado | Current→1.2.8 |
+| `DOCUMENTATION_FRAMEWORK.md` | v1.2.8 (EN-canonical meta-doc; surface matrix; excluded from the published tarball) | N/A (historical exception — no mandatory PT pair) | Current→1.2.8 |
+| `skills/sqlite-graphrag-en` / `skills/sqlite-graphrag-pt` | v1.2.8 surface + verb inventory | v1.2.8 (espelhado) | Current→1.2.8 |
+| `docs/decisions/` | 64 ADR pairs + `INDEX.md`; excluded from the published tarball | 64 mirrored ADRs (`INDEX.md` is EN-only) | Historical by nature |
+| `docs/schemas/` | 76 contracts, 100% indexed | N/A (bilingual inline README) | Current→1.2.8 |
+
+> **Historical matrix (crate 1.2.7 — superseded by the v1.2.8 matrix above).** The `51 top-level verbs` figure below is HISTORICAL and was already wrong when the `pending` family was removed. Drift column is **not** Current.
+
+
 ## v1.2.7 — Coverage Update (agent-native gap closure)
 
 - Current product docs target **crate 1.2.7**, schema **v16** (no main-DB migration).
 - Releases sealed since the previous matrix: **1.2.3, 1.2.4, 1.2.5, 1.2.6, 1.2.7**.
 - **v1.2.7 themes (must appear in README, HOW_TO, AGENTS, COOKBOOK, MIGRATION, HEADLESS, TESTING, INTEGRATIONS, SECURITY, llms, skills, FRAMEWORK):**
   1. CLI surface is **51 top-level verbs**; the inventory is contractual, not decorative
-  2. Configuration surface is **63 XDG config keys**
+  2. Configuration surface is **70 XDG config keys**
   3. `tests/docs_command_coverage.rs` requires the 51 verbs — minus `help`, declared `NOT_A_PRODUCT_SURFACE` — across **17 documents**
-  4. `tests/docs_declared_facts_gate.rs` + `tests/docs_xdg_coverage.rs` require the 63 XDG keys; reference scope is **`README.md` + `README.pt-BR.md` only**
+  4. `tests/docs_declared_facts_gate.rs` + `tests/docs_xdg_coverage.rs` require the 70 XDG keys; reference scope is **`README.md` + `README.pt-BR.md` only**
   5. `tests/docs_language_parity.rs` requires an **equal `##` section count** in every EN/PT pair
   6. v1.2.6 corrected the agent-native output surface — **GAP-SG-201, GAP-SG-202, GAP-SG-203, GAP-SG-204, GAP-SG-206**
   7. v1.2.7 resolved **GAP-SG-205, GAP-SG-207, GAP-SG-209, GAP-SG-211, GAP-SG-212, GAP-SG-213**
@@ -16,7 +63,7 @@
 
 | Document | EN Coverage | PT-BR Coverage | Drift |
 |---|---|---|---|
-| `README.md` / `README.pt-BR.md` | v1.2.7 (51-verb surface + the 63 XDG keys; sole reference scope of the XDG gate) | v1.2.7 (espelhado; same 63 keys) | Current→1.2.7 |
+| `README.md` / `README.pt-BR.md` | v1.2.7 (51-verb surface + the 70 XDG keys; sole reference scope of the XDG gate) | v1.2.7 (espelhado; same 70 keys) | Current→1.2.7 |
 | `CHANGELOG.md` / `CHANGELOG.pt-BR.md` | v1.2.7 (owned by the release track) | v1.2.7 (must include `[1.2.7]`) | Current→1.2.7 |
 | `INTEGRATIONS.md` / `INTEGRATIONS.pt-BR.md` | v1.2.7 banner + pin | v1.2.7 (espelhado) | Current→1.2.7 |
 | `SECURITY.md` / `SECURITY.pt-BR.md` | v1.2.x Supported + v1.2.7 notes | espelhado | Current→1.2.7 |
@@ -135,7 +182,7 @@ This section updates the framework to cover the documentation generated for the 
 
 ### v1.0.86 — LLM-Heavy Surface and Host-Wide Slot Semaphore
 - New subcommand families documented in `INTEGRATIONS.md` lines 50-75: `pending` (V014, `pending_memories` table), `embedding` (status/list/abandon), `pending-embeddings` (V015, retry queue), `slots` (host-wide semaphore)
-- New global flags documented in `AGENTS.md` lines 14-22: `--max-concurrency`, `--wait-lock`, `--llm-parallelism`, `--ingest-parallelism`, `--graceful-shutdown-secs`, `--skip-embedding-on-failure`
+- New global flags documented in `AGENTS.md` lines 14-22: `--max-concurrency`, `--wait-lock`, `--llm-parallelism`, `--ingest-parallelism`, --graceful-shutdown-secs (REMOVED in v1.2.0), `--skip-embedding-on-failure`
 - New ADRs: ADR-0036 (pending-memories), ADR-0037 (shutdown-json-envelope), ADR-0038 (llm-backend), ADR-0039 (llm-host-slot-semaphore), ADR-0040 (stderr-capture-fallback-chain)
 - `llms.txt` is OUT OF DATE for v1.0.86 (still declares "Current version 1.0.85.2") — should be regenerated for v1.0.90
 
@@ -143,7 +190,7 @@ This section updates the framework to cover the documentation generated for the 
 - New module `src/spawn/preflight.rs` (≥200 lines, 7 guards, 15 unit tests) gates every LLM subprocess spawn BEFORE the fork
 - New `AppError::PreFlightFailed(PreFlightError)` variant with `exit_code() == 16` and `is_permanent() == true`
 - New exit code 16 (`EX_CONFIG`) for pre-flight failures — NOT documented in any existing exit code table
-- New env var: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` — opt-out for all 7 guards
+- New env var: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` — opt-out for all 7 guards (**historical**: **removed** in v1.2.0 with the subprocess spawners)
 - New ADR: ADR-0045 (preflight-validation-layer) — created in EN only as of v1.0.87; PT-BR translated in v1.0.89
 - Documented in: `INTEGRATIONS.md` (added v1.0.89), `HEADLESS_INVOCATION.md` (added v1.0.89), `SECURITY.md` (added v1.0.89), `AGENTS.md` (added v1.0.89)
 - `llms.txt` is OUT OF DATE for v1.0.87
@@ -173,8 +220,8 @@ This section updates the framework to cover the documentation generated for the 
 
 ### v1.0.90 — OpenCode Backend Integration (ADR-0051)
 - New LLM backend `opencode` added to `LlmBackendChoice` enum
-- New global flags: `--opencode-binary`, `--opencode-model`, `--opencode-timeout`
-- New env vars: `SQLITE_GRAPHRAG_OPENCODE_BINARY`, `SQLITE_GRAPHRAG_OPENCODE_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_TIMEOUT`
+- New global flags: --opencode-binary, --opencode-model, --opencode-timeout (all REMOVED in v1.2.0 with the subprocess spawners)
+- New env vars: `SQLITE_GRAPHRAG_OPENCODE_BINARY`, `SQLITE_GRAPHRAG_OPENCODE_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_TIMEOUT` (**historical**: **removed** in v1.2.0 with the OpenCode backend)
 - New ADR: ADR-0051 (opencode-backend-integration) — EN only, PT-BR pending
 - Documented in: `AGENTS.md`, `HEADLESS_INVOCATION.md`, `COOKBOOK.md`, `HOW_TO_USE.md`, `MIGRATION.md`
 
@@ -190,7 +237,7 @@ This section updates the framework to cover the documentation generated for the 
 - New ADR: ADR-0052 (openrouter-embedding-backend) — EN + PT-BR
 - New test plan section in `TEST_PLAN.md` and `TEST_PLAN.pt-BR.md` covering layers 1/2/7/8
 `config add-key --provider openrouter` (OPENROUTER_API_KEY is not read at runtime)
-- New env var: `SQLITE_GRAPHRAG_EMBEDDING_BACKEND`
+- New env var: `SQLITE_GRAPHRAG_EMBEDDING_BACKEND` (**historical**: **removed** in v1.2.0; the backend is chosen by `--embedding-backend`)
 - Documented in: ALL 12 root .md files, ALL 24 docs/ .md files, 7 schema JSON files, `docs/schemas/README.md`, `docs/decisions/INDEX.md`
 
 ### v1.0.94 — Four-Gap Remediation (ADR-0053)
@@ -225,7 +272,7 @@ This section updates the framework to cover the documentation generated for the 
 - Documented in: README, CHANGELOG, AGENTS, COOKBOOK, HOW_TO_USE, HEADLESS_INVOCATION, INTEGRATIONS (root EN+PT); llms.txt, llms.pt-BR.txt, llms-full.txt; SKILL (EN+PT); TESTING, MIGRATION (EN+PT); docs/decisions/INDEX.md + ADR-0056/0057/0058 (EN+PT).
 
 ### v1.0.99 — Remove Destructive Degree-Cap Pruning + Doc/Convergence Fixes (ADR-0059, GAP-SG-67/68/69)
-- **GAP-SG-67** — the destructive GLOBAL degree-cap pruning is REMOVED: `graph::enforce_degree_cap` and its two call sites (`remember`, `link`) are deleted, and the `--max-entity-degree` flag is REMOVED (BREAKING: clap exit 2 if passed; the `--max-entity-degree 0` mitigation is now obsolete). Writes are 100% additive — they never prune/delete edges nor emit a warn, and the total `relationships` count never decreases on a normal write. Schema stays v15 (no migration). Trade-off: hub degree grows unbounded; future normalisation is an explicit MAINTENANCE command only.
+- **GAP-SG-67** — the destructive GLOBAL degree-cap pruning is REMOVED: `graph::enforce_degree_cap` and its two call sites (`remember`, `link`) are deleted, and the --max-entity-degree flag is REMOVED (BREAKING: clap exit 2 if passed; the --max-entity-degree 0 mitigation is now obsolete). Writes are 100% additive — they never prune/delete edges nor emit a warn, and the total `relationships` count never decreases on a normal write. Schema stays v15 (no migration). Trade-off: hub degree grows unbounded; future normalisation is an explicit MAINTENANCE command only.
 - **GAP-SG-68** — `graph entities --sort-by degree` sorted ascending against a doc-comment that promised "descending by default"; fixed by aligning the DOC to the ascending behaviour ("Sort by degree (total number of relationships). Use --order desc for most-connected-first."). 6 `build_order_by_*` tests stay green; only `src/commands/graph_export.rs` (one line) changed.
 - **GAP-SG-69** — `enrich --operation body-enrich --until-empty` did not converge (scan re-scanned bodies rejected by the preservation guard, status `skipped`); fixed with the `skipped_item_keys` helper (`queue.rs`), the BodyEnrich initial scan + rescan now exclude preservation-vetoed `skipped` keys, the `.enrich-queue.sqlite` sidecar is preserved while `skipped` rows remain (removed only when `dead==0` AND `skipped==0`), and `cleanup_queue_entry` clears the veto when the body changes. Empirical convergence 55→3; test `skipped_item_keys_excludes_only_skipped_for_operation`.
 - New ADR: ADR-0059 (EN + PT-BR); docs/decisions/INDEX.md updated.
@@ -233,7 +280,7 @@ This section updates the framework to cover the documentation generated for the 
 
 ### v1.1.02 — Two Residual Gaps Closed + Entity Orphan Prune (ADR-0062)
 - Official release name is v1.1.02; the crate manifest carries `version = "1.1.2"` (SemVer rejects a leading zero in the patch component). Schema stays v15 (no migration). Binary ~19 MiB. Library consumers pin `=1.1.2`; User-Agent is `sqlite-graphrag/1.1.2`.
-- **Gap 1 (BREAKING)**: `--gliner-variant` and the `GlinerVariant` enum are REMOVED from the parser (clap rejects `--gliner-variant` with exit 2, following the `--max-entity-degree` precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars were deleted from the code and are silently ignored if set. The `IngestMode` enum now has only `none`, `claude-code`, `codex`, `opencode` — `--mode gliner` is REMOVED (no longer deprecated).
+- **Gap 1 (BREAKING)**: --gliner-variant and the `GlinerVariant` enum are REMOVED from the parser (clap rejects --gliner-variant with exit 2, following the --max-entity-degree precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars were deleted from the code and are silently ignored if set. The `IngestMode` enum now has only `none`, `claude-code`, `codex`, `opencode` — `--mode gliner` is REMOVED (no longer deprecated).
 - **Gap 2**: `AppError::TooManyTokens{tokens,limit}` is a new typed variant; exit 6 now distinguishes `BodyTooLarge{bytes,limit}`, `TooManyChunks{chunks,limit}` and `TooManyTokens{tokens,limit}` in the JSON envelope.
 - **Gap 3**: the `strip_prefix("entity:")` dispatch in `call_reembed` (broken since the entity-keyed re-embed path was added) is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings backfill from 0→N and the coverage query hits zero missing.
 - **New flag**: `enrich --prune-dead-entity-orphans` (mutually exclusive with `--prune-dead-orphans`) deletes dead-letter rows with `item_type='entity'` from the `.enrich-queue.sqlite` sidecar; new unit test `prune_dead_entity_orphans_removes_only_entity_dead_rows` and integration test `tests/prune_dead_entity_orphans_integration.rs`.
@@ -252,7 +299,7 @@ This section updates the framework to cover the documentation generated for the 
   - Suite `tests/v1106_entity_connect_scan_regression.rs`; ADR-0066 EN+PT
 - Documentation surface for this release: README, CHANGELOG, INTEGRATIONS, SECURITY (Timeout exit 1 note), CONTRIBUTING, llms*, HOW_TO, COOKBOOK, CROSS_PLATFORM, AGENTS, MIGRATION, TESTING, TEST_PLAN, HEADLESS_INVOCATION, schemas README, skills EN/PT, DOCUMENTATION_FRAMEWORK (this matrix), ADR-0066 EN+PT.
 
-### v1.1.05 — Five Danilo Incident Bugs (No Migration)
+### v1.1.05 — Five Deep-Research Incident Bugs (No Migration)
 
 - Official release name is v1.1.05; the crate manifest carries `version = "1.1.5"` (SemVer rejects a leading zero in the patch component). Schema stays at v16 (no migration). Library consumers pin `=1.1.5`.
 - **Bug 1**: `deep-research` single-token aspect fan-out (`source: "aspect"`, EN/PT facets); `--sub-query-strategy manual --sub-queries-file`.
@@ -260,8 +307,8 @@ This section updates the framework to cover the documentation generated for the 
 - **Bug 3**: `graph traverse --fuzzy`; without `--fuzzy`, NotFound Jaro-Winkler + prefix suggestions.
 - **Bug 4**: `merge-entities` self-ref pre-DB rejection (`--into-id` in `--ids`, or names).
 - **Bug 5**: `link --from-id`/`--to-id`; pure digit names rejected by `validate_entity_name`.
-- Tests: `tests/v1105_danilo_bugs_regression.rs`.
-- ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md) (EN) + [PT-BR](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md).
+- Tests: `tests/v1105_incident_bugs_regression.rs`.
+- ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md) (EN) + [PT-BR](decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md).
 - Documented in (complete coverage):
   - **Root EN+PT**: README, CHANGELOG, AGENTS, INTEGRATIONS, SECURITY, CONTRIBUTING; `llms.txt`, `llms.pt-BR.txt`, `llms-full.txt`
   - **docs EN+PT**: AGENTS, HOW_TO_USE, COOKBOOK, MIGRATION, TESTING, TEST_PLAN, HEADLESS_INVOCATION, CROSS_PLATFORM
@@ -579,7 +626,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - G52 `vec stats` ganhou `dims: [{table, dim, rows}]`; schema fiel ao binário
 - G47 flags documentadas inexistentes: aliases visíveis para `--type` em `edit` e `--entity-type` em `reclassify`
 - G48 G20 não cegava `--max-hops` igual ao default (Option<T>)
-- G49 `SQLITE_GRAPHRAG_EMBEDDING_DIM` inválido emite `tracing::warn!`
+- G49 (**histórico**): `SQLITE_GRAPHRAG_EMBEDDING_DIM` inválido emitia `tracing::warn!`; a variável foi **removida** e a dimensionalidade hoje vem de `--embedding-dim` ou da chave XDG `embedding.dim`
 - Daemon infrastructure e features legadas (`embedding-legacy`, `ner-legacy`, `full`) totalmente removidas
 - `docs/AGENTS.md` e `docs/AGENTS.pt-BR.md` ganharam seções "v1.0.79" cobrindo G42-G52 e a remoção do daemon
 - `docs/TESTING.md` e `docs/TESTING.pt-BR.md` ganharam seções "v1.0.79 Test Additions"
@@ -591,7 +638,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - **ADR-0032 (G53, v1.0.80) — Library API Stability Policy**: CLI é contrato estável; API da biblioteca é instável em v1.x.y. Consumidores da lib devem fixar `=1.0.80`; bump de patch é estritamente aditivo na superfície da lib. Documentado em `docs/decisions/adr-0032-g53-lib-api-policy.md` e em `docs/decisions/adr-0032-g53-lib-api-policy.pt-BR.md`
 - **ADR-0033 (G53-WINDOWS-INFRA, v1.0.80) — Windows CI Resilience**: jobs `clippy` e `test` da matrix windows-2025 ganharam steps de pre-warm e verify gateados em `if: matrix.os == 'windows-2025'`. Os 2 modos históricos de falha de infra (rustup download transitório e `E0463` por stdlib ausente) agora são recuperáveis na primeira re-run. Documentado em `docs/decisions/adr-0033-g53-windows-infra-resilience.md` e versão PT-BR
 - **ADR-0034 (SHUTDOWN Resilience, v1.0.80) — Panic-Free Third-Signal Exit**: `src/signals.rs` é envolvido em uma barreira de captura de panic; o terceiro Ctrl-C consecutivo sai com código 130 e ZERO I/O. Receita canônica de bypass SHUTDOWN em 3 camadas (`nohup` → `setsid` → `disown`) documentada em `docs/HEADLESS_INVOCATION.md` e `docs/COOKBOOK.md`. Documentado em `docs/decisions/adr-0034-shutdown-resilience.md` e versão PT-BR
-- **ADR-0041 (Custom Provider Credential Preservation, v1.0.83) — Shared env_whitelist helper**: 6 env vars de custom-provider (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT`) preservadas ao spawnar subprocessos LLM, habilitando Minimax/OpenRouter/AWS Bedrock/gateways corporativos sem alterar o mandato OAuth-only que continua rejeitando `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`. Helper compartilhado `src/spawn/env_whitelist.rs` elimina duplicação dos 3 spawners. Flag opt-out `--strict-env-clear` / `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` para compliance (PCI-DSS/SOC2/HIPAA). SEM telemetria nova. Documentado em `docs/decisions/adr-0041-preserve-custom-provider-env.md` e versão PT-BR
+- **ADR-0041 (Custom Provider Credential Preservation, v1.0.83) — Shared env_whitelist helper**: 6 env vars de custom-provider (`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY`, `OTEL_EXPORTER_OTLP_ENDPOINT`) preservadas ao spawnar subprocessos LLM, habilitando Minimax/OpenRouter/AWS Bedrock/gateways corporativos sem alterar o mandato OAuth-only que continua rejeitando `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`. Helper compartilhado `src/spawn/env_whitelist.rs` elimina duplicação dos 3 spawners. Flag opt-out --strict-env-clear / `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1` para compliance (PCI-DSS/SOC2/HIPAA) — **histórico**, **removido** na v1.2.0 com os spawners. SEM telemetria nova. Documentado em `docs/decisions/adr-0041-preserve-custom-provider-env.md` e versão PT-BR
 - `docs/MIGRATION.md` e `docs/MIGRATION.pt-BR.md` ganharam seção "MIGRATING TO v1.0.80" no topo (sem migração de banco, apenas bump de versão e nota sobre pin de lib)
 - `docs/CROSS_PLATFORM.md` e `docs/CROSS_PLATFORM.pt-BR.md` ganharam subseção "CI Windows Infra Resilience (G53-WINDOWS-INFRA, ADR-0033, v1.0.80)" após a seção HANDLE
 - `README.md` e `README.pt-BR.md` ganharam bullet "Upgrading from v1.0.79 to v1.0.80?" e badge "Current release: v1.0.80"
@@ -979,7 +1026,7 @@ A CI gate that checks all 9 items would prevent the 3-version drift observed in 
 - [ ] INTEGRATIONS.md + INTEGRATIONS.pt-BR.md atualizados se houver novas integrações
 - [ ] TODAS as seções "Authentication" e "API keys" revisadas para refletir a OAuth-only enforcement (v1.0.69+)
 - [ ] `tests/docs_command_coverage.rs` verde — impede que qualquer um dos 51 verbos top-level (menos `help`, declarado `NOT_A_PRODUCT_SURFACE`) desapareça de qualquer um dos 17 documentos que carregam o inventário
-- [ ] `tests/docs_xdg_coverage.rs` verde — impede que qualquer uma das 63 chaves de configuração XDG fique sem documentação em `README.md` e `README.pt-BR.md`, o único escopo de referência do gate
+- [ ] `tests/docs_xdg_coverage.rs` verde — impede que qualquer uma das 70 chaves de configuração XDG fique sem documentação em `README.md` e `README.pt-BR.md`, o único escopo de referência do gate
 - [ ] `tests/docs_language_parity.rs` verde — impede que um par EN/PT-BR divirja no número de seções `##`, que é como uma tradução perde conteúdo em silêncio
 
 
@@ -1019,7 +1066,7 @@ Three new ADRs were added in this release cycle:
 
 - **ADR-0042 (v1.0.84)** — Claude Backend Split (GAP-002). Resolves the v1.0.83 synonym bug where `--llm-backend claude` silently fell through to codex. See `adr-0042-claude-backend-split.md` (EN) and `adr-0042-claude-backend-split.pt-BR.md` (PT-BR).
 - **ADR-0043 (v1.0.85)** — Five-Gap Remediation. Introduces the 7-variant `FallbackReason` enum, the `reason_code` discriminator, the `try_embed_query_with_deterministic_fallback` retry path, the `anthropic-ratelimit-*-remaining` header capture, the dim=64 lock, and the bilingual `MemoryNotFound` message. See `adr-0043-five-gap-remediation.md` (EN) and `adr-0043-five-gap-remediation.pt-BR.md` (PT-BR).
-- **ADR-0044 (v1.0.85.2)** — Hotfixes BUG-001/002/003. Documents `--dry-run-backend` standalone behavior, `embed_via_backend` returning `Result<(Vec<f32>, LlmBackendKind), AppError>`, and the `setup_mock_path()` JSON alignment in `tests/embedder.rs:37-77`. See `adr-0044-hotfixes-bug-001-002-003.md` (EN) and `adr-0044-hotfixes-bug-001-002-003.pt-BR.md` (PT-BR).
+- **ADR-0044 (v1.0.85.2)** — Hotfixes BUG-001/002/003. Documents --dry-run-backend (REMOVED in v1.2.0) standalone behavior, `embed_via_backend` returning `Result<(Vec<f32>, LlmBackendKind), AppError>`, and the `setup_mock_path()` JSON alignment in `tests/embedder.rs:37-77`. See `adr-0044-hotfixes-bug-001-002-003.md` (EN) and `adr-0044-hotfixes-bug-001-002-003.pt-BR.md` (PT-BR).
 
 All three ADRs follow the standard template (Status, Data, Versão, Autores, Contexto, Decisão, Consequências, Alternativas, Cross-refs). The Status field is "Aceito" (PT-BR) or "Accepted" (EN).
 
@@ -1027,7 +1074,7 @@ All three ADRs follow the standard template (Status, Data, Versão, Autores, Con
 
 The 7 envelope schemas in `docs/schemas/` (`edit`, `embedding-status`, `enrich-summary`, `hybrid-search`, `ingest-summary`, `recall`, `remember`) now include `backend_invoked: enum ["claude", "codex", "none"]` per ADR-0042. The `recall` and `hybrid-search` schemas additionally include `vec_degraded_reason: Option<String>` per ADR-0043. See `docs/schemas/README.md` for the full index.
 ### Five New Schemas (GAP-001/002/004/005)
-- `docs/schemas/pending-list.schema.json` — `sqlite-graphrag pending list` output (ADR-0036, GAP-001)
+- `docs/schemas/pending-list.schema.json` — output of the v1.0.82 `pending list` subcommand; the schema and the whole `pending` family were REMOVED in v1.2.8 (ADR-0036, GAP-001)
 - `docs/schemas/embedding-list.schema.json` — `sqlite-graphrag embedding list` and `pending-embeddings list` outputs (ADR-0040, GAP-005)
 - `docs/schemas/embedding-status.schema.json` — `sqlite-graphrag embedding status` output (ADR-0040, GAP-005)
 - `docs/schemas/slots-status.schema.json` — `sqlite-graphrag slots status` output (ADR-0039, GAP-004)
@@ -1040,7 +1087,7 @@ The 7 envelope schemas in `docs/schemas/` (`edit`, `embedding-status`, `enrich-s
 - `docs/decisions/adr-0038-llm-backend-user-choice.md` (and `.pt-BR.md`) — `--llm-backend` global flag (GAP-003)
 - `docs/decisions/adr-0039-llm-host-slot-semaphore.md` (and `.pt-BR.md`) — fs4 cross-process slot semaphore (GAP-004)
 - `docs/decisions/adr-0040-stderr-capture-fallback-chain.md` (and `.pt-BR.md`) — codex OAuth 401 mitigation (GAP-005)
-`docs/decisions/adr-0041-preserve-custom-provider-env.md` (and `.pt-BR.md`) — Custom provider env whitelist helper + `--strict-env-clear` flag (GAP-058 partial)
+`docs/decisions/adr-0041-preserve-custom-provider-env.md` (and `.pt-BR.md`) — Custom provider env whitelist helper + the --strict-env-clear flag, REMOVED in v1.2.0 (GAP-058 partial)
 - All five ADRs follow the canonical structure: Contexto, Decisão, Consequências, Alternativas Consideradas, Notas de Transcrição
 - All five ADRs link to the relevant JSON schema in the Consequências section
 - The pt-BR translations preserve the H2 section count parity with the EN originals

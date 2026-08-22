@@ -2,34 +2,26 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/migrate-rehash.schema.json",
   "title": "sqlite-graphrag migrate --rehash response",
-  "description": "JSON contract for the `migrate --rehash --json` subcommand added in v1.0.76, updated in v1.0.77 with null_rows_fixed (G40 sanitization), updated in v1.0.78 with v013_tables_created (G41 phantom registration repair). Rewrites recorded migration checksums in refinery_schema_history to match the current migration file content using SipHasher13. Required for v1.0.74 databases upgrading to v1.0.76 because V002 was intentionally emptied to a no-op.",
+  "description": "JSON contract for the `migrate --rehash --json` subcommand added in v1.0.76, updated in v1.0.77 with null_rows_fixed (G40 sanitization), updated in v1.0.78 with v013_tables_created (G41 phantom registration repair). Rewrites recorded migration checksums in refinery_schema_history to match the current migration file content using SipHasher13. Required for v1.0.74 databases upgrading to v1.0.76 because V002 was intentionally emptied to a no-op. Corrected by GAP-SG-271, which ran the command and validated the real envelope for the first time: the document required `action`, `skipped` and `errors`, which `RehashReport` in src/commands/migrate.rs has never serialized, typed `rewritten` as an integer when it is an array of rewrite records, and omitted the emitted `status`, `inspected` and `schema_version`. Under `additionalProperties: false` that rejected every real answer, and the published example did not validate against its own schema either.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["action", "rewritten", "skipped", "errors", "v013_tables_created", "elapsed_ms"],
+  "required": ["db_path", "schema_version", "rewritten", "inspected", "null_rows_fixed", "v013_tables_created", "status", "elapsed_ms"],
   "properties": {
     "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
     "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
     "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
-    "action": {
+    "status": {
       "type": "string",
-      "const": "rehashed"
+      "enum": ["ok_no_changes", "ok_rewritten", "ok_no_history"],
+      "description": "`ok_rewritten` when at least one checksum was rewritten, `ok_no_changes` when every checksum already matched, and `ok_no_history` when refinery_schema_history does not exist, which short-circuits before any inspection. A failure never reaches this envelope; it is reported through error-envelope.schema.json."
     },
     "rewritten": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Number of migration rows whose checksum was rewritten to match the current file content."
-    },
-    "skipped": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Number of migration rows that already had a matching checksum and required no rewrite."
-    },
-    "errors": {
       "type": "array",
+      "description": "One element per migration row whose recorded checksum was rewritten. Empty when every checksum already matched.",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["version", "name", "message"],
+        "required": ["version", "name", "old_checksum", "new_checksum"],
         "properties": {
           "version": {
             "type": "integer",
@@ -38,16 +30,26 @@
           "name": {
             "type": "string"
           },
-          "message": {
-            "type": "string"
+          "old_checksum": {
+            "type": "string",
+            "description": "The SipHasher13 checksum previously recorded in refinery_schema_history."
+          },
+          "new_checksum": {
+            "type": "string",
+            "description": "The checksum computed from the current migration file content."
           }
         }
-      },
-      "description": "Per-migration errors encountered during the rewrite. Empty when the database was healthy."
+      }
     },
-    "namespace": {
-      "type": ["string", "null"],
-      "description": "Active namespace at the time of the operation. Null when the database is uninitialized."
+    "inspected": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of migration rows examined, whether or not their checksum needed a rewrite."
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Schema version recorded in the database after the rehash."
     },
     "db_path": {
       "type": "string",
@@ -69,13 +71,19 @@
   },
   "examples": [
     {
-      "action": "rehashed",
-      "rewritten": 1,
-      "skipped": 12,
-      "errors": [],
+      "status": "ok_rewritten",
+      "rewritten": [
+        {
+          "version": 2,
+          "name": "V002__noop",
+          "old_checksum": "10748193556424205991",
+          "new_checksum": "13847290184756201933"
+        }
+      ],
+      "inspected": 17,
       "null_rows_fixed": 0,
       "v013_tables_created": false,
-      "namespace": "global",
+      "schema_version": 17,
       "db_path": "/home/user/graphrag.sqlite",
       "elapsed_ms": 8
     }

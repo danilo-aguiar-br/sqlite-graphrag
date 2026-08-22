@@ -217,7 +217,7 @@ pub fn acquire_cli_slot(
     let max = max_concurrency.clamp(1, ceiling);
     let wait_secs = wait_seconds.unwrap_or(0);
 
-    // Tentativa inicial sem espera.
+    // Initial attempt without waiting.
     if let Some((file, slot)) = try_any_slot(max)? {
         return Ok((file, slot));
     }

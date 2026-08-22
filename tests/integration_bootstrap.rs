@@ -28,14 +28,14 @@ fn cli_home_env_creates_db_in_target_dir() {
     // only the expected location moved one directory deeper.
     let home_dir = TempDir::new().expect("home tempdir");
     let cwd_dir = TempDir::new().expect("cwd tempdir");
-    let banco_no_home = home_dir
+    let db_in_home = home_dir
         .path()
         .join(".local")
         .join("share")
         .join("sqlite-graphrag")
         .join("graphrag.sqlite");
-    let banco_na_raiz_do_home = home_dir.path().join("graphrag.sqlite");
-    let banco_no_cwd = cwd_dir.path().join("graphrag.sqlite");
+    let db_at_home_root = home_dir.path().join("graphrag.sqlite");
+    let db_in_cwd = cwd_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
         .env("HOME", home_dir.path())
@@ -44,15 +44,15 @@ fn cli_home_env_creates_db_in_target_dir() {
         .success();
 
     assert!(
-        banco_no_home.exists(),
+        db_in_home.exists(),
         "init com HOME deve criar o banco no diretório de dados XDG derivado de HOME"
     );
     assert!(
-        !banco_na_raiz_do_home.exists(),
+        !db_at_home_root.exists(),
         "init NÃO deve criar banco na raiz do HOME (G-T-XDG-04)"
     );
     assert!(
-        !banco_no_cwd.exists(),
+        !db_in_cwd.exists(),
         "init com HOME NÃO deve criar banco no current_dir"
     );
 }
@@ -79,7 +79,7 @@ fn cli_product_env_db_path_is_ignored_flag_wins() {
     let cwd_dir = TempDir::new().expect("cwd tempdir");
     let db_from_env = env_dir.path().join("from-env.sqlite");
     let db_flag = flag_dir.path().join("via-flag.sqlite");
-    let banco_no_home = home_dir.path().join("graphrag.sqlite");
+    let db_in_home = home_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
         .env("HOME", home_dir.path())
@@ -96,7 +96,7 @@ fn cli_product_env_db_path_is_ignored_flag_wins() {
         "SQLITE_GRAPHRAG_DB_PATH must be ignored (G-T-XDG-04)"
     );
     assert!(
-        !banco_no_home.exists(),
+        !db_in_home.exists(),
         "HOME must not be used when --db is present"
     );
 }
@@ -107,7 +107,7 @@ fn cli_flag_db_overrides_home_env() {
     let flag_dir = TempDir::new().expect("flag tempdir");
     let cwd_dir = TempDir::new().expect("cwd tempdir");
     let db_flag = flag_dir.path().join("via-flag.sqlite");
-    let banco_no_home = home_dir.path().join("graphrag.sqlite");
+    let db_in_home = home_dir.path().join("graphrag.sqlite");
 
     home_isolated_cmd(cwd_dir.path())
         .env("HOME", home_dir.path())
@@ -117,7 +117,7 @@ fn cli_flag_db_overrides_home_env() {
 
     assert!(db_flag.exists(), "flag --db deve vencer HOME");
     assert!(
-        !banco_no_home.exists(),
+        !db_in_home.exists(),
         "HOME não deve ser usado quando --db está presente"
     );
 }
@@ -139,51 +139,45 @@ fn test_init_creates_sqlite_file() {
 
 #[test]
 fn test_init_creates_local_db_in_invocation_directory() {
-    let pasta_a = TempDir::new().unwrap();
-    let pasta_b = TempDir::new().unwrap();
-    let banco_a = pasta_a.path().join("graphrag.sqlite");
-    let banco_b = pasta_b.path().join("graphrag.sqlite");
+    let dir_a = TempDir::new().unwrap();
+    let dir_b = TempDir::new().unwrap();
+    let db_a = dir_a.path().join("graphrag.sqlite");
+    let db_b = dir_b.path().join("graphrag.sqlite");
 
     assert!(
-        !banco_a.exists(),
+        !db_a.exists(),
         "banco local nao deve existir antes do init em a"
     );
     assert!(
-        !banco_b.exists(),
+        !db_b.exists(),
         "banco local nao deve existir antes do init em b"
     );
 
-    isolated_cmd_in(pasta_a.path())
-        .arg("init")
-        .assert()
-        .success();
-    isolated_cmd_in(pasta_b.path())
-        .arg("init")
-        .assert()
-        .success();
+    isolated_cmd_in(dir_a.path()).arg("init").assert().success();
+    isolated_cmd_in(dir_b.path()).arg("init").assert().success();
 
-    assert!(banco_a.exists(), "init deve criar graphrag.sqlite em a");
-    assert!(banco_b.exists(), "init deve criar graphrag.sqlite em b");
+    assert!(db_a.exists(), "init deve criar graphrag.sqlite em a");
+    assert!(db_b.exists(), "init deve criar graphrag.sqlite em b");
 }
 
 #[test]
 fn test_crud_uses_graphrag_sqlite_in_invocation_directory() {
-    let pasta = TempDir::new().unwrap();
-    let banco = pasta.path().join("graphrag.sqlite");
+    let dir = TempDir::new().unwrap();
+    let db = dir.path().join("graphrag.sqlite");
 
     assert!(
-        !banco.exists(),
+        !db.exists(),
         "banco local nao deve existir antes do init no diretorio da invocacao"
     );
 
-    isolated_cmd_in(pasta.path()).arg("init").assert().success();
+    isolated_cmd_in(dir.path()).arg("init").assert().success();
 
     assert!(
-        banco.exists(),
+        db.exists(),
         "init deve criar graphrag.sqlite no diretorio da invocacao"
     );
 
-    isolated_cmd_in(pasta.path())
+    isolated_cmd_in(dir.path())
         .args([
             "remember",
             "--name",
@@ -198,7 +192,7 @@ fn test_crud_uses_graphrag_sqlite_in_invocation_directory() {
         .assert()
         .success();
 
-    let read_output = isolated_cmd_in(pasta.path())
+    let read_output = isolated_cmd_in(dir.path())
         .args(["read", "--name", "memory-cwd"])
         .assert()
         .success()
@@ -209,7 +203,7 @@ fn test_crud_uses_graphrag_sqlite_in_invocation_directory() {
     assert_eq!(read_json["name"], "memory-cwd");
     assert_eq!(read_json["description"], "crud cwd");
 
-    let list_output = isolated_cmd_in(pasta.path())
+    let list_output = isolated_cmd_in(dir.path())
         .arg("list")
         .assert()
         .success()
@@ -217,18 +211,18 @@ fn test_crud_uses_graphrag_sqlite_in_invocation_directory() {
         .stdout
         .clone();
     let list_json: serde_json::Value = serde_json::from_slice(&list_output).unwrap();
-    let itens = list_json["items"].as_array().unwrap();
+    let items = list_json["items"].as_array().unwrap();
     assert!(
-        itens.iter().any(|item| item["name"] == "memory-cwd"),
+        items.iter().any(|item| item["name"] == "memory-cwd"),
         "list deve ler a memoria persistida em ./graphrag.sqlite"
     );
 
-    isolated_cmd_in(pasta.path())
+    isolated_cmd_in(dir.path())
         .args(["forget", "--name", "memory-cwd"])
         .assert()
         .success();
 
-    let purge_output = isolated_cmd_in(pasta.path())
+    let purge_output = isolated_cmd_in(dir.path())
         .args(["purge", "--retention-days", "0", "--yes"])
         .assert()
         .success()
@@ -241,15 +235,15 @@ fn test_crud_uses_graphrag_sqlite_in_invocation_directory() {
 
 #[test]
 fn test_remember_without_init_creates_migrated_local_db() {
-    let pasta = TempDir::new().unwrap();
-    let banco = pasta.path().join("graphrag.sqlite");
+    let dir = TempDir::new().unwrap();
+    let db = dir.path().join("graphrag.sqlite");
 
     assert!(
-        !banco.exists(),
+        !db.exists(),
         "banco local nao deve existir antes do remember"
     );
 
-    isolated_cmd_in(pasta.path())
+    isolated_cmd_in(dir.path())
         .args([
             "remember",
             "--name",
@@ -267,11 +261,11 @@ fn test_remember_without_init_creates_migrated_local_db() {
         .success();
 
     assert!(
-        banco.exists(),
+        db.exists(),
         "remember deve criar graphrag.sqlite migrado no cwd"
     );
 
-    let read_output = isolated_cmd_in(pasta.path())
+    let read_output = isolated_cmd_in(dir.path())
         .args(["read", "--name", "memory-without-init", "--json"])
         .assert()
         .success()
@@ -467,7 +461,9 @@ fn test_stats_returns_counts() {
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert!(json["memories"].as_i64().unwrap() >= 1);
     assert!(json["db_size_bytes"].as_u64().unwrap() > 0);
-    assert_eq!(json["schema_version"], 16);
+    // 17 since v1.2.8: V017 opened the entity_type vocabulary by dropping the
+    // CHECK that V008 put on `entities.type`.
+    assert_eq!(json["schema_version"], 17);
 }
 
 #[test]

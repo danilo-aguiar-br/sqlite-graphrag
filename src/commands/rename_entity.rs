@@ -4,7 +4,7 @@
 //! Only the `name` column in `entities` and the corresponding `vec_entities`
 //! row need updating because relationships use integer FK `entity_id`.
 
-use crate::entity_type::EntityType;
+use crate::entity_type::normalize_entity_type_or_default;
 use crate::errors::AppError;
 use crate::i18n::errors_msg;
 use crate::output::{self, OutputFormat};
@@ -24,11 +24,22 @@ use serde::Serialize;
     sqlite-graphrag rename-entity --id 42 --new-name authentication")]
 /// Rename entity args.
 pub struct RenameEntityArgs {
+    /// Current entity name as a positional argument. Alternative to `--name`.
+    ///
+    /// GAP-SG-272: matches the spelling `read` and `related` have always accepted.
+    /// It conflicts with `--id` for the same reason `--name` does — two different
+    /// designations of the same row is an ambiguity, not a convenience.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with_all = ["name", "id"],
+        help = "Current entity name (kebab-case slug); alternative to --name"
+    )]
+    pub name_positional: Option<String>,
     /// Current entity name to rename.
     #[arg(
         long,
         value_name = "NAME",
-        required_unless_present = "id",
+        required_unless_present_any = ["id", "name_positional"],
         conflicts_with = "id"
     )]
     pub name: Option<String>,
@@ -71,13 +82,15 @@ fn lookup_entity_by_id(
     conn: &rusqlite::Connection,
     namespace: &str,
     id: i64,
-) -> Result<(i64, EntityType, String), AppError> {
+) -> Result<(i64, String, String), AppError> {
     let mut stmt = conn
         .prepare_cached("SELECT id, type, name FROM entities WHERE id = ?1 AND namespace = ?2")?;
     match stmt.query_row(params![id, namespace], |r| {
+        // Read path: the row exists either way, so an unusable stored label
+        // falls back to the default instead of failing the rename.
         Ok((
             r.get::<_, i64>(0)?,
-            r.get::<_, EntityType>(1)?,
+            normalize_entity_type_or_default(&r.get::<_, String>(1)?),
             r.get::<_, String>(2)?,
         ))
     }) {
@@ -90,11 +103,7 @@ fn lookup_entity_by_id(
 }
 
 /// Run.
-pub fn run(
-    args: RenameEntityArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: RenameEntityArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
     let start = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -109,9 +118,11 @@ pub fn run(
     let (entity_id, entity_type, old_name) = match args.id {
         Some(id) => lookup_entity_by_id(&conn, &namespace, id)?,
         None => {
-            let Some(ref raw_name) = args.name else {
+            // GAP-SG-272: positional first, then the flag. Clap already refused
+            // the invocation carrying both, so `or` decides nothing.
+            let Some(raw_name) = args.name_positional.as_deref().or(args.name.as_deref()) else {
                 return Err(AppError::Validation(
-                    "--name or --id is required".to_string(),
+                    crate::i18n::validation::name_or_id_required(),
                 ));
             };
             // Normalize the lookup name to match the normalized stored names.
@@ -120,7 +131,10 @@ pub fn run(
                 "SELECT id, type FROM entities WHERE namespace = ?1 AND name = ?2",
             )?;
             match stmt.query_row(params![namespace, lookup_name], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, EntityType>(1)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    normalize_entity_type_or_default(&r.get::<_, String>(1)?),
+                ))
             }) {
                 Ok((id, ty)) => (id, ty, lookup_name),
                 Err(rusqlite::Error::QueryReturnedNoRows) => {
@@ -158,8 +172,7 @@ pub fn run(
     let embedding: Option<Vec<f32>> = match crate::embedder::embed_passage_with_embedding_choice(
         &paths.models,
         &new_name,
-        embedding_backend,
-        llm_backend,
+        backends,
     ) {
         Ok((emb, _backend)) if emb.is_empty() => None,
         Ok((emb, _backend)) => Some(emb),
@@ -187,7 +200,7 @@ pub fn run(
     // hardcoded dim=384 and a removed local model name; `upsert_entity_vec`
     // records the real vector length and the CLI version as `model`.
     if let Some(ref emb) = embedding {
-        entities::upsert_entity_vec(&tx, entity_id, &namespace, entity_type, emb, &new_name)?;
+        entities::upsert_entity_vec(&tx, entity_id, &namespace, &entity_type, emb, &new_name)?;
     }
     tx.commit()?;
 
@@ -244,7 +257,7 @@ mod tests {
         let (id, ty, name) = lookup_entity_by_id(&conn, "ns-b", 2).unwrap();
         assert_eq!(id, 2);
         assert_eq!(name, "auth");
-        assert_eq!(ty, EntityType::Tool);
+        assert_eq!(ty, "tool");
 
         let err = lookup_entity_by_id(&conn, "ns-b", 1).unwrap_err();
         assert_eq!(err.exit_code(), 4, "cross-namespace ID must be NotFound");

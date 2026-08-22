@@ -19,20 +19,27 @@ pub(super) struct ResolvedName {
 
 /// Normalises and validates `--name` (and the `--description` length).
 pub(super) fn resolve(args: &RememberArgs) -> Result<ResolvedName, AppError> {
-    // Capture the original `--name` before normalization so the JSON response can
-    // surface `name_was_normalized` + `original_name` (B_4 in v1.0.32). Stored as
-    // an owned String because `args.name` is moved into the response below.
-    let original_name = args.name.clone();
+    // GAP-SG-216: the positional form and `--name` are alternatives, and clap
+    // already refuses both at once via `conflicts_with`. What clap cannot say is
+    // that NEITHER was given, because neither is individually required — so the
+    // refusal lands here, on the message the eight sibling commands already use.
+    let original_name = args
+        .name_positional
+        .clone()
+        .or_else(|| args.name.clone())
+        .ok_or_else(|| {
+            AppError::Validation(crate::i18n::validation::name_required_positional_or_flag())
+        })?;
 
     // Auto-normalize to kebab-case before validation (P2-H).
     // v1.0.20: also trims hyphens at the boundary (including trailing) to avoid rejection
     // after truncation by a long filename ending in a hyphen.
     let normalized_name = {
-        let lower = args.name.to_lowercase().replace(['_', ' '], "-");
+        let lower = original_name.to_lowercase().replace(['_', ' '], "-");
         let trimmed = lower.trim_matches('-').to_string();
-        if trimmed != args.name {
+        if trimmed != original_name {
             tracing::warn!(target: "remember",
-                original = %args.name,
+                original = %original_name,
                 normalized = %trimmed,
                 "name auto-normalized to kebab-case"
             );

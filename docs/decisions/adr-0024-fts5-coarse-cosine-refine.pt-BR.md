@@ -1,7 +1,10 @@
 # ADR-0024: Filtro Grosso FTS5 + Refinamento por Cosseno (v1.0.76)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele promete `--partition-key` para o release v1.1.0, release já ultrapassado, e o parser da v1.2.8 recusa a flag em `hybrid-search` e em `recall`.
+- HISTÓRICO: a opção nunca foi implementada e não tem substituto; estreite a consulta com `--namespace` e com o teto `-k`.
 
 - Status: Aceito (2026-06-07)
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: src/commands/hybrid_search.rs, src/commands/recall.rs, src/commands/related.rs, src/storage/memories.rs
 
 ## Contexto

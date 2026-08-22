@@ -1,7 +1,7 @@
 # ADR-0026: V002 `vec_tables` Migration Drift Must Be Fixed At The Binary Level
 
 - Status: Accepted (2026-06-09)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: `migrations/V002__vec_tables.sql`, `src/commands/migrate.rs`, operator install/rebuild flow
 
 ## Context

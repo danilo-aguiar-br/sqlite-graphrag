@@ -48,6 +48,20 @@
             "number",
             "null"
           ]
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Alias of `source_entity`, kept for cross-command consistency with `graph`, `link` and `deep-research`. Skipped on the wire when the arriving edge has no source name, which is why the closed definition validated every EMPTY `results` while rejecting a populated one (GAP-SG-291)."
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Alias of `target_entity`; same aliasing and same skip rule as `from` (GAP-SG-291)."
         }
       },
       "required": [
@@ -66,9 +80,18 @@
   "additionalProperties": false,
   "description": "Response emitted by `sqlite-graphrag related` on stdout as a single JSON line. Exit codes: 0 success, 1 runtime error, 2 CLI usage error, 4 not found.",
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
     "elapsed_ms": {
       "description": "Wall-clock time in milliseconds.",
       "minimum": 0,

@@ -1,4 +1,7 @@
 # ADR-010 — Isolamento de Servidores MCP via CLAUDE_CONFIG_DIR (G28-A)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele adota `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` como mecanismo canônico, e essa variável não é lida em runtime pelo binário v1.2.8, que não tem efeito para a família inteira de env do produto.
+- HISTÓRICO: o backend LLM por subprocesso que esse isolamento protegia foi removido sem substituto; a v1.2.8 chama a OpenRouter por HTTP no próprio processo e a chave é gravada com `sqlite-graphrag config add-key --provider openrouter --from-stdin`.
 
 - Status: Aceito
 - Data: 2026-06-03

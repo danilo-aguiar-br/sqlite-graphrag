@@ -51,7 +51,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - A flag global `--quiet`/`-q` suprime tracing não-erro no stderr, reduzindo ruído em pipelines agent/CI sem alterar o envelope
 - Prefira `link --from-id`/`--to-id` quando a identidade for um ID numérico de entidade; nomes puramente numéricos são rejeitados por `validate_entity_name` (v1.1.05) para que `--create-missing` não crie entidades fantasma
 - Merges auto-referenciais em `merge-entities` (target ID/nome também listado como source) são rejeitados ANTES de qualquer trabalho no DB (v1.1.05), protegendo a integridade do grafo contra word-splitting de shell
-- Helpers compartilhados em `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) são unit-tested; a suite `tests/v1105_danilo_bugs_regression.rs` cobre o caminho CLI
+- Helpers compartilhados em `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) são unit-tested; a suite `tests/v1105_incident_bugs_regression.rs` cobre o caminho CLI
 - Integridade do arquivo de saída: confira o checksum `blake3` do ack do stdout contra o conteúdo gravado se o pipeline exigir verificação ponta a ponta
 
 ## Reportando uma Vulnerabilidade
@@ -94,25 +94,29 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - Supply chain é protegida via pinagem `constant_time_eq = "=0.4.2"` para proteger MSRV 1.88
 - Drift de MSRV de dependência transitiva é monitorado proativamente conforme política do PRD
 
-## v1.0.76 Aplicação OAuth-Only de Credencial LLM
-- O build padrão é apenas LLM e one-shot. Cada chamada de embedding spawna um subprocesso headless `claude code` ou `codex`.
-- O spawn ABORTA com `AppError::Validation` e código de saída 1 quando `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` são detectadas no ambiente.
-- O fluxo OAuth (assinatura Claude Pro/Max ou ChatGPT Pro) é o ÚNICO mecanismo de credencial aceito.
-- Ambas as variáveis de chave de API estão INTENCIONALMENTE AUSENTES da whitelist de env-clear em `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs`. Defesa em profundidade: mesmo se um refactor futuro mover a guarda OAuth-only, a variável nunca chega ao filho.
-- A flag `--bare` (que também exigiria uma chave de API) foi REMOVIDA de todo caminho executável desde a v1.0.69.
-- Quatro testes `#[serial_test::serial(env)]` validam o conjunto canônico de flags e o comportamento de aborto.
-- Veja `docs/decisions/adr-0011-oauth-only-enforcement.md` para a justificativa completa e `docs/decisions/adr-0025-oauth-only-embedding.md` para a aplicação específica em embedding da v1.0.76.
-- Migração: qualquer operador que dependa de `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` precisa migrar para OAuth antes de atualizar.
+## v1.0.76 Aplicação OAuth-Only de Credencial LLM — HISTÓRICA, o mecanismo protegido não existe mais
+- SUPERFÍCIE VIGENTE, medida no binário 1.2.8 desta working tree: NADA em `src/` inicia subprocesso. Embedding e enriquecimento são chamadas HTTPS à OpenRouter, feitas no próprio processo e one-shot, selecionadas por `--embedding-backend openrouter|auto` e `--llm-backend openrouter|none`.
+- CAMINHO VIGENTE DE CREDENCIAL: `config add-key --provider openrouter --from-stdin` guarda a chave em repouso sob XDG e a mantém fora do histórico do shell e da tabela de processos; `--openrouter-api-key <CHAVE>` sobrepõe esse armazenamento por uma invocação e FICA visível na tabela de processos, então prefira o armazenamento. `config list-keys` mostra fingerprints mascarados, `config remove-key` apaga uma chave e `config doctor` reporta qual camada resolveu. Variáveis de ambiente de produto não são lidas em runtime e não são canal de configuração.
+- RISCO RESIDUAL VIGENTE, dito sem invenção: a chave fica num arquivo XDG protegido por permissão de sistema de arquivos e trafega ao provider por TLS. Não há guarda OAuth-only, não há whitelist de env-clear e não há fronteira de spawn neste build, porque não há processo filho — as proteções descritas no restante desta seção NÃO estão em vigor e não devem ser presumidas.
+- TODO BULLET ABAIXO É HISTÓRICO. Ele registra a era de subprocesso, removida na v1.2.0, e é mantido como registro do que foi construído, nunca como garantia. Verificação: `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` ocorrem zero vezes em `src/`, e `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs` não são mais arquivos deste repositório.
+- HISTÓRICO: o build padrão era apenas LLM e one-shot, e cada chamada de embedding spawnava um subprocesso headless `claude code` ou `codex`.
+- HISTÓRICO: o spawn ABORTAVA com `AppError::Validation` e código de saída 1 quando `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` eram detectadas no ambiente. Esse aborto não existe hoje, e nenhum código lê qualquer uma das duas variáveis.
+- HISTÓRICO: o fluxo OAuth (assinatura Claude Pro/Max ou ChatGPT Pro) era o ÚNICO mecanismo de credencial aceito. Hoje o mecanismo aceito é uma chave de API da OpenRouter guardada em repouso sob XDG.
+- HISTÓRICO: ambas as variáveis de chave de API estavam INTENCIONALMENTE AUSENTES da whitelist de env-clear em `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs`, como defesa em profundidade contra um refactor futuro mover a guarda. Essa defesa desapareceu junto com o risco que ela cobria: nenhum filho é iniciado, então nenhuma variável chega a um.
+- HISTÓRICO: a flag `--bare` (que também exigiria uma chave de API) foi REMOVIDA de todo caminho executável na v1.0.69.
+- HISTÓRICO: quatro testes `#[serial_test::serial(env)]` validavam o conjunto canônico de flags e o comportamento de aborto.
+- JUSTIFICATIVA HISTÓRICA: `docs/decisions/adr-0011-oauth-only-enforcement.md` para o raciocínio completo e `docs/decisions/adr-0025-oauth-only-embedding.md` para a aplicação específica em embedding da v1.0.76.
+- Migração: o operador que ainda dependa de `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` precisa migrar para uma chave da OpenRouter, porque desde a v1.2.0 nenhuma das duas é lida por nada.
 
 ## v1.0.83 Preservação de Credenciais de Provider Customizado (ADR-0041)
-- O build padrão agora PRESERVA sete variáveis de ambiente de provider customizado ao spawnar subprocessos `claude -p` ou `codex exec`, habilitando providers Anthropic-compatíveis (MiniMax/api.minimax.io, OpenRouter, AWS Bedrock, gateways corporativos)
+- HISTÓRICO: o build padrão PRESERVAVA sete variáveis de ambiente de provider customizado ao spawnar subprocessos `claude -p` ou `codex exec`, habilitando providers Anthropic-compatíveis (MiniMax/api.minimax.io, OpenRouter, AWS Bedrock, gateways corporativos)
 - As variáveis preservadas são `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CODEX_ACCESS_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY` e `OTEL_EXPORTER_OTLP_ENDPOINT`
-- Essas variáveis são SEMANTICAMENTE DISTINTAS das rejeitadas pelo OAuth-only `ANTHROPIC_API_KEY` e `OPENAI_API_KEY`; a guarda OAuth-only em `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs` continua rejeitando as chaves de API com exit 1 (defesa em profundidade preservada)
-- A whitelist agora vive em um helper compartilhado único `src/spawn/env_whitelist.rs` expondo `apply_env_whitelist(cmd, strict)` e `is_strict_env_clear()`; os três spawners delegam em vez de duplicar o array inline
-- Para ambientes de compliance que proíbem encaminhamento de credenciais via env vars (PCI-DSS, SOC2, HIPAA), operadores passam `--strict-env-clear` (ou persistem via XDG se suportado); o modo estrito preserva apenas `PATH` e descarta as demais env vars. Product env `SQLITE_GRAPHRAG_*` não é o caminho de configuração na v1.1.8
-- Cinco testes de regressão `#[serial_test::serial(env)]` vivem em `tests/claude_runner_env.rs` cobrindo propagação de provider customizado, preservação do aborto OAuth-only, herança de base-URL pelo codex, descarte de credenciais no modo estrito e auditoria de no-leak que varre o stderr do subprocesso procurando o valor literal do token com `RUST_LOG=trace`
-- Nenhuma telemetria é emitida; a correção é silenciosa exceto quando a guarda OAuth-only dispara (que emite um arg de marcador orientativo apontando para `ANTHROPIC_AUTH_TOKEN` ou `~/.codex/auth.json` como resoluções legítimas)
-- Modelo de ameaça: valores de credencial para providers customizados fluem do processo orquestrador para o subprocesso LLM pela fronteira de processo. O teste de auditoria de no-leak previne regressões futuras onde uma macro `tracing` possa imprimir o token bruto no stderr. Operadores em hosts compartilhados devem preferir `--strict-env-clear` para evitar encaminhar segredos
+- HISTÓRICO: aquelas variáveis eram SEMANTICAMENTE DISTINTAS das rejeitadas pelo OAuth-only `ANTHROPIC_API_KEY` e `OPENAI_API_KEY`, e a guarda OAuth-only rejeitava as chaves de API com exit 1. Medido nesta árvore de trabalho: `claude_runner.rs`, `codex_spawn.rs` e `ingest_claude.rs` não são mais arquivos deste repositório, e guarda nenhuma roda
+- HISTÓRICO: a whitelist vivia em um helper compartilhado `src/spawn/env_whitelist.rs` expondo `apply_env_whitelist(cmd, strict)` e `is_strict_env_clear()`, e os três spawners delegavam a ele. O diretório `src/spawn/` inteiro saiu junto com os backends de subprocesso
+- HISTÓRICO: para ambientes de compliance que proíbem encaminhamento de credenciais via env vars (PCI-DSS, SOC2, HIPAA), operadores passavam --strict-env-clear, e o modo estrito preservava apenas `PATH` descartando as demais env vars. A flag viveu na superfície global até a v1.2.2, como `src/cli/globals.rs` ainda registra; um binário 1.2.8 responde unexpected argument '--strict-env-clear' found com exit 2. Nada encaminha credencial hoje, porque nada spawna. Product env `SQLITE_GRAPHRAG_*` também não é lida em runtime, logo não é o caminho de configuração
+- HISTÓRICO: cinco testes de regressão `#[serial_test::serial(env)]` viviam em `tests/claude_runner_env.rs`, arquivo que este repositório não contém mais, cobrindo propagação de provider customizado, preservação do aborto OAuth-only, herança de base-URL pelo codex, descarte de credenciais no modo estrito e auditoria de no-leak que varre o stderr do subprocesso procurando o valor literal do token com `RUST_LOG=trace`
+- Telemetria nenhuma é emitida em ponto algum deste produto, nem antes nem hoje. HISTÓRICO: a correção era silenciosa exceto quando a guarda OAuth-only disparava, emitindo um arg de marcador orientativo apontando para `ANTHROPIC_AUTH_TOKEN` ou `~/.codex/auth.json` como resoluções legítimas; essa guarda não existe mais
+- Modelo de ameaça HISTÓRICO: valores de credencial para providers customizados fluíam do processo orquestrador para o subprocesso LLM pela fronteira de processo, o teste de auditoria de no-leak guardava contra uma macro `tracing` imprimir o token bruto no stderr, e operadores em hosts compartilhados eram orientados a preferir --strict-env-clear. Essa fronteira não existe na v1.2.8 e a flag é rejeitada com exit 2; a superfície de credencial hoje é uma única chave da OpenRouter lida do armazenamento XDG e enviada por TLS
 - Veja `docs/decisions/adr-0041-preserve-custom-provider-env.md` (PT-BR) e `.md` (EN) para a decisão arquitetural completa e alternativas consideradas
 
 ## v1.0.87+ Camada de Validação Pre-flight (ADR-0045)
@@ -124,8 +128,8 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 
 ## v1.0.89 Remediação do Pipeline de Embedding e Correções de Segurança (ADR-0050)
 - BUG-YES-FLAG-IGNORED: três comandos destrutivos (slots release, purge, cleanup-orphans) declaravam --yes mas executavam deleções sem ele. Todos agora abortam com AppError::Validation quando --yes está ausente, alinhando com os 5 outros comandos destrutivos que já aplicavam isso
-- BUG-BOOLISH-ENV: quatro flags booleanas de CLI (--skip-embedding-on-failure, --strict-env-clear, --dry-run-backend, --llm-slot-no-wait) rejeitavam valores Unix padrão de env (1, yes, on) com exit 2. Corrigido via BoolishValueParser. Scripts que definem SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE=1 agora funcionam corretamente
-- BUG-STRICT-ENV-PROPAGATION: a flag de CLI --strict-env-clear era silenciosamente ignorada porque main.rs não a propagava para a env var. Corrigido: agora propagada via set_var antes do dispatch do comando
+- BUG-BOOLISH-ENV: quatro flags booleanas de CLI (--skip-embedding-on-failure, --strict-env-clear, --dry-run-backend, --llm-slot-no-wait) rejeitavam valores Unix padrão de env (1, yes, on) com exit 2. Corrigido via BoolishValueParser. A forma `SQLITE_GRAPHRAG_SKIP_EMBEDDING_ON_FAILURE` é histórica e foi removida; passe o valor pela flag na linha de comando
+- BUG-STRICT-ENV-PROPAGATION (HISTÓRICO): a flag de CLI --strict-env-clear era silenciosamente ignorada porque main.rs não a propagava para a env var. Corrigido à época via set_var antes do dispatch do comando; a própria flag foi removida depois da v1.2.2 e um binário 1.2.8 a rejeita com exit 2
 - GAP-FLAGS-MORTAS: 7 flags globais de LLM eram aceitas pelo clap mas silenciosamente ignoradas porque módulos internos liam env vars diretamente. Corrigido: main.rs agora faz a ponte das flags de CLI para env vars via set_var
 - GAP-RECALL-001: deadlock de embedding causado por slots de subprocesso LLM obsoletos resolvido via drop(stdin) explícito, timeout reduzido (300s para 30s), reaper de slots obsoletos e limpeza de processos órfãos do sqlite-graphrag
 - Veja docs/decisions/adr-0050-embedding-deadlock-remediation.md para a decisão arquitetural completa
@@ -137,7 +141,7 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - A chave JAMAIS é logada no stderr mesmo em nível `RUST_LOG=trace`
 - A chave JAMAIS é persistida no `graphrag.sqlite` ou em qualquer arquivo de cache
 - A chave JAMAIS é encaminhada para subprocessos LLM (claude, codex, opencode) — flui apenas para chamadas HTTPS `reqwest` para `api.openrouter.ai`
-- Isto é SEMANTICAMENTE DISTINTO do enforço OAuth-only nos backends LLM: `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` continuam ABORTANDO com exit 1
+- HISTÓRICO: isto era SEMANTICAMENTE DISTINTO do enforço OAuth-only nos backends LLM, em que `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` ABORTAVAM com exit 1. Nenhuma das duas é lida hoje
 - Nota histórica: `OPENROUTER_API_KEY` nunca esteve na whitelist de env-clear; o produto nunca lê essa env agora — use flag ou `config add-key` apenas
 - Operadores em hosts compartilhados DEVEM preferir a flag `--openrouter-api-key` ao invés da variável para minimizar janela de exposição
 - Veja `docs/decisions/adr-0052-openrouter-embedding-backend.md` para a decisão arquitetural completa
@@ -158,8 +162,8 @@ Leia este documento em [inglês (EN)](SECURITY.md).
 - JAMAIS desabilite o memory guard em produção via flags não documentadas
 - JAMAIS eleve concorrência de comandos pesados cegamente em hosts com memória restrita; prefira execução serial em auditorias
 - JAMAIS ignore warnings do `cargo audit` sem abrir um advisory de segurança rastreado
-- JAMAIS defina `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no ambiente; o spawn abortará com exit 1
-- JAMAIS dependa do encaminhamento de `ANTHROPIC_AUTH_TOKEN` quando o host é compartilhado com processos não confiáveis; prefira `--strict-env-clear` para que credenciais permaneçam apenas no processo pai
+- Conselho HISTÓRICO, mantido como registro: JAMAIS defina `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no ambiente, porque o spawn abortava com exit 1. Um binário 1.2.8 não lê nenhuma das duas e não spawna nada, então defini-las não muda nada — e removê-las não protege nada.
+- Conselho HISTÓRICO: JAMAIS dependa do encaminhamento de `ANTHROPIC_AUTH_TOKEN` quando o host é compartilhado com processos não confiáveis, preferindo --strict-env-clear para que credenciais permanecessem apenas no processo pai. Tanto o encaminhamento quanto a flag acabaram; em host compartilhado a exposição a vigiar hoje é `--openrouter-api-key` na linha de comando, visível na tabela de processos — guarde a chave com `config add-key --provider openrouter --from-stdin`.
 - JAMAIS faça commit de chaves OpenRouter (nem valores de `OPENROUTER_API_KEY`, que o produto ignora) no repositório ou em forks derivados
 - SEMPRE use a flag `--openrouter-api-key` em vez da variável de ambiente em hosts compartilhados
 - v1.1.06: o wall-clock do primeiro scan de `enrich --operation entity-connect` / `cross-domain-bridges` usa `InterruptHandle` e devolve Timeout exit **1** (não exit **75** de singleton). Orquestradores não devem tratar timeout de scan como contenção de lock. Veja ADR-0066 e `docs/HEADLESS_INVOCATION.pt-BR.md`.

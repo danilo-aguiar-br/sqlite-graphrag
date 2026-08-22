@@ -16,7 +16,7 @@
 //! (env `OPENROUTER_API_KEY`, `config.toml`, or `--openrouter-api-key`):
 //!   cargo test --test openrouter_live_concurrency -- --ignored --nocapture
 
-use sqlite_graphrag::cli::{EmbeddingBackendChoice, LlmBackendChoice};
+use sqlite_graphrag::cli::{BackendChoice, EmbeddingBackendChoice, LlmBackendChoice};
 
 /// Harvests substantial distinct lines from the repo `docs/*.md` corpus so
 /// the embedding input exceeds 32 texts and forces the fan-out path.
@@ -64,10 +64,10 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 #[test]
 #[ignore = "hits live OpenRouter REST; run with --ignored and a valid key"]
-// GAP-SG-163: this test exists to exercise the deprecated shim itself, so the
-// warning is expected here and only here. Removing the allow would push the
-// suite to call the replacement, and the shim would go back to being untested.
-#[allow(deprecated)]
+// GAP-SG-263: the `#[allow(deprecated)]` that used to sit here was removed with
+// the shim it silenced. GAP-SG-163 had this test call the deprecated wrapper on
+// purpose, so the shim would not go untested; with the wrapper gone the test
+// calls the real implementation and there is no warning left to allow.
 fn fanout_aligns_with_serial_on_live_network() {
     let dim = 384usize;
     let key = match sqlite_graphrag::config::resolve_api_key("openrouter", None) {
@@ -89,23 +89,28 @@ fn fanout_aligns_with_serial_on_live_network() {
 
     // `models_dir` is unused on the OpenRouter path; `batch_size` is ignored
     // there too. k=1 stays serial; k=8 forces the bounded fan-out.
+    //
+    // GAP-SG-263: this used to call `embed_passages_parallel_with_embedding_choice`,
+    // which took a `&[String]` and cloned the whole corpus on every call. That
+    // wrapper was deprecated in 1.2.3 and removed here; the migration it
+    // documented is exactly this line — one `Arc::from`, shared across both
+    // calls, and the copy is gone.
     let models = std::env::temp_dir();
-    let serial = sqlite_graphrag::embedder::embed_passages_parallel_with_embedding_choice(
+    let shared: std::sync::Arc<[String]> = std::sync::Arc::from(texts.clone());
+    let serial = sqlite_graphrag::embedder::embed_passages_parallel_shared(
         &models,
-        &texts,
+        std::sync::Arc::clone(&shared),
         1,
         32,
-        EmbeddingBackendChoice::Openrouter,
-        LlmBackendChoice::None,
+        BackendChoice::new(LlmBackendChoice::None, EmbeddingBackendChoice::Openrouter),
     )
     .expect("serial (k=1) embed");
-    let concurrent = sqlite_graphrag::embedder::embed_passages_parallel_with_embedding_choice(
+    let concurrent = sqlite_graphrag::embedder::embed_passages_parallel_shared(
         &models,
-        &texts,
+        std::sync::Arc::clone(&shared),
         8,
         32,
-        EmbeddingBackendChoice::Openrouter,
-        LlmBackendChoice::None,
+        BackendChoice::new(LlmBackendChoice::None, EmbeddingBackendChoice::Openrouter),
     )
     .expect("concurrent (k=8) embed");
 

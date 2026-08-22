@@ -202,6 +202,284 @@ fn a_mutating_command_is_never_refused() {
     assert!(shaped.get("agent_surface").is_some());
 }
 
+/// GAP-SG-201: a bare count over a truncated page reads as the inventory.
+///
+/// Measured on the live corpus before the fix: `--count-only graph entities`
+/// answered `{"count": 50}` with `exit 0` over a universe of 107 111, on a
+/// command line that named no limit at all.
+#[test]
+fn a_count_over_a_truncated_page_is_refused() {
+    let mut s = surface();
+    s.count_only = true;
+    let ceiling = pagination(50, 107_111);
+
+    let err = try_apply_under(&s, envelope(), Some(&ceiling))
+        .expect_err("a count over a page must be refused");
+    assert_eq!(err.exit_code(), 2, "usage errors exit 2: {err}");
+    let message = err.to_string();
+    assert!(message.contains("50"), "{message}");
+    assert!(message.contains("107111"), "{message}");
+}
+
+/// The escape the refusal itself advertises has to work, or the message lies.
+#[test]
+fn a_count_over_a_page_is_allowed_once_the_narrower_scope_is_declared() {
+    let mut s = surface();
+    s.count_only = true;
+    s.filter_scope = Some(super::super::universe::FilterScope::Page);
+    let ceiling = pagination(50, 107_111);
+
+    let shaped =
+        try_apply_under(&s, envelope(), Some(&ceiling)).expect("--filter-scope page is the escape");
+    assert_eq!(shaped["count"], json!(4));
+}
+
+/// A top-k bound IS the answer, not a truncation of one, so it never refuses.
+///
+/// Without this the fix would break every `--count-only hybrid-search`, which
+/// asks a question the ranking answers completely.
+#[test]
+fn a_count_under_a_top_k_bound_is_never_refused() {
+    let mut s = surface();
+    s.count_only = true;
+    let ceiling = top_k(5);
+    assert!(try_apply_under(&s, envelope(), Some(&ceiling)).is_ok());
+}
+
+/// A limit wider than the corpus cut nothing, so there is nothing to refuse.
+///
+/// This is what keeps `--count-only list` working on a corpus smaller than the
+/// default page: measured at 7 060 of 7 060, which must stay `exit 0`.
+#[test]
+fn a_count_under_a_ceiling_that_cut_nothing_is_never_refused() {
+    let mut s = surface();
+    s.count_only = true;
+    let ceiling = pagination(7_060, 7_060);
+    assert!(try_apply_under(&s, envelope(), Some(&ceiling)).is_ok());
+}
+
+/// With no ceiling declared the surface knows nothing and claims nothing.
+#[test]
+fn a_count_with_no_declared_ceiling_is_never_refused() {
+    let mut s = surface();
+    s.count_only = true;
+    assert!(try_apply_under(&s, envelope(), None).is_ok());
+}
+
+/// The sibling refusal, finally testable.
+///
+/// It shipped in v1.2.6 and had no test at all, for the same structural reason
+/// the count refusal had none: the ceiling was read from a `OnceLock` inside the
+/// decision. Asserting it here is what stops the shared escape logic from being
+/// changed for one caller and silently broken for the other.
+#[test]
+fn a_predicate_over_a_truncated_page_is_refused() {
+    let mut s = surface();
+    s.filters = vec![FilterExpr::parse("type=note").unwrap()];
+    let ceiling = pagination(50, 7_060);
+
+    let err = try_apply_under(&s, envelope(), Some(&ceiling))
+        .expect_err("a predicate over a page must be refused");
+    assert_eq!(err.exit_code(), 2, "{err}");
+    assert!(err.to_string().contains("--filter"), "{err}");
+}
+
+/// Both refusals honour the SAME escapes, which is the point of sharing them.
+#[test]
+fn both_refusals_share_every_escape() {
+    let ceiling = pagination(50, 7_060);
+    for (label, mut s) in [("--filter", surface()), ("--count-only", surface())] {
+        match label {
+            "--filter" => s.filters = vec![FilterExpr::parse("type=note").unwrap()],
+            _ => s.count_only = true,
+        }
+        assert!(
+            try_apply_under(&s, envelope(), Some(&ceiling)).is_err(),
+            "{label} must refuse without an escape"
+        );
+
+        let mut escaped = s.clone();
+        escaped.filter_scope = Some(super::super::universe::FilterScope::Page);
+        assert!(
+            try_apply_under(&escaped, envelope(), Some(&ceiling)).is_ok(),
+            "{label} must accept --filter-scope page"
+        );
+
+        assert!(
+            try_apply_under(&s, envelope(), Some(&top_k(5))).is_ok(),
+            "{label} must accept a top-k bound"
+        );
+    }
+}
+
+/// The label has to name which of THREE sets was counted.
+///
+/// Measured before the fix, and this is the half that survived the refusal:
+/// `--count-only --filter-scope page graph entities` answered `count_scope:
+/// "matched"` over 50 of 107 111. The caller had declared the narrower scope, was
+/// let through on purpose, and was then handed the strongest of the three labels.
+#[test]
+fn count_scope_names_the_page_when_the_query_cut_it() {
+    let mut s = surface();
+    s.count_only = true;
+    s.filter_scope = Some(super::super::universe::FilterScope::Page);
+    let ceiling = pagination(50, 107_111);
+
+    let shaped = try_apply_under(&s, envelope(), Some(&ceiling)).expect("the escape is allowed");
+    assert_eq!(shaped["agent_surface"]["count_scope"], json!("page"));
+}
+
+/// The query ceiling OUTRANKS the output ceiling, because it is upstream of it.
+///
+/// Reporting `emitted` here would name the smaller omission — the rows
+/// `--max-items` dropped — and hide the larger one, the rows `LIMIT` never
+/// returned.
+#[test]
+fn count_scope_prefers_the_query_ceiling_over_the_output_ceiling() {
+    let mut s = surface();
+    s.count_only = true;
+    s.max_items = 2;
+    s.filter_scope = Some(super::super::universe::FilterScope::Page);
+    let ceiling = pagination(50, 107_111);
+
+    let shaped = try_apply_under(&s, envelope(), Some(&ceiling)).expect("the escape is allowed");
+    assert_eq!(shaped["agent_surface"]["count_scope"], json!("page"));
+}
+
+/// With no query ceiling, `--max-items` is still reported — the old behaviour.
+#[test]
+fn count_scope_still_names_the_output_ceiling_on_its_own() {
+    let mut s = surface();
+    s.count_only = true;
+    s.max_items = 2;
+    let shaped = try_apply_under(&s, envelope(), None).expect("no ceiling, no refusal");
+    assert_eq!(shaped["agent_surface"]["count_scope"], json!("emitted"));
+    assert_eq!(shaped["count"], json!(2));
+}
+
+/// And with neither ceiling the count really does describe what matched.
+#[test]
+fn count_scope_names_the_match_when_nothing_was_hidden() {
+    let mut s = surface();
+    s.count_only = true;
+    let shaped = try_apply_under(&s, envelope(), None).expect("no ceiling, no refusal");
+    assert_eq!(shaped["agent_surface"]["count_scope"], json!("matched"));
+}
+
+/// GAP-SG-209: knobs that need the whole set, aimed at one record per line.
+///
+/// Measured before the fix: `--count-only export --limit 10` emitted ELEVEN
+/// `{"count":1}` lines instead of one count.
+#[test]
+fn whole_set_knobs_are_refused_on_a_stream() {
+    for (label, mut s) in [
+        ("--count-only", surface()),
+        ("--sort", surface()),
+        ("--dedupe-by", surface()),
+        ("--max-output-bytes", surface()),
+    ] {
+        s.streamed = true;
+        match label {
+            "--count-only" => s.count_only = true,
+            "--sort" => s.sort = Some("name".into()),
+            "--dedupe-by" => s.dedupe_by = Some("name".into()),
+            _ => s.max_output_bytes = 4096,
+        }
+        let message = refusal(&s, envelope());
+        assert!(message.contains(label), "{label} must be named: {message}");
+    }
+}
+
+/// The knobs that mean the same thing per record keep working on a stream.
+///
+/// Without this the previous test could pass by refusing streams wholesale,
+/// which would remove a working feature to cure nothing.
+///
+/// NARROWED in v1.2.8 by the GAP-SG-215 contract decision, and the narrowing is
+/// deliberate rather than a regression this test was bent around. `--max-items`
+/// was in this list until it was MEASURED accepted and inert:
+/// `--max-items 2 export --limit 5` answered with all five records and `exit 0`,
+/// because it caps elements inside an envelope and a record line carries no
+/// array to cap. `--filter` was in it too, and it turns the trailer's `exported`
+/// count — computed by the command, before the surface sees a line — into a
+/// claim about rows the caller never received. Both now refuse, which is what
+/// the sibling test above pins.
+#[test]
+fn per_record_knobs_still_work_on_a_stream() {
+    let mut s = surface();
+    s.streamed = true;
+    s.select = vec!["name".into()];
+    s.truncate_content = 4;
+    let shaped = apply(&s, envelope());
+    assert_eq!(results(&shaped).len(), 4);
+    assert!(results(&shaped)[0].get("name").is_some());
+}
+
+/// GAP-SG-206: a write already happened, so the count must not eat the receipt.
+///
+/// The gate deliberately refuses nothing after a write — retrying a succeeded
+/// `remember` writes twice — but nothing stopped the SHAPING from replacing
+/// `memory_id` and `entities_created` with a count.
+///
+/// This envelope carries ARRAYS on purpose, because that is the shape `remember`
+/// actually emits and it is the one the first attempt at this fix missed. No
+/// member here is a declared result key, so the surface elects `entities_created`
+/// by FALLBACK and counts it: a guard scoped to the scalar branch would have
+/// protected nothing at all.
+#[test]
+fn count_only_never_replaces_a_write_receipt() {
+    let receipt = json!({
+        "memory_id": 8458,
+        "entities_created": ["alice-martins-souza"],
+        "enrich_recommended": ["memory-bindings"]
+    });
+    let mut s = surface();
+    s.mutates = true;
+    s.writes_receipt = true;
+    s.count_only = true;
+
+    let shaped = apply(&s, receipt);
+    assert_eq!(shaped["memory_id"], json!(8458), "the receipt must survive");
+    assert_eq!(shaped["entities_created"], json!(["alice-martins-souza"]));
+    assert_eq!(
+        shaped["agent_surface"]["count_only_suppressed"],
+        json!(true),
+        "the suppression must be visible, never silent"
+    );
+    assert!(shaped.get("count").is_none());
+}
+
+/// The suppression turns on "did it WRITE", never on `mutates` alone.
+///
+/// `mutates` lists the read-only variants explicitly and defaults everything else
+/// to `true`, so `config list-keys` — which writes nothing — reports `true`.
+/// Keying the suppression on that alone took `--count-only config list-keys`
+/// away, and the integration suite caught it.
+#[test]
+fn count_only_still_answers_for_a_command_that_only_looks_mutating() {
+    let mut s = surface();
+    s.mutates = true;
+    s.writes_receipt = false;
+    s.count_only = true;
+    let shaped = apply(&s, envelope());
+    assert_eq!(shaped["count"], json!(4));
+    assert!(shaped["agent_surface"]
+        .get("count_only_suppressed")
+        .is_none());
+}
+
+/// The suppression is scoped to writes: a read still gets its count.
+#[test]
+fn count_only_still_answers_for_a_read() {
+    let mut s = surface();
+    s.count_only = true;
+    let shaped = apply(&s, envelope());
+    assert_eq!(shaped["count"], json!(4));
+    assert!(shaped["agent_surface"]
+        .get("count_only_suppressed")
+        .is_none());
+}
+
 /// Error envelopes reach the caller before the gate can ever look at them, so a
 /// failure is never converted into a different failure.
 #[test]

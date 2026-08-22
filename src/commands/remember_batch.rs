@@ -43,6 +43,18 @@ pub struct RememberBatchArgs {
     /// entities created/linked in this batch (hot-set priority).
     #[arg(long)]
     pub enqueue_enrich: bool,
+    /// GAP-SG-216: parity with `remember --strict-entity-types`.
+    ///
+    /// The batch accepts the same [`crate::storage::entities::NewEntity`]
+    /// payload, so it accepts the same open vocabulary — and owes its caller
+    /// the same report. The visibility channel added in v1.2.8 was only ever
+    /// wired into `remember`, leaving the batch silent.
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Reject a line whose declared entity_type is outside the canonical vocabulary"
+    )]
+    pub strict_entity_types: bool,
     /// Database path override.
     #[arg(long)]
     pub db: Option<String>,
@@ -84,6 +96,12 @@ struct BatchItemEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     index: usize,
+    /// GAP-SG-216: declared `entity_type` labels outside the canonical set.
+    ///
+    /// Omitted when empty, exactly like `error` and `memory_id`, so a line with
+    /// nothing to report stays byte-identical to what v1.2.8 emitted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -105,11 +123,11 @@ struct BatchSummary {
 }
 
 /// Run.
-pub fn run(
-    args: RememberBatchArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: RememberBatchArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     let start = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
@@ -149,6 +167,26 @@ pub fn run(
                             memory_id: None,
                             error: Some(format!("line {idx}: name normalizes to empty string")),
                             index: idx,
+                            warnings: Vec::new(),
+                        })?;
+                        continue;
+                    }
+                    // GAP-SG-216: a dry run that cannot predict the refusal is
+                    // not a dry run. The labels are read off the raw line, so
+                    // the preview says exactly what the real pass would.
+                    let type_warnings =
+                        crate::commands::remember::collect_noncanonical_entity_types(line);
+                    if args.strict_entity_types && !type_warnings.is_empty() {
+                        failed += 1;
+                        output::emit_json(&BatchItemEvent {
+                            name: normalized_name,
+                            status: "would_fail_strict_entity_types".to_string(),
+                            memory_id: None,
+                            error: Some(crate::i18n::validation::strict_entity_type_folded(
+                                &type_warnings,
+                            )),
+                            index: idx,
+                            warnings: type_warnings,
                         })?;
                         continue;
                     }
@@ -169,6 +207,7 @@ pub fn run(
                         memory_id: existing.map(|(id, _, _)| id),
                         error: None,
                         index: idx,
+                        warnings: type_warnings,
                     })?;
                 }
                 Err(e) => {
@@ -179,6 +218,7 @@ pub fn run(
                         memory_id: None,
                         error: Some(format!("line {idx}: invalid JSON: {e}")),
                         index: idx,
+                        warnings: Vec::new(),
                     })?;
                 }
             }
@@ -208,8 +248,8 @@ pub fn run(
                 idx,
                 args.force_merge,
                 &paths,
-                llm_backend,
-                embedding_backend,
+                crate::cli::BackendChoice::new(llm_backend, embedding_backend),
+                args.strict_entity_types,
             ) {
                 Ok((event, ent_names)) => {
                     output::emit_json(&event)?;
@@ -224,6 +264,7 @@ pub fn run(
                         memory_id: None,
                         error: Some(format!("{e}")),
                         index: idx,
+                        warnings: Vec::new(),
                     })?;
                     if args.fail_fast {
                         break;
@@ -244,8 +285,8 @@ pub fn run(
                 idx,
                 args.force_merge,
                 &paths,
-                llm_backend,
-                embedding_backend,
+                crate::cli::BackendChoice::new(llm_backend, embedding_backend),
+                args.strict_entity_types,
             ) {
                 Ok((event, ent_names)) => {
                     tx.commit()?;
@@ -262,6 +303,7 @@ pub fn run(
                         memory_id: None,
                         error: Some(format!("{e}")),
                         index: idx,
+                        warnings: Vec::new(),
                     })?;
                     if args.fail_fast {
                         break;
@@ -309,6 +351,12 @@ pub fn run(
     Ok(())
 }
 
+// Still one over after folding the backend pair: the remaining seven are the
+// transaction, the line and its index, and the three per-run flags the caller
+// resolved from argv — none of which travel together anywhere else.
+// One parameter per decision a single NDJSON line depends on. The backend pair
+// is already aggregated as `BackendChoice`; what remains does not form a second
+// group with a name.
 #[allow(clippy::too_many_arguments)]
 fn process_line(
     tx: &rusqlite::Transaction<'_>,
@@ -317,12 +365,28 @@ fn process_line(
     index: usize,
     force_merge: bool,
     paths: &AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
+    strict_entity_types: bool,
 ) -> Result<(BatchItemEvent, Vec<String>), AppError> {
-    let input: BatchInputLine = serde_json::from_str(line).map_err(|e| {
+    let mut input: BatchInputLine = serde_json::from_str(line).map_err(|e| {
         AppError::Validation(crate::i18n::validation::batch_line_invalid_json(index, &e))
     })?;
+
+    // GAP-SG-216: read the labels off the RAW line, from the same function the
+    // `remember` path uses, so one definition of "outside the vocabulary"
+    // serves both the warning and the refusal.
+    let type_warnings = crate::commands::remember::collect_noncanonical_entity_types(line);
+    if strict_entity_types && !type_warnings.is_empty() {
+        return Err(AppError::Validation(
+            crate::i18n::validation::strict_entity_type_folded(&type_warnings),
+        ));
+    }
+
+    // Normalise the shape of every label before anything is written, so an
+    // unusable one is a validation exit code instead of a stored value.
+    for entity in &mut input.entities {
+        entity.entity_type = crate::entity_type::normalize_entity_type(&entity.entity_type)?;
+    }
 
     let normalized_name = crate::parsers::normalize_entity_name(&input.name);
     if normalized_name.is_empty() {
@@ -407,8 +471,7 @@ fn process_line(
         match crate::embedder::embed_passage_with_embedding_choice(
             &paths.models,
             &input.body,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok((embedding, _backend)) => {
                 memories::upsert_vec(
@@ -465,8 +528,7 @@ fn process_line(
         match crate::embedder::embed_passage_with_embedding_choice(
             &paths.models,
             &input.body,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok((embedding, _backend)) => {
                 memories::upsert_vec(
@@ -504,8 +566,7 @@ fn process_line(
             &paths.models,
             std::slice::from_ref(&entity_text),
             1,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok((entity_embedding_vec, _stats)) => {
                 if let Some(entity_embedding) = entity_embedding_vec.into_iter().next() {
@@ -513,7 +574,7 @@ fn process_line(
                         tx,
                         entity_id,
                         namespace,
-                        entity.entity_type,
+                        &entity.entity_type,
                         &entity_embedding,
                         &entity.name,
                     )?;
@@ -557,6 +618,7 @@ fn process_line(
             memory_id: Some(memory_id),
             error: None,
             index,
+            warnings: type_warnings,
         },
         created_entity_names,
     ))

@@ -169,6 +169,23 @@ impl GraphWalk {
     }
 }
 
+/// The same relation written in the other convention.
+///
+/// Only the multi-word relations differ at all: `applies-to` ↔ `applies_to`,
+/// `depends-on`, `tracked-in`. For every single-word relation this returns the
+/// input unchanged, so the `IN (?4, ?5)` filter degenerates to the equality it
+/// replaced and costs nothing.
+///
+/// Deliberately NOT `parsers::normalize_relation`: that function converges on
+/// the canonical spelling, and reaching legacy rows requires the divergent one.
+fn alternate_relation_spelling(relation: &str) -> String {
+    if relation.contains('-') {
+        relation.replace('-', "_")
+    } else {
+        relation.replace('_', "-")
+    }
+}
+
 /// Result of a walk.
 pub struct WalkOutcome {
     /// entity_id → minimum hop distance from the seed set (seeds map to 0).
@@ -239,8 +256,18 @@ impl<'a> SqlNeighbors<'a> {
                  WHERE r.{pivot} = ?1 AND r.weight >= ?2 AND r.namespace = ?3"
             )
         };
+        // v1.2.8: the filter matches BOTH spellings of the same relation.
+        //
+        // Callers hand this an already-normalised label, and until v1.2.8 the
+        // crate normalised toward snake_case while the bulk write path stored
+        // kebab-case. `related --relation applies-to` therefore returned zero
+        // rows with exit 0 on a hub that has `applies-to` edges: the filter was
+        // blind to 95% of the graph and reported that blindness as an empty
+        // result. Canonicalising the vocabulary fixes new writes; this line
+        // reaches the ~3 578 rows already stored the other way, and any
+        // database written by an older binary.
         if walk.relation_filter.is_some() {
-            sql.push_str(" AND r.relation = ?4");
+            sql.push_str(" AND r.relation IN (?4, ?5)");
         }
         // A directed walk prunes by weight, so the strongest edges must come
         // first for `max_neighbors_per_hop` to keep the strongest ones.
@@ -282,7 +309,16 @@ impl<'a> SqlNeighbors<'a> {
 
         let rows = match walk.relation_filter.as_deref() {
             Some(rel) => stmt
-                .query_map(params![entity_id, floor, self.namespace, rel], map_row)?
+                .query_map(
+                    params![
+                        entity_id,
+                        floor,
+                        self.namespace,
+                        rel,
+                        alternate_relation_spelling(rel)
+                    ],
+                    map_row,
+                )?
                 .filter_map(std::result::Result::ok)
                 .collect(),
             None => stmt

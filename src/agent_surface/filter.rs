@@ -105,8 +105,14 @@ impl FilterExpr {
     /// A missing or non-scalar path never satisfies [`FilterOp::Equals`] or
     /// [`FilterOp::Contains`]; it *does* satisfy [`FilterOp::NotEquals`],
     /// which reads as "this element does not carry that value".
-    pub fn matches(&self, element: &Value) -> bool {
-        let scalar = lookup(element, &self.path).and_then(scalar_text);
+    ///
+    /// GAP-SG-274: `command` is the surface's subcommand slug, and it scopes the
+    /// synonym table exactly as it scopes the gate. Passing `None` here would not
+    /// merely narrow the lookup — it would let the gate ACCEPT a key the walk
+    /// then fails to find, which is the accepted-and-ignored shape the surface
+    /// exists to remove.
+    pub fn matches(&self, element: &Value, command: Option<&str>) -> bool {
+        let scalar = lookup(element, &self.path, command).and_then(scalar_text);
         match (self.op, scalar) {
             (FilterOp::Equals, Some(text)) => text == self.value,
             (FilterOp::Equals, None) => false,
@@ -121,12 +127,73 @@ impl FilterExpr {
 }
 
 /// Walks a dotted path inside `value`.
-pub fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
+///
+/// GAP-SG-230: when the last segment names a field this project spells more than
+/// one way, the sibling spellings are tried before answering `None`. This is the
+/// one place worth doing it, because it is the ONE accessor all four shaping
+/// knobs share — `FilterExpr::matches`, [`super::shape::sort`],
+/// [`super::shape::dedupe`] and `shape::project_with` all reach the payload
+/// through here. Resolving anywhere upstream would have meant rewriting the
+/// caller's key in four places, and `FilterExpr` keeps its path private
+/// precisely so nobody does that.
+///
+/// The fallback runs only when the direct walk already failed, so the hot path
+/// pays one `Option` test and nothing else. A payload that carries the requested
+/// spelling never consults the table at all.
+///
+/// GAP-SG-274: `command` is the subcommand slug the surface resolved, and it
+/// selects which groups of the table are in force — `kind` names the entity type
+/// under `graph` and the line discriminator under `graph-ndjson`.
+pub fn lookup<'a>(value: &'a Value, path: &[String], command: Option<&str>) -> Option<&'a Value> {
+    if let Some(found) = walk(value, path.iter().map(String::as_str)) {
+        return Some(found);
+    }
+    let (last, prefix) = path.split_last()?;
+    for spelling in synonyms_of(last, command) {
+        if let Some(found) = walk(
+            value,
+            prefix
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::once(spelling)),
+        ) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Walks an already-split path, one segment at a time.
+fn walk<'a, 'b>(value: &'a Value, path: impl Iterator<Item = &'b str>) -> Option<&'a Value> {
     let mut cursor = value;
     for segment in path {
-        cursor = cursor.as_object()?.get(segment.as_str())?;
+        cursor = cursor.as_object()?.get(segment)?;
     }
     Some(cursor)
+}
+
+/// Sibling spellings of a leaf field name, excluding the name itself.
+///
+/// Empty for every field that has only one spelling, which is almost all of
+/// them, so the fallback above walks nothing in the common case.
+///
+/// GAP-SG-274: `command` selects the groups in force. Two groups may both list
+/// the same spelling — `type` belongs to the unscoped entity-type group and to
+/// the `graph` group that adds `kind` — so a name is yielded once and only once,
+/// and the walk never retries a path it already rejected.
+fn synonyms_of(leaf: &str, command: Option<&str>) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for group in crate::constants::agent_surface_field_synonym_groups(command) {
+        if !group.contains(&leaf) {
+            continue;
+        }
+        for spelling in group {
+            if *spelling != leaf && !out.contains(spelling) {
+                out.push(spelling);
+            }
+        }
+    }
+    out
 }
 
 /// Walks a dotted path given as one unsplit string.
@@ -136,12 +203,14 @@ pub fn lookup<'a>(value: &'a Value, path: &[String]) -> Option<&'a Value> {
 /// then walks the path for every element; the gate resolves a key against many
 /// elements too, but it holds the key as text and splitting it per call would
 /// allocate a `Vec<String>` the walk never needs.
+/// Deliberately does NOT apply the synonym table that [`lookup`] applies.
+/// `Scope` calls this to ask which spellings a payload literally carries, and it
+/// applies the table itself, one spelling at a time. Folding the fallback in here
+/// too would make every spelling in a group answer for every other, and
+/// `Scope::effective_key` — whose whole job is telling them apart — would always
+/// return the first candidate it tried.
 pub fn resolve<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
-    let mut cursor = value;
-    for segment in key.split('.') {
-        cursor = cursor.as_object()?.get(segment)?;
-    }
-    Some(cursor)
+    walk(value, key.split('.'))
 }
 
 /// Renders a JSON scalar as the text used for comparison and dedup keys.
@@ -159,6 +228,10 @@ pub fn scalar_text(value: &Value) -> Option<String> {
 }
 
 /// Returns `true` when every predicate accepts `element`.
-pub fn matches_all(filters: &[FilterExpr], element: &Value) -> bool {
-    filters.iter().all(|f| f.matches(element))
+///
+/// GAP-SG-274: `command` is forwarded to [`FilterExpr::matches`] so every
+/// predicate reads the payload under the same synonym scope the gate used to
+/// admit it.
+pub fn matches_all(filters: &[FilterExpr], element: &Value, command: Option<&str>) -> bool {
+    filters.iter().all(|f| f.matches(element, command))
 }

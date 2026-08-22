@@ -1,4 +1,7 @@
 # ADR-0044: Hotfixes v1.0.85.2 — `--dry-run-backend` Standalone, `embed_via_backend` retorna Resolved Kind, `setup_mock_path` JSON corrigido
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: este ADR inteiro, título incluído, versa sobre `--dry-run-backend`, flag que o parser da v1.2.8 recusa com exit 2.
+- HISTÓRICO: os backends LLM por subprocesso que ele consertou foram removidos na v1.2.0, então a superfície que ele valida não existe mais.
 
 - **Status**: Aceito
 - **Data**: 2026-06-17

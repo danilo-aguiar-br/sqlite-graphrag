@@ -158,6 +158,12 @@ fn defaulted_fields() -> Vec<DefaultedField> {
         defaulted!(entity_names, "Vec::new()", |a: &EnrichArgs| a
             .entity_names
             .is_empty()),
+        // v1.2.8: narrows an entity-keyed operation to one stored type label.
+        // `ingest --enrich-after` runs memory-bindings over what the ingest just
+        // wrote, which is not scoped to a type, so it leaves the clap default.
+        defaulted!(entity_type, "None", |a: &EnrichArgs| a
+            .entity_type
+            .is_none()),
         defaulted!(memory_names, "Vec::new()", |a: &EnrichArgs| a
             .memory_names
             .is_empty()),
@@ -207,6 +213,17 @@ fn defaulted_fields() -> Vec<DefaultedField> {
         // is vacuous. The synthesis-site literal is still enforced, which is the
         // half that catches drift in `enrich_after.rs`.
         defaulted!(print_schema, "false", |_: &EnrichArgs| true),
+        // GAP-SG-283: the entity type vocabulary policy. `ingest --enrich-after`
+        // never declared one, so both stay at the clap default and fall through
+        // to the compiled `keep` over the canonical set — the v1.2.8 behaviour,
+        // byte for byte. A value here would make `ingest` impose a taxonomy
+        // policy nobody asked it for.
+        defaulted!(allowed_types, "Vec::new()", |a: &EnrichArgs| a
+            .allowed_types
+            .is_empty()),
+        defaulted!(on_unknown_type, "None", |a: &EnrichArgs| a
+            .on_unknown_type
+            .is_none()),
     ]
 }
 
@@ -247,15 +264,63 @@ const CONST_BACKED: &[(&str, &str)] = &[
         "DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD",
     ),
     ("preserve_threshold", "DEFAULT_ENRICH_PRESERVE_THRESHOLD"),
-    (
-        "entity_description_grounding_threshold",
-        "DEFAULT_ENRICH_GROUNDING_THRESHOLD",
-    ),
     ("max_attempts", "DEFAULT_ENRICH_MAX_ATTEMPTS"),
     ("min_output_chars", "DEFAULT_BODY_ENRICH_MIN_CHARS"),
     ("max_output_chars", "DEFAULT_BODY_ENRICH_MAX_CHARS"),
     ("rest_concurrency", "DEFAULT_ENRICH_REST_CONCURRENCY"),
 ];
+
+/// Fields resolved through an ACCESSOR rather than by clap's default.
+///
+/// These are `Option<T>` with NO `default_value_t`, so `None` is the correct
+/// value at every synthesising site: the accessor applies flag > XDG >
+/// constant, and naming the constant at a call site would pin that site to the
+/// compiled default and silently ignore an operator's `config set`.
+///
+/// This class exists because putting such a field in [`CONST_BACKED`] hid a
+/// real defect. `entity_description_grounding_threshold` carried
+/// `default_value_t`, so clap ALWAYS supplied a value and the branch reading
+/// the compiled constant was reachable only by typing `0` explicitly — raising
+/// the constant changed nothing in production, and the XDG key had no reader at
+/// all. The assertions below are the ones that would have caught it: no
+/// `default_value_t`, and the constant named inside the accessor.
+const ACCESSOR_RESOLVED: &[(&str, &str, &str)] = &[(
+    "entity_description_grounding_threshold",
+    "DEFAULT_ENRICH_GROUNDING_THRESHOLD",
+    "entity_description_grounding_threshold",
+)];
+
+#[test]
+fn accessor_resolved_fields_carry_no_clap_default() {
+    for (field, konst, accessor) in ACCESSOR_RESOLVED {
+        let synth = synthesised(field);
+        assert!(
+            synth.contains("None"),
+            "enrich_after.rs sets `{field}` to `{synth}`; it must be `None` so \
+             the accessor can consult the XDG key before the compiled default"
+        );
+
+        let attr = clap_attr(field);
+        assert!(
+            !attr.contains("default_value_t"),
+            "clap declares `{field}` with `{attr}`. A `default_value_t` here \
+             means clap always supplies a value, so the accessor's XDG lookup \
+             and compiled default become unreachable — the exact defect this \
+             class was created to prevent"
+        );
+
+        let accessor_at = ENRICH_ARGS_SRC
+            .find(&format!("fn {accessor}(&self)"))
+            .unwrap_or_else(|| panic!("`{field}` declares no accessor `{accessor}`"));
+        let body = &ENRICH_ARGS_SRC[accessor_at..];
+        let body = &body[..body.find("\n    }").unwrap_or(body.len())];
+        assert!(
+            body.contains(konst),
+            "the accessor `{accessor}` does not name `{konst}`, so the compiled \
+             default it falls back to is no longer the shared constant"
+        );
+    }
+}
 
 /// Returns the `#[arg(...)]` attribute text clap declares for `field`.
 fn clap_attr(field: &str) -> String {
@@ -375,6 +440,9 @@ fn every_enrich_args_field_is_classified() {
         .filter(|field| {
             !defaulted.contains(&field.as_str())
                 && !CONST_BACKED.iter().any(|(name, _)| *name == field.as_str())
+                && !ACCESSOR_RESOLVED
+                    .iter()
+                    .any(|(name, _, _)| *name == field.as_str())
                 && !DECLARED_EXCEPTIONS
                     .iter()
                     .any(|(name, _)| *name == field.as_str())
@@ -385,7 +453,8 @@ fn every_enrich_args_field_is_classified() {
         "EnrichArgs gained {n} field(s) that `ingest --enrich-after` synthesises \
          without this suite knowing what value they should hold: {list}.\n\
          Classify each one: add it to `defaulted_fields()` if the phase leaves it \
-         at the clap default, to `CONST_BACKED` if a shared constant backs it, or \
+         at the clap default, to `CONST_BACKED` if a shared constant backs it, to \
+         `ACCESSOR_RESOLVED` if an accessor applies flag > XDG > constant, or \
          to `DECLARED_EXCEPTIONS` with the reason it diverges.",
         n = unclassified.len(),
         list = unclassified.join(", ")

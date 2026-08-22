@@ -1,28 +1,28 @@
-// Teste de regressão GAP-001 (v1.1.04): chamar o path de embedding síncrono
-// de DENTRO de um runtime Tokio ativo NÃO deve panica com
+// GAP-001 regression test (v1.1.04): calling the synchronous embedding path
+// from INSIDE an active Tokio runtime must NOT panic with
 // "Cannot start a runtime from within a runtime".
 //
-// Antes do fix A2, `embedder.rs` criava T2 via `shared_runtime().block_on()`
-// na mesma thread dirigida por T1, causando nested-runtime panic sempre que
-// o deep-research tentava embeddar sub-queries com T1 já ativo.
+// Before the A2 fix, `embedder.rs` created T2 via `shared_runtime().block_on()`
+// on the same thread driven by T1, causing a nested-runtime panic whenever
+// deep-research tried to embed sub-queries with T1 already active.
 //
-// Usamos `EmbeddingBackendChoice::Llm` + `LlmBackendChoice::None` para que a
-// chain seja `[LlmBackendKind::None]` — `embed_with_fallback` retorna um vetor
-// vazio sem subir subprocesso nem rede, então `try_embed_query_with_embedding_choice`
-// devolve `Err(FallbackReason::DimZero)` em vez de panicar. O resultado não
-// importa: o que importa é que a chamada retorna (Ok ou Err), nunca aborta.
+// We use `EmbeddingBackendChoice::Llm` + `LlmBackendChoice::None` so that the
+// chain is `[LlmBackendKind::None]` — `embed_with_fallback` returns an empty
+// vector without spawning a subprocess or touching the network, so `try_embed_query_with_embedding_choice`
+// returns `Err(FallbackReason::DimZero)` instead of panicking. The result does
+// not matter: what matters is that the call returns (Ok or Err), never aborts.
 //
-// LIMITAÇÃO DE COBERTURA: este é um SMOKE-TEST de não-panic. O caminho `None`
-// retorna cedo em `embedder.rs` (~linha 984) SEM exercitar as guardas
-// `block_in_place` do caminho OpenRouter (single, serial batch, JoinSet
-// fan-out), pois essas só disparam quando `OPENROUTER_CLIENT` está
-// inicializado (o que exige rede e chave `OPENROUTER_API_KEY`). A proteção
-// PRIMÁRIA contra o bug original é a A1 (`compute_sub_embeddings` ANTES de
-// construir T1 em `deep_research.rs`); a A2 (guardas `block_in_place` no
-// embedder) é defesa em profundidade para callers futuros. Exercitar o caminho
-// OpenRouter exato exigiria um fixture de rede/key, fora do escopo do CI.
+// COVERAGE LIMITATION: this is a non-panic SMOKE TEST. The `None` path
+// returns early in `embedder.rs` (~line 984) WITHOUT exercising the
+// `block_in_place` guards of the OpenRouter path (single, serial batch, JoinSet
+// fan-out), since those only fire when `OPENROUTER_CLIENT` is
+// initialized (which requires network and the `OPENROUTER_API_KEY` key). The
+// PRIMARY protection against the original bug is A1 (`compute_sub_embeddings` BEFORE
+// building T1 in `deep_research.rs`); A2 (`block_in_place` guards in the
+// embedder) is defense in depth for future callers. Exercising the exact
+// OpenRouter path would require a network/key fixture, out of scope for CI.
 
-use sqlite_graphrag::cli::{EmbeddingBackendChoice, LlmBackendChoice};
+use sqlite_graphrag::cli::{BackendChoice, EmbeddingBackendChoice, LlmBackendChoice};
 use sqlite_graphrag::embedder::try_embed_query_with_embedding_choice;
 
 #[test]
@@ -33,15 +33,14 @@ fn embedding_inside_active_runtime_does_not_panic() {
         .build()
         .unwrap();
 
-    // Antes do fix isto panica. Agora deve retornar Ok ou Err (FallbackReason),
-    // nunca abortar o processo.
+    // Before the fix this panics. Now it must return Ok or Err (FallbackReason),
+    // never abort the process.
     let outcome = std::panic::catch_unwind(|| {
         rt.block_on(async {
             let _ = try_embed_query_with_embedding_choice(
                 std::path::Path::new("/tmp/nonexistent-models"),
                 "query de teste",
-                EmbeddingBackendChoice::Auto,
-                LlmBackendChoice::None,
+                BackendChoice::new(LlmBackendChoice::None, EmbeddingBackendChoice::Auto),
             );
         })
     });

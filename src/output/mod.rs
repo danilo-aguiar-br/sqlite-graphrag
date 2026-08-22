@@ -9,7 +9,9 @@
 //! * `envelope` — complete JSON payloads, and the single point where the
 //!   agent-native reshaping surface is applied
 //! * `error_envelope` — failure payloads, with a serializer-free fallback
-//! * `stream` — NDJSON, one record per line, deliberately unshaped
+//! * `stream` — NDJSON, one record per line, under the GAP-SG-215 stream
+//!   contract: per-record knobs only, and the `agent_surface` record on the
+//!   trailer rather than on every line
 //! * `passthrough` — plain text and verbatim bytes, no JSON at all
 //! * `human` — stderr diagnostics via `tracing`
 //! * `sink` — the one place bytes actually reach stdout
@@ -37,4 +39,4 @@ pub use format::{JsonOutputFormat, OutputFormat};
 pub use human::{emit_error, emit_error_i18n, emit_progress, emit_progress_i18n};
 pub use passthrough::{emit_raw, emit_text};
 pub use responses::{RecallItem, RecallResponse, RememberResponse};
-pub use stream::emit_json_line;
+pub use stream::{emit_json_line, emit_stream_record, emit_stream_trailer};

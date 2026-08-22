@@ -4,12 +4,24 @@
 //! test runs the binary, captures stdout, parses it as JSON and validates it
 //! against the published `docs/schemas/*.schema.json`. The shared harness lives
 //! in `tests/schema_support/`.
+//!
+//! NOT gated behind `slow-tests`, unlike the 29 other heavy test files, because
+//! this suite is the only thing that compares the binary's REAL stdout against
+//! the published contract. GAP-SG-271 measured what the gate cost while it was
+//! on: five files sat behind the feature, `cargo test` never compiled them, and
+//! the published schemas drifted with nothing to notice. A gate the default
+//! invocation never runs is not a gate — it is a gate-shaped reassurance.
+//!
+//! The attribute must never move back into `tests/schema_support/mod.rs`: a
+//! shared `mod.rs` that cfg-es itself out does not become empty, it VANISHES
+//! from the module graph, so every `use support::…` fails to resolve and the
+//! whole test build breaks.
 
 #[path = "schema_support/mod.rs"]
 mod support;
 
 use serial_test::serial;
-use support::{validar_schema, Env};
+use support::{validate_schema, Env};
 // ---------------------------------------------------------------------------
 // 01 — init
 // ---------------------------------------------------------------------------
@@ -18,17 +30,17 @@ use support::{validar_schema, Env};
 #[serial]
 fn schema_01_init() {
     let env = Env::new();
-    let saida = env.cmd().arg("init").output().expect("init failed");
+    let output = env.cmd().arg("init").output().expect("init failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "init: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "init");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "init");
+    validate_schema(
         "init",
         include_str!("../docs/schemas/init.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -41,17 +53,17 @@ fn schema_01_init() {
 fn schema_02_stats() {
     let env = Env::new();
     env.init();
-    let saida = env.cmd().arg("stats").output().expect("stats failed");
+    let output = env.cmd().arg("stats").output().expect("stats failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "stats: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "stats");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "stats");
+    validate_schema(
         "stats",
         include_str!("../docs/schemas/stats.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -64,11 +76,11 @@ fn schema_02_stats() {
 fn schema_03_remember() {
     let env = Env::new();
     env.init();
-    let instancia = env.remember_simples("mem-schema-remember");
-    validar_schema(
+    let instance = env.remember_simple("mem-schema-remember");
+    validate_schema(
         "remember",
         include_str!("../docs/schemas/remember.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -81,22 +93,22 @@ fn schema_03_remember() {
 fn schema_04_list() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-list");
-    let saida = env
+    env.remember_simple("mem-schema-list");
+    let output = env
         .cmd()
         .args(["list", "--namespace", "global"])
         .output()
         .expect("list failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "list: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "list");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "list");
+    validate_schema(
         "list",
         include_str!("../docs/schemas/list.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -109,22 +121,22 @@ fn schema_04_list() {
 fn schema_05_read() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-read");
-    let saida = env
+    env.remember_simple("mem-schema-read");
+    let output = env
         .cmd()
         .args(["read", "--name", "mem-schema-read"])
         .output()
         .expect("read failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "read: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "read");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "read");
+    validate_schema(
         "read",
         include_str!("../docs/schemas/read.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -137,8 +149,8 @@ fn schema_05_read() {
 fn schema_06_edit() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-edit");
-    let saida = env
+    env.remember_simple("mem-schema-edit");
+    let output = env
         .cmd()
         .args([
             "edit",
@@ -150,15 +162,15 @@ fn schema_06_edit() {
         .output()
         .expect("edit failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "edit: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "edit");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "edit");
+    validate_schema(
         "edit",
         include_str!("../docs/schemas/edit.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -171,8 +183,8 @@ fn schema_06_edit() {
 fn schema_07_rename() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-rename-origem");
-    let saida = env
+    env.remember_simple("mem-schema-rename-origem");
+    let output = env
         .cmd()
         .args([
             "rename",
@@ -184,15 +196,15 @@ fn schema_07_rename() {
         .output()
         .expect("rename failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "rename: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "rename");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "rename");
+    validate_schema(
         "rename",
         include_str!("../docs/schemas/rename.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -205,22 +217,22 @@ fn schema_07_rename() {
 fn schema_08_history() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-history");
-    let saida = env
+    env.remember_simple("mem-schema-history");
+    let output = env
         .cmd()
         .args(["history", "--name", "mem-schema-history"])
         .output()
         .expect("history failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "history: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "history");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "history");
+    validate_schema(
         "history",
         include_str!("../docs/schemas/history.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -233,22 +245,22 @@ fn schema_08_history() {
 fn schema_09_forget() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-forget");
-    let saida = env
+    env.remember_simple("mem-schema-forget");
+    let output = env
         .cmd()
         .args(["forget", "--name", "mem-schema-forget"])
         .output()
         .expect("forget failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "forget: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "forget");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "forget");
+    validate_schema(
         "forget",
         include_str!("../docs/schemas/forget.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -261,7 +273,7 @@ fn schema_09_forget() {
 fn schema_10_restore() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-restore");
+    env.remember_simple("mem-schema-restore");
     // Create a second version via edit
     env.cmd()
         .args([
@@ -273,21 +285,21 @@ fn schema_10_restore() {
         ])
         .assert()
         .success();
-    let saida = env
+    let output = env
         .cmd()
         .args(["restore", "--name", "mem-schema-restore", "--version", "1"])
         .output()
         .expect("restore failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "restore: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "restore");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "restore");
+    validate_schema(
         "restore",
         include_str!("../docs/schemas/restore.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -300,21 +312,21 @@ fn schema_10_restore() {
 fn schema_11_purge() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .args(["purge", "--dry-run", "--namespace", "global"])
         .output()
         .expect("purge failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "purge: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "purge");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "purge");
+    validate_schema(
         "purge",
         include_str!("../docs/schemas/purge.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -327,22 +339,22 @@ fn schema_11_purge() {
 fn schema_12_recall() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-recall");
-    let saida = env
+    env.remember_simple("mem-schema-recall");
+    let output = env
         .cmd()
         .args(["recall", "schema recall teste", "--k", "3"])
         .output()
         .expect("recall failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "recall: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "recall");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "recall");
+    validate_schema(
         "recall",
         include_str!("../docs/schemas/recall.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -355,22 +367,22 @@ fn schema_12_recall() {
 fn schema_13_hybrid_search() {
     let env = Env::new();
     env.init();
-    env.remember_simples("mem-schema-hybrid");
-    let saida = env
+    env.remember_simple("mem-schema-hybrid");
+    let output = env
         .cmd()
         .args(["hybrid-search", "busca hibrida schema", "--k", "3"])
         .output()
         .expect("hybrid-search failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "hybrid-search: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "hybrid-search");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "hybrid-search");
+    validate_schema(
         "hybrid-search",
         include_str!("../docs/schemas/hybrid-search.schema.json"),
-        &instancia,
+        &instance,
     );
 
     // The same envelope with the agent-native surface active. Validating only
@@ -391,25 +403,25 @@ fn schema_13_hybrid_search() {
     ] {
         let mut cmd = env.cmd();
         cmd.args(&flags);
-        let saida = cmd
+        let output = cmd
             .args(["hybrid-search", "busca hibrida schema", "--k", "3"])
             .output()
             .expect("hybrid-search com surface failed");
         assert!(
-            saida.status.success(),
+            output.status.success(),
             "hybrid-search {flags:?}: exit {:?}",
-            saida.status.code()
+            output.status.code()
         );
-        let instancia = Env::parse_stdout(&saida, "hybrid-search");
-        validar_schema(
+        let instance = Env::parse_stdout(&output, "hybrid-search");
+        validate_schema(
             "hybrid-search",
             include_str!("../docs/schemas/hybrid-search.schema.json"),
-            &instancia,
+            &instance,
         );
         assert!(
-            instancia.get("graph_matches").is_some(),
+            instance.get("graph_matches").is_some(),
             "graph_matches is required and is disjoint from results in hybrid-search, \
-             so no surface knob may drop it (flags {flags:?}): {instancia}"
+             so no surface knob may drop it (flags {flags:?}): {instance}"
         );
     }
 }

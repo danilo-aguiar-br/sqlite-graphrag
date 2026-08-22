@@ -207,6 +207,12 @@ fn migrate_queue_add_namespace(conn: &Connection) -> Result<(), AppError> {
 
 /// Priority level for hot-set entity-descriptions after `remember`
 /// (GAP-CLI-PRIO-03). Higher values are claimed first.
+///
+/// DEBT (v1.2.8): belongs in `src/constants/`. It is not an implementation
+/// detail of this module — it is the scheduling policy that decides which work
+/// a drain claims first, and the only other priority in the system (`0`, the
+/// enqueue default) is spelled in SQL text elsewhere. Kept here because
+/// `src/constants/` was outside the scope this change was allowed to touch.
 pub const PRIORITY_HOT: i64 = 100;
 
 /// Count pending queue rows at or above `min_priority` for an operation + namespace.
@@ -404,6 +410,11 @@ pub fn heartbeat(conn: &Connection, queue_id: i64) -> Result<(), AppError> {
 /// converge. Callers exclude these keys so the scan returns only actionable
 /// items; `cleanup_queue_entry` clears the veto when the body actually changes,
 /// restoring the memory as a candidate.
+///
+/// Loads the WHOLE veto set, so its cost grows with the number of skipped rows
+/// and not with the work at hand. Callers that run once per invocation can pay
+/// it; callers inside the `--until-empty` loop must use [`retain_unskipped`],
+/// which asks the same question against the candidates it actually holds.
 pub(super) fn skipped_item_keys(
     conn: &Connection,
     operation: &str,
@@ -417,12 +428,71 @@ pub(super) fn skipped_item_keys(
     Ok(keys)
 }
 
+/// Drop the candidates this operation has already vetoed `status='skipped'`.
+///
+/// Same veto as [`skipped_item_keys`], asked the other way round (v1.2.8). The
+/// set-based form loads every skipped row of the operation into a `HashSet`, and
+/// the `--until-empty` loop rebuilt that set on EVERY iteration: a long drain
+/// against a corpus with tens of thousands of non-expandable bodies re-read and
+/// re-allocated the whole veto set once per pass, growing as the drain itself
+/// pushed more rows into `skipped`. Here the working set is bounded by `keys`,
+/// which the scan already caps, and the query is chunked at
+/// [`crate::constants::DEFAULT_ENRICH_SCAN_PAGE_SIZE`] placeholders so a large
+/// candidate list cannot exceed SQLite's bound-variable limit.
+///
+/// The keys are BOUND, one placeholder each, never pasted into the SQL text
+/// (GAP-SG-167) — they are memory names an operator chose.
+pub(super) fn retain_unskipped(
+    conn: &Connection,
+    operation: &str,
+    keys: &mut Vec<String>,
+) -> Result<(), AppError> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+    let mut vetoed = std::collections::HashSet::new();
+    for chunk in keys.chunks(crate::constants::DEFAULT_ENRICH_SCAN_PAGE_SIZE) {
+        // One `?` per key after the operation placeholder. Only two distinct SQL
+        // texts occur (a full chunk and the final partial one), so
+        // `prepare_cached` still amortises across iterations.
+        let placeholders = (0..chunk.len())
+            .map(|i| format!("?{}", i + 2))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT item_key FROM queue WHERE status='skipped' \
+             AND (operation = ?1 OR operation IS NULL) \
+             AND item_key IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(chunk.len() + 1);
+        params.push(&operation);
+        for key in chunk {
+            params.push(key);
+        }
+        let rows = stmt.query_map(params.as_slice(), |r| r.get::<_, String>(0))?;
+        for row in rows {
+            vetoed.insert(row?);
+        }
+    }
+    keys.retain(|k| !vetoed.contains(k));
+    Ok(())
+}
+
 /// Queue `item_type` for an operation: entity-keyed operations use `"entity"`,
 /// entity-pair operations use `"entity_pair"`, every other (memory/id-keyed)
 /// operation uses `"memory"`.
 pub(super) fn item_type_for(operation: &EnrichOperation) -> &'static str {
     match operation {
-        EnrichOperation::EntityDescriptions => "entity",
+        // v1.2.8: entity-type-validate joins entity-descriptions here. Its keys
+        // are ENTITY NAMES (see `scan_entities_for_type_validation`), but the
+        // catch-all below typed them `"memory"`, with two consequences.
+        // `enqueue_candidate` resolves `item_type == "memory"` keys against
+        // `memories` by name and drops what it cannot find, so entity names were
+        // rejected at enqueue; and any row that did land became visible to
+        // `--prune-dead-orphans`, which reaps `item_type='memory'` rows whose
+        // memory is gone — every entity name qualifies as gone.
+        EnrichOperation::EntityDescriptions | EnrichOperation::EntityTypeValidate => "entity",
         // v1.1.06: entity-connect enqueues `pair:{id1}:{id2}` keys — never
         // treat them as memory names (prune_dead_orphans only reaps memory).
         EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges => "entity_pair",
@@ -601,6 +671,34 @@ pub struct EnrichStatus {
     /// Extrapolated count of low-grounding descriptions in the namespace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) scan_backlog_low_grounding_est: Option<i64>,
+    /// G-PR-7: sampled entities that carry a description while having NO
+    /// linked corpus to justify it. These used to be scored as PERFECT
+    /// quality, because the sampler asked the same inverted grounding gate
+    /// that wrote them. A non-zero value here means `quality_pct` is being
+    /// dragged down by descriptions that should never have existed — that is
+    /// the honest reading, not a regression.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) sampled_without_corpus: Option<u32>,
+    /// G-PR-7: nearest-rank quantiles of the sampled grounding coverage.
+    ///
+    /// This is the surface that makes `grounding_threshold` calibratable with
+    /// data. Compare the configured threshold against `p10`/`p25`: a threshold
+    /// above `p25` rejects at least a quarter of what the corpus can support,
+    /// and one below `p10` is not filtering anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) grounding_percentiles: Option<super::quality_sample::GroundingPercentiles>,
+    /// The threshold that PRODUCED `quality_pct` and the percentiles above,
+    /// after the full `flag > XDG > constant` resolution.
+    ///
+    /// Emitted because the comparison the percentile doc asks for is impossible
+    /// without it: once the XDG channel went live, setting
+    /// `enrich.entity_description.grounding_threshold` swung `quality_pct` from
+    /// 0.719 to 0.262 on the same database and the same binary, and nothing in
+    /// this envelope named the cause. A reported rate whose governing value is
+    /// invisible is the same two-values-nobody-reconciles defect the threshold
+    /// itself had.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) grounding_threshold: Option<f64>,
     pub(super) queue_pending: i64,
     pub(super) queue_processing: i64,
     pub(super) queue_done: i64,

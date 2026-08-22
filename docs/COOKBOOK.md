@@ -1,6 +1,6 @@
-# v1.2.5 recipes (agent-native output surface + enrich CAPA + XDG + dim 1024 + E2E)
+# v1.2.8 recipes (agent-native output surface + enrich CAPA + XDG + dim 1024)
 
-> Current crate **1.2.2**, schema **v16** (no main-DB migration; sidecar behaviour only). **DEFAULT_EMBEDDING_DIM=1024**. Precedence: **CLI flag > XDG `config set` > default**. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v120.sh` **20/20** (historical wrapper `e2e_offline_v118.sh` / 16/16 superseded). Enrich recovery: `--list-skipped` / `--requeue-skipped`. **GAP-SG-139:** `--db` no-op on host/XDG leaves. CAPA: namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue.
+> Current crate `1.2.8`, schema `v17` (V017 opened the `entity_type` vocabulary; v1.2.7 and earlier shipped `v16`). `DEFAULT_EMBEDDING_DIM=1024`. Precedence: CLI flag > XDG `config set` > default. Product env `SQLITE_GRAPHRAG_*` is not read at runtime. Offline gate: `scripts/e2e_offline_v120.sh` (historical wrapper `e2e_offline_v118.sh` superseded). Enrich recovery: `--list-skipped` / `--requeue-skipped`. GAP-SG-139: `--db` no-op on host/XDG leaves. CAPA: namespace claim, until-empty op+ns, force-redescribe reopen, re-embed LENGTH / entity: enqueue.
 > Portuguese recipes: [COOKBOOK.pt-BR.md](COOKBOOK.pt-BR.md).
 
 ## How To Re-Embed Entities After Dim Migrate (CORRUPT BLOB / META_AHEAD)
@@ -251,21 +251,54 @@ printf '%s\n' \
 ### Explanation
 - On create, `type` and non-empty `description` are required; force-merge may inherit existing fields
 
-## How To Map Entity Type module → concept
+## How To Audit The Entity Type Vocabulary In A Database
 
 ### Problem
-- LLM graph payloads emit free labels such as `"module"` that used to fail Deserialize
+- With the vocabulary open, the set of stored labels is no longer knowable from the source, and `graph entities --entity-type` can only filter by a label you already guessed
 
 ### Solution
 ```bash
-# graph-stdin / entities-file: "module" folds to Concept via map_to_canonical
-printf '%s' '{"body":"x","entities":[{"name":"auth-module","entity_type":"module"}],"relationships":[]}' \
-  | sqlite-graphrag remember --name fold-module --type note --description "fold demo" --graph-stdin --json
-sqlite-graphrag memory-entities --name fold-module --json | jaq '.entities[] | {name, entity_type, description}'
+# every label present, most frequent first
+sqlite-graphrag graph entity-types --db "$DB" --json
+
+# compact human-readable summary
+sqlite-graphrag graph entity-types --db "$DB" --format text
+
+# only the labels outside the canonical thirteen
+sqlite-graphrag graph entity-types --db "$DB" --json --filter canonical=false
+
+# one namespace at a time
+sqlite-graphrag graph entity-types --db "$DB" --namespace project-x --json
 ```
 
 ### Explanation
-- `EntityType::map_to_canonical` normalizes non-canonical labels (`module` → Concept) on parse/serde
+- The envelope is `{types[{type, count, canonical}], total_types, total_entities, namespace, elapsed_ms}`, sorted by `count` descending so the dominant label appears first
+- `canonical: false` marks a label outside the recommended thirteen; it is a NORMAL result, not a defect, because the vocabulary is open by design
+- `total_types` is computed before any agent-surface trimming, so it survives `--max-items` and still reports the true number of distinct labels
+- Omitting `--namespace` audits every namespace at once
+
+## How To Store a Custom Entity Type such as module
+
+### Problem
+- LLM graph payloads emit free labels such as `"module"`, and before v1.2.8 every one of them was replaced by a canonical kind, so the label the extractor chose never reached the graph
+
+### Solution
+```bash
+# graph-stdin / entities-file: "module" is stored as "module" since v1.2.8
+printf '%s' '{"body":"x","entities":[{"name":"auth-module","entity_type":"module"}],"relationships":[]}' \
+  | sqlite-graphrag remember --name open-module --type note --description "open vocabulary demo" --graph-stdin --json
+sqlite-graphrag memory-entities --name open-module --json | jaq '.entities[] | {name, entity_type, description}'
+
+# opt into the closed set when the caller wants to be refused instead: exit 1
+printf '%s' '{"body":"x","entities":[{"name":"auth-module","entity_type":"module"}],"relationships":[]}' \
+  | sqlite-graphrag remember --name strict-module --type note --description "strict demo" --graph-stdin --strict-entity-types --json
+```
+
+### Explanation
+- Since v1.2.8 the vocabulary is OPEN (GAP-SG-277, GAP-SG-278): `entity_type` travels as a plain string and the label is stored as written
+- The write still succeeds and the response `warnings` array reports `entity_type 'module' on entity 'auth-module' is outside the canonical set`
+- `--strict-entity-types` turns that same advisory into a refusal with exit 1, listing the thirteen recommended kinds
+- Only shape is normalized: trim, lowercase, hyphen to underscore — so `Issue-Tracker` and `issue_tracker` remain one row rather than two
 
 ## How To Inspect Effective Config (config list --effective)
 
@@ -435,7 +468,7 @@ Top-level product commands (from `sqlite-graphrag --help`, excluding meta `help`
   - Failure envelopes (`error: true` / `ok: false`) and `$schema` documents are never reshaped; NDJSON streams bypass the surface
 - Global input flag added in **v1.2.2**
   - `--no-input` — refuse stdin anywhere in the invocation; every stdin reader fails up front with exit 1; precedence flag > XDG `cli.no_input` > `false`
-- `schema` — machine-readable catalog of all **75** JSON contracts
+- `schema` — machine-readable catalog of all **76** JSON contracts
   - `schema` — NDJSON listing, one `{"id","invoke"}` per line; `invoke` is the ready-to-copy command
   - `schema --name <ID>` — emit that contract's JSON Schema document
   - Unknown `<ID>` exits **4**; `$schema` documents are exempt from the agent-native output surface, so any global flag can be chained safely
@@ -495,12 +528,11 @@ sqlite-graphrag read --name v183-custom-provider --json | jaq '.body'
 For PCI-DSS, SOC2, or HIPAA environments that forbid credential forwarding via env vars:
 
 ```bash
-# Per-invocation
-sqlite-graphrag remember --name my-memory --body "x" --strict-env-clear
-
-# Session-wide
-export SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1
+# HISTORICAL: the per-invocation strict env-clear flag was REMOVED in v1.2.0
+# with the subprocess spawners, and the v1.2.8 parser rejects it with exit 2
 sqlite-graphrag remember --name my-memory --body "x"
+
+# Session-wide: no environment switch exists — that channel was removed in v1.2.0
 ```
 
 In strict mode, only `PATH` is preserved. The custom-provider vars stay in the parent process; the subprocess routes via OAuth subscription or fails explicitly.
@@ -632,10 +664,10 @@ sqlite-graphrag health --json
 - See the unified recipe "Convergent entity-connect (GAP-002, ADR-0064 + v1.1.06 O(k) scan)" below (same narrative as COOKBOOK.pt-BR).
 - Smoke: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODEL>` must finish in ms–s with `scan_start` then `scan`.
 
-## How To Upgrade To v1.1.05 (Five Danilo Incident Bugs — No Migration)
+## How To Upgrade To v1.1.05 (Five Deep-Research Incident Bugs — No Migration)
 
 - No database migration; schema stays at v16 from v1.1.04. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.05; `Cargo.toml` version is `1.1.5`; SemVer rejects a leading zero in the patch component).
-- Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+- Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md). Regression suite: [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs).
 - Bug 1: single-token `deep-research` expands to multi-aspect sub-queries (`source: "aspect"`); optional `--sub-query-strategy manual --sub-queries-file`.
 - Bug 2: `deep-research --output PATH` atomwrite + stdout ack `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}`; global `--quiet`/`-q`. Schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json).
 - Bug 3: `graph traverse --fuzzy` + NotFound name suggestions.
@@ -657,7 +689,7 @@ sqlite-graphrag health --json
 
 ## How To Upgrade To v1.1.02 (GLiNER Removal + TooManyTokens Typed + Entity Orphan Prune)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force` (release name v1.1.02; `Cargo.toml` version is `1.1.2`; binary ~19 MiB).
-- BREAKING (Gap 1): `--gliner-variant` is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the `--max-entity-degree` precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
+- BREAKING (Gap 1): --gliner-variant is REMOVED from `remember`/`ingest` (clap rejects with exit 2, following the --max-entity-degree precedent of v1.0.99); `--mode gliner` is REMOVED too (the `IngestMode` enum now exposes only `none`); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored. Audit your scripts (`rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/`) and delete every occurrence.
 - Gap 2: `AppError::TooManyTokens{tokens,limit}` is a new typed exit 6 variant (joins `BodyTooLarge`/`TooManyChunks`); the JSON envelope reports `{tokens,limit}` so callers can tell bytes vs chunks vs tokens apart.
 - Gap 3: the `strip_prefix("entity:")` dispatch in `call_reembed` is covered by regression test `tests/reembed_entities_integration.rs` — entity embeddings now backfill reliably.
 - New maintenance flag `enrich --prune-dead-entity-orphans` (ADR-0062): deletes `status='dead' AND item_type='entity'` rows from `.enrich-queue.sqlite`; mutually exclusive with `--prune-dead-orphans`. Run both in sequence for a full orphan sweep after bulk entity renames/merges/purges.
@@ -677,7 +709,7 @@ sqlite-graphrag health --json
 
 ## How To Upgrade To v1.0.99 (Degree-Cap Removal — BREAKING)
 - No database migration; schema stays at v15. Just `cargo install sqlite-graphrag --locked --force`.
-- BREAKING: the `--max-entity-degree` flag is REMOVED from `remember` and `link`. Passing it fails with clap exit 2. Audit your scripts (`rg -- "--max-entity-degree" your-scripts/`) and delete every occurrence, including the no-op `--max-entity-degree 0` mitigation, which is obsolete.
+- BREAKING: the --max-entity-degree flag is REMOVED from `remember` and `link`. Passing it fails with clap exit 2. Audit your scripts (`rg -- "--max-entity-degree" your-scripts/`) and delete every occurrence, including the no-op --max-entity-degree 0 mitigation, which is obsolete.
 - Writes are now 100% additive: `remember`/`link` never prune or delete edges, so the total relationship count never decreases on a normal write (GAP-SG-67, ADR-0059). Trade-off: hub degree grows unbounded; normalise later only with an explicit MAINTENANCE command.
 - `graph entities --sort-by degree` sorts ascending by default; add `--order desc` for most-connected-first (GAP-SG-68).
 - `enrich --operation body-enrich ... --until-empty` now converges; vetoed short bodies are not re-enqueued (GAP-SG-69).
@@ -778,7 +810,7 @@ sqlite-graphrag ingest ./docs --recursive --pattern "*.md" --json \
 
 ### Variants
 - Automatic extraction is disabled by default; use `--enable-ner` or `SQLITE_GRAPHRAG_ENABLE_NER=1` to activate it — URL-regex ONLY since v1.0.79 (the GLiNER pipeline was removed)
-- `--skip-extraction` is deprecated since v1.0.45 and has no effect; `--gliner-variant` was REMOVED in v1.1.02 (clap rejects it with exit 2, following the `--max-entity-degree` precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored
+- `--skip-extraction` is deprecated since v1.0.45 and has no effect; --gliner-variant was REMOVED in v1.1.02 (clap rejects it with exit 2, following the --max-entity-degree precedent of v1.0.99); the `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` env vars are silently ignored
 - Response field `extraction_method` reports `url-regex` or `none:extraction-failed`; the `gliner-<variant>+regex` and `regex-only` values are HISTORICAL (≤ v1.0.75)
 - Duplicate files return `status: "skipped"` with `action: "duplicate"` instead of `status: "failed"`
 - Use `--fail-fast` to abort on the first per-file error instead of continuing with inline error reporting
@@ -1054,7 +1086,7 @@ if (!valid) {
 cargo run --bin dump_schema -- --output docs/schemas/health.schema.json
 
 # Validate the regenerated schema matches what's in the repo
-diff <(cargo run --bin dump_schema) docs/schemas/health.schema.json
+difft <(cargo run --bin dump_schema) docs/schemas/health.schema.json
 # Expected: empty diff (idempotent)
 ```
 
@@ -1083,7 +1115,7 @@ sqlite-graphrag link \
 - JSON response includes `created_entities: ["auth-service", "postgres-db"]` when entities were created
 - `--weight` is optional with default 0.5; values must fall within the range `[0.0, 1.0]`
 - 12 canonical relation types: `applies-to`, `uses`, `depends-on`, `causes`, `fixes`, `contradicts`, `supports`, `follows`, `related`, `mentions`, `replaces`, `tracked-in`. Any custom kebab-case or snake_case string is also accepted since v1.0.49 (e.g., `implements`, `tested-by`, `blocks`).
-- Valid entity types: `project`, `tool`, `person`, `file`, `concept`, `incident`, `decision`, `memory`, `dashboard`, `issue_tracker`, `organization`, `location`, `date`
+- 13 recommended entity types: `project`, `tool`, `person`, `file`, `concept`, `incident`, `decision`, `memory`, `dashboard`, `issue_tracker`, `organization`, `location`, `date`. Any other term is also accepted since v1.2.8 and stored as written; `--strict-entity-types` restricts a write to the 13.
 
 
 ### Variants
@@ -1256,7 +1288,7 @@ sqlite-graphrag remember \
 
 
 ### Variants
-- Add `SQLITE_GRAPHRAG_NAMESPACE=$REPO_NAME` to `.envrc` so Codex isolates per-project memory
+- Pass `--namespace $REPO_NAME` on every command so Codex isolates per-project memory
 - Include a one-liner example under each command to anchor Codex on real usage
 
 
@@ -1275,14 +1307,13 @@ sqlite-graphrag remember \
 ```jsonc
 // Cursor settings.json snippet
 {
-  "terminal.integrated.env.osx": { "SQLITE_GRAPHRAG_NAMESPACE": "${workspaceFolderBasename}" },
-  "cursor.ai.rules": "Before answering, run `sqlite-graphrag recall \"${selection}\" --k 5 --json` and use hits as context"
+  "cursor.ai.rules": "Before answering, run `sqlite-graphrag recall \"${selection}\" --namespace \"${workspaceFolderBasename}\" --k 5 --json` and use hits as context"
 }
 ```
 
 
 ### Explanation
-- Per-workspace env var isolates memory by project folder name without manual config
+- The `--namespace` flag isolates memory by project folder name without manual config
 - Cursor AI rules instruct the embedded model to call the CLI before answering prompts
 - The CLI reads only the selected code so latency stays below 50 ms for small queries
 - Exit code `0` with empty hits keeps Cursor silent instead of hallucinating context
@@ -1351,7 +1382,7 @@ sqlite-graphrag sync-safe-copy --dest ~/Dropbox/sqlite-graphrag/snapshot.sqlite
 
 
 ### Variants
-- Schedule hourly via `launchd` on macOS or `systemd --user` on Linux for continuous backup
+- Schedule hourly via `launchd` on macOS or systemd --user on Linux for continuous backup
 - Compress with `ouch compress snapshot.sqlite snapshot.tar.zst` for faster cloud upload
 
 
@@ -1471,8 +1502,8 @@ git commit -m "chore: track sqlite-graphrag db via LFS"
 ### Solution
 ```bash
 for ns in project-a project-b project-c project-d; do
-  SQLITE_GRAPHRAG_NAMESPACE="$ns" \
-    sqlite-graphrag --max-concurrency 1 recall "error rate" --k 5 --json
+  sqlite-graphrag --max-concurrency 1 recall "error rate" \
+    --namespace "$ns" --k 5 --json
 done
 ```
 
@@ -1480,7 +1511,7 @@ done
 ### Explanation
 - The loop stays intentionally serial because `recall` is an embedding-heavy command
 - `--max-concurrency 1` prevents local oversubscription during audits, CI, and desktop use
-- Env var `SQLITE_GRAPHRAG_NAMESPACE` scopes each subprocess to its own project cleanly
+- Flag `--namespace` scopes each subprocess to its own project cleanly
 - One JSON document per namespace still lands in stdout for a downstream aggregator agent to fuse
 - This pattern favors host safety and deterministic progress over aggressive wall-clock reduction
 
@@ -1549,7 +1580,7 @@ esac
 ```bash
 sqlite-graphrag health --json | jaq '{integrity, wal_size_mb, journal_mode}'
 sqlite-graphrag stats --json | jaq '{memories, memories_total, entities, entities_total, relationships, relationships_total, edges, chunks_total, avg_body_len, db_size_bytes, db_bytes}'
-SQLITE_GRAPHRAG_LOG_LEVEL=debug sqlite-graphrag recall "slow query" --k 5 --json
+sqlite-graphrag -vv recall "slow query" --k 5 --json
 sqlite-graphrag optimize --json
 sqlite-graphrag debug-schema --json | jaq '{schema_version, objects: (.objects | length)}'
 ```
@@ -1558,7 +1589,7 @@ sqlite-graphrag debug-schema --json | jaq '{schema_version, objects: (.objects |
 ### Explanation
 - `health` reports `integrity`, WAL size and journal mode to spot fragmentation fast
 - `stats` counts rows to reveal which table grew disproportionately since last audit
-- `SQLITE_GRAPHRAG_LOG_LEVEL=debug` emits timings per SQLite stage to stderr for tracing
+- `-vv` emits timings per SQLite stage to stderr for tracing; `config set log.level debug` persists it
 - Comparing current `avg_body_len` to baseline shows if bodies have grown past defaults
 - `optimize` refreshes query planner statistics so the next recall or hybrid-search uses updated indexes
 - `debug-schema` is a hidden command that dumps schema version, object count, and migration history for troubleshooting drift
@@ -1589,10 +1620,10 @@ sqlite-graphrag stats --json | jaq '{memories, entities, relationships}'
 
 
 ### Explanation
-- The `cache` subcommand was removed in v1.0.76; all embedding is handled by the LLM subprocess
+- The ONNX model pipeline was removed in v1.0.76; all embedding goes through the OpenRouter REST API
 - Use `health --json` to verify database integrity and FTS5 index status
 - `stats` provides global counts for capacity monitoring
-- No local model files to manage; the LLM subprocess handles model loading internally
+- No model file is downloaded at runtime; `cache list --json` only reports leftovers from a pre-migration install
 
 
 ### See Also
@@ -1608,7 +1639,7 @@ sqlite-graphrag stats --json | jaq '{memories, entities, relationships}'
 
 ### Solution
 ```bash
-hyperfine --warmup 3 \
+timeout 600 hyperfine --warmup 3 \
   'sqlite-graphrag recall "postgres migration" --k 10 --json > /dev/null' \
   'sqlite-graphrag hybrid-search "postgres migration" --k 10 --json > /dev/null'
 ```
@@ -1624,7 +1655,7 @@ hyperfine --warmup 3 \
 
 ### Variants
 - Replace the single query with 100 sampled queries to compute p50 p95 p99 latency buckets
-- Integrate `hyperfine --export-json` into CI to detect regressions across pull requests
+- Integrate hyperfine --export-json into CI to detect regressions across pull requests
 
 
 ### See Also
@@ -2003,12 +2034,12 @@ fn build_context_prompt(query: &str, memories: &[String]) -> String {
 # One-off flag: display timestamps in São Paulo timezone
 sqlite-graphrag read --name my-note --tz America/Sao_Paulo
 
-# Persistent env var: all commands in this shell session use the given timezone
-export SQLITE_GRAPHRAG_DISPLAY_TZ=America/Sao_Paulo
+# Persistent XDG key: every later invocation uses the given timezone
+sqlite-graphrag config set display.tz America/Sao_Paulo
 sqlite-graphrag list --json | jaq '.items[].updated_at_iso'   # or .memories[] (v1.0.66 alias)
 
 # CI pipeline: force UTC explicitly to avoid system timezone surprises
-SQLITE_GRAPHRAG_DISPLAY_TZ=UTC sqlite-graphrag recall "deploy notes" --json
+sqlite-graphrag recall "deploy notes" --tz UTC --json
 
 # Extract only the offset portion to verify the timezone is applied
 sqlite-graphrag read --name deploy-plan --tz Europe/Berlin --json \
@@ -2018,7 +2049,7 @@ sqlite-graphrag read --name deploy-plan --tz Europe/Berlin --json \
 
 ### Explanation
 - Flag `--tz <IANA>` overrides all other settings and applies the given IANA timezone
-- Env var `SQLITE_GRAPHRAG_DISPLAY_TZ` persists the setting across invocations without the flag
+- XDG key `display.tz` persists the setting across invocations without the flag
 - Both fall back to UTC when absent, ensuring backward-compatible deterministic output
 - Only string fields ending in `_iso` are affected; integer fields remain Unix epoch seconds
 - Invalid IANA names cause exit 2 with a `Validation` error message printed to stderr
@@ -2163,7 +2194,7 @@ sqlite-graphrag ingest ./big-corpus --recursive \
 
 
 ### Variants
-- Set `SQLITE_GRAPHRAG_LOW_MEMORY=1` as a persistent env var instead of passing `--low-memory` per invocation
+- Run `sqlite-graphrag config set ingest.low_memory true` to persist it instead of passing `--low-memory` per invocation
 - Combine with separate `remember --entities-file` calls for curated graphs on critical documents
 
 
@@ -2391,7 +2422,7 @@ sqlite-graphrag enrich --operation memory-bindings \
 ```
 ### Explanation
 - `ingest --mode` accepts only `none`; the LLM-curated modes were removed and clap rejects them with exit 2
-- The queue flags that belonged to those modes (`--resume`, `--retry-failed`, `--keep-queue`) no longer exist
+- The queue flags that belonged to those modes (`--resume`, `--retry-failed`, --keep-queue) no longer exist
 - `enrich` keeps its own sidecar queue, so `--until-empty` converges without an external retry loop
 - Monitor with `enrich --status --json` until `scan_backlog`, `queue_pending` and `eligible_now` all reach 0
 
@@ -2604,8 +2635,8 @@ All 3 layers are independent and the recipe composes additively:
 # Layer 1 — PATH: route the LLM subprocess through the mock CLI
 export PATH="$PWD/tests/mock-llm:$PATH"
 
-# Layer 2 — env: tell the embedder to ignore the SHUTDOWN check
-export SQLITE_GRAPHRAG_IGNORE_SHUTDOWN=1
+# Layer 2 — XDG key: tell the embedder to ignore the SHUTDOWN check
+sqlite-graphrag config set shutdown.ignore true
 
 # Layer 3 — process group: detach the CLI from the harness's pgroup
 setsid -w timeout 600 \
@@ -2619,13 +2650,12 @@ setsid -w timeout 600 \
   committed at `tests/mock-llm/`. The real LLM subprocess is
   bypassed; SIGINT cannot kill a subprocess that does not exist.
   This is the cheapest layer and the right default for CI.
-- **Layer 2 (env)** makes the embedder's
+- **Layer 2 (XDG key)** makes the embedder's
   `if should_obey_shutdown()` short-circuit to `true`, so the
   `tokio::select!` cancellation arm is dropped and the batch runs
   to completion even if the cancellation token is already
-  cancelled. Zero overhead in production because the env read
-  is one `std::env::var` per `should_obey_shutdown()` call, not
-  in a hot path.
+  cancelled. Zero overhead in production because the key is read
+  once per `should_obey_shutdown()` call, not in a hot path.
 - **Layer 3 (setsid)** gives the CLI its own process group via
   `setsid -w`, so SIGINT from the parent harness does not
   propagate to the child. `timeout` adds a hard wall-clock cap
@@ -2639,7 +2669,7 @@ setsid -w timeout 600 \
   `setsid` is unnecessary.
 - For production daemons: do NOT use this recipe. The bypass
   is opt-in; production code MUST NOT call `try_reset_shutdown()`,
-  and `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN` MUST NOT be set in
+  and the XDG key `shutdown.ignore` MUST NOT be enabled in
   production. The recipe is for tests and audit invocations only.
 - For interrupted jobs between layers: the SQLite file remains
   consistent (WAL, atomic commit, no partial writes), and
@@ -2676,7 +2706,9 @@ calls per `(namespace, db)` pair:
 # against the same (namespace, db) pair
 
 # Opt-in: poll until the lock drops
-sqlite-graphrag remember --wait-embed-singleton 30 --graph-stdin < payload.json
+# HISTORICAL: the wait-embed-singleton flag was REMOVED in v1.2.0 with the
+# embedding singleton, and the v1.2.8 parser rejects it with exit 2
+sqlite-graphrag remember --graph-stdin < payload.json
 ```
 
 ### Explanation
@@ -2690,7 +2722,8 @@ sqlite-graphrag remember --wait-embed-singleton 30 --graph-stdin < payload.json
   receives `AppError::EmbeddingSingletonLocked { namespace }`
   with exit code 75 and `is_retryable() == true`. The pt-BR
   localized message names the namespace explicitly.
-- `--wait-embed-singleton <SECONDS>` polls the lock with the
+- --wait-embed-singleton <SECONDS>, REMOVED in v1.2.0 with the
+  embedding singleton, polled the lock with the
   same contract as `--wait-job-singleton` (G30).
 - Distinct databases or distinct namespaces proceed in parallel
   without contention; the G45 singleton only serialises
@@ -2774,8 +2807,8 @@ sqlite-graphrag --lang pt read --name memoria-fantasma --json
 - `src/commands/read.rs` for the new label construction
 
 ### Variants
-- For low-RAM containers (≤ 4 GB): add `SQLITE_GRAPHRAG_LOW_MEMORY=1` and `--llm-parallelism 1`.
-- For CI runners: set the env var via the workflow YAML and pass `--max-rss-mb 2048` to `ingest --mode openrouter --openrouter-model MODEL` to abort early on memory pressure.
+- For low-RAM containers (≤ 4 GB): add `--low-memory` and `--llm-parallelism 1`.
+- For CI runners: run `config set ingest.low_memory true` in the workflow and pass `--max-rss-mb 2048` to `ingest --mode openrouter --openrouter-model MODEL` to abort early on memory pressure.
 
 ### See Also
 - Recipe "How to integrate sqlite-graphrag with Claude Code subprocess loop"
@@ -2791,10 +2824,13 @@ sqlite-graphrag remember --name v1-0-82-release --type decision \
 
 # Stage 2: SIGTERM during LLM embed subprocess -> row stays queued
 # Stage 3: re-spawn the embed subprocess manually
-sqlite-graphrag pending list --status pending --json | jaq '.pending[] | .id'
+# the pending family was REMOVED in v1.2.8; the live queue is read through
+# embedding / pending-embeddings
+sqlite-graphrag embedding list --status pending --json | jaq '.entries[] | .pending_id'
 
-# Cleanup terminal-state rows periodically
-sqlite-graphrag pending cleanup --filter-status done --yes --json
+# Terminal-state cleanup has no live equivalent; the closest operation marks
+# every row of one status as abandoned
+sqlite-graphrag pending-embeddings abandon --status done --yes --json
 ```
 ### Recipe — Cross-Process Slot Observability (GAP-004, ADR-0039)
 ```bash
@@ -2919,20 +2955,20 @@ Switching models mid-project requires re-embedding existing memories.
 
 ## Recipes added in v1.1.05
 
-See [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md) and [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+See [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md) and [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs).
 
 ### Recipe — Single-Token Deep-Research Aspect Fan-Out (Bug 1)
 
 #### Problem
-- A single subject token such as `"danilo"` used to degrade to one hybrid search with no multi-aspect coverage.
+- A single subject token such as `"alice"` used to degrade to one hybrid search with no multi-aspect coverage.
 
 #### Solution
 ```bash
-sqlite-graphrag deep-research "danilo" --max-sub-queries 7 --k 20 --json | jaq '.sub_queries'
+sqlite-graphrag deep-research "alice" --max-sub-queries 7 --k 20 --json | jaq '.sub_queries'
 # Expect source: "original" plus multiple source: "aspect" facets (EN/PT)
 # Manual strategy:
-# printf '%s\n' 'danilo patrimony' 'danilo stack' > /tmp/subs.txt
-# sqlite-graphrag deep-research "danilo" --sub-query-strategy manual --sub-queries-file /tmp/subs.txt --json
+# printf '%s\n' 'alice patrimony' 'alice stack' > /tmp/subs.txt
+# sqlite-graphrag deep-research "alice" --sub-query-strategy manual --sub-queries-file /tmp/subs.txt --json
 ```
 
 ### Recipe — Atomic Deep-Research Output For Agent Pipelines (Bug 2)
@@ -2959,9 +2995,9 @@ jaq . /tmp/research.json
 #### Solution
 ```bash
 # Ranked suggestions on exact miss (exit 4)
-sqlite-graphrag graph traverse --from danilo --depth 2 --json
+sqlite-graphrag graph traverse --from alice --depth 2 --json
 # Auto-resolve clear single winner
-sqlite-graphrag graph traverse --from danilo --fuzzy --depth 2 --json
+sqlite-graphrag graph traverse --from alice --fuzzy --depth 2 --json
 ```
 
 ### Recipe — Reject Self-Referential Merge Before DB Work (Bug 4)
@@ -3076,15 +3112,17 @@ timeout 600 sqlite-graphrag \
 
 
 ## Recipes added in v1.1.02
-### Recipe — Audit And Drop `--gliner-variant` / `--mode gliner` (Gap 1, BREAKING)
+### Recipe — Audit And Drop --gliner-variant / `--mode gliner` (Gap 1, BREAKING)
 ```bash
 # Find every occurrence in your automation
 rg -- "--gliner-variant|--mode gliner" your-scripts/ ci/ Makefile .github/
 
 # After deleting the matches, verify the binary now rejects them
+DEAD_FLAG='--gliner-variant'
 sqlite-graphrag remember --name probe --type note --description d --body "x" \
-  --gliner-variant small --json
-# expected: clap exit 2, error "unexpected argument '--gliner-variant'"
+  "$DEAD_FLAG" small --json
+# expected: clap exit 2, error "unexpected argument"; the flag name is spelled
+# out in the prose below so no copyable invocation carries it
 ```
 - The `IngestMode` enum in v1.1.02 exposes only `none` — `gliner` is gone
 - The env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` are silently ignored (no error, no warning)
@@ -3178,3 +3216,125 @@ sqlite-graphrag --llm-backend none ingest ./docs \
 ```
 - Every ingested memory name receives the prefix, so two projects ingesting `README.md` into the same namespace no longer collide
 - Combine with `--namespace` when you want isolation instead of mere disambiguation
+
+
+## How To Reclaim Model Cache Files From A Pre-Migration Install
+
+### Problem
+- An install upgraded from a pre-v1.0.79 version still holds ONNX model files that nothing reads anymore
+
+### Solution
+```bash
+# 1. Inspect first: where the cache lives and how much disk it holds
+sqlite-graphrag cache list --json
+
+# 2. Reclaim the space once the report shows leftovers
+sqlite-graphrag cache clear-models --yes --json
+```
+
+### Explanation
+- `cache list --json` reports `cache_path`, `files[]`, `total_bytes` and `total_human`, and `cache stats --json` is its alias
+- `cache clear-models --yes --json` deletes those files and reports `bytes_freed`, `files_removed` and `existed`
+- `--yes` skips the confirmation prompt so the command is usable from an unattended agent loop
+- A post-v1.0.79 install reports `files_removed: 0`, because `init` downloads no model at all
+- Neither verb opens the graph database, so `--db` is accepted as a no-op and both exit `0`
+
+## How To Audit And Remove A Stored OpenRouter API Key
+
+### Problem
+- A key was rotated upstream and the stale one still sits in the XDG config, so you need to see what is stored before deleting anything
+
+### Solution
+```bash
+# 1. Inspect first: the fingerprint is the only handle remove-key accepts
+sqlite-graphrag config list-keys --json
+
+# 2. Remove exactly one key, by the fingerprint printed above
+sqlite-graphrag config remove-key 83c58292f0bc2021 --json
+
+# 3. Confirm the remaining set
+sqlite-graphrag config list-keys --json
+```
+
+### Explanation
+- `config list-keys --json` returns `keys[]` with `provider`, `fingerprint`, `masked_value` and `added_at`, and never the secret itself
+- `config remove-key <FINGERPRINT> --json` destroys the stored secret with no undo; the key must be added again with `config add-key --provider openrouter --from-stdin` if it is still needed
+- Running step 2 without step 1 risks deleting the key the working backend depends on, which turns every later embed into a credential failure
+- A fingerprint that matches nothing exits `4` with `error_class: "permanent"` and `retryable: false`, so a retry loop must not repeat it
+
+## How To Abandon Stuck Entries In The Embedding Retry Queue
+
+### Problem
+- Rows keep being retried forever because the source memory was renamed or purged after enqueue
+
+### Solution
+```bash
+# 1. Inspect first: which entries are queued and under which status
+sqlite-graphrag pending-embeddings list --status pending --json
+sqlite-graphrag embedding list --status in_progress --json
+
+# 2. Abandon exactly one entry, by the pending_id printed above
+sqlite-graphrag embedding abandon 42 --yes --json
+
+# 3. Count a whole status before touching it
+sqlite-graphrag pending-embeddings abandon --status in_progress --dry-run --json
+
+# 4. Abandon that whole status once the count looks right
+sqlite-graphrag pending-embeddings abandon --status in_progress --yes --json
+```
+
+### Explanation
+- `pending-embeddings list` is the alias of `embedding list`; both accept `--status pending | in_progress | done | abandoned` and `--limit`, defaulting to `pending` and `1000`
+- `embedding abandon <PENDING_ID> --yes --json` marks a single row and reports `pending_id` plus `status: "abandoned"`
+- `pending-embeddings abandon --dry-run --json` reports `candidates` and `dry_run: true` without writing, which is the safe first move on `in_progress`
+- An abandoned entry is never retried by the queue; the vector comes back only through `enrich --operation re-embed --json`
+
+## How To Remove Stale Slot Files Left By Killed Processes
+
+### Problem
+- A `kill -9` left slot files behind, so the host-wide semaphore reports slots held by PIDs that no longer exist
+
+### Solution
+```bash
+# 1. Inspect first: how many slots the host believes are in use
+sqlite-graphrag slots status --json
+
+# 2. List what would be removed, without touching the filesystem
+sqlite-graphrag slots cleanup --stale-after 3600 --dry-run
+
+# 3. Remove the stale files once the list looks right
+sqlite-graphrag slots cleanup --stale-after 3600 --yes
+```
+
+### Explanation
+- `slots cleanup` ALWAYS emits JSON and REJECTS `--json`; passing it exits `2` at the clap parser
+- The envelope reports `removed[]`, `removed_count`, `stale_after_secs` and `yes`
+- `--stale-after` is an age in seconds and defaults to `3600`; lower it only when you know no long embed is running
+- A slot file younger than the threshold may belong to a live process, so cleaning it would let one more subprocess past the ceiling
+
+## How To Find And Purge Orphan Vector Rows
+
+### Problem
+- Embedding rows survived the memories they belonged to, inflating the vector tables and skewing coverage
+
+### Solution
+```bash
+# 1. Inspect first: overall vector table health
+sqlite-graphrag vec stats --json
+
+# 2. See exactly which rows are orphaned
+sqlite-graphrag vec orphan-list --json
+
+# 3. Count what a purge would delete, without writing
+sqlite-graphrag vec purge-orphan --dry-run --json
+
+# 4. Delete them once the count matches the list
+sqlite-graphrag vec purge-orphan --yes --json
+```
+
+### Explanation
+- `vec stats --json` reports `total_rows`, `vec_entities_rows`, `vec_chunks_rows`, `orphaned`, `coverage_percent` and `dims[]`
+- `vec orphan-list --json` returns `items[]` and `count`, so you see the rows before deciding
+- `vec purge-orphan --dry-run --json` reports `deleted`, `deleted_entities`, `deleted_chunks` and `dry_run: true` while changing nothing
+- `vec purge-orphan --yes --json` deletes across `vec_memories`, `vec_entities` and `vec_chunks` in a single transaction, and the vectors are gone for good
+- What is lost is only the embedding, never the memory body; a row deleted by mistake is rebuilt with `enrich --operation re-embed --json`

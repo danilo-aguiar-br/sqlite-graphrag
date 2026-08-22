@@ -1,8 +1,11 @@
 # ADR-0018 — Status de Fechamento v1.0.69 (2026-06-05)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it cites the subcommand `codex-models` and the flag `--fallback-mode`, and the v1.2.8 binary has neither.
+- HISTORICAL: both were removed with no replacement, while `enrich --preflight-check` and `enrich --rate-limit-buffer` are still live.
 
 - **Status.** Accepted.
 - **Date.** 2026-06-05.
-- **Deciders.** Danilo Aguiar (operator), Claude Code (advisor).
+- **Deciders.** Alice Martins (operator), Claude Code (advisor).
 - **Supersedes.** None.
 - **Related.** ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0016, ADR-0017.
 

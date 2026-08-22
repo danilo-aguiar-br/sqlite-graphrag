@@ -63,6 +63,8 @@ pub struct PendingEmbedding {
 }
 
 /// Inserts a new `pending_embeddings` entry with status `pending`.
+// One parameter per column of the `pending_embeddings` row this writes: the
+// arity IS the schema, and a struct here would be that row spelled a second time.
 #[allow(clippy::too_many_arguments)]
 pub fn insert(
     conn: &Connection,
@@ -119,6 +121,26 @@ pub fn update_status(
         ],
     )?;
     Ok(())
+}
+
+/// Counts the entries [`list_by_status`] would page through.
+///
+/// GAP-SG-201: `embedding list --limit N` is a page of a countable set, and the
+/// output surface cannot tell a page from a corpus without the size of the
+/// corpus. The `WHERE` clause mirrors [`list_by_status`] exactly.
+///
+/// # Errors
+/// Returns [`AppError`] when the query fails.
+pub fn count_by_status(
+    conn: &Connection,
+    status: PendingEmbeddingStatus,
+) -> Result<usize, AppError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pending_embeddings WHERE status = ?1",
+        params![status.as_str()],
+        |row| row.get(0),
+    )?;
+    Ok(usize::try_from(count).unwrap_or(0))
 }
 
 /// List by status.

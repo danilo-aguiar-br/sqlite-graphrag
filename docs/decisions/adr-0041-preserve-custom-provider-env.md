@@ -1,4 +1,7 @@
 # ADR-0041: Preservar Credenciais de Provider Customizado no Env dos Subprocessos LLM
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the Decision section below delivers `--strict-env-clear` and `SQLITE_GRAPHRAG_STRICT_ENV_CLEAR=1`; the parser refuses the flag and the env is never read at runtime.
+- HISTORICAL: the subprocess LLM backends this whitelist protected were removed in v1.2.0, so the subject has no replacement: v1.2.8 calls OpenRouter over HTTP in-process.
 
 - **Status**: Aceito
 - **Data**: 2026-06-17

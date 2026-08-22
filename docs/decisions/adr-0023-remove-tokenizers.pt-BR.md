@@ -1,8 +1,11 @@
 # ADR-0023: Remoção do Crate `tokenizers` (v1.0.76)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele manda o operador sobrescrever o teto por `SQLITE_GRAPHRAG_EMBEDDING_MAX_TOKENS`, e essa variável não é lida em runtime pelo binário v1.2.8 e não tem efeito.
+- HISTÓRICO: a sobrescrita foi removida sem substituto, porque nenhuma chave XDG expõe o teto; o `config list` traz apenas `embedding.dim`, `embedding.batch_size` e `embedding.timeout_secs`.
 
 - Status: Aceito (2026-06-07)
 - Atualização (v1.0.79): a válvula de escape `embedding-legacy` mencionada abaixo foi removida antecipando o cronograma da v1.1.0; a janela de transição está fechada
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: src/tokenizer.rs, src/chunking.rs, src/commands/ingest.rs, src/commands/remember.rs, src/commands/enrich.rs, src/commands/ingest_claude.rs, Cargo.toml
 
 ## Contexto

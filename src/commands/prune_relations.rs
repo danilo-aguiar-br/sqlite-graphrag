@@ -61,7 +61,7 @@ struct PruneRelationsResponse {
 
 /// Run.
 pub fn run(args: PruneRelationsArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -94,7 +94,7 @@ pub fn run(args: PruneRelationsArgs) -> Result<(), AppError> {
             count,
             entities_affected: entities_affected_count,
             namespace: namespace.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
             affected_entity_names: affected_names,
         };
 
@@ -122,7 +122,7 @@ pub fn run(args: PruneRelationsArgs) -> Result<(), AppError> {
             count,
             entities_affected: 0,
             namespace: namespace.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
             affected_entity_names: None,
         };
 
@@ -157,7 +157,7 @@ pub fn run(args: PruneRelationsArgs) -> Result<(), AppError> {
         count,
         entities_affected: entity_ids.len(),
         namespace: namespace.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
         affected_entity_names: None,
     };
 

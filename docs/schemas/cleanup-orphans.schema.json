@@ -4,7 +4,7 @@
   "title": "CleanupOrphansResponse",
   "description": "Response emitted by `sqlite-graphrag cleanup-orphans` on stdout as a single JSON line.",
   "type": "object",
-  "required": ["orphan_count", "deleted", "dry_run", "namespace", "elapsed_ms"],
+  "required": ["orphan_count", "deleted", "dangling_relationship_count", "dangling_relationships_deleted", "foreign_key_violation_count", "foreign_key_violations_remaining", "dry_run", "namespace", "elapsed_ms"],
   "additionalProperties": false,
   "properties": {
     "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
@@ -12,6 +12,10 @@
     "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
     "orphan_count": { "type": "integer", "minimum": 0, "description": "Total orphan entities found." },
     "deleted":      { "type": "integer", "minimum": 0, "description": "Entities deleted (0 when dry_run=true)." },
+    "dangling_relationship_count": { "type": "integer", "minimum": 0, "description": "Relationship rows whose source or target entity id does not exist. The mirror image of orphan_count: edges with no entity, rather than entities with no edges. This is the state PRAGMA foreign_key_check reports after a migration." },
+    "dangling_relationships_deleted": { "type": "integer", "minimum": 0, "description": "Dangling relationship rows deleted (0 when dry_run=true). Reported apart from `deleted` so a caller watching one number does not read a repair of the other as a no-op." },
+    "foreign_key_violation_count": { "type": "integer", "minimum": 0, "description": "Rows reported by PRAGMA foreign_key_check across the whole file, measured before any delete. Wider than dangling_relationship_count and overlapping it: eleven child tables reference memories, entities, relationships or memory_chunks. The pragma has no notion of namespace, so this number is always whole-file." },
+    "foreign_key_violations_remaining": { "type": "integer", "minimum": 0, "description": "The same measurement taken again after the deletes. Equals foreign_key_violation_count under --dry-run, and stays above zero when --namespace scoped the run away from violations elsewhere in the file. Non-zero after an executed run means the file still does not satisfy its own foreign keys." },
     "dry_run":      { "type": "boolean" },
     "namespace":    { "type": ["string", "null"], "description": "Namespace filter applied; null means global operation." },
     "elapsed_ms":   { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }

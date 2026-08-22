@@ -197,7 +197,7 @@ fn test_remember_graph_stdin_semantic_invalid_fails_without_saving_memory() {
     // semantically invalid graph abort with exit 1 and leave NO memory behind?"
     // — so each retired class was replaced by the class that took its place:
     // the entity-name rule and the relation-FORMAT rule.
-    let casos = [
+    let cases = [
         (
             "nome-de-entidade-invalido",
             r#"{"entities":[{"name":"a","entity_type":"tool"}],"relationships":[]}"#,
@@ -216,7 +216,7 @@ fn test_remember_graph_stdin_semantic_invalid_fails_without_saving_memory() {
         ),
     ];
 
-    for (name, payload) in casos {
+    for (name, payload) in cases {
         cmd(&tmp)
             .args([
                 "remember",
