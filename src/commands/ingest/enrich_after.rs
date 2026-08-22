@@ -62,6 +62,7 @@ pub(super) fn run(args: &IngestArgs, backends: crate::cli::BackendChoice) -> Res
         preflight_check: false,
         rate_limit_buffer: crate::commands::enrich::DEFAULT_ENRICH_RATE_LIMIT_BUFFER_SECS,
         max_load_check: true,
+        no_max_load_check: false,
         circuit_breaker_threshold:
             crate::commands::enrich::DEFAULT_ENRICH_CIRCUIT_BREAKER_THRESHOLD,
         preserve_threshold: crate::commands::enrich::DEFAULT_ENRICH_PRESERVE_THRESHOLD,

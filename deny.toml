@@ -16,17 +16,20 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 version = 2
 yanked = "warn"
 unmaintained = "workspace"
-# Transitive advisories without upgrade available (all via fastembed):
-ignore = [
-    # RUSTSEC-2025-0119 removed during the v1.0.79 audit: fastembed and its
-    # transitive number_prefix dependency left the tree in v1.0.76, and
-    # cargo-deny now reports the ignore entry as matching nothing.
-    # RUSTSEC-2024-0436: paste 1.0.15 unmaintained (archived upstream).
-    # Transitive via tokenizers 0.22 -> text-splitter 0.30 + fastembed 5.13.
-    # Upstream tracking: https://github.com/huggingface/tokenizers/pull/1834 (paste -> pastey).
-    # Reassess when tokenizers/text-splitter publish paste-free versions.
-    "RUSTSEC-2024-0436",
-]
+# Transitive advisories accepted without an upgrade available.
+#
+# Empty by construction. An ignore entry that matches nothing is worse than no
+# entry: cargo-deny downgrades it to `advisory-not-detected`, which nobody reads,
+# while the line keeps signalling that a risk was considered and handled.
+#
+# RUSTSEC-2025-0119 was dropped in the v1.0.79 audit when fastembed and its
+# transitive number_prefix dependency left the tree in v1.0.76.
+# RUSTSEC-2024-0436 (paste 1.0.15 unmaintained) was dropped on 2026-08-22 for the
+# same reason: cargo-deny reported it as matching no crate in the current graph.
+#
+# Add an entry only with the crate that pulls the advisory in and the condition
+# that retires it, so a stale ignore is removable without re-deriving why it exists.
+ignore = []
 
 [licenses]
 confidence-threshold = 0.8

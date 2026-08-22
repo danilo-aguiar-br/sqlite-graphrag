@@ -94,7 +94,7 @@ struct HistoryVersion {
 
 /// Maps the raw `change_reason` stored in `memory_versions` to the past-tense
 /// `action` exposed in the JSON contract. Centralized so future call sites
-/// (e.g. `read --include-history`) reuse the same mapping.
+/// (e.g. a future `read` that embeds versions) reuse the same mapping.
 fn change_reason_to_action(reason: &str) -> String {
     match reason {
         "create" => "created",

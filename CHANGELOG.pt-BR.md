@@ -6,6 +6,58 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 ## [1.2.8] - 2026-08-18
 
+
+### O texto que o binário IMPRIME era a terceira superfície publicada, e a única sem gate (GAP-SG-303)
+
+Este projeto publica três superfícies de texto e vigiava duas. O `docs_surface_gate` cruza `docs/` contra a árvore clap, o `skills_surface_gate` cruza `skills/`, e nada cruzava as strings de `src/` que o binário imprime de volta ao operador. Um exemplo de `after_long_help` e uma mensagem de `#[error(...)]` têm autoridade MAIOR que a de um guia, porque vêm do próprio programa. Foi por essa fresta que a GAP-SG-298 atravessou seis releases, e nomeá-la foi tudo o que aquela entrada fez.
+
+O `tests/binary_text_surface_gate.rs` a fecha, e achou mais oito flags fabricadas na primeira execução. As piores vivem em mensagem de erro: o `AppError::EmbeddingSingletonLocked` sai com exit 75 e mandava o operador passar `--wait-embed-singleton <SEGUNDOS>`, nos dois idiomas. Essa flag foi REMOVIDA na v1.2.0 junto com o singleton, e a mensagem sobreviveu à capacidade. Quem está bloqueado no exit 75 lê a saída de emergência dentro da própria mensagem que anuncia o bloqueio, obedece, e recebe exit 2; um agente que roteie por essa mensagem entra em laço, porque a recusa aponta para uma tentativa que também é recusada. A flag real é `--wait-lock <SEGUNDOS>` — global, e o default dela é 300, o mesmo `CLI_LOCK_DEFAULT_WAIT_SECS` que o `src/constants/runtime.rs` documentava sob um nome (`--max-wait-secs`) que também nunca existiu.
+
+O resto: `--pending-only` dentro do exemplo de help do `embedding`, `--allow-parallel` mandando pular um lock por uma flag nunca declarada, `--extraction-backend` em dois módulos de `src/extract/` depois da remoção na v1.0.79, e `--include-history`, `--ignore-shutdown` e `--info` em documentação de API. Todas corrigidas contra o parser e não contra a memória.
+
+Registrado e deliberadamente NÃO corrigido: `acquire_embedding_singleton` é `pub` com zero chamadores fora dos próprios testes, então o `EmbeddingSingletonLocked` é inalcançável em produção e a mensagem recém-corrigida nunca dispara. Corrigir o texto continua certo — apontar flag real é melhor que apontar flag morta — mas remover a função e a variante é mudança de API pública e ficou fora de escopo.
+
+Os dois falsos positivos do próprio gate viraram testes dele: `"foo--bar"` num teste de normalização era lido como `--bar` até o extrator passar a exigir que o `--` ABRA um token, e `cargo run --bin dump_schema` é a única isenção, que precisa nomear o programa DONO — um teste irmão falha se alguma isenção declarar este binário como dono.
+
+### `default_value_t = true` num bool cria flag inerte, e cinco foram entregues assim (GAP-SG-302)
+
+No derive do clap um campo `bool` recebe `ArgAction::SetTrue`. Acrescentar `default_value_t = true` não muda a ação — muda só o valor inicial — então a única operação possível da flag é escrever `true` sobre um `true` que já está lá. Ela parseia, sai com exit 0, aparece no `--help` e não pode alterar nada. A varredura de `src/` achou seis campos com essa forma.
+
+O `ingest --auto-describe` é o que está certo: `overrides_with` mais um campo `no_auto_describe`, resolvido por `args.auto_describe && !args.no_auto_describe`. O padrão correto já existia aqui, o que torna o resto inconsistência interna e não limitação da ferramenta.
+
+O pior dos cinco é `enrich --max-load-check`, a recusa de iniciar quando a média de carga de um minuto passa do dobro do número de CPUs. O doc comment dele diz literalmente **"Set to false to skip the check on contended runners"** — e não havia como colocá-lo em false. O operador num runner contendido lê a saída de emergência, tenta, e descobre que ela não existe, exatamente quando precisa dela. O `vacuum --checkpoint` tinha a mesma forma, prometendo controle sobre os checkpoints WAL sem nenhum modo de desligá-los. Os dois ganharam par `--no-` seguindo o padrão do `ingest`, então o repositório passa a ter uma forma de par negado em vez de duas.
+
+O `enrich --preserve-check` é duplamente inerte: além de não poder virar `false`, nenhuma linha lê o campo — o nome promete um juiz de LLM sobre preservação de fatos que nunca foi ligado. Ele agora é DECLARADO no-op no próprio help, seguindo o precedente do `--db` do `config`, em vez de removido (uma invocação existente passaria a morrer com exit 2) ou implementado (ligar um juiz é feature, não conserto). O `config add-key --from-stdin` é inerte com consequência benigna — o `else` dele é código morto inalcançável e nenhuma capacidade prometida falta — então ficou como está e está registrado.
+
+O `inert_flag_guard` não pegou nada disso: ele pergunta quem LÊ o campo, e aqui alguém lê. Ler um valor que nunca varia é o mesmo que não ler, e essa terceira forma de inércia não estava modelada — nem as flags locais de subcomando, já que o guard crava `src/cli/globals.rs`.
+
+O `tests/binary_text_surface_gate.rs` fecha agora o buraco estrutural que está por baixo de tudo isso. `docs/` tinha gate, `skills/` tinha gate, e a terceira superfície publicada — as strings que o BINÁRIO imprime — não tinha nenhum. Foi por essa fresta que `--no-fts-skip-when-functional` atravessou seis releases.
+
+### Uma flag que a ADR decidiu, ninguém construiu, e o binário anunciou por seis releases (GAP-SG-298)
+
+A ADR-0016 decidiu, em junho, `Add --no-fts-skip-when-functional to force a rebuild even when the index is healthy`. As decisões 1, 3, 4, 5 e 6 foram entregues. A decisão 2 não foi, e ninguém percebeu, porque o exemplo do `after_long_help` em `src/commands/optimize.rs` e a mensagem de runtime instruíam a grafia assim mesmo — medido exit 2, `unexpected argument`.
+
+Medir o parser em vez de ler o texto revelou a camada de baixo. `#[arg(long, default_value_t = true)]` num `bool` produz `ArgAction::SetTrue` sobre um default que já é `true`, então **`--fts-skip-when-functional` era completamente INERTE**: passá-la escrevia `true` sobre `true`. Com a positiva inerte e a negada ausente, não existia nenhuma forma, pela linha de comando, de forçar o rebuild de um índice saudável. O `docs/HOW_TO_USE.md` e o gêmeo pt-BR então afirmavam o inverso exato do comportamento — "o skip é OPT-IN", "sem a flag a reconstrução sempre roda" — enquanto o default tornava o skip incondicional.
+
+A grafia negada agora existe e vence quando as duas são passadas, a inerte permanece por compatibilidade com um doc comment que diz que ela é inerte em vez de descrever um efeito que ela não tem, e os dois guias foram corrigidos para "ligado por padrão".
+
+### O gate de flags não distinguia o chamador do chamado (GAP-SG-299)
+
+O `skills_surface_gate` reprovava as duas skills com 13 flags cada, e 12 eram de `codex`, `claude` e `opencode` — citadas de propósito na seção de orquestração headless, onde esses binários são o CHAMADOR e este é o CHAMADO. Um achado real a cada doze falsos treina o leitor a fechar o panic sem ler, o que é pior que um gate que não roda.
+
+O `cited_flags` percorria os code spans do documento inteiro sem nenhuma noção de posse. A posse vive na LINHA, porque a skill nomeia o binário num span e as flags no span seguinte. O extrator agora pula a linha cujos code spans ABREM com binário estrangeiro — o mesmo escopo de linha que o `cited_keys` já usava para o `CONFIG_CONTEXT`. Medido antes de aplicar: os dois escopos colhem as mesmas 200 flags, 7 linhas por skill são estrangeiras, e as flags que somem são exatamente as 13 estrangeiras, sem nenhuma flag nossa citada só ali. A `FLAGS_NOT_IN_CLAP` continua vazia por construção; o defeito era do extrator, e encher uma lista de exceção teria transformado um mecanismo argumentado num despejo.
+
+### O meta-teste da allowlist cravava um arquivo produtor (GAP-SG-300)
+
+O `every_envelope_exemption_still_names_a_field_the_code_emits` lia o `src/agent_surface/mod.rs` e exigia que todo campo isento aparecesse ali, enquanto o arquivo que produz o campo vivia na PROSA da entrada. Adicionar `agent_surface.db_path_source`, cuja justificativa nomeia `src/agent_surface/target.rs:49`, foi reprovado só por isso. O critério verificado e o critério declarado tinham se separado — segunda instância da classe da GAP-SG-296. O arquivo produtor virou dado em vez de prosa, e o teste passou a ler o arquivo que cada entrada declara.
+
+O próprio objeto tinha sido mal classificado na triagem: as duas skills ensinam `agent_surface.db_path_source` sob LEIA, que é a direção de leitura e portanto a correta. O gate reprovava uma afirmação verdadeira.
+
+### Duas declarações mortas que sinalizavam proteção (GAP-SG-301)
+
+O `deny.toml` mantinha `RUSTSEC-2024-0436` numa lista de ignore que não casava com crate nenhum, então o `cargo deny` o rebaixava a `advisory-not-detected` — um warning que ninguém lê, preso a uma linha que afirmava que um risco fora considerado e tratado. O `Cargo.toml` declarava `include` e `exclude` juntos, e o Cargo ignora `exclude` inteiramente quando `include` está presente, então 97 linhas de exclusão eram texto morto. Não houve vazamento: 746 arquivos, 2,61 MB, zero junk, tudo decidido pelo `include`. Declaração que não faz nada é pior que declaração ausente, porque gasta a atenção do revisor e devolve garantia falsa. As duas saíram, o `ignore` continua presente e vazio com o critério de admissão escrito acima dele, e o manifesto passou a carregar um comentário explicando por que não há `exclude`.
+
+À parte, `RUSTSEC-2026-0258` em `h2 0.4.13` era vulnerabilidade real — DATA frames vazios enfileirados sem limite — e o `cargo update -p h2` levou a árvore à 0.4.18.
 ### O único gate automático deste repositório estava vermelho, e o fail-fast escondia o tamanho
 
 `cargo test` é o único gate automático daqui — o `no_ci_workflows_gate` declara isso e proíbe criar outro. Medido em 2026-08-20 ele saiu com exit 101, e o fail-fast parou no primeiro alvo vermelho, então o dano visível era de dez testes num arquivo. Repetido com `--no-fail-fast`: **243 testes em 50 alvos**.

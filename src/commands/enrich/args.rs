@@ -391,8 +391,24 @@ pub struct EnrichArgs {
     #[arg(long, value_name = "CHARS", default_value_t = DEFAULT_BODY_ENRICH_MAX_CHARS)]
     pub max_output_chars: usize,
 
-    /// Check that enriched body preserves all facts from the original (LLM judge). Default: true.
-    #[arg(long, default_value_t = true)]
+    /// Accepted as a no-op: no line reads this field.
+    ///
+    /// The name promises an LLM judge that verifies the enriched body preserves
+    /// every fact of the original, and that judge was never wired. A sweep for
+    /// `preserve_check` across `src/` returns the declaration and one struct
+    /// literal that SETS it — no reader. It is doubly inert, because
+    /// `default_value_t = true` on a `bool` also means the flag cannot change
+    /// its own value.
+    ///
+    /// Kept accepted rather than removed so an existing invocation does not
+    /// start failing with exit 2, and declared here rather than described,
+    /// because a doc comment promising an effect no line produces is how this
+    /// class survives review (GAP-SG-302).
+    #[arg(
+        long,
+        default_value_t = true,
+        help = "No-op: the preservation judge is not wired; the value is never read"
+    )]
     pub preserve_check: bool,
 
     /// Path to a custom prompt template file for body-enrich.
@@ -477,8 +493,21 @@ pub struct EnrichArgs {
     /// The key is `system.` and not `enrich.`: this help named a key that the
     /// registry never declared, so the documented `config set` answered exit 1
     /// with a did-you-mean pointing at the real one.
-    #[arg(long, default_value_t = true)]
+    ///
+    /// "Set to false" above was unreachable until v1.2.8: `default_value_t =
+    /// true` on a `bool` gives `ArgAction::SetTrue` over a default that is
+    /// already `true`, so this flag alone cannot turn the check off.
+    /// `--no-max-load-check` is what does, following the `--auto-describe` pair
+    /// in `ingest` (GAP-SG-302).
+    #[arg(long, default_value_t = true, overrides_with = "no_max_load_check")]
     pub max_load_check: bool,
+    /// Skip the load-average refusal on a contended runner.
+    #[arg(
+        long = "no-max-load-check",
+        default_value_t = false,
+        help = "Start even when the 1-minute load average is above the ceiling"
+    )]
+    pub no_max_load_check: bool,
 
     /// G28-D: when the system is saturated, abort the job after this
     /// many consecutive HardFailure outcomes. Default 5.

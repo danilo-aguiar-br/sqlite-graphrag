@@ -42,7 +42,11 @@ pub(super) fn resolve_provider_binary(args: &EnrichArgs) -> Result<Option<PathBu
 /// is BEFORE preflight so we never spend an OAuth turn on a host
 /// that is already at the limit.
 pub(super) fn check_system_load(args: &EnrichArgs) -> Result<(), AppError> {
-    if args.max_load_check && !args.dry_run && crate::system_load::is_system_saturated() {
+    if args.max_load_check
+        && !args.no_max_load_check
+        && !args.dry_run
+        && crate::system_load::is_system_saturated()
+    {
         let load = crate::system_load::load_average_one();
         let n = crate::system_load::ncpus();
         return Err(AppError::Validation(

@@ -378,7 +378,8 @@ description: This skill MUST activate for every sqlite-graphrag CLI operation an
 - NEVER omit `--embedding-backend openrouter` on a write, because `auto` persists a vectorless memory silently
 - NEVER omit `--fail-on-degraded` on an agent read, because a degraded one returns keyword hits with exit 0
 - NEVER ask for `--mode codex`, `--mode claude-code` or `--mode opencode`; the only accepted value is `openrouter`
-- NEVER treat `--help` text as proof of BEHAVIOR; it advertises `--preserve-check`, which no line reads, and prints `--no-fts-skip-when-functional`, which the parser refuses with exit 2
+- NEVER treat `--help` text as proof of BEHAVIOR; it advertises `--preserve-check`, which no line reads, and advertised `--no-fts-skip-when-functional` for six releases before the parser accepted it
+- KNOW that `--fts-skip-when-functional` is INERT, because the default is already `true`; to force the rebuild of a healthy index PASS `--no-fts-skip-when-functional`
 - NEVER run multiple enrich or deep-research processes on one database; scale INSIDE one process
 - NEVER validate a `:nitro` model against the OpenRouter catalogue, which does not list it
 - NEVER use `SQLITE_GRAPHRAG_*`, `ingest --resume` or `ingest --retry-failed`; all were removed

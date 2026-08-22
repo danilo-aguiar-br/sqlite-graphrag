@@ -721,7 +721,7 @@ includes the schema and the response is larger).
 - `vec stats --json` exposes `vec_memories_rows`, `vec_entities_rows`, `vec_chunks_rows`, `orphans`, and the last vacuum timestamp. Use it to audit vector-table health after bulk `forget` cycles.
 - The `forget` subcommand now calls `memories::delete_vec` BEFORE the soft-delete, preventing new orphans in the steady state.
 ### `optimize` and `backup` Hardening (G36 + G38)
-- `optimize` pre-checks FTS5 health via `check_fts_functional` before rebuilding, and the skip is OPT-IN: pass `--fts-skip-when-functional` to leave a healthy index alone (saves ~10 minutes on a 4.3 GB database). Without the flag the rebuild always runs. The negated spelling --no-fts-skip-when-functional does not exist in v1.2.8 and clap rejects it with exit 2.
+- `optimize` pre-checks FTS5 health via `check_fts_functional` before rebuilding, and the skip is ON BY DEFAULT: a healthy index is left alone (saves ~10 minutes on a 4.3 GB database). `--fts-skip-when-functional` is INERT — `default_value_t = true` on a `bool` means passing it sets `true` over `true` — and is kept only for compatibility. To force the rebuild of a healthy index, pass `--no-fts-skip-when-functional`, decided in ADR-0016 and accepted by the parser since v1.2.8; before that the examples and the runtime message instructed a spelling clap rejected with exit 2.
 - `optimize --fts-dry-run --json` exits 1 if the FTS5 index needs a rebuild, 0 otherwise. CI-friendly.
 - `optimize --fts-progress <N>` (default 30) emits a progress line every N seconds during the rebuild. Set to 0 to disable.
 - `optimize --yes` skips the confirmation prompt. Required for non-interactive CI.

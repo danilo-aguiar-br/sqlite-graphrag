@@ -378,7 +378,8 @@ description: Esta skill DEVE ativar para toda operação da CLI sqlite-graphrag 
 - NUNCA omita `--embedding-backend openrouter` numa escrita, porque `auto` persiste memória sem vetor em silêncio
 - NUNCA omita `--fail-on-degraded` numa leitura de agente, porque degradada devolve palavra-chave com exit 0
 - NUNCA peça `--mode codex`, `--mode claude-code` ou `--mode opencode`; o único valor aceito é `openrouter`
-- NUNCA trate o texto do `--help` como prova de COMPORTAMENTO; ele anuncia `--preserve-check`, que nenhuma linha lê, e imprime `--no-fts-skip-when-functional`, que o parser recusa com exit 2
+- NUNCA trate o texto do `--help` como prova de COMPORTAMENTO; ele anuncia `--preserve-check`, que nenhuma linha lê, e anunciou `--no-fts-skip-when-functional` por seis releases antes de o parser aceitá-la
+- SAIBA que `--fts-skip-when-functional` é INERTE, porque o default já é `true`; para forçar o rebuild de um índice saudável PASSE `--no-fts-skip-when-functional`
 - NUNCA rode múltiplos processos de enrich ou de deep-research num banco; escale DENTRO de um processo
 - NUNCA valide um modelo `:nitro` contra o catálogo da OpenRouter, que não o lista
 - NUNCA use `SQLITE_GRAPHRAG_*`, `ingest --resume` nem `ingest --retry-failed`; todos foram removidos

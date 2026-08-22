@@ -41,3 +41,11 @@ The FTS5 rebuild command is synchronous and does not call the SQLite progress ha
 - `src/commands/optimize.rs:154-170` (`--fts-progress` background thread with `open_ro`).
 - `src/commands/fts.rs:245-265` (`check_fts_functional`).
 - gaps.md G36 lines 1914-2010.
+
+## Implementation record
+
+Decisions 1, 3, 4, 5 and 6 shipped in v1.0.69. **Decision 2 did not**, and the omission survived until 2026-08-22 — six releases — because the two places that would have exposed it were themselves written against this ADR rather than against the parser: the `after_long_help` example in `src/commands/optimize.rs` and the runtime message emitted when the rebuild is skipped both instructed `--no-fts-skip-when-functional` while clap rejected it with exit 2.
+
+Measuring the parser then exposed a second defect this ADR did not anticipate. `--fts-skip-when-functional` was declared as `#[arg(long, default_value_t = true)]` on a `bool`, which yields `ArgAction::SetTrue` over a default that is already `true` — so the positive spelling was inert, and with the negated one absent there was no way at all to obtain the behaviour decision 2 describes.
+
+Both are now correct: the negated flag is declared and wins when both spellings are passed, and the positive one is kept for compatibility with a doc comment that states its inertness. See GAP-SG-298.

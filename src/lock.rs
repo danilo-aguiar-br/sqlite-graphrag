@@ -192,7 +192,7 @@ pub fn calculate_safe_concurrency() -> usize {
 }
 
 /// v1.0.75 — Returns the worker cost in MiB used by `calculate_safe_concurrency`.
-/// Exposed for telemetry and `--info` output.
+/// Exposed so callers can report the budget behind a slot decision.
 pub fn worker_cost_mb() -> u64 {
     LLM_WORKER_RSS_MB
 }

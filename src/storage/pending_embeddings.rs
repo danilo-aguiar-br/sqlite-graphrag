@@ -1,7 +1,7 @@
 //! GAP-005 (v1.0.82): DAO for the `pending_embeddings` table.
 //!
 //! Queue of memories persisted with a NULL embedding for later reprocessing
-//! via `embedding retry --backend <KIND>` or `enrich --operation re-embed --pending-only`.
+//! via `embedding retry <PENDING_ID>` or `enrich --operation re-embed`.
 
 use rusqlite::{params, Connection};
 

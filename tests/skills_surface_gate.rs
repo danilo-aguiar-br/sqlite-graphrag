@@ -57,10 +57,46 @@ const FLAGS_NOT_IN_CLAP: [&str; 0] = [];
 ///
 /// Each entry states where the field is produced, so the exemption stays
 /// checkable instead of becoming a place to hide a typo.
-const ENVELOPE_FIELDS_SHARING_A_NAMESPACE: [(&str, &str); 1] = [(
-    "agent_surface.secondary_capped",
-    "envelope diagnostic written by src/agent_surface/mod.rs, not a setting",
-)];
+const ENVELOPE_FIELDS_SHARING_A_NAMESPACE: [(&str, &str, &str); 2] = [
+    (
+        "agent_surface.secondary_capped",
+        "src/agent_surface/mod.rs",
+        "envelope diagnostic written by the agent-native surface, not a setting",
+    ),
+    (
+        "agent_surface.db_path_source",
+        "src/agent_surface/target.rs",
+        "envelope field named by SOURCE_KEY; both skills teach it under READ/LEIA, \
+         which is the reading direction and therefore the correct one",
+    ),
+];
+
+/// Binaries a skill names as the CALLER of this one.
+///
+/// The headless-orchestration section teaches an agent to drive this binary from
+/// `codex`, `claude` or `opencode`, so their flags appear in code spans as a
+/// matter of correctness rather than drift.
+const FOREIGN_INVOCATION_BINARIES: [&str; 3] = ["codex", "claude", "opencode"];
+
+/// Whether a line opens an invocation of a binary that is not this one.
+///
+/// Ownership lives on the LINE and not on the span, because a skill names the
+/// binary in one span and its flags in the next one, so a span-scoped rule sees
+/// those flags orphaned. Line scope is what `cited_keys` already does for
+/// `CONFIG_CONTEXT`, for the same reason.
+///
+/// Measured 2026-08-22 on both skills: 7 such lines each, and the flags that go
+/// invisible are exactly the 13 foreign ones — no flag of THIS binary is cited
+/// only on such a line, so the exemption costs no coverage today. That is a
+/// property of the current text, not an invariant: a skill that starts teaching
+/// one of our flags on a `codex`/`claude`/`opencode` line loses it silently.
+fn names_a_foreign_invocation(line: &str) -> bool {
+    code_spans(line).iter().any(|span| {
+        span.split_whitespace()
+            .next()
+            .is_some_and(|word| FOREIGN_INVOCATION_BINARIES.contains(&word))
+    })
+}
 
 fn read_repo_file(relative: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
@@ -130,17 +166,22 @@ fn code_spans(markdown: &str) -> Vec<&str> {
 /// trimmed, because `--no-input=false` names `--no-input`.
 fn cited_flags(markdown: &str) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
-    for span in code_spans(markdown) {
-        for word in span.split_whitespace() {
-            let Some(name) = word.strip_prefix("--") else {
-                continue;
-            };
-            let name: String = name
-                .chars()
-                .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
-                .collect();
-            if name.len() >= 2 {
-                found.insert(format!("--{name}"));
+    for line in markdown.lines() {
+        if names_a_foreign_invocation(line) {
+            continue;
+        }
+        for span in code_spans(line) {
+            for word in span.split_whitespace() {
+                let Some(name) = word.strip_prefix("--") else {
+                    continue;
+                };
+                let name: String = name
+                    .chars()
+                    .take_while(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+                    .collect();
+                if name.len() >= 2 {
+                    found.insert(format!("--{name}"));
+                }
             }
         }
     }
@@ -297,7 +338,7 @@ fn every_config_key_a_skill_teaches_exists_in_the_registry() {
         for key in cited_keys(&text, &namespaces) {
             let exempt = ENVELOPE_FIELDS_SHARING_A_NAMESPACE
                 .iter()
-                .any(|(token, _)| *token == key);
+                .any(|(token, _, _)| *token == key);
             if !shipped.contains(&key) && !exempt {
                 fabricated.push(format!("{skill}: {key}"));
             }
@@ -426,14 +467,20 @@ fn the_flag_scanner_ignores_prose_and_trims_the_value_form() {
 fn every_envelope_exemption_still_names_a_field_the_code_emits() {
     // An exemption that outlives its subject is worse than none: it keeps a
     // hole open while the sentence explaining it stops describing anything.
-    let source = read_repo_file("src/agent_surface/mod.rs");
-    for (token, reason) in ENVELOPE_FIELDS_SHARING_A_NAMESPACE {
+    //
+    // The producing file is DECLARED per entry rather than fixed here. Pinning
+    // one path let the check pass only for fields of that file, so an exemption
+    // for a field emitted anywhere else looked fabricated even when it was
+    // right: `db_path_source` lives in target.rs and was rejected on 2026-08-22
+    // for that reason alone.
+    for (token, file, reason) in ENVELOPE_FIELDS_SHARING_A_NAMESPACE {
         let field = token.rsplit('.').next().expect("token has a field part");
+        let source = read_repo_file(file);
         assert!(
             source.contains(field),
-            "the exemption for `{token}` claims `{reason}`, but \
-             src/agent_surface/mod.rs no longer mentions `{field}`; remove the \
-             entry or point it at the file that emits the field now"
+            "the exemption for `{token}` claims `{reason}`, but {file} no longer \
+             mentions `{field}`; remove the entry or point it at the file that \
+             emits the field now"
         );
         assert!(
             reason.len() > 30,

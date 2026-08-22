@@ -41,3 +41,11 @@ O comando de rebuild do FTS5 é síncrono e não chama o progress handler do SQL
 - `src/commands/optimize.rs:154-170` (thread em background de `--fts-progress` com `open_ro`).
 - `src/commands/fts.rs:245-265` (`check_fts_functional`).
 - gaps.md G36 linhas 1914-2010.
+
+## Registro de implementação
+
+As decisões 1, 3, 4, 5 e 6 foram entregues na v1.0.69. **A decisão 2 não foi**, e a omissão sobreviveu até 2026-08-22 — seis releases — porque os dois lugares que a teriam exposto foram eles próprios escritos contra esta ADR e não contra o parser: o exemplo do `after_long_help` em `src/commands/optimize.rs` e a mensagem de runtime emitida quando o rebuild é pulado instruíam `--no-fts-skip-when-functional` enquanto o clap a rejeitava com exit 2.
+
+Medir o parser expôs então um segundo defeito que esta ADR não antecipou. A flag `--fts-skip-when-functional` estava declarada como `#[arg(long, default_value_t = true)]` num `bool`, o que produz `ArgAction::SetTrue` sobre um default que já é `true` — logo a grafia positiva era inerte, e com a negada ausente não havia forma alguma de obter o comportamento que a decisão 2 descreve.
+
+As duas agora estão corretas: a flag negada é declarada e vence quando as duas grafias são passadas, e a positiva permanece por compatibilidade com um doc comment que declara a sua inércia. Ver GAP-SG-298.

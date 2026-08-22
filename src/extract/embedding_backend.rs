@@ -2,8 +2,8 @@
 //!
 //! The legacy fastembed pipeline behind the `embedding-legacy` feature was
 //! REMOVED in v1.0.79 (originally scheduled for v1.1.0). This backend is a
-//! permanent stub kept only so `--extraction-backend embedding` keeps
-//! parsing and returns a clear migration error instead of an opaque one.
+//! permanent stub kept only so the internal backend enum still resolves. The
+//! extraction-backend flag that selected it was removed in the same release.
 
 use super::{BackendHealth, BackendKind, ExtractionBackend, ExtractionHints, ExtractionOutput};
 use crate::errors::AppError;

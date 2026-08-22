@@ -30,7 +30,7 @@ use crate::storage::pending_embeddings::{self, PendingEmbedding, PendingEmbeddin
     # Mark pending_id 7 as abandoned (will not be retried automatically)\n  \
     sqlite-graphrag embedding abandon 7 --yes\n\n  \
     # Note: `embedding retry` requires re-running an LLM subprocess; for full\n  \
-    # retry of every pending entry use `enrich --operation re-embed --pending-only`")]
+    # retry of every pending entry use `enrich --operation re-embed`")]
 /// Embedding args.
 pub struct EmbeddingArgs {
     /// Cmd.
