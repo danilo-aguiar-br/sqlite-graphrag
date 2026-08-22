@@ -14,7 +14,7 @@
 use super::args::{resolve_parallelism, IngestArgs};
 use super::plan::ProcessItem;
 use super::report::StageProgressEvent;
-use super::stage::{stage_file, StagedFile};
+use super::stage::{stage_file, StagedFile, StagingEnv};
 use crate::errors::AppError;
 use crate::paths::AppPaths;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -109,9 +109,12 @@ pub(super) fn spawn(
     process_items: Vec<ProcessItem>,
     paths: &AppPaths,
     parallelism: usize,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<StageProducer, AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(parallelism)
         .build()
@@ -141,12 +144,13 @@ pub(super) fn spawn(
                     item.idx,
                     &item.path,
                     &item.derived_name,
-                    &paths_owned,
-                    options.enable_ner,
-                    options.max_rss_mb,
-                    options.llm_parallelism,
-                    llm_backend,
-                    embedding_backend,
+                    StagingEnv {
+                        paths: &paths_owned,
+                        enable_ner: options.enable_ner,
+                        max_rss_mb: options.max_rss_mb,
+                        llm_parallelism: options.llm_parallelism,
+                        backends: crate::cli::BackendChoice::new(llm_backend, embedding_backend),
+                    },
                     options.auto_describe,
                 );
                 emit_progress(&item.file_str, &result, t0.elapsed().as_millis() as u64);

@@ -227,7 +227,7 @@ fn wait_lock_espera_e_adquire_slot() {
 
     let tmp = TempDir::new().expect("TempDir deve ser criado");
 
-    // Travar todos os 4 slots.
+    // Lock all 4 slots.
     let mut handles = Vec::new();
     for slot in 1..=4 {
         let path = slot_path(&tmp, slot);

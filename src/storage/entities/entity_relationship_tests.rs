@@ -58,7 +58,16 @@ fn test_find_relationship_existing() -> TestResult {
     };
     upsert_relationship(&conn, "global", id_a, id_b, &rel)?;
 
-    let encontrada = find_relationship(&conn, id_a, id_b, "depends_on")?;
+    // v1.2.8: the row is stored as `depends-on` even though the caller wrote
+    // `depends_on`, because `upsert_relationship` canonicalises at the
+    // persistence boundary. That is the fix under test: the caller may use
+    // either spelling and the store holds exactly one.
+    assert!(
+        find_relationship(&conn, id_a, id_b, "depends_on")?.is_none(),
+        "the divergent spelling must NOT reach the table; if it does, the \
+         boundary stopped canonicalising and the split vocabulary is back"
+    );
+    let encontrada = find_relationship(&conn, id_a, id_b, "depends-on")?;
     let row = encontrada.ok_or("relationship should exist")?;
     assert_eq!(row.source_id, id_a);
     assert_eq!(row.target_id, id_b);
@@ -69,8 +78,8 @@ fn test_find_relationship_existing() -> TestResult {
 #[test]
 fn test_find_relationship_missing_returns_none() -> TestResult {
     let (_tmp, conn) = setup_db()?;
-    let resultado = find_relationship(&conn, 9999, 8888, "uses")?;
-    assert!(resultado.is_none());
+    let result = find_relationship(&conn, 9999, 8888, "uses")?;
+    assert!(result.is_none());
     Ok(())
 }
 
@@ -81,9 +90,9 @@ fn test_link_memory_entity_idempotent() -> TestResult {
     let entity_id = upsert_entity(&conn, "global", &new_entity_helper("me-ent"))?;
 
     link_memory_entity(&conn, memory_id, entity_id)?;
-    let resultado = link_memory_entity(&conn, memory_id, entity_id);
+    let result = link_memory_entity(&conn, memory_id, entity_id);
     assert!(
-        resultado.is_ok(),
+        result.is_ok(),
         "INSERT OR IGNORE must not fail on duplicate"
     );
     Ok(())
@@ -106,9 +115,9 @@ fn test_link_memory_relationship_idempotent() -> TestResult {
     let rel_id = upsert_relationship(&conn, "global", id_a, id_b, &rel)?;
 
     link_memory_relationship(&conn, memory_id, rel_id)?;
-    let resultado = link_memory_relationship(&conn, memory_id, rel_id);
+    let result = link_memory_relationship(&conn, memory_id, rel_id);
     assert!(
-        resultado.is_ok(),
+        result.is_ok(),
         "INSERT OR IGNORE must not fail on duplicate"
     );
     Ok(())

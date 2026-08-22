@@ -73,7 +73,7 @@ impl Drop for LlmSlotGuard {
 pub fn acquire_llm_slot(max_concurrent: u32, wait_secs: u64) -> Result<LlmSlotGuard, AppError> {
     if max_concurrent == 0 {
         return Err(AppError::Validation(
-            "max_concurrent deve ser >= 1 para acquire_llm_slot".to_string(),
+            crate::i18n::validation::llm_slot_ceiling_must_be_positive(),
         ));
     }
     let dir = slots_dir();
@@ -370,7 +370,7 @@ mod tests {
         }
         let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
         let successes = results.iter().filter(|r| r.is_ok()).count();
-        // max=2 → no máximo 2 succeeds simultâneos (mas teste serializa)
+        // max=2 -> at most 2 simultaneous successes (but the test serializes)
         assert!(successes >= 1);
 
         restore_slots_env(orig_xdg, orig_cache);

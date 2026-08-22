@@ -27,7 +27,7 @@ use serial_test::serial;
 /// `try_acquire` uses optimistic CAS: reads the current counter and, if below
 /// `max`, attempts to increment it atomically. Returns `true` on success and
 /// `false` if all slots are occupied — identical to the behavior
-/// de `try_lock_exclusive` retornando `WouldBlock`.
+/// of `try_lock_exclusive` returning `WouldBlock`.
 struct SlotSemaforo {
     contador: Arc<AtomicUsize>,
     max: usize,
@@ -48,7 +48,7 @@ impl SlotSemaforo {
         }
     }
 
-    /// Tries to acquire a slot without blocking. Returns `true` se adquiriu.
+    /// Tries to acquire a slot without blocking. Returns `true` if acquired.
     fn try_acquire(&self) -> bool {
         let mut atual = self.contador.load(Ordering::Acquire);
         loop {
@@ -130,7 +130,7 @@ fn quatro_threads_invariante_maximo_tres_slots() {
             h.join().expect("thread terminou com pânico");
         }
 
-        // Ao final, todos os slots devem ter sido liberados.
+        // In the end, all slots must have been released.
         assert_eq!(
             sem.ocupados(),
             0,
@@ -143,7 +143,7 @@ fn quatro_threads_invariante_maximo_tres_slots() {
 ///
 /// Thread A acquires the single available slot. Thread B tries to acquire and fails.
 /// After A releases, B successfully acquires on the next attempt.
-/// Modela o comportamento de polling de `acquire_cli_slot` com `wait_seconds > 0`.
+/// Models the polling behavior of `acquire_cli_slot` with `wait_seconds > 0`.
 #[serial(loom_model)]
 #[test]
 fn release_frees_slot_for_next_thread() {
@@ -170,7 +170,7 @@ fn release_frees_slot_for_next_thread() {
         let ha = loom::thread::spawn(move || {
             loom::thread::yield_now();
             sem_a.release();
-            // Sinaliza que o slot foi liberado.
+            // Signal that the slot has been released.
             liberado.store(1, Ordering::Release);
         });
 
@@ -216,7 +216,7 @@ fn release_frees_slot_for_next_thread() {
 /// 4 threads acquire and release slots in parallel. After all finish,
 /// the counter must be zero — shutdown invariant of the `flock` semaphore.
 ///
-/// loom::MAX_THREADS = 5 (main + 4 spawned). Aqui usamos exatamente 4.
+/// loom::MAX_THREADS = 5 (main + 4 spawned). Here we use exactly 4.
 #[serial(loom_model)]
 #[test]
 fn clean_shutdown_releases_all_slots() {
@@ -251,7 +251,7 @@ fn clean_shutdown_releases_all_slots() {
                 .expect("thread terminou com pânico durante shutdown");
         }
 
-        // Invariante de shutdown: contador retorna a zero.
+        // Shutdown invariant: the counter returns to zero.
         assert_eq!(
             sem.ocupados(),
             0,

@@ -80,7 +80,7 @@ fn recipe_02_bulk_import_body_stdin() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
-    let corpo = "Este é o conteúdo importado via stdin do arquivo markdown.";
+    let body_text = "Este é o conteúdo importado via stdin do arquivo markdown.";
 
     let output = cmd(&dir)
         .args([
@@ -95,7 +95,7 @@ fn recipe_02_bulk_import_body_stdin() {
             "--namespace",
             "global",
         ])
-        .write_stdin(corpo)
+        .write_stdin(body_text)
         .output()
         .unwrap();
 
@@ -112,24 +112,24 @@ fn recipe_02_bulk_import_body_stdin() {
         "recipe 2: action deve ser created"
     );
 
-    // Valida que o corpo foi persistido via read
-    let leitura = cmd(&dir)
+    // Validates that the body was persisted, via read
+    let read_output = cmd(&dir)
         .args(["read", "--name", "doc-importado", "--namespace", "global"])
         .output()
         .unwrap();
     assert!(
-        leitura.status.success(),
+        read_output.status.success(),
         "recipe 2: read do memory importado deve ter exit 0"
     );
-    let json_leitura: serde_json::Value = serde_json::from_slice(&leitura.stdout).unwrap();
-    let body = json_leitura["body"].as_str().unwrap_or("");
+    let read_json: serde_json::Value = serde_json::from_slice(&read_output.stdout).unwrap();
+    let body = read_json["body"].as_str().unwrap_or("");
     assert!(
         body.contains("conteúdo importado via stdin"),
         "recipe 2: body deve conter texto do stdin, got: {body}"
     );
 }
 
-// Recipe 3 — Hybrid search tunable: --rrf-k e --weight-vec emitidos no JSON
+// Recipe 3 — Hybrid search tunable: --rrf-k and --weight-vec emitted in the JSON
 #[test]
 #[serial]
 fn recipe_03_hybrid_search_tunable() {
@@ -201,18 +201,18 @@ fn recipe_03_hybrid_search_tunable() {
         "recipe 3: elapsed_ms deve estar presente"
     );
 
-    // Validar que cada resultado tem vec_rank e fts_rank como documentado
+    // Validate that every result has vec_rank and fts_rank as documented
     let results = json["results"].as_array().unwrap();
     if !results.is_empty() {
-        let primeiro = &results[0];
+        let first = &results[0];
         assert!(
-            primeiro.get("vec_rank").is_some() || primeiro.get("combined_score").is_some(),
+            first.get("vec_rank").is_some() || first.get("combined_score").is_some(),
             "recipe 3: resultado deve ter vec_rank ou combined_score"
         );
     }
 }
 
-// Recipe 4 — Graph traversal: related com --hops retorna JSON com results
+// Recipe 4 — Graph traversal: related with --hops returns JSON with results
 #[test]
 #[serial]
 fn recipe_04_graph_traversal_related() {
@@ -270,28 +270,28 @@ fn recipe_04_graph_traversal_related() {
     );
 }
 
-// Recipe 5 — Pre/post-task hooks: recall retorna JSON com results, remember persiste
+// Recipe 5 — Pre/post-task hooks: recall returns JSON with results, remember persists
 #[test]
 #[serial]
 fn recipe_05_pre_post_task_hooks() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
-    // Simula post-task hook: persiste resposta do assistente
-    let resposta_assistente = "decisão: usar JWT com expiração de 24h para tokens de sessão";
-    let nome_sessao = "session-12345";
+    // Simulates a post-task hook: persists the assistant response
+    let assistant_response = "decisão: usar JWT com expiração de 24h para tokens de sessão";
+    let session_name = "session-12345";
 
     let output_post = cmd(&dir)
         .args([
             "remember",
             "--name",
-            nome_sessao,
+            session_name,
             "--type",
             "project",
             "--description",
             "decision log",
             "--body",
-            resposta_assistente,
+            assistant_response,
             "--namespace",
             "global",
         ])
@@ -303,7 +303,7 @@ fn recipe_05_pre_post_task_hooks() {
         "recipe 5 (post-hook): remember deve ter exit 0"
     );
 
-    // Simula pre-task hook: recupera contexto relevante
+    // Simulates a pre-task hook: retrieves relevant context
     let output_pre = cmd(&dir)
         .args([
             "recall",
@@ -344,7 +344,7 @@ fn recipe_05_pre_post_task_hooks() {
 // Recipe 7 — namespace via --namespace flag (product env is not a channel).
 #[test]
 #[serial]
-fn recipe_07_namespace_flag_precedencia() {
+fn recipe_07_namespace_flag_precedence() {
     // GAP-SG-101: SQLITE_GRAPHRAG_NAMESPACE is not read. Prefer --namespace
     // or `config set namespace.default`.
     let dir = TempDir::new().unwrap();
@@ -376,10 +376,10 @@ fn recipe_07_namespace_flag_precedencia() {
     );
 }
 
-// Recipe 8 — Export para arquivo /tmp/ng.json: hybrid-search > arquivo
+// Recipe 8 — Export to file /tmp/ng.json: hybrid-search > file
 #[test]
 #[serial]
-fn recipe_08_export_para_arquivo() {
+fn recipe_08_export_to_file() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
@@ -420,14 +420,14 @@ fn recipe_08_export_para_arquivo() {
         "recipe 8: hybrid-search deve ter exit 0"
     );
 
-    // Simula redirecionamento para arquivo
+    // Simulates redirection to a file
     fs::write(&dest, &output.stdout).expect("deve escrever ng.json");
 
     assert!(dest.exists(), "recipe 8: ng.json deve existir após export");
 
-    let conteudo = fs::read_to_string(&dest).unwrap();
+    let content = fs::read_to_string(&dest).unwrap();
     let json: serde_json::Value =
-        serde_json::from_str(&conteudo).expect("recipe 8: ng.json deve ser JSON válido");
+        serde_json::from_str(&content).expect("recipe 8: ng.json deve ser JSON válido");
     assert!(
         json["results"].is_array(),
         "recipe 8: ng.json deve conter array results"

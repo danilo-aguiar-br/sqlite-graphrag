@@ -1,4 +1,7 @@
 # ADR-0049 — Escopo da Flag `--db` Por Subcomando (NÃO Global)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: `SQLITE_GRAPHRAG_DB_PATH` nunca é lida em runtime pelo binário v1.2.8 e não tem efeito, inclusive no trecho `#[arg(long, env = ...)]` mostrado abaixo.
+- HISTÓRICO: os canais vivos são a flag `--db <PATH>` DEPOIS do subcomando e `sqlite-graphrag config set db.path`.
 
 **Status**: Aceito
 **Data**: 2026-06-19

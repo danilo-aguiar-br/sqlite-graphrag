@@ -17,7 +17,8 @@ use serde::Serialize;
     sqlite-graphrag purge --retention-days 0\n\n  \
     # Preview what would be purged without deleting\n  \
     sqlite-graphrag purge --dry-run\n\n  \
-    # Purge a specific memory by name\n  \
+    # Purge a specific memory by name (positional or --name, never both)\n  \
+    sqlite-graphrag purge old-memory --namespace my-project\n  \
     sqlite-graphrag purge --name old-memory --namespace my-project\n\n\
 NOTES:\n  \
     `--yes` only confirms intent and does NOT override `--retention-days`.\n  \
@@ -25,7 +26,27 @@ NOTES:\n  \
     (alias for `--retention-days 0`) or pair `--yes` with `--retention-days 0`.")]
 /// Purge args.
 pub struct PurgeArgs {
-    /// Name of this item.
+    /// Memory name as a positional argument. Alternative to `--name`.
+    ///
+    /// GAP-SG-272: matches the spelling `delete-entity`, `reclassify`,
+    /// `rename-entity` and `split-body` already accept. The conflict is declared
+    /// here only, because clap's conflicts are symmetric and stating it once
+    /// keeps the two spellings from drifting apart. Both spellings stay optional
+    /// because omitting the name is what selects the bulk mode driven by
+    /// `--retention-days`.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with = "name",
+        help = "Memory name (kebab-case slug); alternative to --name"
+    )]
+    pub name_positional: Option<String>,
+    /// Soft-deleted memory to purge, narrowing the run to that single name.
+    ///
+    /// Mutually exclusive with the `NAME` positional. When neither spelling is
+    /// supplied, `purge` runs in bulk mode and removes every soft-deleted memory
+    /// of the namespace that is older than `--retention-days`. When one of them
+    /// is supplied, the retention window still applies: a memory newer than the
+    /// cutoff is not purged and the command fails as not found.
     #[arg(long)]
     pub name: Option<String>,
     /// Namespace to purge. Defaults to contextual namespace (`config` / flag / global).
@@ -100,7 +121,14 @@ pub struct PurgeResponse {
 /// Only memories with `deleted_at IS NOT NULL AND deleted_at <= cutoff_epoch` are affected.
 /// When `--dry-run` is set the DELETE is skipped and the response reflects candidates only.
 pub fn run(args: PurgeArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
+
+    // GAP-SG-272: resolved once, so the two spellings cannot disagree between the
+    // metric query, the not-found guard and the DELETE. `or` cannot mask a
+    // conflict here, because clap already refused the invocation that supplied
+    // both spellings. `None` keeps the bulk retention mode intact.
+    let designated_name: Option<&str> = args.name_positional.as_deref().or(args.name.as_deref());
+
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -124,12 +152,12 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
     let mut conn = open_rw(&paths.db)?;
 
     let (bytes_freed, oldest_deleted_at, candidates_count) =
-        compute_metrics(&conn, cutoff_epoch, namespace_opt, args.name.as_deref())?;
+        compute_metrics(&conn, cutoff_epoch, namespace_opt, designated_name)?;
 
-    if candidates_count == 0 && args.name.is_some() {
+    if candidates_count == 0 && designated_name.is_some() {
         return Err(AppError::NotFound(
             errors_msg::soft_deleted_memory_not_found(
-                args.name.as_deref().unwrap_or_default(),
+                designated_name.unwrap_or_default(),
                 &namespace,
             ),
         ));
@@ -148,7 +176,7 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
             &tx,
             &paths.db,
             &namespace,
-            args.name.as_deref(),
+            designated_name,
             cutoff_epoch,
             &mut warnings,
         )?;
@@ -178,7 +206,7 @@ pub fn run(args: PurgeArgs) -> Result<(), AppError> {
         namespace: Some(namespace),
         cutoff_epoch,
         warnings,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
         message,
     })?;
 

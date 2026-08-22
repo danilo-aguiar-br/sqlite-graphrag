@@ -12,7 +12,21 @@ fn make_node(kind: &str) -> NodeOut {
         namespace: "default".to_string(),
         kind: kind.to_string(),
         r#type: kind.to_string(),
+        description: None,
     }
+}
+
+/// G-PR-7: `description` must reach the snapshot, and must stay absent when
+/// there is nothing to report so existing consumers see no new noise.
+#[test]
+fn node_out_carries_description_and_omits_it_when_absent() {
+    let mut node = make_node("person");
+    let json = serde_json::to_value(&node).expect("serialization must work");
+    assert!(json.get("description").is_none());
+
+    node.description = Some("stated by the linked evidence".to_string());
+    let json = serde_json::to_value(&node).expect("serialization must work");
+    assert_eq!(json["description"], "stated by the linked evidence");
 }
 
 #[test]
@@ -342,7 +356,7 @@ fn graph_entities_cli_defaults_to_no_sort_by() {
 }
 
 // -----------------------------------------------------------------------
-// v1.1.1 (P3): graph recompute-degree — reconciliação do cache `degree`
+// v1.1.1 (P3): graph recompute-degree — reconciling the `degree` cache
 // -----------------------------------------------------------------------
 
 fn setup_migrated_db() -> (tempfile::TempDir, rusqlite::Connection) {
@@ -432,8 +446,8 @@ fn max_degree_never_falls_below_the_average_it_ships_beside() {
 #[test]
 fn recompute_degrees_reconciles_updated_zeroed_and_unchanged() {
     let (_tmp, mut conn) = setup_migrated_db();
-    // a—b conectadas mas com degree armazenado errado (0 e 5); c órfã com
-    // degree fantasma 7; d já correta com degree 0.
+    // a—b are connected but carry a wrong stored degree (0 and 5); c is
+    // orphaned with a phantom degree of 7; d is already correct at 0.
     let a = insert_entity_with_degree(&conn, "global", "ent-a", 0);
     let b = insert_entity_with_degree(&conn, "global", "ent-b", 5);
     let c = insert_entity_with_degree(&conn, "global", "ent-c", 7);
@@ -464,7 +478,7 @@ fn recompute_degrees_reconciles_updated_zeroed_and_unchanged() {
     assert_eq!(degree_of(c), 0, "entidade sem arestas deve ser zerada");
     assert_eq!(degree_of(d), 0);
 
-    // Segunda passada converge: tudo unchanged.
+    // A second pass converges: everything unchanged.
     let second = recompute_degrees(&mut conn, Some("global"), false).expect("recompute 2");
     assert_eq!(second.updated + second.zeroed, 0);
     assert_eq!(second.unchanged, 4);
@@ -497,7 +511,7 @@ fn recompute_degrees_scopes_by_namespace_and_none_covers_all() {
     let only_ns1 = recompute_degrees(&mut conn, Some("ns1"), false).expect("ns1");
     assert_eq!(only_ns1.total, 1);
 
-    // ns2 permanece divergente até uma passada sem namespace (todas).
+    // ns2 stays divergent until a pass with no namespace (all of them).
     let all = recompute_degrees(&mut conn, None, false).expect("all");
     assert_eq!(all.total, 2);
     assert_eq!(all.zeroed, 1, "só ns2 ainda divergia");
@@ -527,7 +541,7 @@ fn graph_recompute_degree_cli_parses_flags() {
     }
 }
 
-// --- graph traverse: `depth` é distância mínima (BFS), não ordem de pilha (DFS) ---
+// --- graph traverse: `depth` is minimum distance (BFS), not stack order (DFS) ---
 
 fn edge(source_id: i64, target_id: i64) -> MemoryEdge {
     MemoryEdge {
@@ -539,9 +553,9 @@ fn edge(source_id: i64, target_id: i64) -> MemoryEdge {
 }
 
 fn traverse_fixture() -> (Vec<MemoryEdge>, std::collections::HashMap<i64, String>) {
-    // A -> B em 1 salto, e também A -> C -> D -> B em 3 saltos.
-    // E pendura em B (2 saltos) e em D (3 saltos): sob um frontier LIFO, D
-    // expande antes de B e E é descoberto a 3, não a 2.
+    // A -> B in 1 hop, and also A -> C -> D -> B in 3 hops.
+    // E hangs off B (2 hops) and off D (3 hops): under a LIFO frontier, D
+    // expands before B and E is discovered at 3, not at 2.
     let edges = vec![
         edge(1, 2),
         edge(1, 3),
@@ -576,8 +590,8 @@ fn traverse_reports_minimum_distance_not_dfs_order() {
         "b está a 1 salto de a; um frontier LIFO reportaria 3"
     );
 
-    // E fica a 2 saltos via B e a 3 via D. Um frontier LIFO expande D antes de B
-    // e reporta E a 3; a fila FIFO reporta a distância mínima.
+    // E sits 2 hops away via B and 3 via D. A LIFO frontier expands D before B
+    // and reports E at 3; the FIFO queue reports the minimum distance.
     let first_e = hops
         .iter()
         .find(|h| h.entity == "e")

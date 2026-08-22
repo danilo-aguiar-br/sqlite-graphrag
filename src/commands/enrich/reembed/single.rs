@@ -6,9 +6,10 @@
 //! resolves the same targets but collapses N embedding requests into one.
 
 use crate::commands::enrich::extraction::EnrichItemResult;
-use crate::commands::enrich::postprocess::{record_enrich_backend, reembed_memory_vector};
+use crate::commands::enrich::postprocess::{
+    record_enrich_backend, reembed_memory_vector, MemoryRowRef,
+};
 use crate::commands::enrich::queue;
-use crate::entity_type::EntityType;
 use crate::errors::AppError;
 use crate::storage::entities::{self};
 use rusqlite::Connection;
@@ -23,31 +24,16 @@ pub(crate) fn call_reembed(
     namespace: &str,
     item_key: &str,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<EnrichItemResult, AppError> {
     // v1.1.1 (P2): prefixed keys route to the entity/chunk backfill paths
     // (`re-embed --target entities|chunks|all`); bare keys keep the
     // historical memory behaviour, so pre-v1.1.1 queue rows still work.
     if let Some(entity_name) = item_key.strip_prefix("entity:") {
-        return call_reembed_entity(
-            conn,
-            namespace,
-            entity_name,
-            paths,
-            llm_backend,
-            embedding_backend,
-        );
+        return call_reembed_entity(conn, namespace, entity_name, paths, backends);
     }
     if let Some(chunk_key) = item_key.strip_prefix("chunk:") {
-        return call_reembed_chunk(
-            conn,
-            namespace,
-            chunk_key,
-            paths,
-            llm_backend,
-            embedding_backend,
-        );
+        return call_reembed_chunk(conn, namespace, chunk_key, paths, backends);
     }
     let memory_name = item_key;
     let (memory_id, body, memory_type): (i64, String, String) = conn
@@ -82,20 +68,22 @@ pub(crate) fn call_reembed(
 
     if body.trim().is_empty() {
         return Ok(EnrichItemResult::Skipped {
-            reason: "body is empty".to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::body_is_empty(),
         });
     }
 
     reembed_memory_vector(
         conn,
-        namespace,
-        memory_id,
-        memory_name,
-        &memory_type,
-        &body,
+        MemoryRowRef {
+            namespace,
+            memory_id,
+            memory_name,
+            memory_type: &memory_type,
+            body: &body,
+        },
         paths,
-        llm_backend,
-        embedding_backend,
+        backends,
     )?;
 
     Ok(EnrichItemResult::Done {
@@ -121,8 +109,7 @@ fn call_reembed_entity(
     namespace: &str,
     entity_name: &str,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<EnrichItemResult, AppError> {
     let (entity_id, description, entity_type): (i64, String, String) = conn
         .query_row(
@@ -164,16 +151,12 @@ fn call_reembed_entity(
     } else {
         format!("{entity_name} {description}")
     };
-    let (embedding, backend_kind) = crate::embedder::embed_passage_with_embedding_choice(
-        &paths.models,
-        &text,
-        embedding_backend,
-        llm_backend,
-    )?;
+    let (embedding, backend_kind) =
+        crate::embedder::embed_passage_with_embedding_choice(&paths.models, &text, backends)?;
     if embedding.is_empty() {
         return Ok(EnrichItemResult::Skipped {
-            reason: "embedding backend returned an empty vector (chain resolved to none)"
-                .to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::embedding_backend_returned_empty_vector(),
         });
     }
     record_enrich_backend(backend_kind.as_str());
@@ -181,7 +164,11 @@ fn call_reembed_entity(
         conn,
         entity_id,
         namespace,
-        EntityType::map_to_canonical(&entity_type),
+        // v1.2.8: the label read back from `entities.type` travels as written,
+        // matching the batch path in `reembed::batch::write`. It used to be
+        // folded onto a canonical kind here, which could name a type the row
+        // does not hold; the column is the source of truth either way.
+        &entity_type,
         &embedding,
         entity_name,
     )?;
@@ -204,8 +191,7 @@ fn call_reembed_chunk(
     namespace: &str,
     chunk_key: &str,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<EnrichItemResult, AppError> {
     let chunk_id: i64 = chunk_key.parse().map_err(|_| {
         AppError::Validation(crate::i18n::validation::invalid_chunk_id_in_reembed_key(
@@ -245,19 +231,16 @@ fn call_reembed_chunk(
 
     if chunk_text.trim().is_empty() {
         return Ok(EnrichItemResult::Skipped {
-            reason: "chunk text is empty".to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::chunk_text_is_empty(),
         });
     }
-    let (embedding, backend_kind) = crate::embedder::embed_passage_with_embedding_choice(
-        &paths.models,
-        &chunk_text,
-        embedding_backend,
-        llm_backend,
-    )?;
+    let (embedding, backend_kind) =
+        crate::embedder::embed_passage_with_embedding_choice(&paths.models, &chunk_text, backends)?;
     if embedding.is_empty() {
         return Ok(EnrichItemResult::Skipped {
-            reason: "embedding backend returned an empty vector (chain resolved to none)"
-                .to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::embedding_backend_returned_empty_vector(),
         });
     }
     record_enrich_backend(backend_kind.as_str());

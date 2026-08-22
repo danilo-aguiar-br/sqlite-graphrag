@@ -5,7 +5,6 @@
 
 use super::test_fixtures::*;
 use super::*;
-use crate::entity_type::EntityType;
 
 #[test]
 fn test_upsert_entity_creates_new() -> TestResult {
@@ -34,7 +33,7 @@ fn test_upsert_entity_updates_description() -> TestResult {
 
     let e2 = NewEntity {
         name: "projeto-gamma".to_string(),
-        entity_type: EntityType::Tool,
+        entity_type: "tool".to_string(),
         description: Some("nova desc".to_string()),
     };
     let id2 = upsert_entity(&conn, "global", &e2)?;
@@ -130,14 +129,7 @@ fn test_delete_entities_by_ids_also_removes_vec() -> TestResult {
     let e = new_entity_helper("del-com-vec");
     let entity_id = upsert_entity(&conn, "global", &e)?;
     let emb = embedding_zero();
-    upsert_entity_vec(
-        &conn,
-        entity_id,
-        "global",
-        EntityType::Project,
-        &emb,
-        "del-com-vec",
-    )?;
+    upsert_entity_vec(&conn, entity_id, "global", "project", &emb, "del-com-vec")?;
 
     let count_antes: i64 = conn.query_row(
         "SELECT COUNT(*) FROM entity_embeddings WHERE entity_id = ?1",
@@ -181,5 +173,129 @@ fn test_list_entities_without_namespace_returns_all() -> TestResult {
 
     let lista = list_entities(&conn, None)?;
     assert!(lista.len() >= 2);
+    Ok(())
+}
+
+/// A committed type survives extraction; only the generic one may be refined.
+///
+/// This is the D-03 regression gate. `upsert_entity` writes
+/// `type = excluded.type` unconditionally, and the enrichment worker runs after
+/// EVERY successful write, so a `person` declared through `remember
+/// --graph-stdin` was replaced by whatever the model guessed minutes later —
+/// with no envelope, no warning and no way to notice except by querying the
+/// graph and being surprised. Measured on a live corpus: an area of a company
+/// (`equipe-suporte`) stored as `person`.
+#[test]
+fn enrich_path_never_overwrites_a_committed_entity_type() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_tmp, conn) = setup_db()?;
+
+    // A human write commits `person`.
+    let human = NewEntity {
+        name: "equipe-suporte".to_string(),
+        entity_type: "person".to_string(),
+        description: None,
+    };
+    let id = upsert_entity(&conn, "global", &human)?;
+
+    // Extraction guesses something else and must NOT win.
+    let guess = NewEntity {
+        name: "equipe-suporte".to_string(),
+        entity_type: "organization".to_string(),
+        description: Some("guessed".to_string()),
+    };
+    let same_id = upsert_entity_preserving_type(&conn, "global", &guess)?;
+    assert_eq!(same_id, id, "must address the same row");
+
+    let stored: String = conn.query_row(
+        "SELECT type FROM entities WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(
+        stored, "person",
+        "extraction overwrote a committed type; the enrich worker is once again \
+         free to re-type whatever the caller declared"
+    );
+
+    // The description is still refreshed — withholding the type must not
+    // withhold everything, or extraction stops being useful at all.
+    let desc: Option<String> = conn.query_row(
+        "SELECT description FROM entities WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(desc.as_deref(), Some("guessed"));
+
+    // The other half of the asymmetry, asserted here so this gate cannot pass
+    // vacuously: `upsert_entity` — the HUMAN path — still overwrites. If both
+    // functions behaved the same, the test above would hold for the wrong
+    // reason and the defect could return unnoticed.
+    let human_correction = NewEntity {
+        name: "equipe-suporte".to_string(),
+        entity_type: "organization".to_string(),
+        description: None,
+    };
+    upsert_entity(&conn, "global", &human_correction)?;
+    let after_human: String = conn.query_row(
+        "SELECT type FROM entities WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(
+        after_human, "organization",
+        "the human write path must stay authoritative; if it does not, \
+         `remember --graph-file` can no longer correct a wrong type"
+    );
+    Ok(())
+}
+
+/// The generic type carries no commitment, so extraction may refine it.
+///
+/// Without this, an entity auto-created by `link --create-missing` (which
+/// defaults to `concept`) would be frozen as `concept` forever and the
+/// enrichment path would lose its whole purpose.
+#[test]
+fn enrich_path_refines_the_generic_type() -> Result<(), Box<dyn std::error::Error>> {
+    let (_tmp, conn) = setup_db()?;
+    let generic = NewEntity {
+        name: "acme-corp".to_string(),
+        entity_type: "concept".to_string(),
+        description: None,
+    };
+    let id = upsert_entity(&conn, "global", &generic)?;
+
+    let refined = NewEntity {
+        name: "acme-corp".to_string(),
+        entity_type: "organization".to_string(),
+        description: None,
+    };
+    upsert_entity_preserving_type(&conn, "global", &refined)?;
+
+    let stored: String = conn.query_row(
+        "SELECT type FROM entities WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(stored, "organization", "concept must stay refinable");
+    Ok(())
+}
+
+/// A brand-new entity takes the type extraction gives it.
+#[test]
+fn enrich_path_types_a_new_entity() -> Result<(), Box<dyn std::error::Error>> {
+    let (_tmp, conn) = setup_db()?;
+    let fresh = NewEntity {
+        name: "novo-no".to_string(),
+        entity_type: "incident".to_string(),
+        description: None,
+    };
+    let id = upsert_entity_preserving_type(&conn, "global", &fresh)?;
+    let stored: String = conn.query_row(
+        "SELECT type FROM entities WHERE id = ?1",
+        rusqlite::params![id],
+        |r| r.get(0),
+    )?;
+    assert_eq!(stored, "incident");
     Ok(())
 }

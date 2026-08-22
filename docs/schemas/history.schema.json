@@ -6,34 +6,128 @@
   "$defs": {
     "HistoryVersion": {
       "type": "object",
-      "required": ["version", "name", "type", "description", "metadata", "action", "change_reason", "changed_by", "created_at", "created_at_iso"],
+      "required": [
+        "version",
+        "name",
+        "type",
+        "description",
+        "metadata",
+        "action",
+        "change_reason",
+        "changed_by",
+        "created_at",
+        "created_at_iso"
+      ],
       "additionalProperties": false,
       "properties": {
-        "version":       { "type": "integer", "minimum": 1 },
-        "name":          { "type": "string" },
-        "type":          { "type": "string" },
-        "description":   { "type": "string" },
-        "body":          { "type": "string", "description": "Memory body at this version. Omitted from the response when --no-body is passed." },
-        "metadata":      { "type": "object", "description": "Arbitrary metadata object." },
-        "action":        { "type": "string", "description": "Past-tense label derived from change_reason (created, edited, renamed, restored, merged, forgotten). Always populated." },
-        "change_reason": { "type": ["string", "null"], "description": "Raw verb stored in memory_versions; preserved for backwards compatibility." },
-        "changed_by":    { "type": ["string", "null"] },
-        "created_at":    { "type": "integer" },
-        "created_at_iso":{ "type": "string", "format": "date-time" }
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string",
+          "description": "Memory body at this version. Omitted from the response when --no-body is passed."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Arbitrary metadata object."
+        },
+        "action": {
+          "type": "string",
+          "description": "Past-tense label derived from change_reason (created, edited, renamed, restored, merged, forgotten). Always populated."
+        },
+        "change_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Raw verb stored in memory_versions; preserved for backwards compatibility."
+        },
+        "changed_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "integer"
+        },
+        "created_at_iso": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "changes": {
+          "type": "object",
+          "description": "Character-level change summary against the previous version. Present ONLY when --diff is passed; the field is skipped on the wire otherwise, which is why the closed root validated the default invocation for eight versions while rejecting the one an operator asked for (GAP-SG-291).",
+          "additionalProperties": false,
+          "required": [
+            "added_chars",
+            "removed_chars"
+          ],
+          "properties": {
+            "added_chars": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "removed_chars": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
       }
     }
   },
   "type": "object",
-  "required": ["name", "namespace", "versions", "elapsed_ms"],
+  "required": [
+    "name",
+    "namespace",
+    "versions",
+    "elapsed_ms"
+  ],
   "additionalProperties": false,
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
-    "name":       { "type": "string" },
-    "namespace":  { "type": "string" },
-    "deleted":    { "type": "boolean", "description": "True when memory is currently soft-deleted." },
-    "versions":   { "type": "array", "items": { "$ref": "#/$defs/HistoryVersion" } },
-    "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
+    "name": {
+      "type": "string"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean",
+      "description": "True when memory is currently soft-deleted."
+    },
+    "versions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/HistoryVersion"
+      }
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Handler wall-clock time in milliseconds."
+    }
   }
 }

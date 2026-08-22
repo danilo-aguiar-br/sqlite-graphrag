@@ -12,7 +12,8 @@ use super::wire::{
     ResponseFormat,
 };
 use super::{
-    OpenRouterChatClient, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS, SCHEMA_NAME,
+    OpenRouterChatClient, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS,
+    EXTRACTION_TEMPERATURE, SCHEMA_NAME,
 };
 use crate::constants::DEFAULT_OPENROUTER_CHAT_URL;
 use crate::errors::AppError;
@@ -259,6 +260,7 @@ impl OpenRouterChatClient {
             },
             reasoning,
             max_tokens,
+            temperature: Some(EXTRACTION_TEMPERATURE),
         }
     }
 }

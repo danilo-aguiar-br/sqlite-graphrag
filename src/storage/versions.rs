@@ -7,6 +7,8 @@ use crate::errors::AppError;
 use rusqlite::{params, Connection};
 
 /// Insert version.
+// One parameter per column of the `memory_versions` row this writes: the arity
+// IS the schema, and a struct here would be that row spelled a second time.
 #[allow(clippy::too_many_arguments)]
 pub fn insert_version(
     conn: &Connection,

@@ -92,6 +92,17 @@ schema_ids! {
     FtsStats => "fts-stats";
     Graph => "graph";
     GraphEntities => "graph-entities";
+    // v1.2.8: the audit of the entity-type vocabulary actually stored. Opening
+    // the vocabulary removed the one place the valid labels were written down,
+    // so this contract is how a caller learns which labels exist at all before
+    // filtering by one.
+    GraphEntityTypes => "graph-entity-types";
+    // GAP-SG-216: the `{body, entities, relationships}` wire shape that
+    // `remember --graph-stdin` / `--graph-file` accept. INPUT, not output —
+    // published for the same reason `entities-input` is, and eight releases
+    // later, because until v1.2.8 the two commonest failures on this surface
+    // could only be found by triggering them.
+    GraphInput => "graph-input";
     GraphRecomputeDegree => "graph-recompute-degree";
     GraphStats => "graph-stats";
     GraphTraverse => "graph-traverse";
@@ -115,7 +126,6 @@ schema_ids! {
     NamespaceDetect => "namespace-detect";
     NormalizeEntities => "normalize-entities";
     Optimize => "optimize";
-    PendingList => "pending-list";
     PruneNer => "prune-ner";
     PruneRelations => "prune-relations";
     Purge => "purge";
@@ -128,6 +138,10 @@ schema_ids! {
     Remember => "remember";
     RememberBatch => "remember-batch";
     RememberBatchSummary => "remember-batch-summary";
+    // GAP-SG-216: `remember --dry-run` emits a shape `remember` cannot describe,
+    // since that contract requires fourteen members a run which wrote nothing
+    // has no way to supply. It satisfied no published schema until v1.2.8.
+    RememberDryRun => "remember-dry-run";
     Rename => "rename";
     RenameEntity => "rename-entity";
     Restore => "restore";

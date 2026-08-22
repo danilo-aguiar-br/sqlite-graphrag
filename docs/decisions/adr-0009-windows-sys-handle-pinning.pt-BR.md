@@ -1,4 +1,7 @@
 # ADR-009: Pin Exato de windows-sys 0.59.0 para Estabilidade do Tipo HANDLE
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele cita `.github/workflows/ci.yml` e o job `windows-build-check` como gate canônico, e este repositório não tem o diretório `.github/workflows/`.
+- HISTÓRICO: o gate de CI foi removido sem substituto, porque as releases são manuais; a sonda local que sobrevive é `tests/terminal_compile_windows.rs`.
 
 ## Status
 - Aceito (2026-06-03, v1.0.68)

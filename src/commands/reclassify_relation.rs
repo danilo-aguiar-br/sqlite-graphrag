@@ -9,7 +9,7 @@
 //! `DELETE` removes it; the count of such skipped rows is reported as
 //! `merged_duplicates`.
 
-use crate::entity_type::EntityType;
+use crate::entity_type::normalize_entity_type;
 use crate::errors::AppError;
 use crate::output::{self, OutputFormat};
 use crate::paths::AppPaths;
@@ -86,11 +86,15 @@ pub struct ReclassifyRelationArgs {
     #[arg(long, default_value_t = false)]
     pub batch: bool,
     /// Filter batch: only rename edges whose source entity has this type.
-    #[arg(long, value_enum, value_name = "TYPE", requires = "batch")]
-    pub filter_source_type: Option<EntityType>,
+    /// Any label is accepted (v1.2.8); a label no entity carries simply
+    /// matches nothing.
+    #[arg(long, value_name = "TYPE", requires = "batch")]
+    pub filter_source_type: Option<String>,
     /// Filter batch: only rename edges whose target entity has this type.
-    #[arg(long, value_enum, value_name = "TYPE", requires = "batch")]
-    pub filter_target_type: Option<EntityType>,
+    /// Any label is accepted (v1.2.8); a label no entity carries simply
+    /// matches nothing.
+    #[arg(long, value_name = "TYPE", requires = "batch")]
+    pub filter_target_type: Option<String>,
     /// Preview count without committing changes.
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
@@ -154,7 +158,7 @@ impl ReclassifyRelationArgs {
 
 /// Run.
 pub fn run(args: ReclassifyRelationArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -180,9 +184,9 @@ pub fn run(args: ReclassifyRelationArgs) -> Result<(), AppError> {
     let mut conn = open_rw(&paths.db)?;
 
     if args.batch {
-        run_batch(args, inicio, namespace, &mut conn)
+        run_batch(args, started, namespace, &mut conn)
     } else {
-        run_single(args, inicio, namespace, &mut conn)
+        run_single(args, started, namespace, &mut conn)
     }
 }
 
@@ -192,7 +196,7 @@ pub fn run(args: ReclassifyRelationArgs) -> Result<(), AppError> {
 
 fn run_single(
     args: ReclassifyRelationArgs,
-    inicio: std::time::Instant,
+    started: std::time::Instant,
     namespace: String,
     conn: &mut rusqlite::Connection,
 ) -> Result<(), AppError> {
@@ -265,7 +269,7 @@ fn run_single(
             original_count as usize,
             0,
             namespace,
-            inicio,
+            started,
         )?;
         return Ok(());
     }
@@ -297,29 +301,41 @@ fn run_single(
     conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
 
     let merged = (original_count as usize).saturating_sub(updated + deleted);
-    emit_response(&args, "reclassified", updated, merged, namespace, inicio)
+    emit_response(&args, "reclassified", updated, merged, namespace, started)
 }
 
 // ---------------------------------------------------------------------------
 // Batch mode
 // ---------------------------------------------------------------------------
 
+/// Builds the ` AND <alias>.type = '<label>'` fragment for an optional filter.
+///
+/// v1.2.8: the entity-type vocabulary is open, so this value is now free text
+/// rather than an enum variant. It is normalised for shape (which refuses line
+/// breaks and overlong labels) and single quotes are doubled before the label
+/// reaches the SQL string, because these three batch queries interpolate the
+/// fragment instead of binding it.
+fn type_filter_clause(alias: &str, value: Option<&str>) -> Result<String, AppError> {
+    match value {
+        None => Ok(String::new()),
+        Some(raw) => {
+            let normalized = normalize_entity_type(raw)?;
+            let escaped = normalized.replace('\'', "''");
+            Ok(format!(" AND {alias}.type = '{escaped}'"))
+        }
+    }
+}
+
 fn run_batch(
     args: ReclassifyRelationArgs,
-    inicio: std::time::Instant,
+    started: std::time::Instant,
     namespace: String,
     conn: &mut rusqlite::Connection,
 ) -> Result<(), AppError> {
     // Build WHERE clause extensions for optional entity-type filters.
     // The base query joins relationships with source/target entities.
-    let source_filter = args
-        .filter_source_type
-        .map(|t| format!(" AND src.type = '{}'", t.as_str()))
-        .unwrap_or_default();
-    let target_filter = args
-        .filter_target_type
-        .map(|t| format!(" AND tgt.type = '{}'", t.as_str()))
-        .unwrap_or_default();
+    let source_filter = type_filter_clause("src", args.filter_source_type.as_deref())?;
+    let target_filter = type_filter_clause("tgt", args.filter_target_type.as_deref())?;
     let has_filters = !source_filter.is_empty() || !target_filter.is_empty();
 
     // Count edges that would be affected (used for both dry-run and confirmation).
@@ -358,7 +374,7 @@ fn run_batch(
             original_count as usize,
             0,
             namespace,
-            inicio,
+            started,
         )?;
         return Ok(());
     }
@@ -426,7 +442,7 @@ fn run_batch(
     conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
 
     let merged = (original_count as usize).saturating_sub(updated + deleted);
-    emit_response(&args, "reclassified", updated, merged, namespace, inicio)
+    emit_response(&args, "reclassified", updated, merged, namespace, started)
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +455,7 @@ fn emit_response(
     count: usize,
     merged_duplicates: usize,
     namespace: String,
-    inicio: std::time::Instant,
+    started: std::time::Instant,
 ) -> Result<(), AppError> {
     let response = ReclassifyRelationResponse {
         action: action.to_string(),
@@ -448,7 +464,7 @@ fn emit_response(
         count,
         merged_duplicates,
         namespace: namespace.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

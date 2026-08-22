@@ -77,7 +77,13 @@ pub fn emit_error_envelope(
     suggestion: Option<&str>,
     discarded_flags: &[String],
 ) {
-    let target = crate::agent_surface::target::record(crate::agent_surface::get());
+    // Production call site, so it reads the process-wide ceiling directly. The
+    // failure envelope reports the same target and ceiling a success would have,
+    // which is what lets a caller diagnose a refusal without a second query.
+    let target = crate::agent_surface::target::record(
+        crate::agent_surface::get(),
+        crate::agent_surface::universe::get(),
+    );
     let envelope = ErrorEnvelope {
         error: true,
         code,

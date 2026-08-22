@@ -162,7 +162,12 @@ pub(super) fn scan_operation(
                 .collect())
         }
         EnrichOperation::EntityTypeValidate => {
-            let rows = scan_entities_for_type_validation(conn, namespace, args.limit)?;
+            let rows = scan_entities_for_type_validation(
+                conn,
+                namespace,
+                args.limit,
+                args.entity_type.as_deref(),
+            )?;
             Ok(rows.into_iter().map(|(_, name, _)| name).collect())
         }
         EnrichOperation::DescriptionEnrich => {

@@ -1,4 +1,7 @@
 # ADR-007: Arquitetura da Política de Retry
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: a variável de ambiente `SQLITE_GRAPHRAG_DISABLE_RETRY=1` citada abaixo não é lida em runtime pelo binário v1.2.8 e não tem efeito.
+- HISTÓRICO: o canal vivo é `sqlite-graphrag config set retry.disable true`, ao lado de `db.busy_retries` e `db.busy_base_delay_ms`.
 
 
 ## Status

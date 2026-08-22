@@ -3,7 +3,7 @@
 
 ## Status
 - Aceito (2026-06-09)
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: `src/commands/migrate.rs`, `src/storage/connection.rs`
 - Cobre o bug de registro fantasma da V013 nas versões v1.0.76/v1.0.77
 

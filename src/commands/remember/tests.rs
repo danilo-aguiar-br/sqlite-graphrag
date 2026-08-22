@@ -131,7 +131,7 @@ fn remember_response_action_e_operation_sao_aliases() {
 }
 
 #[test]
-fn remember_response_warnings_lista_mensagens() {
+fn remember_response_warnings_lists_messages() {
     let resp = RememberResponse {
         memory_id: 5,
         name: "dup-mem".to_string(),
@@ -170,16 +170,16 @@ fn remember_response_warnings_lista_mensagens() {
 fn invalid_name_reserved_prefix_returns_validation_error() {
     use crate::errors::AppError;
     // Validates the rejection logic for names with the "__" prefix directly
-    let nome = "__reservado";
-    let resultado: Result<(), AppError> = if nome.starts_with("__") {
+    let name = "__reservado";
+    let result: Result<(), AppError> = if name.starts_with("__") {
         Err(AppError::Validation(
             crate::i18n::validation::reserved_name(),
         ))
     } else {
         Ok(())
     };
-    assert!(resultado.is_err());
-    if let Err(AppError::Validation(msg)) = resultado {
+    assert!(result.is_err());
+    if let Err(AppError::Validation(msg)) = result {
         assert!(!msg.is_empty());
     }
 }
@@ -187,16 +187,16 @@ fn invalid_name_reserved_prefix_returns_validation_error() {
 #[test]
 fn name_too_long_returns_validation_error() {
     use crate::errors::AppError;
-    let nome_longo = "a".repeat(crate::constants::MAX_MEMORY_NAME_LEN + 1);
-    let resultado: Result<(), AppError> =
-        if nome_longo.is_empty() || nome_longo.len() > crate::constants::MAX_MEMORY_NAME_LEN {
+    let long_name = "a".repeat(crate::constants::MAX_MEMORY_NAME_LEN + 1);
+    let result: Result<(), AppError> =
+        if long_name.is_empty() || long_name.len() > crate::constants::MAX_MEMORY_NAME_LEN {
             Err(AppError::Validation(crate::i18n::validation::name_length(
                 crate::constants::MAX_MEMORY_NAME_LEN,
             )))
         } else {
             Ok(())
         };
-    assert!(resultado.is_err());
+    assert!(result.is_err());
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn remember_response_merged_into_memory_id_some_serializes_integer() {
 
 #[test]
 fn remember_response_urls_persisted_serializes_field() {
-    // v1.0.24 P0-2: garante que urls_persisted aparece no JSON e aceita valor > 0.
+    // v1.0.24 P0-2: ensures urls_persisted appears in the JSON and accepts a value > 0.
     let resp = RememberResponse {
         memory_id: 3,
         name: "mem-com-urls".to_string(),
@@ -270,15 +270,15 @@ fn empty_name_after_normalization_returns_specific_message() {
     use crate::errors::AppError;
     let normalized = "---".to_lowercase().replace(['_', ' '], "-");
     let normalized = normalized.trim_matches('-').to_string();
-    let resultado: Result<(), AppError> = if normalized.is_empty() {
+    let result: Result<(), AppError> = if normalized.is_empty() {
         Err(AppError::Validation(
             crate::i18n::validation::name_empty_after_normalization(),
         ))
     } else {
         Ok(())
     };
-    assert!(resultado.is_err());
-    if let Err(AppError::Validation(msg)) = resultado {
+    assert!(result.is_err());
+    if let Err(AppError::Validation(msg)) = result {
         assert!(
             msg.contains("empty after normalization") || msg.contains("vazio após normalização"),
             "mensagem deve mencionar normalização vazia, obteve: {msg}"
@@ -296,15 +296,15 @@ fn name_only_underscores_after_normalization_returns_specific_message() {
         normalized.is_empty(),
         "underscores devem normalizar para string vazia"
     );
-    let resultado: Result<(), AppError> = if normalized.is_empty() {
+    let result: Result<(), AppError> = if normalized.is_empty() {
         Err(AppError::Validation(
             crate::i18n::validation::name_empty_after_normalization(),
         ))
     } else {
         Ok(())
     };
-    assert!(resultado.is_err());
-    if let Err(AppError::Validation(msg)) = resultado {
+    assert!(result.is_err());
+    if let Err(AppError::Validation(msg)) = result {
         assert!(
             msg.contains("empty after normalization") || msg.contains("vazio após normalização"),
             "mensagem deve mencionar normalização vazia, obteve: {msg}"

@@ -1,16 +1,17 @@
-# sqlite-graphrag para Agentes de IA (v1.2.5 — schema v16, DEFAULT_EMBEDDING_DIM=1024)
+# sqlite-graphrag para Agentes de IA (v1.2.8 — schema v17, DEFAULT_EMBEDDING_DIM=1024)
 
 - Versão em inglês: [AGENTS.md](AGENTS.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
 
 > Memória persistente para agentes de IA em um único binário Rust de ~19 MiB.
-> **One-shot e somente REST.** Cada `remember` / `ingest` / `recall` faz uma
+> One-shot e somente REST. Cada `remember` / `ingest` / `recall` faz uma
 > requisição REST ao OpenRouter para o seu embedding; nada local guarda modelo.
 > Não há daemon, não há runtime ONNX, não há servidor MCP e não há hook.
 > Os backends headless `claude` / `codex` / `opencode` foram REMOVIDOS na v1.2.0.
-> **Release atual v1.2.7.** Contrato permanente em toda a linha 1.2.x: schema
-> **v16**, `DEFAULT_EMBEDDING_DIM=1024`, precedência **flag CLI > XDG
-> `config set` > default** (a env de produto `SQLITE_GRAPHRAG_*` **não** é lida
+> Release atual v1.2.8. Contrato permanente em toda a linha 1.2.x: schema
+> `v17` (a V017 abriu o vocabulário de `entity_type`; a v1.2.7 e anteriores
+> publicaram `v16`), `DEFAULT_EMBEDDING_DIM=1024`, precedência flag CLI > XDG
+> `config set` > default (a env de produto `SQLITE_GRAPHRAG_*` não é lida
 > no hot path). O que cada release mudou está em
 > [CHANGELOG.pt-BR.md](../CHANGELOG.pt-BR.md); esta página não guarda uma
 > segunda cópia.
@@ -87,7 +88,7 @@ sqlite-graphrag deep-research "como funciona o claim da fila enrich" --k 20 --tr
 
 ### `schema` — catálogo de contratos legível por máquina
 
-- **OBRIGATÓRIO** quando o agente precisa de um contrato: `sqlite-graphrag schema` emite **NDJSON**, uma linha por contrato, no formato `{"id","invoke"}`. Todos os **75** contratos são listados, e `invoke` é o comando pronto para copiar daquela entrada.
+- **OBRIGATÓRIO** quando o agente precisa de um contrato: `sqlite-graphrag schema` emite **NDJSON**, uma linha por contrato, no formato `{"id","invoke"}`. Todos os **76** contratos são listados, e `invoke` é o comando pronto para copiar daquela entrada.
 - **OBRIGATÓRIO** para buscar um: `sqlite-graphrag schema --name <ID>` emite o documento JSON Schema daquele contrato.
 - **OBRIGATÓRIO** tratamento de erro: `<ID>` desconhecido sai com **exit 4** (not found). Nunca devolve catálogo vazio, então o agente não pode ler "sem saída" como "contrato inexistente".
 - `--json` não muda a listagem — ela é NDJSON por definição.
@@ -120,7 +121,8 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - **OBRIGATÓRIO chaves**: `echo "sk-or-..." | sqlite-graphrag config add-key --provider openrouter --from-stdin` ou one-shot `--openrouter-api-key` (evite histórico de shell). Prefira `config doctor --json`.
 - **OBRIGATÓRIO URLs de rede** via XDG: `config set network.openrouter.chat_url <URL>` e `config set network.openrouter.embeddings_url <URL>` (aliases `network.chat_url` / `network.embed_url`).
 - **OBRIGATÓRIO query Auto fail-fast**: `llm.probe_timeout_ms` default **3000 ms**.
-- **OBRIGATÓRIO fold de EntityType**: `map_to_canonical` dobra aliases (`module` → `concept`); graph-stdin aceita tipos dobrados.
+- **OBRIGATÓRIO vocabulário aberto de entity_type (v1.2.8, GAP-SG-277 / GAP-SG-278)**: qualquer termo é aceito e gravado COMO ESCRITO; nada mais é dobrado em outro rótulo. Um rótulo fora dos treze tipos recomendados é reportado em `warnings`; `remember --strict-entity-types` e `remember-batch --strict-entity-types` recusam a escrita com exit 1 em vez disso (GAP-SG-216). `concept` é aplicado apenas quando o chamador não informa tipo algum.
+- **OBRIGATÓRIO entity_type NÃO é `--type`**: o vocabulário do nó de grafo é ABERTO com 13 tipos recomendados, o de memória é FECHADO com 9, e `project` / `decision` / `incident` existem nos dois com significados diferentes. Leia `schema --name graph-input` para o contrato de fio.
 - **OBRIGATÓRIO remember-batch**: `description` não vazia na criação.
 - **OBRIGATÓRIO aliases**: `pending-embeddings status` e `cache stats` funcionam.
 - **OBRIGATÓRIO purge**: `purge --yes --now` para purge imediato de soft-delete; `--yes` sozinho mantém retenção de 90 dias.
@@ -146,7 +148,7 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - RODE dry-run primeiro em grafos grandes: `enrich --operation entity-connect --dry-run --json --limit 50 --mode openrouter --openrouter-model <MODELO>` — espere `validate` → `scan_start` → `scan` em milissegundos a segundos, não minutos a 100% de CPU.
 - EXECUTE `tests/v1106_entity_connect_scan_regression.rs` ao alterar scan/fila/drain do enrich. VEJA [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.pt-BR.md). Pin de biblioteca `=1.1.6`. `migrate` NÃO é necessário (schema v16).
 
-## Novidades na v1.1.05 — Bugs 1–5 do Incidente danilo (Sem Migração)
+## Novidades na v1.1.05 — Bugs 1–5 do Incidente deep-research (Sem Migração)
 
 - USE `deep-research "<token>" --json` para sujeitos de token único: a decomposição heurística expande em sub-queries multi-aspecto com `source: "aspect"` (facetas EN/PT cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos, contexto). PASSE `--sub-query-strategy manual --sub-queries-file <path>` quando precisar de controle total da lista de sub-queries.
 - GRAVE envelopes grandes de deep-research com `deep-research ... -o PATH` ou `--output PATH` (atomwrite: tempfile no mesmo diretório → fsync → rename). PARSE o ack curto no stdout `{written, bytes, blake3, sub_queries_total, unique_memories_found, elapsed_ms}` — NÃO espere o envelope completo no stdout quando o path de saída estiver definido. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
@@ -154,8 +156,8 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - USE `graph traverse --from <nome-curto> --fuzzy --json` quando o nome canônico da entidade for desconhecido; sem `--fuzzy`, trate as sugestões de NotFound (exit 4, Jaro-Winkler + prefixo ranqueados) como lista de candidatos.
 - REJEITE merges auto-referenciais: NUNCA coloque o valor de `--into-id` dentro de `--ids` (nem `--into` dentro de `--names`). A CLI rejeita isso ANTES de qualquer trabalho no DB (v1.1.05), inclusive sob `--cross-namespace`.
 - PREFIRA `link --from-id <N> --to-id <M>` quando tiver IDs de entidade. NUNCA passe só dígitos como nomes em `--from`/`--to` — `validate_entity_name` rejeita nomes só numéricos para que `--create-missing` não crie entidades fantasma numéricas.
-- EXECUTE `tests/v1105_danilo_bugs_regression.rs` ao alterar o comportamento de deep-research, traverse, merge-entities ou link.
-- VEJA `docs/decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md` (ADR-0065) para a justificativa completa.
+- EXECUTE `tests/v1105_incident_bugs_regression.rs` ao alterar o comportamento de deep-research, traverse, merge-entities ou link.
+- VEJA `docs/decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md` (ADR-0065) para a justificativa completa.
 
 ## Novo na v1.0.93 — Backend de Embedding OpenRouter (GAP-OR-INGEST)
 - Novo backend de embedding: API REST do OpenRouter via `--embedding-backend openrouter --embedding-model MODELO`
@@ -169,7 +171,7 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - Veja ADR-0052 para arquitetura; `gaps.md` para tabelas causa-efeito
 
 ## Novo na v1.0.91 — Isolamento de CWD no Spawn, Correção de Grau, Correções de Schema
-- GAP-SPAWN-001 (CRÍTICO): `apply_cwd_isolation()` adicionado em `src/spawn/mod.rs` — define `current_dir(temp_dir)` e `CLAUDE_CONFIG_DIR=temp_dir` em TODOS os 10 sites de spawn de subprocessos LLM. Elimina interferência de walk-up de `.mcp.json` que causava timeout/401 em qualquer projeto com servidores MCP configurados. Zero-config: não é mais necessário o workaround `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/...`
+- GAP-SPAWN-001 (CRÍTICO): `apply_cwd_isolation()` adicionado em `src/spawn/mod.rs` — define `current_dir(temp_dir)` e `CLAUDE_CONFIG_DIR=temp_dir` em TODOS os 10 sites de spawn de subprocessos LLM. Elimina interferência de walk-up de `.mcp.json` que causava timeout/401 em qualquer projeto com servidores MCP configurados. Zero-config: não é mais necessário o workaround `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1 CLAUDE_CONFIG_DIR=/tmp/...` (HISTÓRICO: essa env var de produto não é lida em runtime desde a v1.2.0)
 - GAP-SPAWN-002 (BAIXO): `cleanup_spawn_dir()` em `src/main.rs` remove `/tmp/sqlite-graphrag-spawn-{PID}/` ao final do processo. `remove_dir()` não-recursivo — seguro para diretórios não-vazios
 - BUG-14 (BAIXO): Teste `opencode_adapter_build_args` corrigido — `"headless"` substituído por `"run"` para casar com o output real de `OpencodeAdapter::build_args()`
 - BUG-15 (MÉDIO): 7 schemas JSON atualizados: enum `backend_invoked` expandida de `["claude", "codex", "none"]` para `["claude", "codex", "opencode", "none", "auto"]`. Afetados: `embedding-status`, `enrich-summary`, `hybrid-search`, `recall`, `remember`, `ingest-summary`, `edit`
@@ -181,8 +183,8 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - OpenCode adicionado como terceiro backend LLM ao lado de codex e claude para pipelines de embedding, ingestão e enriquecimento
 - Prioridade de auto-detect: `codex > claude > opencode > none`; cadeia de fallback padrão: `none`
 - Novo `--llm-backend opencode` / `--mode opencode` aceito em `ingest` e `enrich`
-- Novas variáveis de ambiente: `SQLITE_GRAPHRAG_OPENCODE_BINARY`, `SQLITE_GRAPHRAG_OPENCODE_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL`
-- Novas flags CLI: `--opencode-binary`, `--opencode-model`, `--opencode-timeout`
+- Variáveis de ambiente HISTÓRICAS, não são lidas em runtime desde a v1.2.0 (o backend OpenCode foi removido): `SQLITE_GRAPHRAG_OPENCODE_BINARY`, `SQLITE_GRAPHRAG_OPENCODE_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL`
+- Novas flags CLI: --opencode-binary, --opencode-model, --opencode-timeout (todas REMOVIDAS na v1.2.0 com os spawners de subprocesso)
 - Novos arquivos: `src/commands/ingest_opencode.rs`, `src/commands/opencode_runner.rs`
 - Interface headless do OpenCode: `opencode run --format json -m <provider/model> --dangerously-skip-permissions`
 - 24 bugs/gaps fechados incluindo BUG-AUDIT-001 a 011, BUG-WINDOWS-001, BUG-LIST-TOTAL-COUNT-001
@@ -191,20 +193,20 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - 875 testes passando, 0 falhas. Veja ADR-0051 e `gaps.md`
 
 ## Novo na v1.0.86 — Superfície LLM-Heavy e Semáforo de Slots Host-Wide
-- 5 novos subcomandos para o workflow LLM-pesado: `pending list`, `pending show`, `pending cleanup`, `embedding status`, `embedding list`, `embedding abandon`, `pending-embeddings list`, `pending-embeddings process`, `slots status`, `slots release`
+- 5 novos subcomandos para o workflow LLM-pesado: `pending list`, `pending show`, `pending cleanup`, `embedding status`, `embedding list`, `embedding abandon`, `pending-embeddings list`, `pending-embeddings process`, `slots status`, `slots release` — `pending-embeddings process` e toda a família `pending` não sobreviveram: a família viva é `pending-embeddings list|status|abandon`
 - Nova família `pending` (V014 — tabela `pending_memories`) fornece checkpoint de 3 estágios para o pipeline `remember`. O checkpointer sobrevive a crash; no restart o operador pode usar `pending list` para inspecionar a fila e `pending show <id>` para inspecionar uma entrada única
 - Nova família `embedding` expõe a fila de embedding LLM, com `--status pending|in_progress|done|abandoned` e `--llm-backend codex,claude,none` para o pipeline retry-fallback
 - Nova família `slots` expõe o semáforo host-wide: `slots status` reporta `max_concurrency`, `acquired`, `waiting`, `held_by_pid[]`; `slots release --slot-id N --yes` ceifa slots órfãos
 - Nova flag global `--max-concurrency <N>` limita invocações simultâneas de comandos pesados; `--wait-lock <SECONDS>` amplia a janela de espera
 - Nova flag global `--llm-parallelism <N>` limita o fan-out de subprocessos de embedding (padrão 4, clamp [1, 32]); `--ingest-parallelism <N>` eixo distinto para paralelismo extract+embed por arquivo
-- Nova flag global `--graceful-shutdown-secs <N>` reserva orçamento de cleanup antes do SIGKILL; `--skip-embedding-on-failure` apenas válido com `--llm-backend …,none`
+- Nova flag global --graceful-shutdown-secs <N> (REMOVIDA na v1.2.0) reservava orçamento de cleanup antes do SIGKILL; `--skip-embedding-on-failure` apenas válido com `--llm-backend …,none`
 - Contenção de lock via `fs4 = 0.9` com `fcntl(F_SETLK)` em Unix e `LockFileEx` em Windows (ADR-0039)
 - Veja `docs/decisions/adr-0036-pending-memories-staging.md` e `adr-0039-llm-host-slot-semaphore.md` para as decisões arquiteturais completas
 
 ## Novo na v1.0.87 — Camada de Validação Pre-Flight (ADR-0045, GAP-META-005)
 - Novo módulo `src/spawn/preflight.rs` (≥200 linhas, 7 guards, 15 testes unitários) porta todo spawn de subprocesso LLM ANTES do fork. Falhas retornam `AppError::PreFlightFailed` (exit code 16, `EX_CONFIG`)
 - Os 7 guards em ordem: `check_argv_size` (argv excederia ARG_MAX menos 4 KB; era BUG-3, causava E2BIG pós-fork), `check_binary_exists` (claude/codex alcançável em PATH), `check_mcp_config_inline` (substitui `--mcp-config "{}"` literal por tempfile com `{"mcpServers":{}}`; era BUG-2), `check_mcp_config_path` (valida conteúdo JSON de `--mcp-config <PATH>`), `check_walkup_mcp_json` (valida `.mcp.json` na cadeia ancestral do workspace; era BUG-5), `check_output_buffer` (eleva buffer do parser acima de 64 KB; era BUG-4), `check_claude_config_dir` (evita vazamento MCP de config user-level)
-- Bypass em emergências: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` desabilita todos os 7 guards. Bypass reverte para `Command::spawn()` direto e herda todas as 5 classes BUG do GAP-META-005
+- Bypass em emergências (HISTÓRICO: essa env var não é lida em runtime desde a v1.2.0): `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1` desabilitava todos os 7 guards. Bypass revertia para `Command::spawn()` direto e herda todas as 5 classes BUG do GAP-META-005
 - GAP-META-005 era a causa de 5 classes distintas de falha pós-v1.0.86. ADR-0045 fechou o gap via um único módulo compartilhado consumido pelos 3 spawners (`claude_runner`, `ingest_claude`, `codex_spawn`) mais o embedder
 - Veja `docs/decisions/adr-0045-preflight-validation-layer.md` e `gaps.md#gap-meta-005` para a decisão arquitetural completa e análise de causa raiz
 
@@ -225,7 +227,7 @@ Todo envelope de um processo que resolveu um banco reporta qual camada forneceu 
 - **GAP-E2E-002 (P3)**: `health --namespace <NS> --json` filtra contagens para um único namespace. 1 novo teste em `tests/health_namespace_regression.rs`
 - **GAP-E2E-001 (P2)**: Tamanho do binário 14.6 MiB (não 6 MB como documentado desde v1.0.76). 1 novo teste em `tests/binary_size_documented_regression.rs`
 - `BoolishValueParser`: variáveis de ambiente booleanas agora aceitam `1`/`yes`/`on` (e `0`/`no`/`off`), não apenas `true`/`false`
-- Novas flags: `--codex-binary`, `--llm-model`, `--llm-fallback`, `--llm-max-host-concurrency`, `--llm-slot-wait-secs`, `--llm-slot-no-wait`
+- Novas flags: --codex-binary (REMOVIDA na v1.2.0 com os spawners de subprocesso), `--llm-model`, `--llm-fallback`, `--llm-max-host-concurrency`, `--llm-slot-wait-secs`, `--llm-slot-no-wait`
 - Correção de dead flag: 7 flags de CLI antes parseadas mas nunca repassadas agora são corretamente propagadas para o caminho de spawn do LLM
 - Modelos padrão: `gpt-5.5` para codex, `claude-sonnet-4-6` para claude
 - Total: 1881 testes passando (847 lib + 1013 integração + 21 doc). Binário 15.3 MB ELF stripped. Veja ADR-0048, ADR-0049, ADR-0050
@@ -312,7 +314,7 @@ sqlite-graphrag config doctor --json
 - **HISTÓRICO:** dim default 384→64. **ATUAL (desde v1.2.0):** default **1024**; precedência CLI `--embedding-dim` > XDG `embedding.dim` > `schema_meta.dim` > 1024. Product env não é lida. Bancos pré-existentes mantêm a dimensionalidade registrada sem mudança — ZERO alteração de schema.
 - Chamadas de embedding são EM LOTE (G42/S2): N textos numerados por chamada LLM com o schema `{items:[{i,v}]}`; chunks em lotes de 8, nomes de entidade em 25 (bases de calibração em dim 64; desde o G44 o lote se adapta por clamp(base×64/dim, 1, base) — bancos 384 usam 1/4) — 39 spawns de subprocesso colapsam em 4-5.
 - Paralelismo real bounded (G42/S3): fan-out com `Arc<Semaphore>` + `JoinSet`; nova flag `--llm-parallelism <N>` em `remember` (default 4), `ingest` (default 2) e `edit` (default 4), clamp [1, 32]; permits = min(flag, cpus, RAM livre × 0.5 / 350 MB por worker, 32).
-- `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` seleciona o modelo de embedding do claude (G42/S5, simétrico à var do codex); `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` (default 300) limita cada chamada LLM, com `kill_on_drop(true)` em todo subprocesso.
+- **ATUAL para modelo/timeout:** XDG `embedding.model` / `embedding.timeout_secs` (default 300), com `kill_on_drop(true)` em todo subprocesso. (Os nomes de env **HISTÓRICOS** `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` / `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` não são lidas.)
 - O caminho de embedding usa `CLAUDE_CONFIG_DIR` VAZIO por padrão (G42/S6): honra `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`, senão um diretório gerenciado `~/.local/state/sqlite-graphrag/claude-empty-config`; as flags de isolamento MCP são silenciosamente ignoradas pelo upstream (anthropics/claude-code#10787) e um `~/.claude` populado custava ~223k tokens de cache por chamada (~40-50s → ~10-15s).
 - `enrich --operation re-embed --limit N --resume` é o caminho one-shot canônico de re-embedding; `edit --force-reembed` regenera um embedding sem mudar o body (G42/S9).
 - Sem normalização silenciosa de dimensão (G42/C5): vetores divergentes falham com erro explícito em vez de truncamento ou preenchimento com zeros.
@@ -323,7 +325,7 @@ sqlite-graphrag config doctor --json
 ### OBRIGATÓRIO — Remoções e Depreciações (v1.0.79)
 - As features `embedding-legacy` e `ner-legacy` foram REMOVIDAS (antecipando o cronograma da v1.1.0); todo build é LLM-only.
 - O código restante do `daemon` foi DELETADO; a CLI é 100% one-shot.
-- As flags da era GLiNER foram REMOVIDAS em v1.1.02 (ADR-0062): `--gliner-variant` é rejeitada pelo clap com exit 2 em `remember`/`ingest` (seguindo o precedente `--max-entity-degree` da v1.0.99), e `ingest --mode gliner` também é rejeitada (o enum `IngestMode` agora expõe apenas `none`); `--enable-ner` ainda executa extração URL-regex. As env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` foram deletadas do código e silenciosamente ignoradas se definidas.
+- As flags da era GLiNER foram REMOVIDAS em v1.1.02 (ADR-0062): --gliner-variant é rejeitada pelo clap com exit 2 em `remember`/`ingest` (seguindo o precedente --max-entity-degree da v1.0.99), e `ingest --mode gliner` também é rejeitada (o enum `IngestMode` agora expõe apenas `none`); `--enable-ner` ainda executa extração URL-regex. As env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` foram deletadas do código e silenciosamente ignoradas se definidas.
 - A matriz de CI roda 2 features desde a v1.0.79: `default` e `llm-only`.
 - A matriz de CI roda 2 features desde a v1.0.79: `default` e `llm-only`.
 
@@ -337,7 +339,7 @@ sqlite-graphrag config doctor --json
 ### OBRIGATÓRIO — G45 Singleton de Embedding Cross-Process (v1.0.80)
 - `acquire_embedding_singleton(namespace, db_path, wait_seconds, force)` serializa chamadas de embedding LLM por par `(namespace, db)` entre invocações CLI concorrentes
 - Uma segunda CLI tentando embedar contra o mesmo banco recebe `AppError::EmbeddingSingletonLocked { namespace }` (exit 75, retentável)
-- Passe `--wait-embed-singleton <SEGUNDOS>` para fazer poll até a soltura do lock; bancos ou namespaces distintos adquirem locks independentes
+- Passe --wait-embed-singleton <SEGUNDOS> (REMOVIDA na v1.2.0 com o singleton de embedding) para fazer poll até a soltura do lock; bancos ou namespaces distintos adquirem locks independentes
 - Operacionalmente previne a patologia de "duas invocações de remember, dois subprocessos LLM, dois batches paralelos" do incidente G45
 ### OBRIGATÓRIO — G55 S2: `MemoryNotFound` Estrutural (v1.0.80)
 - O caminho legado `NotFound(String)` que mascarava qual alvo de lookup falhou é substituído por `AppError::MemoryNotFound { name, namespace }` e `AppError::MemoryNotFoundById { id }` dentro de `read` e `hybrid-search`
@@ -379,7 +381,7 @@ sqlite-graphrag config doctor --json
 - O subcomando `daemon` foi totalmente removido (infraestrutura na v1.0.76; código restante de `daemon.rs` deletado na v1.0.79, antecipando o cronograma da v1.1.0).
 ### OBRIGATÓRIO — Apenas OAuth Reafirmado
 - O mandato OAuth-only da v1.0.69 é REAFIRMADO. O spawn ABORTA com `AppError::Validation` se `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` estiverem definidas no ambiente. Ambas as variáveis são excluídas da whitelist de env-clear como defesa em profundidade.
-- Nova flag global `--extraction-backend llm|embedding|none|both` (padrão `llm`) seleciona o backend de extração. `llm` é o caminho LLM; `embedding` é um stub permanente desde a v1.0.79 (pipeline legado removido) que retorna erro de migração; `none` é um no-op; `both` roda os dois em paralelo e funde.
+- Nova flag global --extraction-backend llm|embedding|none|both (REMOVIDA; o parser da v1.2.8 rejeita com exit 2) (padrão `llm`) seleciona o backend de extração. `llm` é o caminho LLM; `embedding` é um stub permanente desde a v1.0.79 (pipeline legado removido) que retorna erro de migração; `none` é um no-op; `both` roda os dois em paralelo e funde.
 - O trait `ExtractionBackend` vive em `src/extract/` com quatro implementações concretas: `LlmBackend` (padrão), `EmbeddingBackend` (stub permanente desde a v1.0.79; pipeline legado removido), `NoneBackend` (no-op) e `CompositeBackend` (funde múltiplos backends em paralelo).
 - O trait `VersionAdapter` vive em `src/spawn/` e abstrai invocações de spawn de executores. `CodexAdapter` detecta `codex 0.130.0` até `0.138+` e adapta flags — `codex 0.137.0` removeu `--ask-for-approval` em favor de `-a never`. `ClaudeAdapter` cobre claude code 2.1.0+. `OpencodeAdapter` cobre opencode headless.
 ## Novidades na v1.0.77
@@ -412,13 +414,13 @@ sqlite-graphrag config doctor --json
 ## Novidades na v1.0.68
 ### Correções de Proliferação de Processos (G28)
 - `enrich`, `ingest --mode claude-code` e `ingest --mode codex` agora adquirem um singleton por namespace via `lock::acquire_job_singleton(job_type, namespace, wait_seconds)`.  Uma segunda invocação concorrente no mesmo banco falha rápido com `AppError::JobSingletonLocked { job_type, namespace }` (código de saída 75, classificado como retryable).  Isso previne o incidente de load average 276 de 2026-06-03 onde 4 invocações paralelas de `enrich` × 2 workers × 10 servidores MCP geraram ~192 processos.
-- `claude_runner::build_claude_command` agora respeita a env var `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`.  Quando definida para um diretório existente e vazio, o subprocesso é iniciado com `CLAUDE_CONFIG_DIR=<esse dir>`, suprimindo servidores MCP do escopo user e a fan-out de 8-10 processos.  Deliberadamente evita `--strict-mcp-config` e `--mcp-config '{}'` porque [anthropics/claude-code#10787] documenta que o Claude Code CLI ignora ambas as flags.
+- `claude_runner::build_claude_command` respeitava a env var HISTÓRICA `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`, que não é lida em runtime desde a v1.2.0.  Quando definida para um diretório existente e vazio, o subprocesso é iniciado com `CLAUDE_CONFIG_DIR=<esse dir>`, suprimindo servidores MCP do escopo user e a fan-out de 8-10 processos.  Deliberadamente evita `--strict-mcp-config` e `--mcp-config '{}'` porque [anthropics/claude-code#10787] documenta que o Claude Code CLI ignora ambas as flags.
 - Struct `retry::CircuitBreaker` adicionada com `AttemptOutcome::{Success, Transient, HardFailure}`.  Erros rate-limited e timeout são explicitamente excluídos da contagem, então um provider que se recupera não é penalizado.  Use-a em loops de retry customizados para limitar iterações em falhas persistentes.
-- `enrich` emite `tracing::warn!` (visível com `-v`) quando `--llm-parallelism > 4`, recomendando combinar com `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` para manter a fan-out administrável.
+- `enrich` emite `tracing::warn!` (visível com `-v`) quando `--llm-parallelism > 4`, recomendando combinar com a env var HISTÓRICA `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR`, não lida em runtime desde a v1.2.0, para manter a fan-out administrável.
 ### Correção de Build Windows (G29)
 - `cargo install sqlite-graphrag` no Windows agora compila.  v1.0.66 e v1.0.67 quebravam com `error[E0308]: mismatched types` em `src/terminal.rs:29` porque `HANDLE` em `windows-sys >= 0.59` é `*mut c_void` (era `isize` em 0.48/0.52).  Substituímos o idiom unsafe por `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.  `windows-sys` está fixado em `=0.59.0` exato, e o CI agora roda `cargo check --target x86_64-pc-windows-msvc` em todo push.
 ### Correções de Testes
-- 3 falhas de teste pré-existentes em `src/commands/{history,list,read}.rs` vazavam a env var `SQLITE_GRAPHRAG_DISPLAY_TZ` entre testes paralelos; corrigidas parseando a saída RFC3339 e comparando `timestamp()` contra `DateTime::UNIX_EPOCH` em vez de afirmar strings hardcoded `1970-01-01T00:00:00`.
+- 3 falhas de teste pré-existentes em `src/commands/{history,list,read}.rs` vazavam a env var HISTÓRICA `SQLITE_GRAPHRAG_DISPLAY_TZ` (não é lida em runtime desde a v1.2.0; use `--tz` ou a chave XDG `display.tz`) entre testes paralelos; corrigidas parseando a saída RFC3339 e comparando `timestamp()` contra `DateTime::UNIX_EPOCH` em vez de afirmar strings hardcoded `1970-01-01T00:00:00`.
 
 ## Novidades na v1.0.67
 ### Novos Comandos
@@ -436,7 +438,7 @@ sqlite-graphrag config doctor --json
 - Novas flags: `--rrf-k` (padrão 60), `--graph-decay` (padrão 0.7), `--graph-min-score` (padrão 0.05), `--max-neighbors-per-hop`
 ### Normalização de Entidades
 - Nomes de entidade agora são normalizados para kebab-case minúsculo em todo path de escrita (remember, ingest, link, rename-entity)
-- Flag `--max-entity-degree N` REMOVIDA de `link` e `remember` na v1.0.99 — a escrita agora é puramente aditiva e NUNCA poda, deleta arestas nem emite warn de grau
+- Flag --max-entity-degree N REMOVIDA de `link` e `remember` na v1.0.99 — a escrita agora é puramente aditiva e NUNCA poda, deleta arestas nem emite warn de grau
 ### Adições ao Comando Health
 - `health` agora reporta `top_relation`, `top_relation_ratio`, `applies_to_ratio` e `relation_concentration_warning` quando qualquer tipo de relação excede 40% do total de arestas
 
@@ -906,7 +908,7 @@ let output = Command::new("sqlite-graphrag")
 
 
 ## Configuração Global
-### OBRIGATÓRIO — Registro completo de chaves XDG (as 63 chaves, v1.2.5)
+### OBRIGATÓRIO — Registro completo de chaves XDG (as 70 chaves, v1.2.5)
 - DEFINA com `config set <chave> <valor>`; LEIA com `config get <chave>`; LIMPE com `config unset <chave>`
 - SAIBA que `config set` valida o VALOR contra o domínio abaixo e responde exit 1 quando ele não cabe
 - SAIBA que chave sem default fica indefinida; `config list --effective --json` imprime só as chaves que resolvem para um valor
@@ -935,12 +937,19 @@ let output = Command::new("sqlite-graphrag")
 - `enrich.circuit_breaker_reset_secs` — unsigned, default `60`
 - `enrich.entity_connect.default_limit` — unsigned, default `100`
 - `enrich.entity_connect.large_ns_limit` — unsigned, default `25`
-- `enrich.entity_description.corpus_top_k` — unsigned, default `5`
+- `enrich.entity_description.corpus_top_k` — unsigned, default `8`
 - `enrich.entity_description.domain` — text, default `auto`
-- `enrich.entity_description.grounding_threshold` — float, default `0.12`
+- `enrich.entity_description.grounding_threshold` — float, default `0.30`
 - `enrich.entity_description.min_corpus_chars` — unsigned, default `40`
+- `enrich.entity_description.neighbour_top_k` — unsigned, default `12`
 - `enrich.entity_description.quality_sample` — unsigned, default `50`
-- `enrich.entity_description.snippet_chars` — unsigned, default `400`
+- `enrich.entity_description.snippet_chars` — unsigned, default `2000`
+- `enrich.entity_type.allowed_types` — text, default `(nenhum)`
+- `enrich.entity_type.on_unknown_type` — text, default `keep`
+- `enrich.entity_type_validate.corpus_top_k` — unsigned, default `8`
+- `enrich.entity_type_validate.min_corpus_chars` — unsigned, default `40`
+- `enrich.entity_type_validate.neighbour_top_k` — unsigned, default `12`
+- `enrich.entity_type_validate.snippet_chars` — unsigned, default `2000`
 - `enrich.rate_limit_deadline_secs` — unsigned, default `3600`
 - `enrich.reembed_claim_batch` — unsigned, default `32`
 - `enrich.scan_page_size` — unsigned, default `512`
@@ -992,6 +1001,10 @@ let output = Command::new("sqlite-graphrag")
 ### OBRIGATÓRIO — Chaves OpenRouter e URLs de Rede
 - ADICIONAR chaves com `config add-key --provider openrouter --from-stdin` (ou one-shot `--openrouter-api-key`)
 - DEFINIR endpoints de chat/embeddings com `config set network.openrouter.chat_url <URL>` e `config set network.openrouter.embeddings_url <URL>`
+- AUDITAR o que está armazenado com `sqlite-graphrag config list-keys --json`; o envelope traz `keys[]` com `provider`, `fingerprint`, `masked_value` e `added_at`, e nunca o segredo em si
+- REMOVER uma chave com `sqlite-graphrag config remove-key <FINGERPRINT> --json`, tirando o fingerprint de `config list-keys --json` antes
+- SAIBA que `config remove-key` destrói o segredo armazenado sem desfazer; toda chamada seguinte recai nas chaves que restaram
+- TRATAR exit `4` de `config remove-key` como `nenhuma chave carrega esse fingerprint`; o envelope reporta `error: true`, `code: 4`, `error_class: "permanent"` e `retryable: false`
 ### OBRIGATÓRIO — Idioma da Saída
 - USAR `--lang en` ou `--lang pt` para forçar idioma
 - PERSISTIR com `config set i18n.lang pt` (ou `en`) quando um default de host for desejado
@@ -1029,7 +1042,7 @@ let output = Command::new("sqlite-graphrag")
 - USAR `--dry-run` para validar o payload (tamanho do body, schema de entidades/relacionamentos, unicidade do nome) sem persistir nada; retorna 0 em sucesso, não-zero em falha de validação
 - USAR `--clear-body` com `--force-merge` para definir explicitamente o body como string vazia em vez de herdar o body existente
 - NER desabilitado por padrão; passar `--enable-ner` para ativar extração automática (**HISTÓRICO:** env `SQLITE_GRAPHRAG_ENABLE_NER` não é lida em v1.2.0) — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER foi removido)
-- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` foi REMOVIDO em v1.1.02 (clap rejeita com exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas
+- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; --gliner-variant foi REMOVIDO em v1.1.02 (clap rejeita com exit 2, seguindo o precedente --max-entity-degree da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas
 - Campo de resposta `extraction_method` informa o método utilizado: `url-regex` (extração de URLs executada) ou `none:extraction-failed`; os valores `gliner-<variant>+regex` e `regex-only` são HISTÓRICOS (≤ v1.0.75)
 - RESPEITAR limite de 512000 bytes e 512 chunks por body
 - USAR `--max-rss-mb <MiB>` para limitar o RSS do processo durante embedding (padrão: 8192 MiB); aborta com exit 77 se excedido
@@ -1095,7 +1108,7 @@ let output = Command::new("sqlite-graphrag")
 - USAR `--name-prefix <prefixo>` (v1.1.01) para prefixar o nome de cada memória ingerida
 ### OBRIGATÓRIO — Controle de Memória RAM
 - USAR `--low-memory` em containers com menos de 4 GB
-- DEFINIR `SQLITE_GRAPHRAG_LOW_MEMORY=1` como override persistente
+- RODAR `config set ingest.low_memory true` para override persistente no config XDG
 - `--low-memory` força `--ingest-parallelism 1` internamente
 - TRADE-OFF é 3 a 4 vezes mais tempo de execução
 - ESCOLHER quando RSS for restrição maior que latência
@@ -1108,8 +1121,8 @@ let output = Command::new("sqlite-graphrag")
 - DISTINGUIR claramente os dois eixos antes de ajustar
 - AMPLIAR `--wait-lock <SECONDS>` para esperar slot antes de exit 75
 ### OBRIGATÓRIO — Performance e Extração
-- NER desabilitado por padrão; passar `--enable-ner` para ativar extração automática — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER em ONNX, o download de modelo de 1,1 GB e a seleção via `--gliner-variant` foram removidos)
-- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; `--gliner-variant` foi REMOVIDO em v1.1.02 (clap rejeita com exit 2)
+- NER desabilitado por padrão; passar `--enable-ner` para ativar extração automática — SOMENTE URL-regex desde a v1.0.79 (o pipeline GLiNER em ONNX, o download de modelo de 1,1 GB e a seleção via --gliner-variant foram removidos)
+- `--skip-extraction` está obsoleto desde v1.0.45 e não tem efeito; --gliner-variant foi REMOVIDO em v1.1.02 (clap rejeita com exit 2)
 - Campo de resposta `extraction_method` informa `url-regex` ou `none:extraction-failed`; `gliner-<variant>+regex` e `regex-only` são valores HISTÓRICOS (≤ v1.0.75)
 - USAR `--enable-ner` apenas quando a extração de URLs como entidades for valiosa
 - PREFERIR `--graph-stdin` com entidades curadas, ou um passo SEPARADO de `enrich`, para qualidade de extração semântica
@@ -1141,7 +1154,7 @@ let output = Command::new("sqlite-graphrag")
 - Eventos de extração NER vão para stderr, NÃO stdout
 ### OBRIGATÓRIO — Modos de Ingestão
 - `ingest --mode` aceita **somente `none`** (body-only, o padrão). Os modos curados por LLM (`claude-code`, `codex`, `opencode`) foram REMOVIDOS, como `gliner` na v1.1.02; clap os rejeita com exit 2
-- A fila curada por LLM foi junto: `--resume`, `--retry-failed`, `--keep-queue`, `--queue-db` e `--rate-limit-wait` deixaram de existir. Não há mais sidecar `.ingest-queue.sqlite`
+- A fila curada por LLM foi junto: `--resume`, `--retry-failed`, --keep-queue, --queue-db e --rate-limit-wait deixaram de existir. Não há mais sidecar `.ingest-queue.sqlite`
 - A substituição são dois passos SEPARADOS: `ingest --mode none` grava os corpos e seus embeddings, depois uma invocação DISTINTA de `enrich` extrai o grafo
 - USAR `enrich --mode openrouter --openrouter-model MODELO` para a etapa de extração; o JUDGE roda sobre REST `/chat/completions` e cobra tokens na chave OpenRouter
 - Pipeline completo de embedding aplicado para recall e hybrid-search
@@ -1174,12 +1187,19 @@ let output = Command::new("sqlite-graphrag")
 ### Helper de Spawn do Codex Unificado (G31+G32+G33)
 - Novo `src/commands/codex_spawn.rs` (~700 linhas, 11 testes) possui o pipeline canônico de spawn, o parser JSONL e a validação de modelo ChatGPT Pro OAuth. Tanto `enrich --mode codex` quanto `ingest --mode codex` consomem o mesmo helper, eliminando a divergência que motivou o wrapper externo `~/.local/bin/codex-clean`.
 - Lista branca de modelos ChatGPT Pro OAuth: `codex-auto-review`, `gpt-5.3-codex-spark`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`. A validação roda ANTES de o subprocesso ser iniciado; um modelo inválido retorna `AppError::Validation` listando os valores aceitos e o match fuzzy mais próximo.
-- Novo subcomando de topo `codex-models --json` expõe a lista, contagem e modelo padrão. `codex-models --suggest <substring>` retorna o match mais próximo via substring ou Levenshtein.
+- Novo subcomando de topo `codex-models --json` (o subcomando inteiro foi REMOVIDO na v1.2.0) expunha a lista, contagem e modelo padrão. codex-models --suggest <substring> retornava o match mais próximo via substring ou Levenshtein.
 - O schema JSON foi movido de `/tmp` para `paths::AppPaths::cache_dir().join("schemas")` para sobreviver a reboots e viver em um diretório trusted.
 - O novo comando canônico inclui a flag de endurecimento OAuth-only `-c mcp_servers='{}'` e `--ask-for-approval never`.
 ### Portão de Preservação Jaccard (G29)
 - Nova flag `--preserve-threshold <FLOAT>` em `enrich` (padrão 0.7). O novo módulo `src/preservation.rs` (10 testes) computa similaridade Jaccard trigrama entre corpos original e enriquecido. Se `score < threshold`, o corpo enriquecido é rejeitado com `EnrichItemResult::PreservationFailed` e NÃO é persistido.
 - Idempotência via `blake3::hash`: quando `old_hash == new_hash`, o corpo é pulado com o motivo `"enriched body hash matches original (blake3:{hash}); idempotency skip"`. Reprocessar a mesma memória é seguro.
+- SAIBA que `enrich` também aceita `--preserve-check`, cujo help diz `Check that enriched body preserves all facts from the original (LLM judge). Default: true`
+- INVOCAR como `sqlite-graphrag enrich --operation body-enrich --preserve-check --db <PATH> --json`
+- SAIBA que ela NÃO recebe valor: `--preserve-check false` sai com exit 2 e `unexpected argument 'false'`
+- SAIBA que ela é declarada com `default_value_t = true` em `src/commands/enrich/args.rs`, então o default já está ligado e NENHUMA grafia a desliga
+- MEDIDO em 2026-08-21: nada em `src/` lê `preserve_check`; as únicas outras ocorrências são a asserção de default em `tests/enrich_after_defaults.rs` e um literal `true` em `src/commands/ingest/enrich_after.rs`
+- TRATAR `--preserve-threshold` mais `src/preservation.rs` como o portão de preservação que de fato roda; o juiz LLM que o help promete não tem caminho de código hoje
+- NUNCA baixe `--preserve-threshold` para compensar `--preserve-check`, porque o interruptor não muda nada e o dial muda tudo
 ### Enum MemorySource (G29)
 - Novo `src/memory_source.rs` (~180 linhas, 8 testes) define um enum type-safe dos cinco valores do CHECK-constraint: `Agent`, `User`, `System`, `Import`, `Sync`. `TryFrom<&str>` retorna `AppError::Validation` listando os valores aceitos.
 - O guard runtime `pub fn validate_source(raw: &str) -> Result<&'static str, AppError>` é chamado de `memories::insert` e `memories::update`. Os call-sites existentes ainda usam `String` para compatibilidade binária; o enum é a fundação para a migração da v1.0.70.
@@ -1196,7 +1216,7 @@ let output = Command::new("sqlite-graphrag")
 ### Enriquecimento Seletivo (G37)
 - Novas flags `--names <NOME>` (delimitado por vírgula) e `--names-file <CAMINHO>` (um nome por linha, comentários `#` aceitos) em `enrich`. Operadores agora podem reprocessar uma única memória sem varrer o conjunto completo.
 ### Preflight e Fallback (G35)
-- Novas flags `--preflight-check`, `--fallback-mode <codex|claude-code>` e `--rate-limit-buffer <SEGUNDOS>` em `enrich`. A sondagem de preflight emite um ping de 1 turno antes de varrer N candidatos; em rate limit do Claude, aborta com erro claro (ou troca para `--fallback-mode`).
+- Novas flags `--preflight-check`, --fallback-mode <codex|claude-code> (REMOVIDA na v1.2.0 com os spawners de subprocesso) e `--rate-limit-buffer <SEGUNDOS>` em `enrich`. A sondagem de preflight emite um ping de 1 turno antes de varrer N candidatos; em rate limit do Claude, aborta com erro claro (ou troca para --fallback-mode).
 ### Aviso de Worker por Modo (G34)
 - O aviso `llm_parallelism > 4` é condicional ao modo: Claude avisa em 5, Codex avisa em 17, Codex 5..16 fica silencioso (validado em 1161 itens, 0 falhas em produção).
 
@@ -1470,6 +1490,9 @@ let output = Command::new("sqlite-graphrag")
 - ESCOLHER profundidade de travessia baseada em densidade real
 - DETECTAR isolamento de subgrafos antes de planejar buscas
 - USAR `graph recompute-degree --json` (v1.1.01) para recalcular os graus armazenados das entidades em uma única transação; `--dry-run` pré-visualiza, `--namespace` delimita o escopo; envelope `{total, updated, zeroed, unchanged}`
+- USAR `graph entity-types --json` (v1.2.8) para LER o vocabulário que o banco realmente contém; `--namespace` delimita o escopo, `--format text` imprime um resumo compacto; envelope `{types[{type, count, canonical}], total_types, total_entities, namespace, elapsed_ms}`
+- A ORDENAÇÃO é por `count` decrescente, então o rótulo dominante aparece primeiro; `canonical: false` é resultado NORMAL porque o vocabulário é aberto, nunca um defeito
+- NUNCA adivinhar um rótulo para passar a `graph entities --entity-type`; essa flag só filtra por rótulo que você já conhece, e este comando é onde você o descobre
 ### OBRIGATÓRIO — Vínculos Memória-Entidade (memory-entities)
 - USAR `sqlite-graphrag memory-entities --name <memória> --json` para listar toda entidade vinculada a uma memória
 - USAR `sqlite-graphrag memory-entities --entity <nome> --json` para a consulta inversa
@@ -1485,16 +1508,26 @@ let output = Command::new("sqlite-graphrag")
 - `applies-to`, `uses`, `depends-on`, `causes`, `fixes`, `contradicts`
 - `supports`, `follows`, `related`, `mentions`, `replaces`, `tracked-in`
 - Tipos customizados de relação (ex.: `implements`, `tested-by`, `blocks`) são aceitos desde v1.0.49; valores não canônicos emitem `tracing::warn!`
-### Tipos Válidos de Entidade
+### Tipos Recomendados de Entidade
 - `project`, `tool`, `person`, `file`, `concept`, `incident`
 - `decision`, `memory`, `dashboard`, `issue_tracker`
 - `organization`, `location`, `date`
+- Desde a v1.2.8 o vocabulário é ABERTO: qualquer outro termo é aceito e gravado como escrito, nunca substituído por um dos treze
+- Um rótulo não canônico é reportado no array `warnings` da resposta; `--strict-entity-types` recusa a escrita com exit 1 em vez disso
+- Só a forma é imposta — trim, minúsculas, hífen vira underscore, e recusa quando vazio, só dígitos, com quebra de linha ou maior que 64 caracteres
+- `concept` é o PADRÃO aplicado quando o chamador não informa tipo algum, nunca um destino para onde um rótulo declarado é movido
 
 
 ## Nota de Arquitetura — Sem Cache de Modelo Local (v1.0.76)
-- O subcomando `cache` foi removido na v1.0.76 junto com o pipeline de modelo ONNX
-- Todo embedding é gerenciado pelo subprocesso LLM (claude ou codex via OAuth)
-- Não há modelo local para cachear, listar ou limpar
+- O pipeline de modelo ONNX foi removido na v1.0.76 e o `init` não baixa nada desde a v1.0.79
+- Todo embedding é feito pela API REST da OpenRouter, então nenhum modelo é buscado em runtime
+- A família `cache` sobrevive para recuperar disco de instalações PRÉ-MIGRAÇÃO apenas
+### OBRIGATÓRIO — cache (Resíduo Pré-Migração)
+- USAR `sqlite-graphrag cache list --json` para reportar `cache_path`, `files[]`, `total_bytes`, `total_human` e `schema_version`
+- USAR `sqlite-graphrag cache stats --json` como alias de `cache list`
+- USAR `sqlite-graphrag cache clear-models --yes --json` para apagar o resíduo; o envelope reporta `bytes_freed`, `files_removed`, `existed` e `cache_path`
+- SAIBA que `--yes` pula o prompt de confirmação, e uma instalação pós-v1.0.79 reporta `files_removed: 0` porque não há o que recuperar
+- SAIBA que nenhum dos dois verbos abre o banco do grafo; `--db` é aceito como no-op e ambos saem com exit `0`
 
 
 ## Contrato JSON e Pipelines
@@ -1517,7 +1550,7 @@ let output = Command::new("sqlite-graphrag")
 ### OBRIGATÓRIO — Campos Críticos por Comando
 - `recall` retorna `results[].name`, `snippet`, `distance`, `score`, `source` (`"direct"`/`"graph"`), `graph_depth?`
 - `recall` response-level: `query`, `k`, `direct_matches[]`, `graph_matches[]`, `results[]`, `elapsed_ms`
-- `hybrid-search` retorna `results[].name`, `combined_score`, `score`, `vec_rank`, `fts_rank`, `source`, `body`, `normalized_score`, `vec_distance`, `fts_bm25`
+- `hybrid-search` retorna `results[].name`, `combined_score`, `score`, `vec_rank`, `fts_rank`, `source`, `body`, `normalized_score`, `vec_distance`
 - `hybrid-search` response-level: `query`, `k`, `rrf_k`, `weights`, `results[]`, `graph_matches[]`, `elapsed_ms`, `fts_degraded`, `fts_error`, `fts_auto_rebuilt`
 - `hybrid-search` `graph_matches[]` usa RecallItem: `name`, `distance`, `source` ("graph"), `graph_depth`
 - `related` retorna `results[].name`, `hop_distance`, `relation`, `source_entity`, `target_entity`, `weight`
@@ -1538,7 +1571,7 @@ let output = Command::new("sqlite-graphrag")
 - `stats` retorna dados GLOBAIS (sem filtro por namespace): `memories`, `entities`, `relationships`, `chunks_total`, `avg_body_len`, `namespaces[]`, `db_size_bytes`, `schema_version`, `elapsed_ms`; também inclui aliases legados `db_bytes`, `edges`, `memories_total`, `entities_total`, `relationships_total`
 - `ingest` por arquivo: `file`, `name`, `status` (`"indexed"`/`"skipped"`/`"failed"`/`"preview"`), `truncated`, `original_name?`, `original_filename?`, `memory_id?`, `action?`, `error?`, `body_length?` (tamanho em bytes do body indexado, presente em linhas `"indexed"`)
 - `ingest` summary: `summary` (true), `files_total`, `files_succeeded`, `files_failed`, `files_skipped`, `elapsed_ms`
-- `export` por memória: uma linha JSON por memória (NDJSON); linha summary final inclui `exported`, `namespace`, `elapsed_ms`; suporta `--namespace`, `--type`, `--include-deleted`, `--limit`, `--offset`
+- `export` por memória: uma linha JSON por memória (NDJSON); linha summary final inclui `exported`, `namespace`, `elapsed_ms`, mais o único registro `agent_surface` do stream inteiro (GAP-SG-215, v1.2.8 — linhas de registro não carregam nenhum, e a linha de sumário nunca é moldada por `--select`); suporta `--namespace`, `--type`, `--include-deleted`, `--limit`, `--offset`
 - `restore` retorna `memory_id`, `name`, `action` ("restored"), `version`, `elapsed_ms`
 - `prune-relations` retorna `action` (`"pruned"`/`"dry_run"`), `relation`, `count`, `entities_affected`, `affected_entity_names?`, `namespace`, `elapsed_ms`
 - subcomando `cache` foi removido na v1.0.76 (sem cache de modelo local)
@@ -1595,7 +1628,7 @@ let output = Command::new("sqlite-graphrag")
 - `--ingest-parallelism` governa extract mais embed paralelos
 - AJUSTAR ambos independentemente conforme RAM e CPU
 - USAR `--low-memory` para forçar paralelismo unitário
-- HONRAR `SQLITE_GRAPHRAG_LOW_MEMORY=1` em hosts restritos
+- DEFINIR a chave XDG `ingest.low_memory` em hosts restritos
 
 
 ## Manutenção e Backup
@@ -1765,7 +1798,7 @@ let output = Command::new("sqlite-graphrag")
 - Cada objeto de entidade DEVE incluir `name` e `entity_type`
 - O campo alias `type` é aceito como sinônimo de `entity_type`
 - Agentes NÃO DEVEM enviar `entity_type` e `type` no mesmo objeto de entidade
-- Valores válidos para `entity_type` são `project`, `tool`, `person`, `file`, `concept`, `incident`, `decision`, `memory`, `dashboard`, `issue_tracker`, `organization`, `location` e `date`
+- Valores recomendados para `entity_type` são `project`, `tool`, `person`, `file`, `concept`, `incident`, `decision`, `memory`, `dashboard`, `issue_tracker`, `organization`, `location` e `date`; desde a v1.2.8 qualquer outro termo é aceito e gravado como escrito, reportado em `warnings`, e recusado apenas sob `--strict-entity-types`
 - `--relationships-file` aceita um array JSON de objetos de relacionamento
 - Cada objeto de relacionamento DEVE incluir `source`/`from`, `target`/`to`, `relation` e `strength`
 - `strength` DEVE ser número de ponto flutuante no intervalo inclusivo `[0.0, 1.0]`
@@ -1784,7 +1817,7 @@ let output = Command::new("sqlite-graphrag")
 - Todo schema declara `"additionalProperties": false` — chaves desconhecidas são violações de contrato
 - Schemas usam `$defs` para subtipos compartilhados (ex: `RecallItem`, `HealthCheck`)
 - Campos opcionais ficam fora do array `required` e são tipados com `["T", "null"]` quando anuláveis
-- Validar resposta em tempo real com um validador JSON Schema real: `jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
+- Validar resposta em tempo real com um validador JSON Schema real: `python3 -m jsonschema --instance <(sqlite-graphrag stats) docs/schemas/stats.schema.json`
 - O arquivo `docs/schemas/debug-schema.schema.json` cobre o subcomando diagnóstico oculto `debug-schema`
 - Schemas são atualizados a cada breaking change e seguem a versão major SemVer da CLI
 
@@ -1811,21 +1844,29 @@ cargo install --path . && sqlite-graphrag init
 
 
 ## Novidades na v1.0.82 — Cinco Gaps Fechados
-### OBRIGATÓRIO — pending (Fila de Checkpoint do `remember` em Três Estágios, ADR-0036)
-- USAR `sqlite-graphrag pending list --status pending --json` para inspecionar a fila
-- USAR `sqlite-graphrag pending show <id> --json` para inspecionar uma linha
-- USAR `sqlite-graphrag pending cleanup --yes --json` para remover linhas em estado terminal
-- ESQUEMA: `docs/schemas/pending-list.schema.json`
-- EXIT code 4 quando `show <id>` referencia um id inexistente; exit 1 para `--status` inválido
+### REMOVIDO na v1.2.8 — pending (Fila de Checkpoint do `remember` em Três Estágios, ADR-0036)
+- SAIBA que a família `pending` nasceu na v1.0.82 e foi REMOVIDA na v1.2.8
+- SAIBA que ela sempre devolvia vazio: o pipeline de três estágios nunca foi ligado
+- NUNCA invoque `pending list`, `pending show` ou `pending cleanup`; o clap sai com exit 2
+- NÃO confunda com `pending-embeddings`, alias de `embedding`, que está VIVO
+- SAIBA que `docs/schemas/pending-list.schema.json` foi REMOVIDO junto com a família; nada aponta para ele
+- SAIBA que os exit codes antigos (4 para id inexistente, 1 para `--status` inválido) são HISTÓRIA: o verbo agora sai com exit 2 no parser
 ### OBRIGATÓRIO — pending-embeddings (Fila de Retry, ADR-0040)
 - USAR `sqlite-graphrag pending-embeddings list --json` para inspecionar a fila
-- USAR `sqlite-graphrag pending-embeddings process --json` para reprocessar com o próximo backend em `--llm-backend`
+- HISTÓRICO: `pending-embeddings process` nunca existiu no binário; hoje o reprocessamento passa por `sqlite-graphrag enrich --operation re-embed --json`
+- USAR `sqlite-graphrag pending-embeddings abandon --status done --dry-run --json` para contar candidatos antes de escrever; o envelope reporta `candidates`, `abandoned` e `dry_run: true`
+- USAR `sqlite-graphrag pending-embeddings abandon --status done --yes --json` para marcar como abandonada toda entrada de um status
+- SAIBA que `--status` aceita `pending`, `in_progress`, `done` e `abandoned`, e tem default `pending`
+- SAIBA que uma entrada abandonada nunca é retentada pela fila; re-embede por `enrich --operation re-embed --json`
 - ESQUEMA: `docs/schemas/embedding-list.schema.json`
 - COMBINAR com `--llm-fallback none` para tornar a degradação explícita
 ### OBRIGATÓRIO — slots (Semáforo Cross-Process de LLM, ADR-0039)
 - USAR `sqlite-graphrag slots status --json` para inspecionar uso host-wide de slots
 - USAR `sqlite-graphrag slots release --slot-id <N> --yes --json` para limpar slots órfãos
 - CAMPOS: `max_concurrency`, `acquired`, `waiting`, `held_by_pid[]`, `p50_wait_ms`, `p99_wait_ms`
+- USAR `sqlite-graphrag slots cleanup --stale-after 3600 --dry-run` para listar os arquivos de slot mais velhos que o limiar sem tocar o filesystem
+- USAR `sqlite-graphrag slots cleanup --stale-after 3600 --yes` para apagá-los; o envelope reporta `removed[]`, `removed_count`, `stale_after_secs` e `yes`
+- SAIBA que `slots cleanup` SEMPRE emite JSON e REJEITA `--json` com clap exit 2; `--stale-after` tem default `3600`
 - CRATE de lock é `fs4 = "0.9"` com `sync` (NÃO `fs2`); backend nativo é `fcntl(F_SETLK)` no Unix e `LockFileEx` no Windows
 - COMBINAR com `--llm-max-host-concurrency N` para sobrescrever o teto padrão
 ### OBRIGATÓRIO — embedding (Saúde da Fila de Pendentes, ADR-0040)
@@ -1836,11 +1877,11 @@ cargo install --path . && sqlite-graphrag init
 - USAR `--llm-backend codex,claude` para fallback de codex para claude em erro
 - USAR `--llm-backend codex,claude,none` com `--skip-embedding-on-failure` para permitir embedding NULL
 - PADRÃO é `codex`; cadeia explícita apenas quando o operador quer comportamento de fallback
-### ADICIONADO v1.0.84 — Pré-voo `--dry-run-backend` (ADR-0042)
+### ADICIONADO v1.0.84 — Pré-voo --dry-run-backend (ADR-0042)
 - SHAPE da resposta: `{action, backend, binary, model, flavour, chain, strict_env_clear}`
 - USAR como auditoria pré-voo em CI antes de sessões longas de ingest; exit 0 indica resolução bem-sucedida
-- USAR `SQLITE_GRAPHRAG_DRY_RUN_BACKEND=1` para definir a flag via env sem alterar linha de comando
-- COMBINAR com `--strict-env-clear` para validar o modo compliance antes de sessões em ambientes regulados
+- HISTÓRICO: `SQLITE_GRAPHRAG_DRY_RUN_BACKEND` não é lida em runtime; USAR a flag --dry-run-backend (REMOVIDA na v1.2.0) na linha de comando
+- COMBINAR com --strict-env-clear (REMOVIDA na v1.2.0) para validar o modo compliance antes de sessões em ambientes regulados
 - Desde a v1.0.84, `embed_via_backend` faz split real entre Claude e Codex via `LlmEmbeddingBuilder` (ver ADR-0042); `--llm-backend claude` agora invoca `claude` e nunca `codex`, resolvendo GAP-002
 - CAMPO `backend_invoked` está presente em 7 envelopes JSON desde a v1.0.84: `embedding status`, `remember`, `edit`, `recall`, `hybrid-search`, `ingest`, `enrich` — consumidores devem tolerar a presença opcional
 ### ADICIONADO v1.0.85 — FallbackReason 7 Variantes (ADR-0043)
@@ -1858,7 +1899,7 @@ cargo install --path . && sqlite-graphrag init
 - Braço intermediário em `src/embedder.rs:351`; failsafe do v1.0.80 restaurado para o caso `--llm-backend none`
 
 ### ADICIONADO v1.0.85.2 — Hotfixes BUG-001/002/003 (ADR-0044)
-- `--dry-run-backend` agora funciona standalone sem subcommand obrigatório (BUG-001, `pub command: Option<Commands>` em `src/cli.rs:248`)
+- --dry-run-backend (REMOVIDA na v1.2.0) passou a funcionar standalone sem subcommand obrigatório (BUG-001, `pub command: Option<Commands>` em `src/cli.rs:248`)
 - `embed_via_backend` retorna `Result<(Vec<f32>, LlmBackendKind), AppError>` propagando `resolved_kind` (BUG-003); 7 envelopes populam `backend_invoked: "claude" | "codex" | "none"` consistentemente
 - `setup_mock_path()` em `tests/embedder.rs:37-77` alinhado com JSON (BUG-002, era JSONL)
 ### OBRIGATÓRIO — Envelope JSON de Shutdown no Exit Code 19 (ADR-0037)
@@ -1866,7 +1907,7 @@ cargo install --path . && sqlite-graphrag init
 - ENVELOPE no stdout quando SIGTERM/SIGINT/SIGHUP chega durante subprocesso LLM
 - CAMPOS: `error: true`, `code: 19`, `signal`, `graceful: bool`, `message`
 - ESQUEMA: `docs/schemas/shutdown-envelope.schema.json`
-- COMBINAR com `--graceful-shutdown-secs <N>` para reservar tempo de cleanup antes do kill
+- COMBINAR com --graceful-shutdown-secs <N> (REMOVIDA na v1.2.0) para reservar tempo de cleanup antes do kill
 ### OBRIGATÓRIO — Incidente codex OAuth 401 (2026-06-14)
 - AÇÃO DO OPERADOR após upgrade: `codex login` para refrescar o refresh token OAuth
 - A cadeia de fallback de captura de stderr em ADR-0040 detecta `refresh_token_reused` e roteia para o próximo backend em `--llm-backend`
@@ -1875,9 +1916,9 @@ cargo install --path . && sqlite-graphrag init
 
 
 
-## Novidades na v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (histórico)
+## Novidades na v1.1.05 — Cinco Bugs do Incidente deep-research de sujeito único (histórico)
 
-> **Ver seção imperativa no topo:** [Novidades na v1.1.05 — Bugs 1–5 do Incidente danilo (Sem Migração)](#novidades-na-v1105--bugs-15-do-incidente-danilo-sem-migração). ADR-0065: `docs/decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md`. Schema do ack: `docs/schemas/deep-research-output-ack.schema.json`.
+> **Ver seção imperativa no topo:** [Novidades na v1.1.05 — Bugs 1–5 do Incidente deep-research (Sem Migração)](#novidades-na-v1105--bugs-15-do-incidente-deep-research-sem-migração). ADR-0065: `docs/decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md`. Schema do ack: `docs/schemas/deep-research-output-ack.schema.json`.
 
 - Nome oficial da release é v1.1.05; o manifest do crate carrega `version = "1.1.5"` (SemVer rejeita zero à esquerda no componente patch). **Sem migração de schema** — permanece em v16. Binário ~19 MiB. Consumidores de biblioteca pinam `=1.1.5`; User-Agent é `sqlite-graphrag/1.1.5`.
 - **Bug 1 (CORREÇÃO)**: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT). Manual: `--sub-query-strategy manual --sub-queries-file`.
@@ -1885,7 +1926,7 @@ cargo install --path . && sqlite-graphrag init
 - **Bug 3 (NOVA FLAG + COMPORTAMENTO)**: `graph traverse --from <nome-curto>` — match exato prioritário; sem `--fuzzy`, NotFound (exit 4) com sugestões Jaro-Winkler/prefixo; com `--fuzzy`, auto-resolve vencedor claro com warning em stderr (`rapidfuzz`). APIs: `entities::resolve_entity_fuzzy`, `suggest_entity_names`, `entity_name_similarity`.
 - **Bug 4 (CORREÇÃO)**: `merge-entities` rejeita self-ref (`--ids` ∋ `--into-id` ou `--names` ∋ `--into`) **antes** de qualquer trabalho no DB.
 - **Bug 5 (NOVAS FLAGS)**: `link --from-id` / `--to-id`; `validate_entity_name` rejeita nomes só de dígitos.
-- Suíte de regressão: `tests/v1105_danilo_bugs_regression.rs` cobre os cinco bugs na fronteira da CLI.
+- Suíte de regressão: `tests/v1105_incident_bugs_regression.rs` cobre os cinco bugs na fronteira da CLI.
 
 ## Novidades na v1.1.04 — Fechamento de Dois Gaps Estruturais (ADR-0064)
 
@@ -1908,7 +1949,7 @@ cargo install --path . && sqlite-graphrag init
 
 ## Novidades na v1.1.02 — Dois Gaps Residuais Fechados + Prune de Órfãos de Entidade (ADR-0062)
 - O nome oficial da release é v1.1.02; o `Cargo.toml` publica `1.1.2` porque o SemVer rejeita zero à esquerda (User-Agent `sqlite-graphrag/1.1.2`). Sem migração; o schema permanece em v15. Binário de ~19 MiB. Consumidores da biblioteca fixam `=1.1.2`.
-- Gap 1 (BREAKING): `--gliner-variant` e o enum `GlinerVariant` foram REMOVIDOS do parser (clap exit 2, seguindo o precedente `--max-entity-degree` da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas; `--mode gliner` também foi REMOVIDO (`IngestMode` agora expõe apenas `none`/`claude-code`/`codex`/`opencode`).
+- Gap 1 (BREAKING): --gliner-variant e o enum `GlinerVariant` foram REMOVIDOS do parser (clap exit 2, seguindo o precedente --max-entity-degree da v1.0.99); as env vars `SQLITE_GRAPHRAG_GLINER_MODEL`/`SQLITE_GRAPHRAG_GLINER_THRESHOLD` são silenciosamente ignoradas; `--mode gliner` também foi REMOVIDO (`IngestMode` agora expõe apenas `none`/`claude-code`/`codex`/`opencode`).
 - Gap 2: `AppError::TooManyTokens{tokens,limit}` é a nova variante tipada exit 6 (junta-se a `BodyTooLarge`/`TooManyChunks`); o envelope JSON informa `{tokens,limit}`.
 - Gap 3: o dispatch `strip_prefix("entity:")` em `call_reembed` é coberto pelo teste de regressão `tests/reembed_entities_integration.rs` — embeddings de entidades fazem backfill de 0→N e a query de cobertura atinge zero ausentes.
 - Nova flag: `enrich --prune-dead-entity-orphans` (mutuamente exclusiva com `--prune-dead-orphans`) deleta linhas dead-letter com chave de entidade do `.enrich-queue.sqlite`; novos testes `prune_dead_entity_orphans_removes_only_entity_dead_rows` e `tests/prune_dead_entity_orphans_integration.rs`.
@@ -1958,9 +1999,9 @@ cargo install --path . && sqlite-graphrag init
 
 ## Novidades da v1.0.83 até a v1.0.93 (Backfill)
 - v1.0.83: preservação de env de provider Anthropic-compatível customizado (ADR-0041) — MiniMax/OpenRouter/gateways corporativos sem quebrar OAuth-only.
-- v1.0.84: split real do backend Claude (ADR-0042) — `--llm-backend claude` invoca claude, nunca codex; `backend_invoked` em 7 envelopes JSON; `--dry-run-backend`.
+- v1.0.84: split real do backend Claude (ADR-0042) — `--llm-backend claude` invoca claude, nunca codex; `backend_invoked` em 7 envelopes JSON; --dry-run-backend (REMOVIDA na v1.2.0).
 - v1.0.85: remediação de cinco gaps (ADR-0043) — `FallbackReason` estendido para 7 variantes com `reason_code`; fallback determinístico em OAuthQuota/SlotExhausted.
-- v1.0.87: camada de validação pre-flight (ADR-0045) — 7 guards barram cada spawn LLM; exit code 16; `SQLITE_GRAPHRAG_SKIP_PREFLIGHT`.
+- v1.0.87: camada de validação pre-flight (ADR-0045) — 7 guards barram cada spawn LLM; exit code 16; `SQLITE_GRAPHRAG_SKIP_PREFLIGHT` HISTÓRICA, não lida em runtime desde a v1.2.0.
 - v1.0.88: hotfixes BUG-11/12/13 (ADR-0046/0047) — propagação de preflight, stderr de linha única, validação de nome de entidade em `link --create-missing`.
 - v1.0.89: schema como artefato derivado + paridade de flags + remediação de deadlock de embedding (ADR-0048/0049/0050).
 - v1.0.90: integração do backend OpenCode (ADR-0051) — terceiro backend LLM; `--llm-backend opencode`, `--mode opencode`; fallback `codex -> claude -> opencode -> none`.

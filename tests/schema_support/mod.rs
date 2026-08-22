@@ -5,7 +5,16 @@
 //! was split by command family; this is the part every split file needs.
 
 #![allow(dead_code)]
-#![cfg(feature = "slow-tests")]
+// NO `#![cfg(feature = "slow-tests")]` HERE — the gate belongs in the five
+// consumer files, as it does in the 33 other gated test files and in the
+// `contract_support`, `smoke_support`, `migration_support` and `prd_support`
+// harnesses, none of which cfg themselves.
+//
+// With the attribute here, a default `cargo test` did not skip these suites:
+// the module vanished from the graph and `use support::{…}` failed with E0432
+// in five targets, taking the whole test build down. Because `include` ships
+// `tests/**/*.rs`, every crates.io consumer inherited the break, and rustc's
+// suggestion (`cargo add support`) points away from the cause.
 
 // Each test runs the binary, captures stdout, parses it as JSON and validates against
 // docs/schemas/<cmd>.schema.json using the jsonschema::Validator crate.
@@ -59,13 +68,13 @@ impl Env {
         self.cmd().arg("init").assert().success();
     }
 
-    pub fn remember_simples(&self, nome: &str) -> Value {
-        let saida = self
+    pub fn remember_simple(&self, name: &str) -> Value {
+        let output = self
             .cmd()
             .args([
                 "remember",
                 "--name",
-                nome,
+                name,
                 "--type",
                 "project",
                 "--description",
@@ -76,25 +85,25 @@ impl Env {
                 "corpo-de-teste-schema-contract",
             ])
             .output()
-            .expect("remember failed ao executar");
+            .expect("remember failed to run");
         assert!(
-            saida.status.success(),
-            "remember retornou erro: {:?}\nstdout: {}",
-            saida.status.code(),
-            String::from_utf8_lossy(&saida.stdout)
+            output.status.success(),
+            "remember returned an error: {:?}\nstdout: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout)
         );
-        serde_json::from_slice(&saida.stdout).expect("remember stdout não é JSON válido")
+        serde_json::from_slice(&output.stdout).expect("remember stdout is not valid JSON")
     }
 
     pub fn remember_with_entities(&self, name: &str) -> (String, String) {
         let ent_a = format!("Ent{}Alpha", name.replace('-', ""));
         let ent_b = format!("Ent{}Beta", name.replace('-', ""));
-        let caminho_ents = self.tmp.path().join(format!("{name}_ents.json"));
+        let entities_path = self.tmp.path().join(format!("{name}_ents.json"));
         let json_ents = format!(
             r#"[{{"name":"{ent_a}","entity_type":"concept"}},{{"name":"{ent_b}","entity_type":"concept"}}]"#
         );
-        std::fs::write(&caminho_ents, &json_ents).expect("escrita de entidades failed");
-        let saida = self
+        std::fs::write(&entities_path, &json_ents).expect("writing the entities file failed");
+        let output = self
             .cmd()
             .args([
                 // The graph fixture only needs the entities persisted; embedding
@@ -111,23 +120,25 @@ impl Env {
                 "--body",
                 "corpo-com-entidades-para-schema",
                 "--entities-file",
-                caminho_ents.to_str().expect("caminho inválido"),
+                entities_path
+                    .to_str()
+                    .expect("entities path is not valid UTF-8"),
             ])
             .output()
-            .expect("remember com entidades failed");
+            .expect("remember with entities failed to run");
         assert!(
-            saida.status.success(),
-            "remember com entidades retornou erro: {:?}",
-            saida.status.code()
+            output.status.success(),
+            "remember with entities returned an error: {:?}",
+            output.status.code()
         );
         (ent_a, ent_b)
     }
 
-    pub fn parse_stdout(saida: &std::process::Output, cmd: &str) -> Value {
-        serde_json::from_slice(&saida.stdout).unwrap_or_else(|e| {
+    pub fn parse_stdout(output: &std::process::Output, cmd: &str) -> Value {
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
             panic!(
-                "[{cmd}] stdout não é JSON válido: {e}\nstdout bruto: {:?}",
-                String::from_utf8_lossy(&saida.stdout)
+                "[{cmd}] stdout is not valid JSON: {e}\nraw stdout: {:?}",
+                String::from_utf8_lossy(&output.stdout)
             )
         })
     }
@@ -141,31 +152,31 @@ pub const AGENT_SURFACE_SCHEMA: &str = include_str!("../../docs/schemas/agent-su
 const AGENT_SURFACE_URI: &str =
     "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json";
 
-/// Validates `instancia` against the schema in `schema_str`.
+/// Validates `instance` against the schema in `schema_str`.
 /// Collects all errors and aborts with a detailed message if any violations exist.
 ///
 /// The shared agent-surface document is registered as an in-memory resource so
 /// the `$ref` into it resolves offline; no network retrieval ever happens.
-pub fn validar_schema(cmd: &str, schema_str: &str, instancia: &Value) {
+pub fn validate_schema(cmd: &str, schema_str: &str, instance: &Value) {
     let schema: Value =
-        serde_json::from_str(schema_str).unwrap_or_else(|e| panic!("[{cmd}] schema inválido: {e}"));
-    let compartilhado: Value = serde_json::from_str(AGENT_SURFACE_SCHEMA)
-        .unwrap_or_else(|e| panic!("[{cmd}] agent-surface.schema.json inválido: {e}"));
-    let recurso = jsonschema::Resource::from_contents(compartilhado)
-        .unwrap_or_else(|e| panic!("[{cmd}] agent-surface não é um recurso válido: {e}"));
-    let validador = jsonschema::options()
-        .with_resource(AGENT_SURFACE_URI, recurso)
+        serde_json::from_str(schema_str).unwrap_or_else(|e| panic!("[{cmd}] invalid schema: {e}"));
+    let shared: Value = serde_json::from_str(AGENT_SURFACE_SCHEMA)
+        .unwrap_or_else(|e| panic!("[{cmd}] agent-surface.schema.json is invalid: {e}"));
+    let resource = jsonschema::Resource::from_contents(shared)
+        .unwrap_or_else(|e| panic!("[{cmd}] agent-surface is not a valid resource: {e}"));
+    let validator = jsonschema::options()
+        .with_resource(AGENT_SURFACE_URI, resource)
         .build(&schema)
-        .unwrap_or_else(|e| panic!("[{cmd}] failure ao compilar schema: {e}"));
-    let erros: Vec<String> = validador
-        .iter_errors(instancia)
-        .map(|e| format!("  - caminho={} tipo={:?}", e.instance_path, e.kind))
+        .unwrap_or_else(|e| panic!("[{cmd}] failed to compile the schema: {e}"));
+    let violations: Vec<String> = validator
+        .iter_errors(instance)
+        .map(|e| format!("  - path={} kind={:?}", e.instance_path, e.kind))
         .collect();
     assert!(
-        erros.is_empty(),
-        "[{cmd}] {n} violação(ões) de schema:\n{lista}\ninstância: {inst}",
-        n = erros.len(),
-        lista = erros.join("\n"),
-        inst = serde_json::to_string_pretty(instancia).unwrap_or_default()
+        violations.is_empty(),
+        "[{cmd}] {n} schema violation(s):\n{list}\ninstance: {inst}",
+        n = violations.len(),
+        list = violations.join("\n"),
+        inst = serde_json::to_string_pretty(instance).unwrap_or_default()
     );
 }

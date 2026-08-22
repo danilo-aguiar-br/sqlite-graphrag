@@ -46,10 +46,6 @@ pub struct HybridSearchItem {
     /// result appeared only in the FTS5 results and was not ranked by the KNN index.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vec_distance: Option<f64>,
-    /// Raw BM25 score from the FTS5 index. Currently always `None`; reserved for
-    /// a future release when the FTS5 BM25 score is exposed by the storage layer.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fts_bm25: Option<f64>,
 }
 
 /// RRF weights used in hybrid search: vec (vector) and fts (text).
@@ -119,11 +115,21 @@ pub struct HybridSearchResponse {
     /// on the wire when `None` (kept for happy-path envelope cleanliness).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_invoked: Option<&'static str>,
-    /// v1.0.84 (ADR-0042): reason code discriminating the degradation
-    /// (`"embedding_failed" | "cancelled" | "timeout"`). Absent when
-    /// `vec_degraded` is false.
+    /// Operator-facing PROSE for the degradation, not a closed set.
+    ///
+    /// What lands here is `FallbackReason`'s `Display`, carrying the provider's
+    /// own message, so no enum could ever have held it. GAP-SG-290 measured
+    /// this; the machine-readable half travels beside it in
+    /// [`Self::vec_degraded_code`] rather than replacing this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vec_degraded_reason: Option<String>,
+    /// v1.2.8 (GAP-SG-290): stable, machine-readable code for the degradation.
+    ///
+    /// `FallbackReason::reason_code()` plus `FALLBACK_FTS_ONLY_CODE`, which is
+    /// the eight-value set a consumer can match on. Absent when `vec_degraded`
+    /// is false, so the happy-path envelope is byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vec_degraded_code: Option<&'static str>,
     /// Total execution time in milliseconds from handler start to serialisation.
     pub elapsed_ms: u64,
 }

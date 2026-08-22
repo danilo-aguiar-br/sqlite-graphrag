@@ -1,7 +1,6 @@
 //! Phase 3 — WRITE: upsert one vector into the table its target names.
 
 use super::target::ReembedTarget;
-use crate::entity_type::EntityType;
 use crate::errors::AppError;
 use crate::storage::entities::{self};
 use rusqlite::Connection;
@@ -36,7 +35,11 @@ pub(super) fn write_vector(
             conn,
             *entity_id,
             namespace,
-            EntityType::map_to_canonical(entity_type),
+            // v1.2.8: the label read back from `entities.type` travels as
+            // written. It used to be folded onto a canonical kind here, which
+            // could report a type the row does not hold; the column is the
+            // source of truth for the vector row either way.
+            entity_type,
             embedding,
             name,
         ),

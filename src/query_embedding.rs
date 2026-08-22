@@ -121,8 +121,7 @@ pub fn resolve_query_embedding(
     fallback_fts_only: bool,
     models_dir: &std::path::Path,
     query: &str,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
     log_target: &'static str,
 ) -> QueryEmbedding {
     if fallback_fts_only {
@@ -136,12 +135,7 @@ pub fn resolve_query_embedding(
             reason_code: Some(FALLBACK_FTS_ONLY_CODE),
         };
     }
-    match crate::embedder::try_embed_query_with_embedding_choice(
-        models_dir,
-        query,
-        embedding_backend,
-        llm_backend,
-    ) {
+    match crate::embedder::try_embed_query_with_embedding_choice(models_dir, query, backends) {
         Ok((v, backend)) => QueryEmbedding {
             embedding: Some(v),
             degraded: false,
@@ -180,8 +174,10 @@ mod tests {
             true,
             std::path::Path::new("/nonexistent"),
             "anything",
-            crate::cli::EmbeddingBackendChoice::Openrouter,
-            crate::cli::LlmBackendChoice::None,
+            crate::cli::BackendChoice::new(
+                crate::cli::LlmBackendChoice::None,
+                crate::cli::EmbeddingBackendChoice::Openrouter,
+            ),
             "recall",
         );
         assert!(
@@ -197,9 +193,10 @@ mod tests {
             resolved.backend_invoked.is_none(),
             "no provider was contacted, so none may be reported as invoked"
         );
-        // O código é o que impede `--fail-on-degraded` de transformar a escolha do
-        // operador em falha. Se ele parar de vir, `degradation_failure` cai no ramo
-        // "unknown" e `--fallback-fts-only` passa a reprovar com as duas flags juntas.
+        // The code is what stops `--fail-on-degraded` from turning the operator's
+        // own choice into a failure. If it ever stops being emitted,
+        // `degradation_failure` falls into the "unknown" branch and
+        // `--fallback-fts-only` starts failing when both flags are combined.
         assert_eq!(
             resolved.reason_code,
             Some(FALLBACK_FTS_ONLY_CODE),
@@ -218,8 +215,10 @@ mod tests {
             true,
             std::path::Path::new("/nonexistent"),
             "anything",
-            crate::cli::EmbeddingBackendChoice::Openrouter,
-            crate::cli::LlmBackendChoice::None,
+            crate::cli::BackendChoice::new(
+                crate::cli::LlmBackendChoice::None,
+                crate::cli::EmbeddingBackendChoice::Openrouter,
+            ),
             "recall",
         );
         assert!(

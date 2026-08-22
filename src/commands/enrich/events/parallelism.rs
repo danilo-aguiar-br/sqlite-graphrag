@@ -4,9 +4,19 @@
 //! under `--mode openrouter`.
 
 use super::super::args::EnrichArgs;
+use crate::constants::{MAX_ENRICH_REST_CONCURRENCY, MIN_ENRICH_REST_CONCURRENCY};
 
 /// Resolve drain worker count and emit concurrency warnings (G19/G28-D/G34).
+///
+/// GAP-SG-283 also installs the entity type vocabulary policy here. This runs
+/// exactly once per invocation, immediately before the drain, and it is the
+/// last point on that path still holding an `EnrichArgs`: the `call_*` helpers
+/// are reached through a dispatcher that threads only `(conn, namespace,
+/// item_key, provider)`, so a flag cannot travel to them by argument without
+/// widening every helper signature in `drain_serial.rs` and
+/// `drain_parallel.rs`.
 pub(crate) fn resolve_drain_parallelism(args: &EnrichArgs) -> usize {
+    super::entity_type_policy::install_from_args(args);
     if args.llm_parallelism.is_some() {
         tracing::warn!(
             target: "enrich",
@@ -15,7 +25,9 @@ pub(crate) fn resolve_drain_parallelism(args: &EnrichArgs) -> usize {
              use --rest-concurrency to size the REST drain fan-out"
         );
     }
-    let parallelism = args.rest_concurrency.clamp(1, 16) as usize;
+    let parallelism =
+        args.rest_concurrency
+            .clamp(MIN_ENRICH_REST_CONCURRENCY, MAX_ENRICH_REST_CONCURRENCY) as usize;
     tracing::info!(
         target: "enrich",
         concurrency = parallelism,

@@ -205,7 +205,7 @@ fn persist_one(
             body_length,
             backend_invoked,
         }) => {
-            output::emit_json_compact(&IngestFileEvent {
+            output::emit_stream_record(&IngestFileEvent {
                 file: slot.file,
                 name: slot.name,
                 status: "indexed",
@@ -273,7 +273,7 @@ fn emit_event(
     action: Option<String>,
     body_length: usize,
 ) -> Result<(), AppError> {
-    output::emit_json_compact(&IngestFileEvent {
+    output::emit_stream_record(&IngestFileEvent {
         file: slot.file,
         name: slot.name,
         status,
@@ -291,7 +291,9 @@ fn emit_event(
 
 /// Emits the run summary. Shared by the `--fail-fast` abort and the clean end.
 pub(super) fn emit_summary(ctx: &PersistContext<'_>, tally: IngestTally) -> Result<(), AppError> {
-    output::emit_json_compact(&IngestSummary {
+    // GAP-SG-215: the trailer, not a record. It carries the one `agent_surface`
+    // block for the whole run.
+    output::emit_stream_trailer(&IngestSummary {
         summary: true,
         dir: ctx.args.dir.display().to_string(),
         pattern: ctx.args.pattern.clone(),

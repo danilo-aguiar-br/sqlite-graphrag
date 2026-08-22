@@ -144,12 +144,17 @@ impl OpenRouterClient {
             }
 
             if status.as_u16() == 429 {
-                let retry_after = resp
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|v| v.parse::<u64>().ok())
-                    .unwrap_or(2);
+                // The header is server-controlled, so it is clamped BEFORE it
+                // reaches the sleep AND before it reaches the error detail: the
+                // caller must be told the wait this process will actually
+                // serve, not the one a provider asked for and never got.
+                let retry_after = crate::constants::clamp_retry_after_secs(
+                    resp.headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(2),
+                );
                 tracing::warn!(
                     attempt,
                     retry_after_secs = retry_after,

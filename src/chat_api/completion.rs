@@ -39,8 +39,8 @@ impl OpenRouterChatClient {
     /// Every failure branch below (missing content, JSON-repair failure,
     /// non-object shape) classifies as `AttemptOutcome::Transient`. This is a
     /// deliberate, acknowledged tension with `rules_rust_retry_com_backoff.md`
-    /// ("NUNCA retentar erros de parsing ou deserialização" / "NUNCA retentar
-    /// erros de deserialização"): those rules target DETERMINISTIC parse
+    /// (`NUNCA retentar erros de parsing ou deserialização` /
+    /// `NUNCA retentar erros de deserialização`): those rules target DETERMINISTIC parse
     /// errors, where retrying the identical input reproduces the identical
     /// failure. Here the "input" is `deepseek-v4-flash:nitro` sampling
     /// variance — the SAME prompt can legitimately produce well-formed JSON

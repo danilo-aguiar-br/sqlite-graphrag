@@ -212,7 +212,8 @@ fn for_each_entity_descriptions<F>(
 where
     F: FnMut(Vec<String>) -> Result<(), AppError>,
 {
-    let desc_pred = entity_description_scan_predicate(force_redescribe);
+    // Unfiltered paging path: no operator named anyone, so the heuristic decides.
+    let desc_pred = entity_description_scan_predicate(force_redescribe, false);
     keyset_for_each_selected(
         limit,
         page_size,

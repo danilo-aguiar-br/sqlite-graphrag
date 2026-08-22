@@ -231,7 +231,17 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
         ensure_db_ready(&paths)?;
         let conn = open_rw(&paths.db)?;
         let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
-        let unbound_backlog = scan_unbound_memories(&conn, &namespace, None, &[], 512)?.len();
+        // The page size is the shared scan default, not a number retyped here:
+        // a status that paged differently from the scanner would report a
+        // backlog no run ever selects.
+        let unbound_backlog = scan_unbound_memories(
+            &conn,
+            &namespace,
+            None,
+            &[],
+            crate::constants::DEFAULT_ENRICH_SCAN_PAGE_SIZE,
+        )?
+        .len();
         // GAP-SG-77: DB-semantics backlog for the queried operation (fixes the
         // false pending=0 for entity-descriptions/body-enrich/re-embed).
         // GAP-CLI-ED-STATUS-01: honour --force-redescribe on status COUNT.
@@ -241,6 +251,7 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             &namespace,
             args.target,
             args.force_redescribe,
+            args.entity_type.as_deref(),
         )?;
         let scan_backlog_empty = if matches!(args.operation(), EnrichOperation::EntityDescriptions)
         {
@@ -250,6 +261,7 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
                 &namespace,
                 args.target,
                 false,
+                args.entity_type.as_deref(),
             )?)
         } else {
             None
@@ -269,37 +281,46 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
                     &namespace,
                     args.target,
                     true,
+                    args.entity_type.as_deref(),
                 )?;
                 Some(with_force - scan_backlog)
             } else {
                 None
             };
         // Wave 2: optional grounding quality sample for entity-descriptions.
-        let (quality_pct, quality_sample_n, scan_backlog_low_grounding_est) =
-            if matches!(args.operation(), EnrichOperation::EntityDescriptions) {
-                let sample_n = crate::runtime_config::resolve_usize(
-                    args.quality_sample,
-                    "enrich.entity_description.quality_sample",
-                    DEFAULT_QUALITY_SAMPLE_N,
-                );
-                if sample_n == 0 {
-                    (None, None, None)
-                } else {
-                    let sample = sample_entity_description_quality(
-                        &conn,
-                        &namespace,
-                        sample_n,
-                        args.entity_description_grounding_threshold,
-                    )?;
-                    (
-                        Some(sample.quality_pct),
-                        Some(sample.sampled),
-                        Some(sample.low_grounding_est),
-                    )
-                }
+        let (
+            quality_pct,
+            quality_sample_n,
+            scan_backlog_low_grounding_est,
+            sampled_without_corpus,
+            grounding_percentiles,
+            grounding_threshold,
+        ) = if matches!(args.operation(), EnrichOperation::EntityDescriptions) {
+            let sample_n = crate::runtime_config::resolve_usize(
+                args.quality_sample,
+                "enrich.entity_description.quality_sample",
+                DEFAULT_QUALITY_SAMPLE_N,
+            );
+            if sample_n == 0 {
+                (None, None, None, None, None, None)
             } else {
-                (None, None, None)
-            };
+                // Resolved ONCE and reported, so the envelope names the value
+                // that governed the numbers next to it.
+                let threshold = args.entity_description_grounding_threshold();
+                let sample =
+                    sample_entity_description_quality(&conn, &namespace, sample_n, threshold)?;
+                (
+                    Some(sample.quality_pct),
+                    Some(sample.sampled),
+                    Some(sample.low_grounding_est),
+                    Some(sample.without_corpus),
+                    sample.percentiles,
+                    Some(threshold),
+                )
+            }
+        } else {
+            (None, None, None, None, None, None)
+        };
         let queue_path = crate::paths::sidecar_path(&paths.db, ".enrich-queue.sqlite");
         let queue_conn = open_queue_db(&queue_path)?;
         let op_label = format!("{:?}", args.operation());
@@ -395,6 +416,9 @@ pub(crate) fn try_handle_maintenance(args: &EnrichArgs) -> Result<bool, AppError
             quality_pct,
             quality_sample_n,
             scan_backlog_low_grounding_est,
+            sampled_without_corpus,
+            grounding_percentiles,
+            grounding_threshold,
             queue_pending,
             queue_processing,
             queue_done,

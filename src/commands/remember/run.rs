@@ -3,7 +3,7 @@
 use super::args::RememberArgs;
 use super::graph_input::normalize_and_validate_graph_input;
 use crate::chunking;
-use crate::entity_type::EntityType;
+use crate::entity_type::DEFAULT_ENTITY_TYPE;
 use crate::errors::AppError;
 use crate::i18n::errors_msg;
 use crate::output;
@@ -15,16 +15,20 @@ use crate::storage::memories::{self as memories, NewMemory};
 use crate::storage::versions;
 
 /// Run the `remember` command: validate, embed, persist memory + graph.
-pub fn run(
-    args: RememberArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: RememberArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     use crate::constants::*;
 
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let _ = args.format;
-    tracing::debug!(target: "remember", name = %args.name, "persisting memory");
+    tracing::debug!(
+        target: "remember",
+        name = ?args.name_positional.as_deref().or(args.name.as_deref()),
+        "persisting memory"
+    );
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
 
     let resolved_name = super::name::resolve(&args)?;
@@ -37,6 +41,17 @@ pub fn run(
     let mut graph = resolved_input.graph;
     let entities_provided_externally = resolved_input.entities_provided_externally;
     let mut relationships_updated = resolved_input.relationships_updated;
+
+    // GAP-SG-216: refuse a label outside the canonical set HERE, before
+    // `AppPaths::resolve`
+    // touches the filesystem and long before `open_rw`. Nothing has been written,
+    // so the caller can fix the payload and re-run with no state to undo — the
+    // same reason GAP-SG-215 moved the stream gate ahead of the first byte.
+    if args.strict_entity_types && !graph.type_warnings.is_empty() {
+        return Err(AppError::Validation(
+            crate::i18n::validation::strict_entity_type_folded(&graph.type_warnings),
+        ));
+    }
 
     // v1.1.2 (Gap 2): boundary validation of BOTH payload ceilings — bytes
     // (BodyTooLarge) and estimated tokens (TooManyTokens), exit 6 — reusing
@@ -107,14 +122,14 @@ pub fn run(
                 // separately. The default build is URL-only extraction.
                 extraction_method = Some("url-regex".to_string());
                 extracted_urls = extracted.urls;
-                // Convert ExtractedEntity → NewEntity (no offsets,
-                // type defaults to Concept).
+                // Convert ExtractedEntity → NewEntity (no offsets; the URL
+                // extractor declares no type, so the default applies).
                 graph.entities = extracted
                     .entities
                     .into_iter()
                     .map(|e| NewEntity {
                         name: e.name,
-                        entity_type: crate::entity_type::EntityType::Concept,
+                        entity_type: DEFAULT_ENTITY_TYPE.to_string(),
                         description: None,
                     })
                     .collect();
@@ -148,11 +163,21 @@ pub fn run(
         } else {
             "would_create"
         };
+        // GAP-SG-216: report what the validation actually learned. Until v1.2.8
+        // this envelope carried four fields and dropped every finding the parse
+        // had already produced — a run with three unusual `entity_type` labels
+        // emitted `warnings: null`, so the one mode whose entire purpose is
+        // "tell me what would happen" was the one mode that would not say.
+        // `purge` is the house pattern: its schema declares `dry_run` as a
+        // required member of the SAME envelope the real run emits.
         output::emit_json(&serde_json::json!({
             "dry_run": true,
             "name": normalized_name,
             "namespace": namespace,
             "planned_action": planned_action,
+            "entities_parsed": graph.entities.len(),
+            "relationships_parsed": graph.relationships.len(),
+            "warnings": graph.type_warnings,
         }))?;
         return Ok(());
     }
@@ -300,8 +325,7 @@ pub fn run(
         &chunks_info,
         &graph,
         &args,
-        embedding_backend,
-        llm_backend,
+        crate::cli::BackendChoice::new(llm_backend, embedding_backend),
     )?;
     let embedding = embed_out.embedding;
     let backend_invoked_passage = embed_out.backend_invoked_passage;
@@ -324,6 +348,11 @@ pub fn run(
     };
 
     let mut warnings = Vec::with_capacity(4);
+    // v1.2.8: a declared `entity_type` outside the canonical set is reported on
+    // the same envelope that reports success. The label is stored as written, so
+    // this is advice, not a correction: the caller learns their taxonomy is
+    // local to this payload while they can still align it.
+    warnings.append(&mut graph.type_warnings);
     let mut entities_persisted = 0usize;
     let mut relationships_persisted = 0usize;
 
@@ -481,17 +510,17 @@ pub fn run(
                 &tx,
                 entity_id,
                 &namespace,
-                entity.entity_type,
+                &entity.entity_type,
                 entity_embedding,
                 &entity.name,
             )?;
             entities::link_memory_entity(&tx, memory_id, entity_id)?;
             entities_persisted += 1;
         }
-        let entity_types: std::collections::HashMap<&str, EntityType> = graph
+        let entity_types: std::collections::HashMap<&str, &str> = graph
             .entities
             .iter()
-            .map(|entity| (entity.name.as_str(), entity.entity_type))
+            .map(|entity| (entity.name.as_str(), entity.entity_type.as_str()))
             .collect();
 
         let mut affected_entity_ids: std::collections::HashSet<i64> =
@@ -508,7 +537,8 @@ pub fn run(
                 entity_type: entity_types
                     .get(rel.source.as_str())
                     .copied()
-                    .unwrap_or(EntityType::Concept),
+                    .unwrap_or(DEFAULT_ENTITY_TYPE)
+                    .to_string(),
                 description: None,
             };
             let target_entity = NewEntity {
@@ -516,7 +546,8 @@ pub fn run(
                 entity_type: entity_types
                     .get(rel.target.as_str())
                     .copied()
-                    .unwrap_or(EntityType::Concept),
+                    .unwrap_or(DEFAULT_ENTITY_TYPE)
+                    .to_string(),
                 description: None,
             };
             let source_id = entities::upsert_entity(&tx, &namespace, &source_entity)?;
@@ -535,27 +566,35 @@ pub fn run(
     tx.commit()?;
 
     super::finish::emit_remember_result(
-        &conn,
-        &paths,
-        &args,
-        &graph,
-        &new_memory,
-        memory_id,
-        action,
-        version,
-        namespace,
-        normalized_name,
-        original_name,
-        name_was_normalized,
-        entities_persisted,
-        relationships_persisted,
-        relationships_updated,
-        chunks_created,
+        super::finish::FinishContext {
+            conn: &conn,
+            paths: &paths,
+            args: &args,
+            graph: &graph,
+            new_memory: &new_memory,
+        },
+        super::finish::FinishIdentity {
+            memory_id,
+            namespace,
+            normalized_name,
+            original_name,
+            name_was_normalized,
+        },
+        super::finish::FinishOutcome {
+            action,
+            version,
+            entities_persisted,
+            relationships_persisted,
+            relationships_updated,
+            chunks_created,
+        },
+        super::finish::FinishExtraction {
+            extracted_urls,
+            extraction_method,
+            backend_invoked_passage,
+        },
         warnings,
-        extracted_urls,
-        extraction_method,
-        backend_invoked_passage,
-        inicio,
+        started,
     )?;
 
     Ok(())

@@ -156,7 +156,11 @@ mod tests {
 
     #[test]
     fn kill_switch_inactive_by_default() {
-        std::env::remove_var("SQLITE_GRAPHRAG_DISABLE_RETRY");
+        // GAP-SG-232: no environment cleanup to do, because the product reads no
+        // variable of its own. The switch comes from the XDG key
+        // `retry.disable` alone, and precedence is CLI flag > `config set` >
+        // compiled default. Clearing `SQLITE_GRAPHRAG_DISABLE_RETRY` here used
+        // to suggest that variable still had an effect on the verdict below.
         assert!(!is_kill_switch_active());
     }
 

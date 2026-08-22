@@ -4,12 +4,13 @@ use std::path::Path;
 use std::time::Instant;
 
 use super::args::{EnrichArgs, EnrichOperation};
+use super::drain_serial::{DrainProvider, DrainScope};
 use super::events::*;
 use super::extraction::{
     call_body_enrich, call_body_extract, call_deep_research_synth, call_description_enrich,
     call_domain_classify, call_entity_connect, call_entity_description, call_entity_type_validate,
     call_graph_audit, call_memory_bindings, call_relation_reclassify, call_weight_calibrate,
-    take_last_openrouter_failure, EnrichItemResult,
+    take_last_openrouter_failure, BodyEnrichTuning, EnrichItemResult, ProviderCall,
 };
 use super::prompts;
 use super::queue::{
@@ -32,25 +33,60 @@ pub(crate) struct DrainCounters {
     pub skipped: usize,
     pub cost_total: f64,
     pub oauth_detected: bool,
+    /// Entities whose type label was actually REWRITTEN (GAP-SG-279).
+    ///
+    /// A subset of `completed`, not an addition to it. It exists because
+    /// `completed` alone could not answer the one question an operator has after
+    /// paying for ten thousand `entity-type-validate` calls: how many labels
+    /// changed. Confirmations and abstentions land in `skipped`, so the two
+    /// numbers together say what the money bought.
+    pub retyped: usize,
 }
 
-#[allow(clippy::too_many_arguments)]
+/// What the parallel drain reads from, and how wide it fans out.
+///
+/// The serial twin's `DrainSession` cannot be reused verbatim: its workers are
+/// this process, so it holds two live `Connection`s, while every worker here
+/// opens its own pair and therefore needs the queue PATH instead. `parallelism`
+/// belongs with them because it decides how many of those pairs exist.
+pub(crate) struct ParallelSession<'a> {
+    /// The resolved invocation, read for budget, mode and per-operation knobs.
+    pub(crate) args: &'a EnrichArgs,
+    /// Where the main database lives; each worker opens it read-write.
+    pub(crate) paths: &'a AppPaths,
+    /// The sidecar queue file each worker opens for itself.
+    pub(crate) queue_path: &'a Path,
+    /// Namespace this drain is scoped to.
+    pub(crate) namespace: &'a str,
+    /// How many workers to spawn.
+    pub(crate) parallelism: usize,
+}
+
 pub(crate) fn drain_parallel(
-    args: &EnrichArgs,
-    paths: &AppPaths,
-    queue_path: &Path,
-    namespace: &str,
-    provider_binary: Option<&Path>,
-    provider_model: Option<&str>,
-    provider_timeout: u64,
-    op_label: &str,
-    backoff_clause: &str,
-    parallelism: usize,
-    total: usize,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    session: ParallelSession<'_>,
+    provider: DrainProvider<'_>,
+    scope: DrainScope<'_>,
     counters: &mut DrainCounters,
 ) -> Result<(), AppError> {
+    let ParallelSession {
+        args,
+        paths,
+        queue_path,
+        namespace,
+        parallelism,
+    } = session;
+    let DrainProvider {
+        binary: provider_binary,
+        model: provider_model,
+        timeout: provider_timeout,
+        backends,
+    } = provider;
+    let DrainScope {
+        op_label,
+        backoff_clause,
+        item_type: _,
+        total,
+    } = scope;
     let stdout_mu = parking_lot::Mutex::new(());
     let budget = args.max_cost_usd;
     let operation = args.operation().clone();
@@ -63,6 +99,10 @@ pub(crate) fn drain_parallel(
         completed: usize,
         failed: usize,
         skipped: usize,
+        /// Entities whose type label was rewritten (GAP-SG-279); subset of
+        /// `completed`, reported so the operator can tell what a paid drain
+        /// actually changed from what it merely confirmed.
+        retyped: usize,
         cost: f64,
         oauth: bool,
         // GAP-SG-76 fix: distinct signal for "worker aborted because
@@ -93,19 +133,20 @@ pub(crate) fn drain_parallel(
                 Ok(c) => c,
                 Err(e) => {
                     tracing::error!(target: "enrich", worker = worker_id, error = %e, "worker failed to open DB");
-                    return WorkerResult { completed: 0, failed: 0, skipped: 0, cost: 0.0, oauth: false, db_busy: false, writeback_lost: false };
+                    return WorkerResult { completed: 0, failed: 0, skipped: 0, retyped: 0, cost: 0.0, oauth: false, db_busy: false, writeback_lost: false };
                 }
             };
             let w_queue = match open_queue_db(queue_path) {
                 Ok(c) => c,
                 Err(e) => {
                     tracing::error!(target: "enrich", worker = worker_id, error = %e, "worker failed to open queue DB");
-                    return WorkerResult { completed: 0, failed: 0, skipped: 0, cost: 0.0, oauth: false, db_busy: false, writeback_lost: false };
+                    return WorkerResult { completed: 0, failed: 0, skipped: 0, retyped: 0, cost: 0.0, oauth: false, db_busy: false, writeback_lost: false };
                 }
             };
             let mut w_completed = 0usize;
             let mut w_failed = 0usize;
             let mut w_skipped = 0usize;
+            let mut w_retyped = 0usize;
             let mut w_cost = 0.0f64;
             let mut w_oauth = false;
             let mut w_db_busy = false;
@@ -144,8 +185,7 @@ pub(crate) fn drain_parallel(
                         op_label,
                         backoff_clause,
                         paths,
-                        llm_backend,
-                        embedding_backend,
+                        backends,
                         max_attempts: args.max_attempts,
                         total,
                         stdout_mu: Some(stdout_mu),
@@ -236,13 +276,18 @@ pub(crate) fn drain_parallel(
                 // unread case, so a broken invariant surfaces as a
                 // recoverable per-item error instead of a panic.
                 let provider_bin = provider_binary.unwrap_or_else(|| std::path::Path::new(""));
+                let provider_call = ProviderCall {
+                    model: provider_model,
+                    timeout: provider_timeout,
+                    mode,
+                };
                 let call_result = match operation {
                     EnrichOperation::MemoryBindings | EnrichOperation::AugmentBindings => call_memory_bindings(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
-                    EnrichOperation::EntityDescriptions => call_entity_description(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode, args.entity_description_grounding_threshold, &prompts::resolve_entity_description_domain(&args.entity_description_domain)),
-                    EnrichOperation::BodyEnrich => call_body_enrich(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode, min_oc, max_oc, prompt_tpl, args.preserve_threshold, paths, llm_backend, embedding_backend),
+                    EnrichOperation::EntityDescriptions => call_entity_description(&w_conn, namespace, &item_key, provider_call, args.entity_description_grounding_threshold(), &prompts::resolve_entity_description_domain(&args.entity_description_domain)),
+                    EnrichOperation::BodyEnrich => call_body_enrich(&w_conn, namespace, &item_key, provider_call, BodyEnrichTuning { min_output_chars: min_oc, max_output_chars: max_oc, prompt_template: prompt_tpl, preserve_threshold: args.preserve_threshold }, paths, backends),
                     // GAP-SG-141 (B1): handled by the batched cycle above; the
                     // arm stays so the match remains exhaustive.
-                    EnrichOperation::ReEmbed => Ok(EnrichItemResult::Skipped { reason: "re-embed is served by the batched claim path".to_string() }),
+                    EnrichOperation::ReEmbed => Ok(EnrichItemResult::Skipped { cost: 0.0, reason: crate::i18n::validation::reembed_served_by_batch_path() }),
                     EnrichOperation::WeightCalibrate => call_weight_calibrate(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
                     EnrichOperation::RelationReclassify => call_relation_reclassify(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
                     EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges => call_entity_connect(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
@@ -251,7 +296,7 @@ pub(crate) fn drain_parallel(
                     EnrichOperation::DomainClassify => call_domain_classify(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
                     EnrichOperation::GraphAudit => call_graph_audit(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
                     EnrichOperation::DeepResearchSynth => call_deep_research_synth(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode),
-                    EnrichOperation::BodyExtract => call_body_extract(&w_conn, namespace, &item_key, provider_bin, provider_model, provider_timeout, mode, args.body_extract_graph_only),
+                    EnrichOperation::BodyExtract => call_body_extract(&w_conn, namespace, &item_key, provider_call, args.body_extract_graph_only),
                 };
                 // GAP-SG-72/73: drain UNCONDITIONALLY right after
                 // every call_result (success or failure) so a
@@ -285,9 +330,12 @@ pub(crate) fn drain_parallel(
                         let _ = w_breaker
                             .record(crate::retry::AttemptOutcome::Success);
                         let _guard = stdout_mu.lock();
-                        emit_json(&ItemEvent { item: &item_key, status: "done", memory_id, entity_id, entities: Some(entities), rels: Some(rels), chars_before, chars_after, cost_usd: if is_oauth { None } else { Some(cost) }, elapsed_ms: Some(item_started.elapsed().as_millis() as u64), error: None, index: current_index, total });
+                        emit_json(&ItemEvent { item: &item_key, status: "done", memory_id, entity_id, entities: Some(entities), rels: Some(rels), chars_before, chars_after, cost_usd: if is_oauth { None } else { Some(cost) }, elapsed_ms: Some(item_started.elapsed().as_millis() as u64), index: current_index, total, ..Default::default() });
                     }
-                    Ok(EnrichItemResult::Skipped { reason }) => {
+                    Ok(EnrichItemResult::Skipped { reason, cost }) => {
+                        // G-PR-7: abstention is BILLED. Fold it into the same accumulator the
+                        // Done branch feeds, or the budget guard above under-counts real spend.
+                        w_cost += cost;
                         w_skipped += 1;
                         if !writeback("mark_skipped", worker_id, &item_key, || {
                             mark_skipped(&w_queue, queue_id, &reason)
@@ -295,7 +343,28 @@ pub(crate) fn drain_parallel(
                             w_writeback_lost = true;
                         }
                         let _guard = stdout_mu.lock();
-                        emit_json(&ItemEvent { item: &item_key, status: "skipped", memory_id: None, entity_id: None, entities: None, rels: None, chars_before: None, chars_after: None, cost_usd: None, elapsed_ms: Some(item_started.elapsed().as_millis() as u64), error: None, index: current_index, total });
+                        // GAP-SG-279: the reason reaches the CALLER, not only the
+                        // sidecar. Without it a stream watcher saw `skipped` and had
+                        // to open the queue database to learn why.
+                        emit_json(&ItemEvent { item: &item_key, status: "skipped", cost_usd: (cost > 0.0).then_some(cost), elapsed_ms: Some(item_started.elapsed().as_millis() as u64), reason: Some(reason), index: current_index, total, ..Default::default() });
+                    }
+                    Ok(EnrichItemResult::Retyped { entity_id, previous_type, validated_type, evidence_chars, cost, is_oauth }) => {
+                        // GAP-SG-279: a reclassification is a completion, so it
+                        // feeds the same counters `Done` does — but it carries the
+                        // two labels and the evidence size, which is the only way a
+                        // caller can tell what the paid call actually changed.
+                        let elapsed_ms = item_started.elapsed().as_millis() as i64;
+                        if !writeback("mark_done", worker_id, &item_key, || {
+                            mark_done(&w_queue, queue_id, None, Some(entity_id), 1, 0, cost, elapsed_ms)
+                        }) {
+                            w_writeback_lost = true;
+                        }
+                        w_completed += 1;
+                        w_retyped += 1;
+                        if !is_oauth { w_cost += cost; }
+                        let _ = w_breaker.record(crate::retry::AttemptOutcome::Success);
+                        let _guard = stdout_mu.lock();
+                        emit_json(&ItemEvent { item: &item_key, status: "retyped", entity_id: Some(entity_id), entities: Some(1), rels: Some(0), cost_usd: if is_oauth { None } else { Some(cost) }, elapsed_ms: Some(elapsed_ms.max(0) as u64), previous_type: Some(previous_type), validated_type: Some(validated_type), evidence_chars: Some(evidence_chars), index: current_index, total, ..Default::default() });
                     }
                     Ok(EnrichItemResult::PreservationFailed { score, threshold, chars_before, chars_after }) => {
                         // G29 Passo 4: worker mirror of the
@@ -316,17 +385,13 @@ pub(crate) fn drain_parallel(
                         emit_json(&ItemEvent {
                             item: &item_key,
                             status: "preservation_failed",
-                            memory_id: None,
-                            entity_id: None,
-                            entities: None,
-                            rels: None,
                             chars_before: Some(chars_before),
                             chars_after: Some(chars_after),
-                            cost_usd: None,
                             elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
                             error: Some(reason),
                             index: current_index,
                             total,
+                            ..Default::default()
                         });
                     }
                     Err(e) => {
@@ -343,7 +408,7 @@ pub(crate) fn drain_parallel(
                                 tracing::warn!(target: "enrich", delay_secs = actual_wait, error_kind = "rate_limited", "rate limited in worker, backing off");
                                 let _ = requeue_rate_limited(&w_queue, queue_id);
                                 std::thread::sleep(std::time::Duration::from_secs(actual_wait));
-                                w_backoff = (w_backoff * 2).min(900);
+                                w_backoff = (w_backoff * 2).min(crate::constants::ENRICH_BACKOFF_CEILING_SECS);
                                 continue;
                             }
                         }
@@ -369,7 +434,7 @@ pub(crate) fn drain_parallel(
                             None => record_item_failure(&w_queue, queue_id, attempt_current, args.max_attempts, &e),
                         };
                         let _guard = stdout_mu.lock();
-                        emit_json(&ItemEvent { item: &item_key, status: "failed", memory_id: None, entity_id: None, entities: None, rels: None, chars_before: None, chars_after: None, cost_usd: None, elapsed_ms: Some(item_started.elapsed().as_millis() as u64), error: Some(err_str), index: current_index, total });
+                        emit_json(&ItemEvent { item: &item_key, status: "failed", elapsed_ms: Some(item_started.elapsed().as_millis() as u64), error: Some(err_str), index: current_index, total, ..Default::default() });
                         // G28-D: feed the classified outcome to the breaker (transient
                         // failures do not count toward opening it).
                         let breaker_opened = w_breaker.record(outcome);
@@ -383,7 +448,7 @@ pub(crate) fn drain_parallel(
                     }
                 }
             }
-            WorkerResult { completed: w_completed, failed: w_failed, skipped: w_skipped, cost: w_cost, oauth: w_oauth, db_busy: w_db_busy, writeback_lost: w_writeback_lost }
+            WorkerResult { completed: w_completed, failed: w_failed, skipped: w_skipped, retyped: w_retyped, cost: w_cost, oauth: w_oauth, db_busy: w_db_busy, writeback_lost: w_writeback_lost }
         })
     })
     .collect();
@@ -394,6 +459,7 @@ pub(crate) fn drain_parallel(
                     completed: 0,
                     failed: 0,
                     skipped: 0,
+                    retyped: 0,
                     cost: 0.0,
                     oauth: false,
                     db_busy: false,
@@ -410,7 +476,7 @@ pub(crate) fn drain_parallel(
     // which would understate a genuinely unfinished drain.
     if results.iter().any(|r| r.db_busy) {
         return Err(AppError::DbBusy(
-            "SQLITE_BUSY exhausted bounded retries while dequeuing (parallel worker)".into(),
+            crate::i18n::validation::sqlite_busy_exhausted_on_dequeue(),
         ));
     }
 
@@ -430,6 +496,7 @@ pub(crate) fn drain_parallel(
         counters.completed += r.completed;
         counters.failed += r.failed;
         counters.skipped += r.skipped;
+        counters.retyped += r.retyped;
         counters.cost_total += r.cost;
         if r.oauth && !counters.oauth_detected {
             counters.oauth_detected = true;

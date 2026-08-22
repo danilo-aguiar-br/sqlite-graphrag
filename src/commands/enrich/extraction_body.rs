@@ -6,30 +6,51 @@
 
 use super::postprocess::{persist_enriched_body, persist_memory_bindings};
 use super::*;
-use crate::constants::MAX_MEMORY_BODY_LEN;
-use crate::entity_type::EntityType;
+use crate::constants::{ENRICH_BODY_SUBJECT_CHARS, MAX_MEMORY_BODY_LEN};
+use crate::entity_type::{
+    is_canonical_entity_type, normalize_entity_type_or_default, DEFAULT_ENTITY_TYPE,
+};
 use crate::errors::AppError;
 use crate::storage::entities::{self, NewEntity};
 use crate::storage::memories;
 use rusqlite::Connection;
 use std::path::Path;
-#[allow(clippy::too_many_arguments)]
+/// How far the rewrite may travel from the body it was given.
+///
+/// The four knobs shape ONE decision — what counts as an acceptable enriched
+/// body — and both drains read all four off the same `EnrichArgs`. Two of them
+/// are `usize` and would transpose silently if passed positionally.
+pub(crate) struct BodyEnrichTuning<'a> {
+    /// Target floor for the rewritten body, in characters.
+    pub(crate) min_output_chars: usize,
+    /// Ceiling for the rewritten body, in characters.
+    pub(crate) max_output_chars: usize,
+    /// Operator-supplied prompt prefix; the built-in one is used when absent.
+    pub(crate) prompt_template: Option<&'a Path>,
+    /// Trigram-Jaccard floor below which the rewrite is rejected as drift.
+    pub(crate) preserve_threshold: f64,
+}
+
 pub(crate) fn call_body_enrich(
     conn: &Connection,
     namespace: &str,
     memory_name: &str,
-    _binary: &Path,
-    model: Option<&str>,
-    timeout: u64,
-    mode: &EnrichMode,
-    min_output_chars: usize,
-    max_output_chars: usize,
-    prompt_template: Option<&Path>,
-    preserve_threshold: f64,
+    provider: ProviderCall<'_>,
+    tuning: BodyEnrichTuning<'_>,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<EnrichItemResult, AppError> {
+    let ProviderCall {
+        model,
+        timeout,
+        mode,
+    } = provider;
+    let BodyEnrichTuning {
+        min_output_chars,
+        max_output_chars,
+        prompt_template,
+        preserve_threshold,
+    } = tuning;
     let (memory_id, body, description, memory_type): (i64, String, String, String) = conn
         .query_row(
             "SELECT id, COALESCE(body,''), COALESCE(description,''), COALESCE(type,'note') \
@@ -166,6 +187,7 @@ pub(crate) fn call_body_enrich(
     let new_hash = blake3::hash(enriched_body.as_bytes()).to_hex().to_string();
     if old_hash == new_hash {
         return Ok(EnrichItemResult::Skipped {
+            cost: 0.0,
             reason: format!(
                 "enriched body hash matches original (blake3:{old_hash}); idempotency skip"
             ),
@@ -175,6 +197,7 @@ pub(crate) fn call_body_enrich(
     // Only persist if the enriched body is genuinely longer
     if chars_after <= chars_before {
         return Ok(EnrichItemResult::Skipped {
+            cost: 0.0,
             reason: format!(
                 "enriched body ({chars_after} chars) not longer than original ({chars_before} chars)"
             ),
@@ -188,8 +211,7 @@ pub(crate) fn call_body_enrich(
         memory_name,
         enriched_body,
         paths,
-        llm_backend,
-        embedding_backend,
+        backends,
     )?;
 
     Ok(EnrichItemResult::Done {
@@ -224,7 +246,11 @@ pub(crate) fn call_deep_research_synth(
         .map_err(|_| {
             AppError::NotFound(crate::i18n::validation::memory_named_not_found(item_key))
         })?;
-    let snippet: String = body.chars().take(2000).collect();
+    // Synthesis reasons OVER the body, so the body is the subject of the call
+    // and not a hint about which memory is meant. That is the widest of the
+    // three body roles, and the literal hid the fact that this site and the
+    // preview sites were making the same decision at different scales.
+    let snippet: String = body.chars().take(ENRICH_BODY_SUBJECT_CHARS).collect();
     let input_text = format!("Memory: {item_key}\nBody:\n{snippet}");
     let (value, cost, is_oauth) = match mode {
         EnrichMode::OpenRouter => call_openrouter(
@@ -243,8 +269,22 @@ pub(crate) fn call_deep_research_synth(
             let etype_str = e
                 .get("entity_type")
                 .and_then(|v| v.as_str())
-                .unwrap_or("concept");
-            let etype: EntityType = etype_str.parse().unwrap_or(EntityType::Concept);
+                .unwrap_or(DEFAULT_ENTITY_TYPE);
+            // v1.2.8: shape normalisation only. The previous `parse()` folded
+            // every unrecognised label onto `concept`, so the model's word was
+            // gone before any layer could store or report it.
+            let etype = normalize_entity_type_or_default(etype_str);
+            if !is_canonical_entity_type(&etype) {
+                // No warnings channel exists on this path: `EnrichItemResult`
+                // carries counts and a cost, never a warnings array, so the log
+                // is where a non-canonical label can be observed at all.
+                tracing::warn!(
+                    target: "enrich",
+                    entity = %name,
+                    entity_type = %etype,
+                    "entity type is outside the canonical vocabulary; stored as written"
+                );
+            }
             if name.len() >= 2 {
                 let ne = NewEntity {
                     name: name.to_string(),
@@ -262,7 +302,11 @@ pub(crate) fn call_deep_research_synth(
                 // turn one bad name into a failed item, which the queue would
                 // retry and eventually mark dead, trading a partial success for
                 // a permanent failure.
-                if entities::upsert_entity(conn, namespace, &ne).is_ok() {
+                //
+                // v1.2.8: `_preserving_type` for the same reason as
+                // `postprocess`; this is extraction, so it may type what is
+                // untyped but must not overwrite a committed type.
+                if entities::upsert_entity_preserving_type(conn, namespace, &ne).is_ok() {
                     ent_count += 1;
                 }
             }
@@ -314,17 +358,18 @@ pub(crate) fn call_deep_research_synth(
 /// the extraction instead pulls entities/relationships into the graph (additive,
 /// via the same upsert path as `memory-bindings`). This is the read-only mode —
 /// it never rewrites or truncates the stored body.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn call_body_extract(
     conn: &Connection,
     namespace: &str,
     item_key: &str,
-    _binary: &Path,
-    model: Option<&str>,
-    timeout: u64,
-    mode: &EnrichMode,
+    provider: ProviderCall<'_>,
     graph_only: bool,
 ) -> Result<EnrichItemResult, AppError> {
+    let ProviderCall {
+        model,
+        timeout,
+        mode,
+    } = provider;
     // GAP-SG-28: read-only graph extraction. Reuse the bindings prompt/schema
     // and the additive persist path; the body is never modified.
     if graph_only {
@@ -342,7 +387,8 @@ pub(crate) fn call_body_extract(
             })?;
         if body.trim().is_empty() {
             return Ok(EnrichItemResult::Skipped {
-                reason: "body is empty".to_string(),
+                cost: 0.0,
+                reason: crate::i18n::validation::body_is_empty(),
             });
         }
         let (value, cost, is_oauth) = match mode {

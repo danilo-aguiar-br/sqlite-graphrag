@@ -65,6 +65,44 @@ fn gap_ids(text: &str) -> BTreeSet<String> {
     gap_ids_in_order(text).into_iter().collect()
 }
 
+/// Identifiers the section OPENS rather than credits.
+///
+/// `gap_ids` scans for the bare prefix in any position, which fuses two things
+/// the CHANGELOG keeps apart: it writes `(closed)`, `(reopened and closed)` and
+/// `(opened)`. Citing an identifier is not the same as claiming it fixed.
+///
+/// Without this distinction the two gates below are jointly unsatisfiable for a
+/// gap the newest release OPENS. GAP-SG-214 is cited as `(opened)` and its own
+/// entry says the residue is why it stays open: omitting it fails
+/// `every_gap_credited_in_the_newest_release_exists_in_gaps_md`, and restoring
+/// it honestly as `ABERTO` fails
+/// `the_newest_release_never_claims_an_outstanding_gap`. The only way to pass
+/// both was to write a status contradicting the CHANGELOG — the exact drift
+/// this file exists to prevent.
+fn opened_in_section(text: &str) -> BTreeSet<String> {
+    gap_ids_in_order(text)
+        .into_iter()
+        .filter(|id| {
+            // The marker follows the identifier inside the same bullet, so a
+            // plain substring search is both sufficient and precise: `**` and
+            // other emphasis sit outside the pair.
+            text.contains(&format!("{id} (opened)")) || text.contains(&format!("{id} (aberto)"))
+        })
+        .collect()
+}
+
+#[test]
+fn an_opened_gap_is_not_a_credited_gap() {
+    let section = "- **GAP-SG-214 (opened)** — four policy documents promised a CI.\n\
+                   - **GAP-SG-213** — numeric arguments accepted any value.\n\
+                   - **GAP-SG-205 (reopened and closed)** — the target record.";
+    let opened = opened_in_section(section);
+    assert!(opened.contains("GAP-SG-214"));
+    // Credited, not opened: both must stay subject to the outstanding check.
+    assert!(!opened.contains("GAP-SG-213"));
+    assert!(!opened.contains("GAP-SG-205"));
+}
+
 /// The identifier a heading line declares: the first one it names.
 fn heading_id(line: &str) -> Option<String> {
     gap_ids_in_order(line).into_iter().next()
@@ -164,10 +202,13 @@ fn the_newest_release_never_claims_an_outstanding_gap() {
     let changelog = read_repo_file("CHANGELOG.md");
     let gaps = read_repo_file("gaps.md");
     let statuses = declared_status(&gaps);
-    let claimed = gap_ids(newest_release_section(&changelog));
+    let section = newest_release_section(&changelog);
+    let claimed = gap_ids(section);
+    let opened = opened_in_section(section);
 
     let contradictions: Vec<String> = claimed
         .iter()
+        .filter(|id| !opened.contains(*id))
         .filter_map(|id| {
             let status = statuses.get(id)?;
             is_outstanding(status).then(|| format!("{id} is `{status}` in gaps.md"))

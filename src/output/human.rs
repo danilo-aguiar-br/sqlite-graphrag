@@ -30,7 +30,7 @@ pub fn emit_progress_i18n(en: &str, pt: &str) {
 /// Emits a localised error message to stderr via the `tracing` subscriber.
 ///
 /// ADR-0047 / BUG-12 v1.0.88: prior implementation also called `eprintln!`
-/// which produced a SECOND stderr line (Error:/Erro: prefix) for the same
+/// which produced a SECOND stderr line (`Error:`/`Erro:` prefix) for the same
 /// error, on top of the structured `tracing::error!` line. Operators and
 /// log parsers observed duplicated stderr lines.
 ///

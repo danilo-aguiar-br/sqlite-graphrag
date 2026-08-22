@@ -1,10 +1,18 @@
+//! GAP-SG-232: only POSIX locale variables are manipulated here, deliberately.
+//!
+//! `LC_ALL`, `LC_MESSAGES` and `LANG` are SYSTEM channels that
+//! [`Language::from_env_or_locale`] really reads. The product itself reads no
+//! environment variable of its own: the language comes from the `--lang` flag,
+//! then the XDG key `i18n.lang`, then the compiled default. Clearing a
+//! `SQLITE_GRAPHRAG_`-prefixed variable used to precede each case below, which
+//! taught the reader that such a channel exists.
+
 use super::*;
 use serial_test::serial;
 
 #[test]
 #[serial]
 fn fallback_english_when_env_absent() {
-    std::env::remove_var("SQLITE_GRAPHRAG_LANG");
     std::env::set_var("LC_ALL", "C");
     std::env::set_var("LANG", "C");
     assert_eq!(Language::from_env_or_locale(), Language::English);
@@ -26,7 +34,6 @@ fn flag_pt_br_parses_portuguese() {
 #[test]
 #[serial]
 fn locale_ptbr_utf8_selects_portuguese() {
-    std::env::remove_var("SQLITE_GRAPHRAG_LANG");
     std::env::set_var("LC_ALL", "pt_BR.UTF-8");
     assert_eq!(Language::from_env_or_locale(), Language::Portuguese);
     std::env::remove_var("LC_ALL");
@@ -35,7 +42,6 @@ fn locale_ptbr_utf8_selects_portuguese() {
 #[test]
 #[serial]
 fn posix_precedence_lc_all_overrides_lang() {
-    std::env::remove_var("SQLITE_GRAPHRAG_LANG");
     std::env::remove_var("LC_MESSAGES");
     std::env::set_var("LC_ALL", "en_US.UTF-8");
     std::env::set_var("LANG", "pt_BR.UTF-8");
@@ -51,7 +57,6 @@ fn posix_precedence_lc_all_overrides_lang() {
 #[test]
 #[serial]
 fn posix_precedence_lc_all_unrecognized_stops_iteration() {
-    std::env::remove_var("SQLITE_GRAPHRAG_LANG");
     std::env::remove_var("LC_MESSAGES");
     std::env::set_var("LC_ALL", "ja_JP.UTF-8");
     std::env::set_var("LANG", "pt_BR.UTF-8");
@@ -67,7 +72,6 @@ fn posix_precedence_lc_all_unrecognized_stops_iteration() {
 #[test]
 #[serial]
 fn lang_pt_selects_portuguese_when_lc_all_unset() {
-    std::env::remove_var("SQLITE_GRAPHRAG_LANG");
     std::env::remove_var("LC_ALL");
     std::env::remove_var("LC_MESSAGES");
     std::env::set_var("LANG", "pt_BR.UTF-8");
@@ -101,13 +105,13 @@ mod validation_tests {
 
     #[test]
     fn name_kebab_en() {
-        let nome = "Invalid_Name";
+        let name = "Invalid_Name";
         let msg = match Language::English {
             Language::English => format!(
-                "name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
+                "name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'"
             ),
             Language::Portuguese => {
-                format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
+                format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'")
             }
         };
         assert!(msg.contains("kebab-case slug"), "obtido: {msg}");
@@ -116,13 +120,13 @@ mod validation_tests {
 
     #[test]
     fn name_kebab_pt() {
-        let nome = "Invalid_Name";
+        let name = "Invalid_Name";
         let msg = match Language::Portuguese {
             Language::English => format!(
-                "name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
+                "name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'"
             ),
             Language::Portuguese => {
-                format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'")
+                format!("nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'")
             }
         };
         assert!(msg.contains("kebab-case"), "obtido: {msg}");
@@ -153,20 +157,20 @@ mod validation_tests {
 
     #[test]
     fn body_exceeds_en() {
-        let limite = crate::constants::MAX_MEMORY_BODY_LEN;
+        let cap = crate::constants::MAX_MEMORY_BODY_LEN;
         let msg = match Language::English {
-            Language::English => format!("body exceeds {limite} bytes"),
-            Language::Portuguese => format!("corpo excede {limite} bytes"),
+            Language::English => format!("body exceeds {cap} bytes"),
+            Language::Portuguese => format!("corpo excede {cap} bytes"),
         };
         assert!(msg.contains("body exceeds 512000"), "obtido: {msg}");
     }
 
     #[test]
     fn body_exceeds_pt() {
-        let limite = crate::constants::MAX_MEMORY_BODY_LEN;
+        let cap = crate::constants::MAX_MEMORY_BODY_LEN;
         let msg = match Language::Portuguese {
-            Language::English => format!("body exceeds {limite} bytes"),
-            Language::Portuguese => format!("corpo excede {limite} bytes"),
+            Language::English => format!("body exceeds {cap} bytes"),
+            Language::Portuguese => format!("corpo excede {cap} bytes"),
         };
         assert!(msg.contains("corpo excede 512000"), "obtido: {msg}");
     }
@@ -194,13 +198,13 @@ mod validation_tests {
 
     #[test]
     fn new_name_kebab_en() {
-        let nome = "Bad Name";
+        let name = "Bad Name";
         let msg = match Language::English {
             Language::English => format!(
-                "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
+                "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'"
             ),
             Language::Portuguese => format!(
-                "novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'"
+                "novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'"
             ),
         };
         assert!(msg.contains("new-name must be kebab-case"), "obtido: {msg}");
@@ -208,13 +212,13 @@ mod validation_tests {
 
     #[test]
     fn new_name_kebab_pt() {
-        let nome = "Bad Name";
+        let name = "Bad Name";
         let msg = match Language::Portuguese {
             Language::English => format!(
-                "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{nome}'"
+                "new-name must be kebab-case slug (lowercase letters, digits, hyphens): '{name}'"
             ),
             Language::Portuguese => format!(
-                "novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{nome}'"
+                "novo nome deve estar em kebab-case (minúsculas, dígitos, hífens): '{name}'"
             ),
         };
         assert!(

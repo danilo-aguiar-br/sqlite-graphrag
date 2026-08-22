@@ -1,4 +1,4 @@
-# TESTING — v1.0.85 Five-Gap Test Suite + Hotfixes (ADR-0043, ADR-0044)
+# Historical: TESTING — v1.0.83 Test Suite Additions (ADR-0041)
 - `claude_subprocess_inherits_custom_anthropic_provider_env` — documents the design decision that the equivalent integration path is covered by the codex variant below (the real `claude` install in CI collides with the mock PATH prefix trick); see ADR-0041 §Verification
 - `claude_subprocess_rejects_prohibited_anthropic_api_key` — confirms the OAuth-only guard still aborts the spawn with non-zero exit when `ANTHROPIC_API_KEY` is set; the mock script may or may not run depending on whether the guard fires first
 - `codex_subprocess_inherits_openai_base_url` — verifies the `OPENAI_BASE_URL` env var propagates from parent to codex subprocess, the canonical cross-process integration test path
@@ -8,7 +8,7 @@
 - All tests carry `#[serial_test::serial(env)]` to serialise env mutations across the parallel test runner
 - Total test count: 818 (up from 812 in v1.0.82; the 6 new tests are split between 3 unit tests in `env_whitelist.rs` and 3 integration tests in `claude_runner_env.rs` plus the 2 audit-style tests)
 - Pre-existing OAuth-only tests in `claude_runner.rs:574-666` and `codex_spawn.rs:684-758` remain green; the env whitelist extension does NOT weaken the guard
-# Testing Guide
+# Testing Guide (v1.2.8)
 
 
 - Read the Portuguese version at [TESTING.pt-BR.md](TESTING.pt-BR.md)
@@ -244,15 +244,15 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 - Unit coverage also lives in `src/commands/enrich/scan.rs`, `queue.rs`, and interrupt/deadline tests in `mod.rs`. Run with `cargo test --test v1106_entity_connect_scan_regression` and `cargo test --lib commands::enrich`.
 - No schema migration (schema stays at v16). Official name v1.1.06; crate `1.1.6`.
 
-## v1.1.05 — Danilo Incident Regression Suite
+## v1.1.05 — Deep-Research Incident Regression Suite
 
-- Suite file: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs) (CLI boundary via `assert_cmd`). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md).
-- **Bug 1** — `bug1_single_token_deep_research_fans_out_sub_queries`: `deep-research "danilo"` emits more than one sub-query; first is `source: "original"`, later entries include `source: "aspect"`. Manual path (operator/optional, not a separate suite case): `--sub-query-strategy manual --sub-queries-file PATH`.
+- Suite file: [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs) (CLI boundary via `assert_cmd`). Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md).
+- **Bug 1** — `bug1_single_token_deep_research_fans_out_sub_queries`: `deep-research "alice"` emits more than one sub-query; first is `source: "original"`, later entries include `source: "aspect"`. Manual path (operator/optional, not a separate suite case): `--sub-query-strategy manual --sub-queries-file PATH`.
 - **Bug 2** — `bug2_output_writes_atomic_json_with_blake3_ack`: `deep-research ... --output PATH` writes a full envelope via **atomwrite** (tempfile → fsync → rename) and prints a short stdout ack (`written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`); pairs with global **`--quiet`** / `-q` so non-error tracing stays off stderr.
 - **Bug 3** — `bug3_traverse_short_name_suggests_and_fuzzy_resolves`: `graph traverse --from <short-name>` without `--fuzzy` returns NotFound with ranked suggestions; with `--fuzzy` auto-resolves a clear winner.
 - **Bug 4** — `bug4_merge_self_referential_ids_rejected` (and unit `self_referential_ids_rejected_before_db`): `merge-entities` **self-ref** rejection when `--into-id` appears in `--ids` (or names) **before any DB work**.
 - **Bug 5** — `bug5_link_rejects_numeric_name_and_accepts_from_id`: pure digit names rejected; `--from-id`/`--to-id` accept entity IDs.
-- No schema migration in this release (schema stays at v16). Run with `cargo test --test v1105_danilo_bugs_regression`.
+- No schema migration in this release (schema stays at v16). Run with `cargo test --test v1105_incident_bugs_regression`.
 
 ## v1.1.04 — GAP Closure Tests (ADR-0064)
 
@@ -297,7 +297,7 @@ All five tests are gated by `#[serial_test::serial(env)]` to prevent PATH-pollut
 
 ## Current Test Suite Size
 
-As of v1.1.06: lib enrich unit tests plus `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / O(k) scan, pair keys, first-scan interrupt, dual backlog NDJSON). As of v1.1.05: `tests/v1105_danilo_bugs_regression.rs` (5 CLI boundary tests). ~1072+ lib tests as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
+As of v1.1.06: lib enrich unit tests plus `tests/v1106_entity_connect_scan_regression.rs` (GAP-ENTITY-CONNECT-SCAN-CARTESIAN / O(k) scan, pair keys, first-scan interrupt, dual backlog NDJSON). As of v1.1.05: `tests/v1105_incident_bugs_regression.rs` (5 CLI boundary tests). ~1072+ lib tests as of v1.1.04 (v1.1.02 + v1.1.03 + v1.1.04 add chunks-soft-delete, literal-to, cross-namespace, stale-claims, heartbeat, enqueue-batch, split-body, prune-dead-entity-orphans, re-embed entities, deep-research nested-runtime regression, entity_connect_seen convergence); `cargo nextest -P ci` as of v1.0.93; v1.0.95 adds `chat_api` wiremock unit tests plus the 13-model real-LLM test in `tests/openrouter_chat_real.rs`; v1.0.96 brings the nextest total to 1086 passed, 0 failed, 6 skipped, adding 8 dead-letter unit tests, the embedder order test, and the `#[ignore]` live concurrency test. Use `--test-threads=2` for local development; the `ci` profile in `.config/nextest.toml` controls parallelism in CI.
 
 ## What Changed in v1.0.90, v1.0.91, v1.0.92, v1.0.93, v1.0.94, v1.0.95
 - v1.0.90: OpenCode backend tests (875 lib tests)

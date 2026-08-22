@@ -26,7 +26,7 @@
           },
           "entity_type": {
             "type": "string",
-            "description": "Semantic type label (e.g. agent, concept, person, project, tool)."
+            "description": "Semantic type label exactly as stored. The vocabulary is OPEN since v1.2.8, so this is ANY term the writer used, not a member of a fixed list; the thirteen recommended kinds are concept, dashboard, date, decision, file, incident, issue_tracker, location, memory, organization, person, project and tool. `agent` was never one of them — before v1.2.8 it was silently replaced by `person`, and since v1.2.8 it is stored as written. Entities written before v1.2.8 kept only the replacement label, so filtering by a canonical value returns what the old vocabulary produced, not what each writer declared."
           },
           "namespace": {
             "type": "string",

@@ -30,12 +30,29 @@ pub(super) fn open_test_db() -> Connection {
     conn
 }
 
+/// Opens a queue database on a fresh file in the OS temp directory, returning
+/// the connection and the path so the caller can remove it.
+///
+/// The path used to be a hand-built `/tmp/...` literal, which made every test
+/// reaching this fixture Unix-only — coverage missing precisely on the platform
+/// (Windows) where the product claims support and gets the least exercise.
+/// `tempfile` resolves the platform's temp directory and reserves the name
+/// atomically, so the pid+random suffix that stood in for collision avoidance
+/// is no longer hand-rolled either.
+///
+/// The file is kept rather than guarded by a `TempPath`: the returned `String`
+/// is the fixture's contract with four sibling test modules that already delete
+/// it themselves, and a guard would have to be threaded through all of them.
 pub(super) fn open_temp_queue() -> (Connection, String) {
-    let path = format!(
-        "/tmp/test-enrich-dl-{}-{}.sqlite",
-        std::process::id(),
-        fastrand::u64(..)
-    );
+    let path = tempfile::Builder::new()
+        .prefix("test-enrich-dl-")
+        .suffix(".sqlite")
+        .tempfile()
+        .expect("temp file must be creatable")
+        .into_temp_path()
+        .keep()
+        .expect("temp file must persist for the queue db to open it");
+    let path = path.to_string_lossy().into_owned();
     let conn = open_queue_db(&path).expect("queue db must open");
     (conn, path)
 }

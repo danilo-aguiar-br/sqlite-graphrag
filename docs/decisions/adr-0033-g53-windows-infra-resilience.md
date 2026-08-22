@@ -1,8 +1,11 @@
 # ADR-0033: G53-WINDOWS-INFRA CI Resilience for windows-2025
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it hardens jobs `clippy` and `test` in `.github/workflows/ci.yml`, and this repository has no `.github/workflows/` directory at all.
+- HISTORICAL: this product ships with NO CI and no GitHub Actions: releases are cut by hand, so the whole subject of this ADR was removed rather than replaced.
 
 ## Status
 - Accepted (2026-06-14)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: `.github/workflows/ci.yml` (jobs `clippy` e `test` em matrix `windows-2025`)
 - v1.0.80 — this ADR formalises the Windows-infra side of G53 that the v1.0.80 audit flagged as ABERTO.
 

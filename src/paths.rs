@@ -78,38 +78,52 @@ pub fn install_write_policy(policy: WritePolicy) {
 /// # Which layer earns a refusal, and why not all of them
 ///
 /// The Explicit Target Designation rule asks a destructive verb to prove its
-/// target came from the argv. Read literally against three layers, that would
-/// also reject [`TargetSource::Xdg`] — and that reading is wrong here, for a
-/// reason specific to this product: `db.path` is a first-class key in the
-/// configuration registry, set through `config set`. An operator who ran that
-/// command DID choose the database; they simply chose it once instead of on
-/// every invocation. Refusing it would make the product's own configuration
-/// surface unusable, which no rule intends.
+/// target came from the argv, and every layer that is not the argv is ambient.
+/// Both [`TargetSource::Xdg`] and [`TargetSource::Default`] therefore fail
+/// closed here.
 ///
-/// [`TargetSource::Default`] is the case the rule is actually about. Nothing
-/// named the database — not the argv, not the configuration — and the write
-/// lands in a compiled fallback the caller never mentioned anywhere. That is
-/// the confused deputy, and it is the one that fails closed.
+/// Until this was tightened the fence fired on `Default` alone, and `Xdg` was
+/// permitted on the argument that `db.path` is a first-class registry key: an
+/// operator who ran `config set` DID choose the database, just once instead of
+/// on every invocation. That argument is answered by the SCOPE of the key, which
+/// it did not account for. `db.path` is a HOST setting — there is no per-project
+/// configuration in this product — so it does not name "the database for this
+/// work", it names one database for every directory on the machine. This host
+/// carries sixteen of them, and the repository's own operating rules already say
+/// never to reach for `config set` to solve one project's problem, precisely
+/// because the change leaves the folder. A key that cannot legitimately mean
+/// "this project" cannot legitimately designate this project's write target.
 ///
-/// Either way the resolved target reaches the envelope, so an `xdg` write is
-/// permitted AND visible rather than permitted and silent.
+/// The read path is untouched: [`WritePolicy::requires_explicit_target`] is
+/// false for idempotent verbs, so inheritance stays available exactly where it
+/// costs nothing. And `--use-active` still dispenses the requirement, which is
+/// the explicit opt-in the rule itself authorises — ambient authority is refused
+/// as a DEFAULT, never as an impossibility.
 ///
 /// # Errors
 /// Returns [`AppError::Usage`] — exit `2` — when a mutating subcommand resolved
-/// the compiled default with no argv target and no explicit dispensation.
+/// its target from any layer other than the argv, with no explicit dispensation.
 fn enforce_explicit_target(source: TargetSource) -> Result<(), AppError> {
     let Some(policy) = WRITE_POLICY.get() else {
         return Ok(());
     };
-    if source == TargetSource::Default && policy.requires_explicit_target && !policy.use_active {
-        return Err(AppError::Usage {
-            message: validation::target_not_designated(),
-            // Nothing the caller typed was discarded here: the refusal is about
-            // an argument that is MISSING, not one that was ignored.
-            discarded_flags: Vec::new(),
-        });
+    if source == TargetSource::Argv || !policy.requires_explicit_target || policy.use_active {
+        return Ok(());
     }
-    Ok(())
+    // Two ambient layers, two messages: the operator's next move differs. One has
+    // a configured value to point at and override, the other has nothing named
+    // anywhere. A single message would have to describe both and would name the
+    // wrong remedy in half the cases.
+    let message = match source {
+        TargetSource::Xdg => validation::target_inherited_from_config(),
+        _ => validation::target_not_designated(),
+    };
+    Err(AppError::Usage {
+        message,
+        // Nothing the caller typed was discarded here: the refusal is about an
+        // argument that is MISSING, not one that was ignored.
+        discarded_flags: Vec::new(),
+    })
 }
 
 /// The target this one-shot process resolved. First resolution wins.

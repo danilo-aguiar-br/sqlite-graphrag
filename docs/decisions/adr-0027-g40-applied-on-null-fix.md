@@ -3,7 +3,7 @@
 
 ## Status
 - Accepted (2026-06-09)
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: `src/commands/migrate.rs`, `src/commands/debug_schema.rs`
 - Covers the migration flow from v1.0.74 to v1.0.77
 

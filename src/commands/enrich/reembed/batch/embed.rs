@@ -46,8 +46,7 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
     namespace: &str,
     item_keys: &[String],
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<Vec<BatchItemOutcome>, AppError> {
     let started = Instant::now();
     let dim = crate::constants::embedding_dim();
@@ -79,8 +78,7 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
             std::sync::Arc::from(texts),
             crate::constants::DEFAULT_REEMBED_CLAIM_BATCH,
             crate::constants::DEFAULT_REEMBED_CLAIM_BATCH,
-            embedding_backend,
-            llm_backend,
+            backends,
         )?;
         if vectors.len() != pending.len() {
             return Err(AppError::Embedding(
@@ -90,7 +88,7 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
                 ),
             ));
         }
-        record_enrich_backend(effective_backend_label(embedding_backend, llm_backend));
+        record_enrich_backend(effective_backend_label(backends));
 
         // Phase 3: write. One transaction for the whole claim, so a mid-batch
         // failure cannot leave half the vectors persisted.
@@ -98,8 +96,8 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
         for (item, embedding) in pending.iter().zip(vectors.iter()) {
             if embedding.is_empty() {
                 outcomes[item.slot] = Some(EnrichItemResult::Skipped {
-                    reason: "embedding backend returned an empty vector (chain resolved to none)"
-                        .to_string(),
+                    cost: 0.0,
+                    reason: crate::i18n::validation::embedding_backend_returned_empty_vector(),
                 });
                 continue;
             }
@@ -124,7 +122,8 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
         .map(|(key, result)| BatchItemOutcome {
             item_key: key.clone(),
             result: result.unwrap_or_else(|| EnrichItemResult::Skipped {
-                reason: "re-embed batch produced no outcome for this key".to_string(),
+                cost: 0.0,
+                reason: crate::i18n::validation::reembed_batch_no_outcome(),
             }),
         })
         .collect())
@@ -137,10 +136,11 @@ pub(in crate::commands::enrich) fn call_reembed_batch(
 /// when the chain starts there and the client is live, otherwise whatever the
 /// chain head is. Keeps `backend_invoked` populated for batched drains, which
 /// would otherwise report nothing.
-fn effective_backend_label(
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
-) -> &'static str {
+fn effective_backend_label(backends: crate::cli::BackendChoice) -> &'static str {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     let chain = embedding_backend.to_chain(llm_backend);
     match chain.first() {
         Some(&crate::embedder::LlmBackendKind::OpenRouter)

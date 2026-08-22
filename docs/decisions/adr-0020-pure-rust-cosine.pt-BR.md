@@ -2,7 +2,7 @@
 
 - Status: Aceito (2026-06-07)
 - Atualização (v1.0.79): a válvula de escape `embedding-legacy` mencionada abaixo foi removida antecipando o cronograma da v1.1.0; a janela de transição está fechada
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: src/similarity.rs, src/storage/memories.rs, src/storage/entities.rs, src/storage/chunks.rs
 
 ## Contexto

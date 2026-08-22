@@ -28,22 +28,34 @@ pub(crate) struct StagedFile {
     pub(crate) backend_invoked: Option<&'static str>,
 }
 
+/// The staging environment shared by every file of one ingest run.
+///
+/// These five are constant for the whole run: the caller reads them off
+/// `IngestArgs` once and every Phase A worker sees the same values. Passing them
+/// as five positionals put `max_rss_mb` and `llm_parallelism` — both integers —
+/// side by side in the argument list, where transposing them type-checks and
+/// silently caps memory at the fan-out width.
+#[derive(Clone, Copy)]
+pub(crate) struct StagingEnv<'a> {
+    /// Resolved application paths; only `models` is read during staging.
+    pub(crate) paths: &'a AppPaths,
+    /// Whether to run named-entity extraction over each body.
+    pub(crate) enable_ner: bool,
+    /// RSS ceiling in MiB; staging aborts above it instead of thrashing.
+    pub(crate) max_rss_mb: u64,
+    /// Embedding fan-out width for multi-chunk bodies and entity texts.
+    pub(crate) llm_parallelism: usize,
+    /// Which LLM and embedding backends answer the embedding calls.
+    pub(crate) backends: crate::cli::BackendChoice,
+}
+
 /// Phase A worker: reads, chunks, embeds and extracts NER for one file.
 /// Never touches the database — safe to run on any rayon thread.
-// G42/S3 added `llm_parallelism` as the 8th parameter; grouping the
-// stage knobs into a struct is a wider refactor than the surgical
-// scope of v1.0.79 allows.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn stage_file(
     _idx: usize,
     path: &Path,
     name: &str,
-    paths: &AppPaths,
-    enable_ner: bool,
-    max_rss_mb: u64,
-    llm_parallelism: usize,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    env: StagingEnv<'_>,
     auto_describe: bool,
 ) -> Result<Vec<StagedFile>, AppError> {
     use crate::constants::*;
@@ -125,17 +137,7 @@ pub(crate) fn stage_file(
         } else {
             partition_description(&description, part_idx + 1, total_parts)
         };
-        staged.push(stage_one_body(
-            part_body,
-            part_name,
-            part_description,
-            paths,
-            enable_ner,
-            max_rss_mb,
-            llm_parallelism,
-            llm_backend,
-            embedding_backend,
-        )?);
+        staged.push(stage_one_body(part_body, part_name, part_description, env)?);
     }
     Ok(staged)
 }
@@ -159,19 +161,21 @@ pub(crate) fn partition_description(base: &str, part: usize, total: usize) -> St
 /// Stages a single body (one memory) into a [`StagedFile`]: NER extraction,
 /// chunking, embedding and entity embedding. Extracted from `stage_file` so the
 /// GAP-SG-04/07 auto-split path stages each partition independently.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn stage_one_body(
     raw_body: String,
     name: String,
     description: String,
-    paths: &AppPaths,
-    enable_ner: bool,
-    max_rss_mb: u64,
-    llm_parallelism: usize,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    env: StagingEnv<'_>,
 ) -> Result<StagedFile, AppError> {
     use crate::constants::*;
+
+    let StagingEnv {
+        paths,
+        enable_ner,
+        max_rss_mb,
+        llm_parallelism,
+        backends,
+    } = env;
 
     let mut extracted_entities: Vec<NewEntity> = Vec::with_capacity(30);
     let mut extracted_relationships: Vec<NewRelationship> = Vec::with_capacity(50);
@@ -189,7 +193,10 @@ pub(crate) fn stage_one_body(
                     .into_iter()
                     .map(|e| NewEntity {
                         name: e.name,
-                        entity_type: crate::entity_type::EntityType::Concept,
+                        // Extraction reports a span, never a kind, so nothing is
+                        // being folded here: this is the "caller supplied no
+                        // type" case the default exists for.
+                        entity_type: crate::entity_type::DEFAULT_ENTITY_TYPE.to_string(),
                         description: None,
                     })
                     .collect();
@@ -262,8 +269,7 @@ pub(crate) fn stage_one_body(
         match crate::embedder::embed_passage_with_embedding_choice(
             &paths.models,
             &raw_body,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok((v, k)) => (Some(v), Some(k.as_str())),
             // v1.1.2 (Gap 2): typed payload rejections are permanent and
@@ -306,14 +312,13 @@ pub(crate) fn stage_one_body(
             std::sync::Arc::from(chunk_texts),
             llm_parallelism,
             crate::embedder::chunk_embed_batch_size(),
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok(chunk_embeddings) => {
                 let aggregated = chunking::aggregate_embeddings(&chunk_embeddings);
                 chunk_embeddings_opt = Some(chunk_embeddings);
-                // v1.0.84 (ADR-0042): parallel batch does not return a discriminator
-                // único por chamada. Conservadoramente, populamos None aqui.
+                // v1.0.84 (ADR-0042): parallel batch does not return a per-call
+                // discriminator. Conservatively, we populate None here.
                 (Some(aggregated), None)
             }
             Err(
@@ -344,8 +349,7 @@ pub(crate) fn stage_one_body(
         &paths.models,
         &entity_texts,
         llm_parallelism,
-        embedding_backend,
-        llm_backend,
+        backends,
     ) {
         Ok((entity_embeddings, embed_cache_stats)) => {
             if embed_cache_stats.hits > 0 {

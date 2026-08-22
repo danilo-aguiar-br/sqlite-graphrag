@@ -60,12 +60,12 @@ fn smoke_20_link() {
 fn smoke_21_unlink() {
     let env = Env::new();
     env.init();
-    // Cria entidades, linka, depois desfaz
+    // Create entities, link them, then undo
     let (ent_a, ent_b) = env.remember_with_entities(
         "smoke-unlink",
         "memória com entidades para smoke test de unlink",
     );
-    // Linka primeiro
+    // Link first
     env.cmd()
         .args([
             "link",
@@ -78,7 +78,7 @@ fn smoke_21_unlink() {
         ])
         .output()
         .unwrap();
-    // Desfaz o link
+    // Undo the link
     let out = env
         .cmd()
         .args([
@@ -115,7 +115,7 @@ fn smoke_22_related() {
         .args(["related", "smoke-related-01"])
         .output()
         .expect("related failed");
-    // Aceita 0 (encontrou relacionados) ou 4 (sem relacionados)
+    // Accept 0 (related found) or 4 (none related)
     assert_json_or_not_found(&out);
 }
 
@@ -158,7 +158,7 @@ fn smoke_24_cleanup_orphans() {
 //
 // Some legacy binaries expose `__debug_schema` instead of `debug-schema`.
 // When the suite is running deliberately against an old binary,
-// este teste skippa sem falhar.
+// this test skips without failing.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -256,9 +256,9 @@ fn smoke_26_default_db_in_current_dir() {
         db_path.exists(),
         "smoke_26: init deve criar graphrag.sqlite no diretorio de dados XDG"
     );
-    // macOS: TempDir devolve /var/... enquanto o binario canonicaliza
-    // para /private/var/...; canonicalizar ambos os lados evita o falso
-    // negativo de symlink.
+    // macOS: TempDir returns /var/... while the binary canonicalizes
+    // to /private/var/...; canonicalizing both sides avoids the false
+    // symlink negative.
     let reported = std::path::PathBuf::from(init_json["db_path"].as_str().unwrap());
     assert_eq!(
         reported

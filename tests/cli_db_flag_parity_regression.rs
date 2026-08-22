@@ -115,24 +115,6 @@ fn assert_db_flag_on_embedding_abandon() {
 }
 
 #[test]
-fn assert_db_flag_on_pending_list() {
-    with_initialised_db(|db_path| {
-        assert_db_flag_accepted(
-            "pending list",
-            &["pending", "list", "--limit", "10"],
-            db_path,
-        );
-    });
-}
-
-#[test]
-fn assert_db_flag_on_pending_show() {
-    with_initialised_db(|db_path| {
-        assert_db_flag_accepted("pending show <id>", &["pending", "show", "0"], db_path);
-    });
-}
-
-#[test]
 fn assert_db_flag_on_all_namespace_subcommands() {
     with_initialised_db(|db_path| {
         assert_db_flag_accepted("embedding status", &["embedding", "status"], db_path);
@@ -146,11 +128,5 @@ fn assert_db_flag_on_all_namespace_subcommands() {
             &["embedding", "abandon", "999999", "--yes"],
             db_path,
         );
-        assert_db_flag_accepted(
-            "pending list",
-            &["pending", "list", "--limit", "10"],
-            db_path,
-        );
-        assert_db_flag_accepted("pending show <id>", &["pending", "show", "0"], db_path);
     });
 }

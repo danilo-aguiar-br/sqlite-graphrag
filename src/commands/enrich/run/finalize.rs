@@ -25,7 +25,7 @@ pub(super) struct FinalTally<'a> {
     pub(super) preempted_for_gate: bool,
 }
 
-/// v1.1.2 (Bug 4 / Omissão 3): SIGTERM graceful cleanup. When a shutdown was
+/// v1.1.2 (`Bug 4 / Omissão 3`): SIGTERM graceful cleanup. When a shutdown was
 /// requested mid-drain (the worker/serial loops already broke out), reset the
 /// in-flight `processing` claims back to `pending` so the NEXT run re-selects
 /// them — without this a kill recycles the rows via the startup stale-claim
@@ -89,6 +89,9 @@ pub(super) fn finish(
         completed: tally.counters.completed,
         failed: tally.counters.failed,
         skipped: tally.counters.skipped,
+        // GAP-SG-279: emitted only when the run actually rewrote a label, so
+        // the key stays absent on the thirteen operations that never do.
+        retyped: (tally.counters.retyped > 0).then_some(tally.counters.retyped),
         cost_usd: tally.counters.cost_total,
         elapsed_ms: tally.started.elapsed().as_millis() as u64,
         backend_invoked: take_enrich_backend(),

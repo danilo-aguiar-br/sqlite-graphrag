@@ -13,13 +13,13 @@
         or --output out.json (atomic write via atomwrite algorithm).\n\n\
 EXAMPLES:\n  \
         # Basic deep research (single-token queries auto-expand into aspects)\n  \
-        sqlite-graphrag deep-research \"danilo\"\n\n  \
+        sqlite-graphrag deep-research \"alice\"\n\n  \
         # With custom parameters\n  \
         sqlite-graphrag deep-research \"auth\" --k 20 --max-hops 3 --max-sub-queries 7\n\n  \
         # Include full memory bodies in output\n  \
         sqlite-graphrag deep-research \"auth\" --with-bodies\n\n  \
         # Manual sub-queries (one query per line)\n  \
-        sqlite-graphrag deep-research \"danilo\" --sub-query-strategy manual \\\n  \
+        sqlite-graphrag deep-research \"alice\" --sub-query-strategy manual \\\n  \
           --sub-queries-file aspects.txt\n\n  \
         # Atomic JSON file (crash-safe; preferred for large --with-bodies runs)\n  \
         sqlite-graphrag deep-research \"auth\" --output /tmp/dr.json\n\n  \

@@ -82,6 +82,7 @@ fn request_serializes_with_strict_schema_and_disabled_reasoning() {
         },
         reasoning: Some(ReasoningPrefs { enabled: false }),
         max_tokens: None,
+        temperature: Some(0.0),
     };
     let json = serde_json::to_value(&request).expect("serializes");
     assert_eq!(json["response_format"]["type"], "json_schema");
@@ -90,6 +91,8 @@ fn request_serializes_with_strict_schema_and_disabled_reasoning() {
     assert_eq!(json["reasoning"]["enabled"], false);
     // max_tokens omitted when None
     assert!(json.get("max_tokens").is_none());
+    // G-PR-7: extraction is deterministic; the field must reach the wire.
+    assert_eq!(json["temperature"], 0.0);
 }
 
 #[test]

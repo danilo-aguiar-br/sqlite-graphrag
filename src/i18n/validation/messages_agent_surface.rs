@@ -32,21 +32,57 @@ fn did_you_mean(suggestions: &[String]) -> String {
 /// operator guessing: designate the target, or accept the ambient one on
 /// purpose. The flag spellings stay English in both languages, since they are
 /// what the caller must type.
+///
+/// It no longer offers `config set db.path` as a remedy. That key is a HOST
+/// setting, so a write inheriting it is refused by the same fence — pointing the
+/// operator at it would send them one command further into the same refusal.
 pub fn target_not_designated() -> String {
     match current() {
         Language::English => String::from(
             "this subcommand changes durable state and NOTHING named its target: \
              no --db on the command line and no `db.path` in the configuration, \
              so the write would land in the compiled default database. Name it \
-             with --db, set it once with `config set db.path <PATH>`, or accept \
-             the default on purpose with --use-active",
+             with --db, or accept the default on purpose with --use-active",
         ),
         Language::Portuguese => String::from(
             "este subcomando altera estado durável e NADA nomeou o alvo: nenhum \
              --db na linha de comando e nenhum `db.path` na configuração, então \
-             a escrita cairia no banco padrão compilado. Nomeie com --db, defina \
-             uma vez com `config set db.path <PATH>`, ou aceite o padrão de \
-             propósito com --use-active",
+             a escrita cairia no banco padrão compilado. Nomeie com --db, ou \
+             aceite o padrão de propósito com --use-active",
+        ),
+    }
+}
+
+/// A subcommand that changes durable state inherited its target from the XDG
+/// key `db.path` instead of the argv.
+///
+/// Separate from [`target_not_designated`] because the operator's situation is
+/// different in the way that matters: something DID name a database, it just was
+/// not this invocation. The message therefore has to explain why a value that
+/// looks like a designation is not accepted as one, and the reason is SCOPE —
+/// `db.path` is a host setting, so it names one database for every directory on
+/// the machine rather than the one this command means.
+///
+/// The resolved path is deliberately absent from the text. It reaches the caller
+/// through `db_path_resolved` in the envelope, and repeating it here would
+/// suggest the refusal is about which value was found rather than about which
+/// layer supplied it.
+pub fn target_inherited_from_config() -> String {
+    match current() {
+        Language::English => String::from(
+            "this subcommand changes durable state and its target came from the \
+             `db.path` configuration key, not from this command line. That key is \
+             a HOST setting: it names one database for every directory on this \
+             machine, so it cannot designate the target of a single write. Name \
+             the database with --db, or accept the configured one on purpose with \
+             --use-active",
+        ),
+        Language::Portuguese => String::from(
+            "este subcomando altera estado durável e o alvo dele veio da chave de \
+             configuração `db.path`, não desta linha de comando. Essa chave é do \
+             HOST: ela nomeia um banco para todos os diretórios desta máquina, \
+             então não designa o alvo de uma escrita específica. Nomeie o banco \
+             com --db, ou aceite o configurado de propósito com --use-active",
         ),
     }
 }
@@ -147,6 +183,63 @@ pub fn filter_scope_is_a_page(observed: usize, total: usize, source: &str) -> St
              limite para cobrir o universo, ou declare a intenção mais estreita \
              com --filter-scope page"
         ),
+    }
+}
+
+/// GAP-SG-209: a knob that needs the whole set was aimed at a stream.
+///
+/// `export` emits one self-contained JSON record per line, and the surface is
+/// defined over a COMPLETE envelope. Applying a whole-set knob there ran it once
+/// per line: `--count-only export --limit 10` answered with eleven separate
+/// `{"count":1}` lines instead of one count. Naming the flags as data matters
+/// here as much as elsewhere, so `discarded_flags` carries them.
+///
+/// GAP-SG-215 added `--max-items` to the callers of this message and made the
+/// corrective action name `--limit`. "Narrow the query itself" was true and
+/// unactionable: a caller who reached for an output ceiling needs to be told
+/// which flag is the QUERY ceiling, not merely that one exists.
+pub fn knob_needs_a_whole_set(flags: &[String]) -> String {
+    let list = flags.join(", ");
+    match current() {
+        Language::English => format!(
+            "{list} needs a complete result set, but this subcommand emits one \
+             self-contained record per line. Applied here it would run once per \
+             record and answer about a single line instead of the stream. Narrow \
+             the query itself with --limit, or pipe the output to a tool that \
+             spans lines"
+        ),
+        Language::Portuguese => format!(
+            "{list} precisa de um conjunto de resultados completo, mas este \
+             subcomando emite um registro autocontido por linha. Aplicado aqui, \
+             rodaria uma vez por registro e responderia sobre uma linha isolada \
+             em vez do stream. Estreite a própria consulta com --limit, ou \
+             canalize a saída para uma ferramenta que atravesse linhas"
+        ),
+    }
+}
+
+/// GAP-SG-215: `--filter` on a stream would desynchronise the trailer's tally.
+///
+/// Separate from [`knob_needs_a_whole_set`] because the reason is different, and
+/// a refusal that gives the wrong reason teaches the caller the wrong fix. A
+/// predicate CAN be evaluated per record; what it cannot do is stay consistent
+/// with a count the command computed before the surface saw a single line. The
+/// corrective action is therefore the query's own narrowing flags, not a wider
+/// output ceiling.
+pub fn filter_would_desync_a_tally() -> String {
+    match current() {
+        Language::English => "--filter cannot narrow a stream: this subcommand emits one record \
+             per line and its summary line counts the records the QUERY \
+             returned, so a predicate applied here would leave that count \
+             describing rows you never received. Narrow the query instead — \
+             --type, --namespace or --limit"
+            .to_string(),
+        Language::Portuguese => "--filter não pode estreitar um stream: este subcomando emite um \
+             registro por linha e a linha de sumário conta os registros que a \
+             CONSULTA devolveu, então um predicado aplicado aqui deixaria essa \
+             contagem descrevendo linhas que você nunca recebeu. Estreite a \
+             consulta em vez disso — --type, --namespace ou --limit"
+            .to_string(),
     }
 }
 

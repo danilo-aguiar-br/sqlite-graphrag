@@ -1,4 +1,8 @@
 # ADR-0038: Escolha Explícita de Backend LLM pelo Usuário
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: `--llm-backend` aceita hoje apenas `openrouter` e `none`; os valores `auto`, `claude` e `codex` citados abaixo são recusados com exit 2.
+- HISTÓRICO: `SQLITE_GRAPHRAG_LLM_BACKEND` nunca é lida em runtime e não tem efeito; o canal vivo é `sqlite-graphrag config set llm.backend openrouter`.
+- HISTÓRICO: `--dry-run-backend`, recomendada abaixo como forma de verificar o backend, nunca foi entregue e o parser a recusa.
 
 - **Status**: Aceito
 - **Data**: 2026-06-15

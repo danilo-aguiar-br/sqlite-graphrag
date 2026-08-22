@@ -356,6 +356,19 @@ fn run_list(args: EmbeddingListArgs) -> Result<(), AppError> {
     let (_paths, conn) = open_conn(args.db.as_deref())?;
     let status: PendingEmbeddingStatus = args.status.into();
     let rows = pending_embeddings::list_by_status(&conn, status, args.limit)?;
+
+    // GAP-SG-201: this subcommand pages a countable set, so it declares the
+    // ceiling like `list` and `graph entities` do. Without it the surface
+    // reported `query_limited: null` and a `--count-only` over the page read as
+    // the whole queue.
+    crate::agent_surface::universe::record(crate::agent_surface::universe::QueryCeiling {
+        applied: args.limit,
+        offset: 0,
+        source: crate::agent_surface::universe::CeilingSource::Flag,
+        kind: crate::agent_surface::universe::CeilingKind::Pagination,
+        universe_total: Some(pending_embeddings::count_by_status(&conn, status)?),
+    });
+
     let count = rows.len();
     let entries: Vec<EmbeddingListEntry> = rows.iter().map(EmbeddingListEntry::from).collect();
     let output = EmbeddingListOutput {

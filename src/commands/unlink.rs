@@ -74,7 +74,7 @@ struct UnlinkResponse {
 
 /// Run.
 pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -121,7 +121,7 @@ pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
             relation: "memory-entity".to_string(),
             relationships_removed: removed,
             namespace: namespace.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
 
         match args.format {
@@ -170,7 +170,7 @@ pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
             relation: "*".to_string(),
             relationships_removed: removed,
             namespace: namespace.clone(),
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         };
 
         match args.format {
@@ -234,7 +234,7 @@ pub fn run(args: UnlinkArgs) -> Result<(), AppError> {
         relation: relation_display.clone(),
         relationships_removed: removed,
         namespace: namespace.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

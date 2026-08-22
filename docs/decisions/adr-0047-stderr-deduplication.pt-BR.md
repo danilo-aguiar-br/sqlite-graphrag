@@ -1,9 +1,12 @@
 # ADR-0047: Deduplicação de Stderr — OAuth Linha Única + Portão de Tracing em slots.rs (v1.0.88)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: a flag `--log-level` citada abaixo nunca foi entregue e o parser a recusa; `RUST_LOG` também não é canal de configuração deste produto.
+- HISTÓRICO: os canais vivos são as flags `-v` / `-vv` / `-vvv` e `sqlite-graphrag config set log.level`.
 
 - **Status**: Aceito
 - **Data**: 2026-06-19
 - **Versão**: v1.0.88 (fecha GAP-15 + followup do BUG-12)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Contexto
 

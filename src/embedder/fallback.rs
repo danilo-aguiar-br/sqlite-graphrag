@@ -233,45 +233,55 @@ pub fn classify_embedding_error(err: AppError) -> FallbackReason {
             operation,
             duration_secs,
         },
-        AppError::Embedding(msg) => match EmbeddingErrorKind::classify(&msg) {
-            // GAP-004 (v1.0.88): typed-discriminator dispatch.
-            // The lexical classifier picks the discriminator; the arms below
-            // enrich the result with the backend name and the
-            // requested/resolved pair that the JSON envelope needs.
-            //
-            // Note: `Cancelled` and `EmbeddingFailed(msg)` are not in the
-            // 6-variant enum (they have no lexical marker) so we keep them
-            // as explicit guards at the head of the match.
-            EmbeddingErrorKind::SlotExhausted => FallbackReason::SlotExhausted,
-            EmbeddingErrorKind::OAuth | EmbeddingErrorKind::Quota => {
-                let backend = if msg.contains("openrouter") {
-                    "openrouter"
-                } else {
-                    "unknown"
-                };
-                FallbackReason::OAuthQuota { backend }
-            }
-            EmbeddingErrorKind::BackendMismatch => {
-                let (requested, resolved) = if msg.contains("requested openrouter") {
-                    ("openrouter", "unknown")
-                } else {
-                    ("unknown", "unknown")
-                };
-                FallbackReason::BackendMismatch {
-                    requested,
-                    resolved,
-                }
-            }
-            EmbeddingErrorKind::ZeroDimension => FallbackReason::DimZero,
-            EmbeddingErrorKind::Unknown => {
-                if msg.contains("cancelled") {
-                    FallbackReason::Cancelled
-                } else {
-                    FallbackReason::EmbeddingFailed(msg)
-                }
-            }
-        },
+        AppError::Embedding(msg) => classify_embedding_message(msg),
+        // GAP-SG-270: the classified twin of `Embedding` degrades identically —
+        // the retry verdict it carries is for the enrich queue, not for the
+        // `recall` / `hybrid-search` fallback envelope.
+        AppError::EmbeddingClassified { message, .. } => classify_embedding_message(message),
         e => FallbackReason::EmbeddingFailed(e.to_string()),
+    }
+}
+
+/// Lexical half of [`classify_embedding_error`], shared by both embedding
+/// variants (DRY) so they can never drift apart.
+fn classify_embedding_message(msg: String) -> FallbackReason {
+    match EmbeddingErrorKind::classify(&msg) {
+        // GAP-004 (v1.0.88): typed-discriminator dispatch.
+        // The lexical classifier picks the discriminator; the arms below
+        // enrich the result with the backend name and the
+        // requested/resolved pair that the JSON envelope needs.
+        //
+        // Note: `Cancelled` and `EmbeddingFailed(msg)` are not in the
+        // 6-variant enum (they have no lexical marker) so we keep them
+        // as explicit guards at the head of the match.
+        EmbeddingErrorKind::SlotExhausted => FallbackReason::SlotExhausted,
+        EmbeddingErrorKind::OAuth | EmbeddingErrorKind::Quota => {
+            let backend = if msg.contains("openrouter") {
+                "openrouter"
+            } else {
+                "unknown"
+            };
+            FallbackReason::OAuthQuota { backend }
+        }
+        EmbeddingErrorKind::BackendMismatch => {
+            let (requested, resolved) = if msg.contains("requested openrouter") {
+                ("openrouter", "unknown")
+            } else {
+                ("unknown", "unknown")
+            };
+            FallbackReason::BackendMismatch {
+                requested,
+                resolved,
+            }
+        }
+        EmbeddingErrorKind::ZeroDimension => FallbackReason::DimZero,
+        EmbeddingErrorKind::Unknown => {
+            if msg.contains("cancelled") {
+                FallbackReason::Cancelled
+            } else {
+                FallbackReason::EmbeddingFailed(msg)
+            }
+        }
     }
 }
 // backends before giving up. The chain order matches the user-supplied

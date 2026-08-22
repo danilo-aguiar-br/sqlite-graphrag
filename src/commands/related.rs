@@ -103,7 +103,7 @@ struct RelatedMemory {
 
 /// Run.
 pub fn run(args: RelatedArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let name = args
         .name_positional
         .as_deref()
@@ -199,7 +199,7 @@ pub fn run(args: RelatedArgs) -> Result<(), AppError> {
                 max_hops: args.max_hops,
                 results,
                 related_memories,
-                elapsed_ms: inicio.elapsed().as_millis() as u64,
+                elapsed_ms: started.elapsed().as_millis() as u64,
             })?;
         }
         OutputFormat::Text => {
@@ -247,6 +247,11 @@ pub fn run(args: RelatedArgs) -> Result<(), AppError> {
     Ok(())
 }
 
+// One over, and every parameter is an independent knob the caller reads off
+// `RelatedArgs`: there is no pair here that travels together anywhere else.
+// Four seeds plus four traversal knobs. The knobs come from four unrelated CLI
+// flags with no shared lifetime, so a struct would be a bag named after this one
+// call rather than after a concept the caller already holds.
 #[allow(clippy::too_many_arguments)]
 fn traverse_related(
     conn: &Connection,
@@ -293,7 +298,22 @@ fn traverse_related(
         crate::hash::AHashSet::with_capacity_and_hasher(limit, Default::default());
     dedup_ids.insert(seed_memory_id);
 
-    // Sort entities by hop ASC, weight DESC so we emit closer entities first.
+    // Sort entities by hop ASC, weight DESC, entity_id ASC so we emit closer
+    // entities first — and emit the SAME ones on every run.
+    //
+    // The `entity_id` term is not cosmetic. `entity_hop` is a `HashMap` with
+    // `RandomState`, seeded per PROCESS, so `.iter()` yields a different order
+    // in every invocation. `sort_by` is STABLE, so any tie inherited that order
+    // verbatim — and in a graph `(hop, weight)` ties are the norm, because
+    // weights cluster on 0.5 and 1.0. Measured before this line existed: eight
+    // identical `related` invocations against the same database returned EIGHT
+    // different result sets, not merely reordered, since the top-k cut fell in a
+    // different place each time. Exit 0 throughout, so nothing announced it.
+    //
+    // The tie-break makes the comparator TOTAL, which is what determinism needs;
+    // switching the container to `BTreeMap` would also work and would cost
+    // O(log n) on a walk that crosses hubs of degree 7515 to buy nothing this
+    // does not already buy.
     let mut ordered_entities: Vec<(i64, u32)> = entity_hop
         .iter()
         .filter(|(id, _)| !seed_entity_ids.contains(id))
@@ -302,19 +322,26 @@ fn traverse_related(
     ordered_entities.sort_by(|a, b| {
         let weight_a = entity_edge.get(&a.0).map(|e| e.3).unwrap_or(0.0);
         let weight_b = entity_edge.get(&b.0).map(|e| e.3).unwrap_or(0.0);
-        a.1.cmp(&b.1).then_with(|| {
-            weight_b
-                .partial_cmp(&weight_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        a.1.cmp(&b.1)
+            .then_with(|| {
+                weight_b
+                    .partial_cmp(&weight_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.0.cmp(&b.0))
     });
 
     for (entity_id, hop) in ordered_entities {
         let mut stmt = conn.prepare_cached(
+            // `ORDER BY m.id` states the order this loop already depended on.
+            // Without it the row order is whatever plan SQLite picks, which is
+            // stable for a given database and schema and is NOT a contract —
+            // an index added later reorders the output of a read-only command.
             "SELECT m.id, m.name, m.namespace, m.type, m.description
              FROM memory_entities me
              JOIN memories m ON m.id = me.memory_id
-             WHERE me.entity_id = ?1 AND m.deleted_at IS NULL",
+             WHERE me.entity_id = ?1 AND m.deleted_at IS NULL
+             ORDER BY m.id",
         )?;
         let rows = stmt
             .query_map(params![entity_id], |r| {

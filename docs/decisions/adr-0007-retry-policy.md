@@ -1,4 +1,7 @@
 # ADR-007: Retry Policy Architecture
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the kill switch `SQLITE_GRAPHRAG_DISABLE_RETRY=1` named below is never read at runtime by the v1.2.8 binary and has no effect.
+- HISTORICAL: the live channel is `sqlite-graphrag config set retry.disable true`, beside `db.busy_retries` and `db.busy_base_delay_ms`.
 
 
 ## Status

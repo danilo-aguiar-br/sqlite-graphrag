@@ -1,7 +1,39 @@
-# MIGRANDO PARA v1.2.5 (Sem Migração de Schema — Correções de Contrato)
+# MIGRANDO PARA v1.2.8 (Migração de Schema V017 — Vocabulário entity_type Aberto)
 
 - Versão em inglês: [MIGRATION.md](MIGRATION.md)
 - Voltar ao [README.pt-BR.md](../README.pt-BR.md)
+
+> Este guia cobre a atualização de **v1.2.5**, **v1.2.6** ou **v1.2.7** para **v1.2.8**. Este salto CARREGA uma migração main-DB numerada — `CURRENT_SCHEMA_VERSION` vai de **16** para **17** por `migrations/V017__open_entity_type_vocabulary.sql`. Crate `version = "1.2.8"`. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.2.8`. Os caminhos anteriores permanecem abaixo, do mais novo para o mais antigo.
+
+## Ação do operador (1.2.5 / 1.2.6 / 1.2.7 → 1.2.8)
+
+- Reinstale: `cargo install sqlite-graphrag --locked --force`.
+- Confirme a versão: `sqlite-graphrag --version` (espere `1.2.8`).
+- Pin da API de biblioteca: mude para `=1.2.8`.
+- **Rode a migração.** `sqlite-graphrag migrate` aplica a V017 e move o schema de **v16** para **v17**.
+- Um banco existente é copiado em backup antes de migrar, e `PRAGMA foreign_key_check` roda depois, então um rebuild que deixa referência pendurada é reportado em vez de commitado em silêncio.
+- Nada a re-embedar. Nenhuma tabela vetorial ou índice mudou.
+- **Um verbo que escreve precisa nomear o banco.** Passe `--db <PATH>`, ou passe `--use-active` para aceitar o banco que a configuração já designa; uma escrita que não nomeia nenhum dos dois é recusada com exit 2 (GAP-SG-207).
+
+## Notas de comportamento (→ 1.2.8)
+
+- **`entity_type` virou vocabulário aberto** (GAP-SG-277, GAP-SG-278). O enum fechado de treze tipos acabou: um rótulo fora do conjunto recomendado é gravado como escrito e reportado em `warnings`, em vez de ser dobrado no tipo mais próximo e terminar em `concept`. A forma continua imposta — trim, minúsculas, hífen vira underscore — então `Issue-Tracker` e `issue_tracker` seguem sendo uma linha só. **Se sua automação dependia da dobra, ela passa a ver o rótulo do chamador.** Passe `--strict-entity-types` para recusar qualquer coisa fora dos treze com exit 1.
+- **`graph entity-types` lê o vocabulário de volta.** Um vocabulário aberto custa ao leitor a lista que o enum fechado dava de graça; este comando reporta cada rótulo presente no banco com sua contagem e se ele é canônico.
+- **Os schemas de entrada publicados perderam o enum de treze valores.** `graph-input` e `entities-input` agora declaram `"type": "string"`, com a política na descrição.
+- **`recall` e `hybrid-search` ganharam `vec_degraded_code`** (GAP-SG-290), um enum de oito valores que o consumidor consegue casar, publicado ao lado do texto livre `vec_degraded_reason` em vez de substituí-lo. O enum `source` ganhou `fts_fallback`, que os dois comandos já emitiam contra um documento que declarava apenas `direct` e `graph`.
+- **`link --strength` é alias de `--weight`.** A mesma propriedade se chama `strength` nos schemas de entrada e `weight` na saída do grafo.
+- **`purge` aceita o nome posicional** que os outros quatro verbos já aceitavam (GAP-SG-272).
+- **`enrich` ganhou `--allowed-types` e `--on-unknown-type`** (GAP-SG-283), a política de vocabulário que os outros dois canais de escrita já tinham; `--on-unknown-type` usa `keep` como padrão.
+- **`cleanup-orphans` repara qualquer tabela filha que o pragma reporta**, não apenas entidades sem arestas, e o envelope dele ganhou `foreign_key_violation_count` e `foreign_key_violations_remaining`. **Se você valida esse envelope contra `docs/schemas/cleanup-orphans.schema.json`, leve o arquivo atualizado junto com esta release.**
+- **Um `429` não estaciona mais um processo one-shot por um dia.** `Retry-After` é limitado a 60s por tentativa, e o clamp avisa com o valor pedido e o valor aplicado apenas quando ele de fato morde.
+
+## Limitações conhecidas que atravessam a 1.2.8
+
+- **Entidades gravadas antes desta release mantêm o rótulo que a dobra produziu.** A string original era destruída no parse em toda versão anterior, então não há de onde restaurar; uma re-extração produz um julgamento novo, e não o antigo.
+- **`--entity-type concept` devolve menos linhas com o tempo**, porque as escritas novas param de cair ali. Uma consulta salva que contava com `concept` sendo o pega-tudo passa a medir outra coisa, e continua bem-sucedida — a mudança é silenciosa.
+- **Toolchain C via SQLite** (GAP-SG-196) atravessa inalterada desde a v1.2.5, registrada abaixo.
+
+## Histórico: MIGRANDO PARA v1.2.5 (Sem Migração de Schema — Correções de Contrato)
 
 > Este guia cobre a atualização de **v1.2.2**, **v1.2.3** ou **v1.2.4** para **v1.2.5**. **Nenhuma migração main-DB numerada** — `CURRENT_SCHEMA_VERSION` permanece em **16** em todos os saltos. Crate `version = "1.2.5"`. Reinstale com `cargo install sqlite-graphrag --locked --force` (ou `cargo install --path . --locked --force` no tree local). Consumidores de biblioteca pinam `=1.2.5`. Os caminhos anteriores permanecem abaixo, do mais novo para o mais antigo.
 
@@ -226,19 +258,19 @@ Registro de decisão: [ADR-0066](decisions/adr-0066-v1-1-06-entity-connect-scan.
 
 ---
 
-# MIGRANDO PARA v1.1.05 — Cinco Bugs do Incidente deep-research "danilo" (Sem Migração de Schema)
+# MIGRANDO PARA v1.1.05 — Cinco Bugs do Incidente deep-research de sujeito único (Sem Migração de Schema)
 
 > Histórico: upgrade de v1.1.04 para v1.1.05. **Nenhuma migração de schema** — o schema permanece em v16. Nome oficial v1.1.05; crate `1.1.5`. Reinstale com `cargo install sqlite-graphrag --locked --force`. Consumidores de biblioteca pinam `=1.1.5`.
 
-## v1.1.05 — Cinco Bugs do Incidente deep-research "danilo"
+## v1.1.05 — Cinco Bugs do Incidente deep-research de sujeito único
 
 > Upgrade da v1.1.04. O schema do banco principal **PERMANECE em v16** — `migrate` NÃO é necessário. O nome oficial do release é v1.1.05; o `Cargo.toml` carrega `1.1.5`. Binário ~19 MiB. Reinstale com `cargo install sqlite-graphrag --locked --force`.
 
-ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regressão: [`tests/v1105_danilo_bugs_regression.rs`](../tests/v1105_danilo_bugs_regression.rs).
+ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.pt-BR.md). Suite de regressão: [`tests/v1105_incident_bugs_regression.rs`](../tests/v1105_incident_bugs_regression.rs).
 
 ### O que mudou
 
-- Bug 1 (Fixed): `deep-research` com query de palavra única (ex.: `"danilo"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
+- Bug 1 (Fixed): `deep-research` com query de palavra única (ex.: `"alice"`) não degrada mais para uma única busca híbrida. A decomposição heurística expande tokens únicos em sub-queries multi-aspecto (`source: "aspect"`) cobrindo patrimônio, stack, stakeholders, projetos, decisões, relacionamentos e contexto (facetas EN/PT). Estratégia manual permanece via `--sub-query-strategy manual --sub-queries-file`.
 - Bug 2 (Fixed): envelopes JSON grandes deixam de ser frágeis sob redirecionamento de shell. Novo `deep-research --output PATH` grava o envelope completo via algoritmo atomwrite (tempfile → fsync → rename) e emite um ack curto no stdout com campos exatos `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms` (schema: [`deep-research-output-ack.schema.json`](schemas/deep-research-output-ack.schema.json)). Flag global `--quiet`/`-q` suprime tracing não-erro. O help documenta o contrato stdout-JSON / stderr-logs — **nunca** use `&>` no mesmo arquivo.
 - Bug 3 (Fixed): `graph traverse --from <nome-curto>` não falha mais de forma opaca. Match exato continua prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões ranqueadas (Jaro-Winkler / prefixo); com `--fuzzy`, um vencedor claro é auto-resolvido com warning em stderr (`rapidfuzz`).
 - Bug 4 (Fixed): `merge-entities` rejeita merges auto-referenciais (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB, para que erros de word-splitting do zsh não corrompam o grafo sob `--cross-namespace`.
@@ -251,20 +283,20 @@ ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.pt-BR.md). Suite de regre
 - Prefira `deep-research "query" --output /tmp/dr.json --quiet --json` e leia o ack no stdout (`written`/`bytes`/`blake3`/`sub_queries_total`/`unique_memories_found`/`elapsed_ms`) e o arquivo com `jaq` em vez de redirecionar stdout+stderr juntos.
 - Use `graph traverse --from <apelido> --fuzzy --json` quando o nome canônico for desconhecido.
 - Use `link --from-id <N> --to-id <M> --relation <tipo> --json` para arestas por ID; nunca passe dígitos puros como `--from`/`--to` com `--create-missing`.
-- Regressão opcional: `cargo test --test v1105_danilo_bugs_regression`.
+- Regressão opcional: `cargo test --test v1105_incident_bugs_regression`.
 
 ### Exemplos
 
 ```bash
 # Bug 1 — token único gera sub-queries aspect
-sqlite-graphrag deep-research "danilo" --k 20 --max-sub-queries 7 --json
+sqlite-graphrag deep-research "alice" --k 20 --max-sub-queries 7 --json
 
 # Bug 2 — envelope atômico + ack blake3 no stdout
 sqlite-graphrag --quiet deep-research "auth" --k 20 --output /tmp/dr.json --json
 jaq . /tmp/dr.json
 
 # Bug 3 — traverse fuzzy
-sqlite-graphrag graph traverse --from danilo --depth 2 --fuzzy --json
+sqlite-graphrag graph traverse --from alice --depth 2 --fuzzy --json
 
 # Bug 4 — self-ref rejeitado pré-DB (exit 1)
 # sqlite-graphrag merge-entities --ids 1,2,3 --into-id 3 --json   # rejeitado se 3 ∈ ids

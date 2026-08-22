@@ -12,8 +12,9 @@
         "id":        { "type": "integer" },
         "name":      { "type": "string" },
         "namespace": { "type": "string" },
-        "kind":      { "type": "string" },
-        "type":      { "type": "string", "description": "Duplicate of kind for compatibility." }
+        "kind":      { "type": "string", "description": "GAP-SG-231: DEPRECATED alias of `type`, kept for backward compatibility with pre-v1.0.35 clients. Mirrors `type` while the deprecation window is active, and will be removed in a future major release. New consumers MUST NOT read it. Until v1.2.8 this document said the opposite of `NodeOut` in src/commands/graph_export/formats.rs — `type` was described as the duplicate — so a caller who read the published schema was pointed at the field being retired." },
+        "type":      { "type": "string", "description": "GAP-SG-231: canonical entity classification (organization, concept, person, etc.). This is the field new consumers MUST read; `kind` merely mirrors it for the length of the deprecation window." },
+        "description": { "type": "string", "description": "The entity's stored description. Omitted when NULL or empty. Added so entity descriptions have a bulk read path: previously they could only be read one memory at a time via `memory-entities`." }
       }
     },
     "EdgeOut": {

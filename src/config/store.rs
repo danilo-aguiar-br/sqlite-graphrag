@@ -23,6 +23,28 @@ pub fn config_file_path() -> Result<PathBuf, AppError> {
 }
 
 /// Load application configuration from the XDG config file.
+///
+/// # Declared limit: the permission check below is Unix-only, on purpose
+///
+/// The write side has a Windows counterpart, `restrict_to_current_user` in
+/// `crate::config::permissions` — named in prose because it is private, and a
+/// public doc that links a private item is denied by `[lints.rustdoc]`; the
+/// READ side deliberately does not, so on Windows a `config.toml` with a loose
+/// ACL — holding the OpenRouter API key — is loaded without a word, while on
+/// Unix the same file draws a warning. That asymmetry is stated here rather
+/// than papered over, because a silent gap is the one an operator cannot plan
+/// around.
+///
+/// It stands for three reasons. First, this check only WARNS: it never refuses
+/// the file, so what Windows loses is a log line, not a guarantee. Second, the
+/// guarantee itself is on the write path, where `SetNamedSecurityInfoW`
+/// installs a PROTECTED single-ACE DACL — any file this CLI wrote is already
+/// restricted, and the loose-ACL case can only arise from a file some other
+/// tool produced. Third, deciding "too open" from a DACL means enumerating
+/// ACEs and classifying trustees in `unsafe` Win32, and this project has no
+/// Windows CI: `permissions.rs` already declares its Windows branch as
+/// reviewed-but-never-executed code. Adding a second unverifiable unsafe
+/// surface to gain a warning is a worse trade than admitting the limit.
 pub fn load_config() -> Result<AppConfig, AppError> {
     let path = config_file_path()?;
 
@@ -37,6 +59,8 @@ pub fn load_config() -> Result<AppConfig, AppError> {
         )));
     }
 
+    // UNIX-ONLY BY DECLARATION, not by omission: see the `# Declared limit`
+    // section on this function for why no Windows counterpart is attempted.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -158,12 +182,30 @@ pub fn save_config(config: &AppConfig) -> Result<(), AppError> {
         std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))?;
     }
 
+    // GAP-SG-269: Windows counterpart of the `0o600` above, applied to the
+    // TEMPORARY and therefore BEFORE the rename — the same ordering Unix has had
+    // all along.
+    //
+    // This closes a window rather than shortening one, and the reason is a
+    // property of `persist` itself: it cannot move a file across filesystems,
+    // and fails instead of falling back to copy-and-delete. So the rename is
+    // always intra-volume, and an intra-volume move carries the file's own
+    // security descriptor with it; only the inter-volume case would re-inherit
+    // from the destination's parent, and `persist` makes that case impossible.
+    // Hardening the temporary is therefore equivalent to hardening the target,
+    // with no interval during which the key sits under the directory's
+    // inheritable ACEs.
+    restrict_to_current_user(tmp.path())?;
+
     tmp.persist(&path)
         .map_err(|e| AppError::Io(std::io::Error::other(format!("atomic persist failed: {e}"))))?;
 
-    // GAP-SG-144: Windows counterpart of the `0o600` above. Applied AFTER the
-    // rename, because the DACL must land on the file that now carries the API
-    // key, not on the temporary that no longer exists.
+    // Re-applied to the final path, and kept deliberately rather than trusted
+    // away. The argument above says the descriptor survives the rename; this
+    // call is what makes the guarantee hold even if that argument is ever wrong
+    // — a different tempfile backend, a filesystem that reports one volume and
+    // behaves as two. The cost is one syscall on a path that runs once per
+    // `config set`; the cost of being wrong is a readable credential.
     //
     // FAIL-CLOSED, unlike the directory above: this file holds the OpenRouter
     // API key. Keeping it after the restriction failed produces exactly the
@@ -177,7 +219,15 @@ pub fn save_config(config: &AppConfig) -> Result<(), AppError> {
         libc::umask(old_umask);
     }
 
-    // fsync parent dir for crash consistency
+    // fsync parent dir for crash consistency: `persist` documents that neither
+    // the contents nor the containing directory are synchronised, so the rename
+    // itself is not durable until the directory is. The file's own contents were
+    // covered by `sync_all` before the rename.
+    //
+    // Unix only, and that is not an omission. Windows exposes no supported way to
+    // flush a directory entry — `FlushFileBuffers` wants a file handle, and a
+    // directory handle opened for it is not a documented contract — so there is
+    // nothing to call rather than something skipped.
     #[cfg(unix)]
     {
         let dir_file = std::fs::File::open(dir)?;

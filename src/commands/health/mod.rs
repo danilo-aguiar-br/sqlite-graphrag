@@ -333,11 +333,19 @@ pub fn run(args: HealthArgs) -> Result<(), AppError> {
 
             let top_ratio = top_count as f64 / relationships_count as f64;
 
-            // Compute applies_to ratio separately (may be 0 if absent).
+            // Compute applies-to ratio separately (may be 0 if absent).
+            //
+            // v1.2.8: the literal comes from `parsers::GENERIC_RELATION`. This
+            // query is the clearest evidence of the spelling split, because the
+            // metric two lines above it was always right: `top_relation` groups
+            // by the stored value and is agnostic to spelling, while this one
+            // compares against a literal and was reporting 0.0085% where the
+            // real share is 17.8%. Same command, same table, one instrument
+            // reading the wrong scale by a factor of 2098.
             let applies_count: i64 = conn
                 .query_row(
-                    "SELECT COUNT(*) FROM relationships WHERE relation = 'applies_to'",
-                    [],
+                    "SELECT COUNT(*) FROM relationships WHERE relation = ?1",
+                    [crate::parsers::GENERIC_RELATION],
                     |r| r.get(0),
                 )
                 .unwrap_or(0);

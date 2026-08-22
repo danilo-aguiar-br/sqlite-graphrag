@@ -55,7 +55,7 @@ struct DebugSchemaResponse {
 
 /// Run.
 pub fn run(args: DebugSchemaArgs) -> Result<(), AppError> {
-    let inicio = Instant::now();
+    let started = Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
     crate::storage::connection::ensure_db_ready(&paths)?;
@@ -113,7 +113,7 @@ pub fn run(args: DebugSchemaArgs) -> Result<(), AppError> {
         Vec::new()
     };
 
-    let elapsed_ms = inicio.elapsed().as_millis() as u64;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
 
     output::emit_json(&DebugSchemaResponse {
         schema_version,
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_object_renomeia_campo_type() {
+    fn schema_object_renames_the_type_field() {
         let obj = SchemaObject {
             name: "entities".to_string(),
             object_type: "table".to_string(),

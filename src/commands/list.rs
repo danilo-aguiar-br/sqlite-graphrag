@@ -30,7 +30,8 @@ pub struct ListArgs {
     pub r#type: Option<MemoryType>,
     #[arg(
         long,
-        help = "Maximum number of memories to return (default: 50 for text, all for JSON)"
+        help = "Maximum number of memories to return (default: 50 for text, all for JSON)",
+        value_parser = crate::parsers::parse_list_limit_range
     )]
     /// Maximum number of items.
     pub limit: Option<usize>,
@@ -116,7 +117,7 @@ pub fn run(args: ListArgs) -> Result<(), AppError> {
             "--limit must be greater than zero".to_string(),
         ));
     }
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
     // v1.0.22 P1: standardizes exit code 4 with a friendly message when the DB does not exist.
@@ -202,7 +203,7 @@ pub fn run(args: ListArgs) -> Result<(), AppError> {
                 truncation_warning,
                 memories,
                 items,
-                elapsed_ms: inicio.elapsed().as_millis() as u64,
+                elapsed_ms: started.elapsed().as_millis() as u64,
             })?;
         }
         OutputFormat::Text | OutputFormat::Markdown => {

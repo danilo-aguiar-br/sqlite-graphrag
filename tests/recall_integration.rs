@@ -64,7 +64,7 @@ fn test_recall_auto_inits_when_missing() {
 }
 
 // ---------------------------------------------------------------------------
-// recall — banco vazio retorna listas vazias
+// recall — empty database returns empty lists
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -126,22 +126,22 @@ fn test_recall_simple_query_finds_memory() {
 }
 
 // ---------------------------------------------------------------------------
-// recall — campo snippet limitado a 300 chars
+// recall — snippet field limited to 300 chars
 // ---------------------------------------------------------------------------
 
 #[test]
 #[serial]
-fn test_recall_snippet_limitado_a_300_chars() {
+fn test_recall_snippet_limited_to_300_chars() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let corpo_longo = "x".repeat(600);
+    let long_body = "x".repeat(600);
     remember(
         &tmp,
         "memoria-longa",
         "project",
         "Memória com corpo muito longo",
-        &corpo_longo,
+        &long_body,
     );
 
     let output = cmd(&tmp)
@@ -170,7 +170,7 @@ fn test_recall_snippet_limitado_a_300_chars() {
 
 #[test]
 #[serial]
-fn test_recall_k_limita_resultados() {
+fn test_recall_k_limits_results() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -241,7 +241,7 @@ fn test_recall_no_graph_disables_expansion() {
 
 #[test]
 #[serial]
-fn test_recall_namespace_filtra_resultados() {
+fn test_recall_namespace_filters_results() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
@@ -420,7 +420,7 @@ fn test_recall_json_structure_valid() {
 
 #[test]
 #[serial]
-fn test_recall_multiplas_memorias() {
+fn test_recall_multiple_memories() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 

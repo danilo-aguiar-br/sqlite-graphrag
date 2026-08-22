@@ -6,7 +6,7 @@
 //! per queue row. On a backfill of 36343 eligible items that is 36343 requests
 //! where 1137 would carry the same payload — a measured ~32x overhead that is
 //! pure latency, because
-//! [`crate::embedder::embed_passages_parallel_with_embedding_choice`] already
+//! [`crate::embedder::embed_passages_parallel_shared`] already
 //! accepts N texts and, for N of 32 or fewer on the OpenRouter path, issues
 //! exactly ONE serial call.
 //!

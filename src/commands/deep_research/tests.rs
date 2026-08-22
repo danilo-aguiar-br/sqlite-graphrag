@@ -16,20 +16,20 @@ fn test_decompose_no_split_multiword_stays_single() {
 
 /// v1.1.05 Bug 1: single-token queries must fan out into aspects.
 #[test]
-fn test_decompose_single_token_danilo_fans_out() {
-    let result = decompose_query("danilo", 7);
+fn test_decompose_single_token_fans_out() {
+    let result = decompose_query("alice", 7);
     assert!(
         result.len() > 1,
         "expected aspect fan-out for single token, got {result:?}"
     );
-    assert_eq!(result[0], "danilo");
+    assert_eq!(result[0], "alice");
     assert!(
         result
             .iter()
             .any(|s| s.contains("stack") || s.contains("patrimonio")),
         "expected aspect facets in {result:?}"
     );
-    let with_src = decompose_query_with_sources("danilo", 7);
+    let with_src = decompose_query_with_sources("alice", 7);
     assert_eq!(with_src[0].1, "original");
     assert!(with_src.iter().skip(1).all(|(_, s)| *s == "aspect"));
 }

@@ -23,6 +23,7 @@ pub(crate) fn call_memory_bindings(
     // Cross-op claim bugs used to produce HardFailure NotFound("memory 'pair:…'").
     if super::queue::is_non_memory_key_shape(memory_name) {
         return Ok(EnrichItemResult::Skipped {
+            cost: 0.0,
             reason: format!(
                 "wrong_key_shape_for_operation:MemoryBindings: key looks like {}",
                 memory_name.split(':').next().unwrap_or("prefixed")
@@ -42,7 +43,8 @@ pub(crate) fn call_memory_bindings(
 
     if body.trim().is_empty() {
         return Ok(EnrichItemResult::Skipped {
-            reason: "body is empty".to_string(),
+            cost: 0.0,
+            reason: crate::i18n::validation::body_is_empty(),
         });
     }
 

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/remember-dry-run.schema.json",
+  "title": "RememberDryRunResponse",
+  "description": "GAP-SG-216: response emitted by `sqlite-graphrag remember --dry-run`. A DIFFERENT shape from remember.schema.json, which requires memory_id, version and thirteen other members a run that wrote nothing cannot supply — so the dry run satisfied no published schema at all until v1.2.8. It now reports what the validation actually learned: the parsed graph sizes and every non-canonical entity_type, the same warnings the real path emits for the same input.",
+  "type": "object",
+  "required": [
+    "dry_run", "name", "namespace", "planned_action",
+    "entities_parsed", "relationships_parsed", "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+    "dry_run": {
+      "const": true,
+      "description": "Discriminator. Always true; the real run emits remember.schema.json instead and never carries this member."
+    },
+    "name": {
+      "type": "string",
+      "description": "Normalized kebab-case name the write would use, not necessarily the one typed."
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Resolved namespace."
+    },
+    "planned_action": {
+      "type": "string",
+      "enum": ["would_create", "would_update"],
+      "description": "would_update only when the memory exists AND --force-merge was given."
+    },
+    "entities_parsed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Entities the graph payload yielded, after the per-memory limit was applied."
+    },
+    "relationships_parsed": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Relationships the graph payload yielded, after the per-memory limit was applied."
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Declared entity_type labels outside the thirteen recommended kinds, phrased as `entity_type 'X' on entity 'Y' is outside the canonical set`. Since v1.2.8 the vocabulary is OPEN, so this is an advisory and the label would be stored as written; under `--strict-entity-types` the same list is what refuses the write with exit 1 instead. Empty rather than absent when every label is canonical, so a consumer never has to distinguish the two."
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload."
+    }
+  },
+  "examples": [
+    {
+      "dry_run": true,
+      "name": "alice-onboarding-checklist",
+      "namespace": "global",
+      "planned_action": "would_create",
+      "entities_parsed": 2,
+      "relationships_parsed": 1,
+      "warnings": ["entity_type 'practice' on entity 'alice-praxis' is outside the canonical set"]
+    }
+  ]
+}

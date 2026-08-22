@@ -93,7 +93,7 @@
             "required": ["name", "entity_type", "degree"],
             "properties": {
               "name":        { "type": "string" },
-              "entity_type": { "type": "string" },
+              "entity_type": { "type": "string", "description": "Semantic type label exactly as stored. The vocabulary is OPEN since v1.2.8, so this is ANY term the writer used and not a member of a fixed list; the thirteen canonical kinds are a recommendation." },
               "degree":      { "type": "integer", "minimum": 0 }
             }
           }

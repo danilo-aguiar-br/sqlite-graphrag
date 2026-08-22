@@ -7,7 +7,7 @@
 //! Batch mode: `--from-type <old> --to-type <new> --batch` changes every
 //! entity in the namespace that currently has `<old>` as its type.
 
-use crate::entity_type::EntityType;
+use crate::entity_type::normalize_entity_type;
 use crate::errors::AppError;
 use crate::i18n::errors_msg;
 use crate::output::{self, OutputFormat};
@@ -28,33 +28,45 @@ use serde::Serialize;
 NOTE:\n  \
     Single mode requires --name and at least one of --new-type or --description.\n  \
     Batch mode requires --from-type, --to-type and --batch.\n  \
-    Providing --name together with --batch is an error.\n\n\
-VALID ENTITY TYPES:\n  \
+    Providing --name together with --batch is an error.\n  \
+    In batch mode, --from-type is counted before the update: a value that\n  \
+    matches no entity is refused instead of reported as a zero-row success.\n\n\
+RECOMMENDED ENTITY TYPES (the vocabulary is open; any label is accepted):\n  \
     project, tool, person, file, concept, incident, decision,\n  \
     memory, dashboard, issue_tracker, organization, location, date")]
 /// Reclassify args.
 pub struct ReclassifyArgs {
+    /// Entity name as a positional argument. Alternative to `--name`.
+    ///
+    /// GAP-SG-272: matches the spelling `read` and `related` have always accepted.
+    /// It carries the SAME conflict set as `--name`, because a positional that
+    /// coexisted with `--batch` would let the caller ask for one entity and get
+    /// every entity of a type.
+    #[arg(
+        value_name = "NAME",
+        conflicts_with_all = ["name", "from_type", "batch"],
+        help = "Entity name (kebab-case slug); alternative to --name"
+    )]
+    pub name_positional: Option<String>,
     /// Entity name to reclassify (single mode). Mutually exclusive with --from-type + --batch.
     #[arg(long, conflicts_with_all = ["from_type", "batch"])]
     pub name: Option<String>,
-    /// New entity type for single mode.
-    #[arg(long, value_enum, value_name = "TYPE", visible_alias = "entity-type")]
-    pub new_type: Option<EntityType>,
+    /// New entity type for single mode. Any label is accepted (v1.2.8); the
+    /// canonical thirteen are recommended, not exhaustive.
+    #[arg(long, value_name = "TYPE", visible_alias = "entity-type")]
+    pub new_type: Option<String>,
     /// New description for the entity (single mode only). Ignored in batch mode.
     #[arg(long, value_name = "TEXT")]
     pub description: Option<String>,
     /// Current entity type to match in batch mode. Requires --to-type and --batch.
-    #[arg(
-        long,
-        value_enum,
-        value_name = "TYPE",
-        requires = "to_type",
-        requires = "batch"
-    )]
-    pub from_type: Option<EntityType>,
+    ///
+    /// Counted before the update: a label that matches no entity is refused,
+    /// never reported as a successful zero-row batch.
+    #[arg(long, value_name = "TYPE", requires = "to_type", requires = "batch")]
+    pub from_type: Option<String>,
     /// New entity type to assign in batch mode. Requires --from-type and --batch.
-    #[arg(long, value_enum, value_name = "TYPE", requires = "from_type")]
-    pub to_type: Option<EntityType>,
+    #[arg(long, value_name = "TYPE", requires = "from_type")]
+    pub to_type: Option<String>,
     /// Enable batch reclassification (--from-type to --to-type). Requires --from-type and --to-type.
     #[arg(long, default_value_t = false, requires = "from_type")]
     pub batch: bool,
@@ -76,6 +88,12 @@ pub struct ReclassifyArgs {
 struct ReclassifyResponse {
     action: String,
     count: usize,
+    /// Entities matching `--from-type` counted BEFORE the update (batch mode
+    /// only). Emitted so a caller can tell a real batch from one whose
+    /// `--from-type` was a typo — the open vocabulary no longer lets clap catch
+    /// that for us.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_targets: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     description_updated: Option<bool>,
     namespace: String,
@@ -85,7 +103,7 @@ struct ReclassifyResponse {
 
 /// Run.
 pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let namespace = crate::namespace::resolve_namespace(args.namespace.as_deref())?;
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
@@ -93,39 +111,59 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
 
     let mut conn = open_rw(&paths.db)?;
 
+    let mut matched_targets: Option<usize> = None;
+
     let count = if args.batch {
         // Batch mode: --from-type + --to-type + --batch
-        let from_type = args.from_type.ok_or_else(|| {
+        let from_type = args.from_type.as_deref().ok_or_else(|| {
             AppError::Validation(crate::i18n::validation::from_type_required_batch())
         })?;
-        let to_type = args.to_type.ok_or_else(|| {
+        let to_type = args.to_type.as_deref().ok_or_else(|| {
             AppError::Validation(crate::i18n::validation::to_type_required_batch())
         })?;
+        let from_type = normalize_entity_type(from_type)?;
+        let to_type = normalize_entity_type(to_type)?;
+
+        // v1.2.8: count the targets BEFORE mutating. While the vocabulary was a
+        // closed enum, a typo in --from-type was refused by clap; now it parses
+        // and would quietly update zero rows, which reads as success. Failing
+        // closed on an empty match restores the refusal at the only layer that
+        // can still see it.
+        let targets: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM entities WHERE type = ?1 AND namespace = ?2",
+            params![from_type, namespace],
+            |r| r.get(0),
+        )?;
+        if targets == 0 {
+            return Err(AppError::Validation(
+                crate::i18n::validation::reclassify_batch_no_targets(&from_type, &namespace),
+            ));
+        }
+        matched_targets = Some(targets as usize);
 
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let affected = tx.execute(
             "UPDATE entities SET type = ?1, updated_at = unixepoch()
              WHERE type = ?2 AND namespace = ?3",
-            params![to_type.as_str(), from_type.as_str(), namespace],
+            params![to_type, from_type, namespace],
         )?;
         tx.commit()?;
-        if affected == 0 {
-            tracing::warn!(target: "reclassify",
-                from_type = from_type.as_str(),
-                namespace = %namespace,
-                "reclassify batch matched zero entities — verify --from-type value exists"
-            );
-        }
         affected
     } else {
-        // Single mode: --name + --new-type
-        let entity_name = args.name.as_deref().ok_or_else(|| {
-            AppError::Validation(crate::i18n::validation::name_required_single_mode())
-        })?;
+        // Single mode: name (positional or --name) + --new-type
+        //
+        // GAP-SG-272: `or` cannot mask a conflict here, because clap already
+        // refused the invocation that supplied both spellings.
+        let entity_name = args
+            .name_positional
+            .as_deref()
+            .or(args.name.as_deref())
+            .ok_or_else(|| {
+                AppError::Validation(crate::i18n::validation::name_required_single_mode())
+            })?;
         if args.new_type.is_none() && args.description.is_none() {
             return Err(AppError::Validation(
-                "at least one of --new-type or --description is required in single mode"
-                    .to_string(),
+                crate::i18n::validation::reclassify_needs_type_or_description(),
             ));
         }
 
@@ -136,11 +174,12 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
 
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let mut affected = 0;
-        if let Some(new_type) = args.new_type {
+        if let Some(ref new_type) = args.new_type {
+            let new_type = normalize_entity_type(new_type)?;
             affected = tx.execute(
                 "UPDATE entities SET type = ?1, updated_at = unixepoch()
                  WHERE name = ?2 AND namespace = ?3",
-                params![new_type.as_str(), entity_name, namespace],
+                params![new_type, entity_name, namespace],
             )?;
         }
         if let Some(ref desc) = args.description {
@@ -162,13 +201,14 @@ pub fn run(args: ReclassifyArgs) -> Result<(), AppError> {
     let response = ReclassifyResponse {
         action: "reclassified".to_string(),
         count,
+        matched_targets,
         description_updated: if args.description.is_some() {
             Some(true)
         } else {
             None
         },
         namespace: namespace.clone(),
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {
@@ -209,6 +249,7 @@ mod tests {
         let resp = ReclassifyResponse {
             action: "reclassified".to_string(),
             count: 5,
+            matched_targets: None,
             description_updated: None,
             namespace: "global".to_string(),
             elapsed_ms: 12,
@@ -226,6 +267,7 @@ mod tests {
         let resp = ReclassifyResponse {
             action: "reclassified".to_string(),
             count: 0,
+            matched_targets: None,
             description_updated: None,
             namespace: "my-project".to_string(),
             elapsed_ms: 3,
@@ -240,6 +282,7 @@ mod tests {
         let resp = ReclassifyResponse {
             action: "reclassified".to_string(),
             count: 1,
+            matched_targets: None,
             description_updated: None,
             namespace: "ns".to_string(),
             elapsed_ms: 1,
@@ -252,6 +295,7 @@ mod tests {
         let resp = ReclassifyResponse {
             action: "reclassified".to_string(),
             count: 1,
+            matched_targets: None,
             description_updated: Some(true),
             namespace: "global".to_string(),
             elapsed_ms: 2,

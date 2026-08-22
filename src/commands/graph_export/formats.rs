@@ -21,6 +21,17 @@ pub(crate) struct NodeOut {
     /// Mirrors `kind` while the deprecation window is active.
     #[serde(rename = "type")]
     pub(crate) r#type: String,
+    /// The entity's stored description (G-PR-7).
+    ///
+    /// Until this field existed, `entities.description` was write-only from the
+    /// CLI's point of view: `graph` omitted it, `hybrid-search --with-graph`
+    /// returns MEMORY descriptions, and only `memory-entities` exposed it, one
+    /// memory at a time. A store that writes 100k+ descriptions and cannot read
+    /// them back in bulk cannot notice that it is writing them badly — which is
+    /// precisely how the entity-description grounding policy went unaudited.
+    /// Omitted when NULL or empty so existing consumers see no new noise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -58,9 +69,26 @@ pub(crate) fn render_json(snapshot: &GraphSnapshot) -> Result<String, AppError> 
 ///
 /// Each line is flushed immediately so consumers can process incrementally.
 /// When `output_path` is `Some`, lines are written to the file; otherwise to stdout.
-pub(crate) fn render_ndjson_streaming(
-    nodes: &[NodeOut],
-    edges: &[EdgeOut],
+///
+/// GAP-SG-229: the stdout path emits through [`output::emit_stream_record`] and
+/// [`output::emit_stream_trailer`], the same pair `export` uses. Before that it
+/// serialized straight to text, which meant `--select`, `--filter`, `--sort` and
+/// `--dedupe-by` were accepted by the parser and then silently discarded — the
+/// caller received an unshaped stream and no diagnostic saying so. Routing
+/// through the stream emitters gives this format the same contract as every
+/// other NDJSON surface: the record knobs apply, the whole-set knobs are refused
+/// before the first byte by [`crate::cli::Commands::streams`], and the summary
+/// line carries the `agent_surface` block that reports what was applied.
+///
+/// The FILE destination keeps the direct write on purpose. A file is not the
+/// agent's stdout: it is an artefact the caller asked to be written whole, and
+/// the JSON snapshot above makes the same distinction — its `fs::write` branch
+/// runs `render_json`, which reshapes, only because a single envelope has one
+/// shape either way. A stream cut down on disk would be indistinguishable from a
+/// truncated export, so the bytes on disk stay complete.
+pub(crate) fn render_ndjson_streaming<'a>(
+    nodes: &'a [NodeOut],
+    edges: &'a [EdgeOut],
     elapsed_ms: u64,
     output_path: Option<&std::path::Path>,
 ) -> Result<(), AppError> {
@@ -72,6 +100,11 @@ pub(crate) fn render_ndjson_streaming(
         namespace: &'a str,
         #[serde(rename = "type")]
         r#type: &'a str,
+        /// G-PR-7: same field the JSON snapshot carries. A streaming format
+        /// that drops a column is a trap, because the caller who picked NDJSON
+        /// to survive a large corpus is exactly the one auditing in bulk.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<&'a str>,
     }
     #[derive(serde::Serialize)]
     struct NdjsonEdge<'a> {
@@ -90,6 +123,51 @@ pub(crate) fn render_ndjson_streaming(
     }
 
     use std::io::Write as IoWrite;
+
+    // GAP-SG-229: the surface has to be resolved BEFORE the first line, exactly
+    // as `export::open_stream` does. Skipping this is not harmless: the emitters
+    // fall back to `StreamState::inert()`, whose compiled projection is empty, so
+    // `--select` would shape every record down to `{}` instead of projecting it.
+    //
+    // The sample has to span BOTH record shapes. A graph stream is heterogeneous
+    // — nodes carry `name` and `type`, edges carry `from`, `to` and `relation` —
+    // and a vocabulary judged on nodes alone would refuse `--select from,to` as
+    // naming nothing, on a stream that carries those fields on every edge line.
+    // `export` never had to think about this because its records are uniform.
+    let as_node = |node: &'a NodeOut| NdjsonNode {
+        kind: "node",
+        id: node.id,
+        name: &node.name,
+        namespace: &node.namespace,
+        r#type: &node.r#type,
+        description: node.description.as_deref(),
+    };
+    let as_edge = |edge: &'a EdgeOut| NdjsonEdge {
+        kind: "edge",
+        from: &edge.from,
+        to: &edge.to,
+        relation: &edge.relation,
+        weight: edge.weight,
+    };
+
+    if output_path.is_none() {
+        let surface = crate::agent_surface::get();
+        let sample = if surface.select.is_empty() {
+            Vec::new()
+        } else {
+            let budget = crate::agent_surface::stream::SAMPLE_RECORDS;
+            let from_nodes = nodes.len().min(budget.div_ceil(2));
+            let mut sample = Vec::with_capacity(budget);
+            for node in nodes.iter().take(from_nodes) {
+                sample.push(serde_json::to_value(as_node(node))?);
+            }
+            for edge in edges.iter().take(budget.saturating_sub(sample.len())) {
+                sample.push(serde_json::to_value(as_edge(edge))?);
+            }
+            sample
+        };
+        crate::agent_surface::stream::open(surface, &sample, nodes.len() + edges.len())?;
+    }
 
     let mut buf: Vec<u8> = Vec::with_capacity(4096);
 
@@ -117,27 +195,19 @@ pub(crate) fn render_ndjson_streaming(
     }
 
     for node in nodes {
-        let obj = NdjsonNode {
-            kind: "node",
-            id: node.id,
-            name: &node.name,
-            namespace: &node.namespace,
-            r#type: &node.r#type,
-        };
-        let line = serde_json::to_string(&obj)?;
-        emit_line(&mut buf, &line, output_path)?;
+        let obj = as_node(node);
+        match output_path {
+            Some(_) => emit_line(&mut buf, &serde_json::to_string(&obj)?, output_path)?,
+            None => output::emit_stream_record(&obj)?,
+        }
     }
 
     for edge in edges {
-        let obj = NdjsonEdge {
-            kind: "edge",
-            from: &edge.from,
-            to: &edge.to,
-            relation: &edge.relation,
-            weight: edge.weight,
-        };
-        let line = serde_json::to_string(&obj)?;
-        emit_line(&mut buf, &line, output_path)?;
+        let obj = as_edge(edge);
+        match output_path {
+            Some(_) => emit_line(&mut buf, &serde_json::to_string(&obj)?, output_path)?,
+            None => output::emit_stream_record(&obj)?,
+        }
     }
 
     let summary = NdjsonSummary {
@@ -146,8 +216,10 @@ pub(crate) fn render_ndjson_streaming(
         edges: edges.len(),
         elapsed_ms,
     };
-    let line = serde_json::to_string(&summary)?;
-    emit_line(&mut buf, &line, output_path)?;
+    match output_path {
+        Some(_) => emit_line(&mut buf, &serde_json::to_string(&summary)?, output_path)?,
+        None => output::emit_stream_trailer(&summary)?,
+    }
 
     Ok(())
 }

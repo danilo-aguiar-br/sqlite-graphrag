@@ -82,7 +82,7 @@ struct RenameResponse {
 
 /// Run.
 pub fn run(args: RenameArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let _ = args.format;
     tracing::debug!(target: "rename", old = ?args.name, new = ?args.new_name, "renaming memory");
     use crate::constants::*;
@@ -259,7 +259,7 @@ pub fn run(args: RenameArgs) -> Result<(), AppError> {
         action: "renamed",
         version: next_v,
         ghost_purged,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
 
     Ok(())

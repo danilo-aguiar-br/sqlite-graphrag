@@ -1,9 +1,12 @@
 # ADR-0045: Camada de Validação Pre-Flight para Spawners de Subprocessos LLM
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: `SQLITE_GRAPHRAG_SKIP_PREFLIGHT=1`, documentada abaixo como opt-out de emergência, nunca é lida em runtime pelo binário v1.2.8 e não tem efeito; o mesmo vale para `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` e para `SQLITE_GRAPHRAG_STRICT_PREFLIGHT=1`, que foi planejada e nunca entregue.
+- HISTÓRICO: `ingest --extraction-backend llm` é recusado pelo parser: `ingest --mode` aceita hoje apenas `none`.
 
 - **Status**: Aceito
 - **Data**: 2026-06-19
 - **Versão**: v1.0.87 (fecha o GAP-META-005)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Contexto
 

@@ -1,6 +1,6 @@
 //! PRD compliance: namespace isolation, soft-delete, FTS integrity, merge, limits and optimistic locking (clauses 1-12).
 //!
-//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the MUST/DEVE
+//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the `MUST`/`DEVE`
 //! clauses of the sqlite-graphrag PRD. The shared harness lives in
 //! `tests/prd_support/`.
 
@@ -47,7 +47,7 @@ fn prd_cross_namespace_link_rejected() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    // Cria entidade em ns-alpha
+    // Create an entity in ns-alpha
     remember_ok(&tmp, "entidade-alpha", "corpo alpha");
 
     // Try to link between entities from distinct namespaces (to: ns-beta does not exist)
@@ -79,7 +79,7 @@ fn prd_soft_delete_recall_does_not_return_forgotten() {
 
     remember_ok(&tmp, "memoria-apagavel", "conteudo apagavel importante");
 
-    // Apaga (soft-delete)
+    // Delete (soft-delete)
     cmd_base(&tmp)
         .args([
             "forget",
@@ -150,7 +150,7 @@ fn prd_trg_fts_ad_idempotent_double_delete() {
 
     // Second "deletion" — the trg_fts_ad trigger already removed it from FTS; should not error
     conn.execute("DELETE FROM fts_memories WHERE rowid=?1", [memory_id])
-        .unwrap_or(0); // idempotente: se não existir, ignora
+        .unwrap_or(0); // idempotent: if it does not exist, ignore
 
     // Verify FTS integrity after the double operation
     let result =
@@ -162,7 +162,7 @@ fn prd_trg_fts_ad_idempotent_double_delete() {
 }
 
 // ---------------------------------------------------------------------------
-// 5 — remember duplicata com --force-merge retorna merged_into_memory_id
+// 5 — duplicate remember with --force-merge returns merged_into_memory_id
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -172,7 +172,7 @@ fn prd_remember_duplicate_returns_merged_into_memory_id() {
 
     remember_ok(&tmp, "mem-merge-alvo", "corpo original da memoria merge");
 
-    // Segunda chamada com mesmo nome + --force-merge
+    // Second call with the same name + --force-merge
     let output = cmd_base(&tmp)
         .args([
             "remember",
@@ -196,7 +196,7 @@ fn prd_remember_duplicate_returns_merged_into_memory_id() {
         .clone();
 
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
-    // merged_into_memory_id deve ser presente (pode ser null ou inteiro)
+    // merged_into_memory_id must be present (may be null or an integer)
     assert!(
         json.get("merged_into_memory_id").is_some(),
         "remember com --force-merge deve incluir campo merged_into_memory_id"
@@ -255,7 +255,7 @@ fn prd_fts5_unicode61_remove_diacritics() {
 
     let conn = Connection::open(db_path(&tmp)).unwrap();
 
-    // Verifica que fts_memories usa tokenize com unicode61 remove_diacritics
+    // Verify that fts_memories uses tokenize with unicode61 remove_diacritics
     let tokenize: String = conn
         .query_row(
             "SELECT tokenize FROM pragma_table_info('fts_memories') LIMIT 1",
@@ -263,7 +263,7 @@ fn prd_fts5_unicode61_remove_diacritics() {
             |r| r.get(0),
         )
         .unwrap_or_else(|_| {
-            // Alternativa: busca via sqlite_master
+            // Fallback: look it up via sqlite_master
             conn.query_row(
                 "SELECT sql FROM sqlite_master WHERE name='fts_memories'",
                 [],
@@ -314,7 +314,7 @@ fn prd_cosine_similarity_distance_invariant() {
 }
 
 // ---------------------------------------------------------------------------
-// 9 — edit com --expected-updated-at stale retorna exit 3 (Conflict)
+// 9 — edit with a stale --expected-updated-at returns exit 3 (Conflict)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -402,7 +402,7 @@ fn prd_five_instances_fifth_returns_exit_75() {
 }
 
 // ---------------------------------------------------------------------------
-// 11 — MAX_MEMORY_BODY_LEN=512000: corpo acima do limite retorna exit 6
+// 11 — MAX_MEMORY_BODY_LEN=512000: a body above the limit returns exit 6
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -1,102 +1,227 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/enrich-status.schema.json",
-  "title": "EnrichStatus",
-  "description": "Read-only `enrich --status` report (no LLM, no singleton). v1.1.8 adds force_redescribe quality fields and blocked_dead state (GAP-CLI-ED-STATUS / OBS-04 / QISO).",
-  "type": "object",
   "additionalProperties": true,
-  "required": [
-    "status_report",
-    "operation",
-    "namespace",
-    "unbound_backlog",
-    "scan_backlog",
-    "queue_pending",
-    "queue_processing",
-    "queue_done",
-    "queue_failed",
-    "queue_skipped",
-    "queue_dead",
-    "eligible_now",
-    "waiting",
-    "state"
-  ],
-  "properties": {
-    "status_report": {
-      "type": "boolean",
-      "description": "Sentinel; always true for status reports."
+  "definitions": {
+    "GroundingPercentiles": {
+      "additionalProperties": true,
+      "description": "Quantiles of the grounding coverage distribution over the sample.\n\nThe mean cannot answer the only question that matters when choosing [`super::DEFAULT_ENRICH_GROUNDING_THRESHOLD`]: how much of the corpus sits just BELOW the line. Two corpora with the same mean — one tightly clustered, one bimodal — demand opposite thresholds, and averaging erases the difference. A p25 of 0.28 against a threshold of 0.30 says plainly that the line rejects a quarter of the corpus; no single scalar says that.\n\nEvery score the sampler computed used to be discarded here, which is why the threshold was set by intuition rather than by measurement.",
+      "properties": {
+        "p10": {
+          "format": "double",
+          "type": "number"
+        },
+        "p25": {
+          "format": "double",
+          "type": "number"
+        },
+        "p50": {
+          "format": "double",
+          "type": "number"
+        },
+        "p75": {
+          "format": "double",
+          "type": "number"
+        },
+        "p90": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "p10",
+        "p25",
+        "p50",
+        "p75",
+        "p90"
+      ],
+      "type": "object"
     },
-    "operation": {
-      "type": "string",
-      "description": "Enrich operation name (e.g. entity-descriptions, entity-connect)."
+    "WaitingItem": {
+      "additionalProperties": true,
+      "description": "GAP-SG-16: one pending queue row waiting on its backoff cooldown.",
+      "properties": {
+        "attempt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "error_class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "item_key": {
+          "type": "string"
+        },
+        "next_retry_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attempt",
+        "item_key"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "Read-only `enrich --status` report (no LLM, no singleton).\n\nGAP-SG-42: all queue counts are scoped to the current `--operation` (rows migrated before the `operation` column, which are NULL, are still counted so a legacy queue is not silently reported as empty).",
+  "properties": {
+    "eligible_now": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "force_redescribe": {
+      "description": "Whether `--force-redescribe` was active for this status report.",
+      "type": "boolean"
+    },
+    "grounding_percentiles": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/GroundingPercentiles"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "G-PR-7: nearest-rank quantiles of the sampled grounding coverage.\n\nThis is the surface that makes `grounding_threshold` calibratable with data. Compare the configured threshold against `p10`/`p25`: a threshold above `p25` rejects at least a quarter of what the corpus can support, and one below `p10` is not filtering anything."
+    },
+    "grounding_threshold": {
+      "description": "The threshold that PRODUCED `quality_pct` and the percentiles above, after the full `flag > XDG > constant` resolution.\n\nEmitted because the comparison the percentile doc asks for is impossible without it: once the XDG channel went live, setting `enrich.entity_description.grounding_threshold` swung `quality_pct` from 0.719 to 0.262 on the same database and the same binary, and nothing in this envelope named the cause. A reported rate whose governing value is invisible is the same two-values-nobody-reconciles defect the threshold itself had.",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
     },
     "namespace": {
       "type": "string"
     },
-    "unbound_backlog": {
-      "type": "integer",
-      "minimum": 0,
-      "description": "Memory-bindings unbound backlog (legacy field; memory-bindings scoped)."
-    },
-    "scan_backlog": {
-      "type": "integer",
-      "minimum": 0,
-      "format": "int64",
-      "description": "GAP-SG-77: per-operation database backlog the scan would enqueue."
-    },
-    "scan_backlog_empty": {
-      "type": ["integer", "null"],
-      "format": "int64",
-      "description": "v1.1.8: empty-description-only backlog (entity-descriptions)."
-    },
-    "scan_backlog_low_quality": {
-      "type": ["integer", "null"],
-      "format": "int64",
-      "description": "v1.1.8: low-quality description backlog when --force-redescribe is active."
-    },
-    "force_redescribe": {
-      "type": "boolean",
-      "description": "v1.1.8: true when --force-redescribe was active for this status report."
+    "operation": {
+      "type": "string"
     },
     "quality_pct": {
-      "type": ["number", "null"],
-      "description": "v1.1.8 (OBS-04): fraction of sampled descriptions grounded against linked memory bodies."
+      "description": "Wave 2 / GAP-CLI-OBS-04: fraction of sampled descriptions grounded against linked memory bodies (`grounding_coverage` ≥ threshold).",
+      "format": "double",
+      "type": [
+        "number",
+        "null"
+      ]
     },
     "quality_sample_n": {
-      "type": ["integer", "null"],
-      "minimum": 0,
-      "description": "v1.1.8: sample size used for quality_pct."
+      "description": "Sample size used for `quality_pct` (entities inspected).",
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "queue_dead": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "queue_done": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "queue_failed": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "queue_pending": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "queue_processing": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "queue_skipped": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "sampled_without_corpus": {
+      "description": "G-PR-7: sampled entities that carry a description while having NO linked corpus to justify it. These used to be scored as PERFECT quality, because the sampler asked the same inverted grounding gate that wrote them. A non-zero value here means `quality_pct` is being dragged down by descriptions that should never have existed — that is the honest reading, not a regression.",
+      "format": "uint32",
+      "minimum": 0.0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "scan_backlog": {
+      "description": "GAP-SG-77: DATABASE-semantics backlog for the queried operation, computed by `scan::count_operation_backlog` via a `SELECT COUNT(*)` over the real store. This is distinct from `queue_pending`/`queue_dead` (FILE/sidecar queue semantics) and from the legacy `unbound_backlog` (memory-bindings only). It fixes the false `pending=0` that db-backed operations (entity-descriptions/body-enrich/re-embed) previously reported.",
+      "format": "int64",
+      "type": "integer"
+    },
+    "scan_backlog_empty": {
+      "description": "GAP-CLI-ED-STATUS-02: empty-description-only backlog (entity-descriptions).",
+      "format": "int64",
+      "type": [
+        "integer",
+        "null"
+      ]
     },
     "scan_backlog_low_grounding_est": {
-      "type": ["integer", "null"],
+      "description": "Extrapolated count of low-grounding descriptions in the namespace.",
       "format": "int64",
-      "description": "v1.1.8: extrapolated count of low-grounding descriptions in the namespace."
+      "type": [
+        "integer",
+        "null"
+      ]
     },
-    "queue_pending": { "type": "integer", "format": "int64" },
-    "queue_processing": { "type": "integer", "format": "int64" },
-    "queue_done": { "type": "integer", "format": "int64" },
-    "queue_failed": { "type": "integer", "format": "int64" },
-    "queue_skipped": { "type": "integer", "format": "int64" },
-    "queue_dead": { "type": "integer", "format": "int64" },
-    "eligible_now": { "type": "integer", "format": "int64" },
-    "waiting": { "type": "integer", "format": "int64" },
+    "scan_backlog_low_quality": {
+      "description": "GAP-CLI-ED-STATUS-02: low-quality description backlog (entity-descriptions).",
+      "format": "int64",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "state": {
-      "type": "string",
-      "description": "Coarse backlog state: draining | cooldown | pending-scan | blocked_dead | empty. blocked_dead (v1.1.8 QISO) means scan deficit remains but only permanent dead queue rows remain.",
-      "enum": ["draining", "cooldown", "pending-scan", "blocked_dead", "empty"]
+      "description": "GAP-SG-15/46: coarse backlog state, disambiguating an empty queue from a not-yet-scanned backlog and from a cooldown wait. `draining` | `cooldown` | `pending-scan` | `blocked_dead` (scan deficit remains but only permanent dead queue rows remain — requeue/prune) | `empty`.",
+      "type": "string"
+    },
+    "status_report": {
+      "type": "boolean"
+    },
+    "unbound_backlog": {
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "waiting": {
+      "format": "int64",
+      "type": "integer"
     },
     "waiting_items": {
-      "type": "array",
-      "description": "Pending queue rows waiting on backoff cooldown.",
+      "description": "GAP-SG-16: per-item `next_retry_at` for every pending row currently in backoff, so an operator can see exactly when each will become eligible.",
       "items": {
-        "type": "object",
-        "properties": {
-          "item_key": { "type": "string" },
-          "attempt": { "type": "integer" },
-          "next_retry_at": { "type": ["string", "null"] },
-          "error_class": { "type": ["string", "null"] }
-        }
-      }
+        "$ref": "#/definitions/WaitingItem"
+      },
+      "type": "array"
     }
-  }
+  },
+  "required": [
+    "eligible_now",
+    "namespace",
+    "operation",
+    "queue_dead",
+    "queue_done",
+    "queue_failed",
+    "queue_pending",
+    "queue_processing",
+    "queue_skipped",
+    "scan_backlog",
+    "state",
+    "status_report",
+    "unbound_backlog",
+    "waiting",
+    "waiting_items"
+  ],
+  "title": "EnrichStatus",
+  "type": "object"
 }

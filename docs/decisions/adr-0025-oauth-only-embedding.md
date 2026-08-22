@@ -2,7 +2,7 @@
 
 - Status: Accepted (reaffirmed 2026-06-07)
 - Update (v1.0.79): the `embedding-legacy` escape hatch mentioned below was removed ahead of the v1.1.0 schedule; the transition window is closed
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: src/extract/llm_embedding.rs, src/commands/claude_runner.rs, src/commands/codex_spawn.rs
 
 ## Context

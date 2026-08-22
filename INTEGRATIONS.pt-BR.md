@@ -7,7 +7,8 @@
 
 - Leia a versão em inglês em [INTEGRATIONS.md](INTEGRATIONS.md)
 - Cada receita abaixo está pronta para copiar e custa zero para executar
-- **v1.2.7 (atual):** dez flags globais agent-native (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--filter-scope`, `--allow-unknown-keys`; envelopes de falha nunca são filtrados) mais `--no-input`. Chave irresolvível ou predicado sobre página truncada são recusados com exit 2 em vez de responder vazio, e o envelope de falha nomeia os argumentos descartados em `discarded_flags`. Todo envelope de um processo que resolveu banco reporta `db_path_source` e `db_path_resolved` dentro do bloco `agent_surface`, sem exigir flag alguma. Um subcomando que altera estado durável sai com exit 2 sem tocar em nada quando NADA nomeou o alvo — nem `--db` nem `db.path` na configuração. Alvo XDG é permitido, porque `config set db.path` é designação feita uma vez em vez de a cada invocação; `--use-active` aceita o padrão compilado de propósito. O schema permanece em **v16**; `DEFAULT_EMBEDDING_DIM=1024`. O detalhe por release está em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md).
+- **v1.2.8 (atual):** a família morta `pending` foi removida — três verbos que jamais devolviam linha — levando o catálogo de topo a 50 verbos e o de schemas a 76 contratos. O `hybrid-search` perde `fts_bm25`, campo que o schema publicava e nenhum caminho de código preenchia. O reaper de órfãos roda sobre `sysinfo` em vez de `/proc`, então o macOS para de reportar zero órfão sem ter medido. Um gate novo recusa identificador e comentário em português em `src/`, isentando somente literais de string traduzidos sob `src/i18n/`. Herdado da v1.2.8: o `tests/rustdoc_link_gate.rs` fecha estaticamente, em milissegundos e sem lock de build, a classe de defeito que só o `cargo doc` enxergava — doc comment público apontando item privado. O `graph --format ndjson` passa a honrar a superfície agent-native em vez de parsear as flags e descartá-las: `--select` e `--truncate-content` valem por registro, os knobs de conjunto completo são recusados antes do primeiro byte, e a linha de sumário carrega o bloco `agent_surface`. `--select`, `--filter`, `--sort` e `--dedupe-by` aceitam `entity_type` e `type` como um único campo, então a chave aprendida no `graph entities` também resolve contra o snapshot do `graph --format json`; o wire não muda e a projeção responde sob a grafia que você pediu. Herdado da v1.2.8: `remember` aceita o nome da memória posicionalmente ou por `--name`, nunca os dois, fechando a última divergência com `edit` / `read` / `forget` / `history`. Um `entity_type` declarado fora dos treze canônicos é ACEITO E ARMAZENADO COMO ESCRITO: a dobra sobre um tipo canônico é HISTÓRICA, removida pela migração V017 que abriu o vocabulário, e `normalize_entity_type` (`src/entity_type.rs`) hoje só faz trim, lowercase e troca `-` por `_`. Toda etiqueta não canônica é reportada em `warnings` no `remember` E no `remember-batch`, e `--strict-entity-types` recusa a escrita — o irmão de `--strict-name`. `remember --dry-run` reporta `entities_parsed`, `relationships_parsed` e as etiquetas não canônicas que armazenaria, em vez de quatro campos e `warnings: null`. Dois contratos de entrada passam a ser publicados: `schema --name graph-input` para a forma de fio de `--graph-stdin` / `--graph-file`, e `schema --name remember-dry-run` para um envelope que não satisfazia schema algum. Herdado da v1.2.8: `--count-only` é RECUSADO com exit `2` sobre comando paginado cujo limite de fato cortou linhas — `--filter-scope page` aceita a leitura mais estreita e `agent_surface.count_scope` passa a reportar `page` em vez de `matched`. Teto top-k nunca é recusado. O mesmo knob, mais `--sort`, `--dedupe-by` e `--max-output-bytes`, é recusado em `export` e `ingest`, que emitem um registro por linha. Depois de uma escrita sem array de resultado o knob é suprimido em vez de honrado, e `count_only_suppressed` reporta. `export` e `embedding list` passam a declarar o teto de consulta, então a superfície para de reportar `query_limited: null` sobre uma página. Herdado da v1.2.8: o vocabulário canônico de relações é kebab-case (`applies-to`, `depends-on`, `tracked-in`) em UM lugar — `parsers::CANONICAL_RELATIONS` — e `create_or_fetch_relationship` / `upsert_relationship` canonizam na fronteira de persistência, então nenhum caminho de escrita grava grafia divergente. Os filtros de relação do `related` casam as duas grafias, alcançando linhas escritas por binários anteriores. `link` aceita `--strength` como alias de `--weight`. `remember` reporta em `warnings` todo `entity_type` declarado fora dos treze canônicos — até a V017 essa etiqueta era dobrada num tipo canônico, e desde a V017 ela é armazenada como escrita. O enrich não sobrescreve mais tipo de entidade que não seja o genérico `concept`. `related` é determinístico: a ordenação é total, então invocações idênticas devolvem resultados idênticos. O schema é **v17** — a migração V017 abriu o vocabulário de entity_type e `health --json` reporta `schema_version: 17`; `DEFAULT_EMBEDDING_DIM=1024`.
+- **v1.2.7:** dez flags globais agent-native (`--select`/`--fields`, `--filter`, `--max-items`, `--sort`, `--dedupe-by`, `--count-only`, `--truncate-content`, `--max-output-bytes`, `--filter-scope`, `--allow-unknown-keys`; envelopes de falha nunca são filtrados) mais `--no-input`. Chave irresolvível ou predicado sobre página truncada são recusados com exit 2 em vez de responder vazio, e o envelope de falha nomeia os argumentos descartados em `discarded_flags`. Todo envelope de um processo que resolveu banco reporta `db_path_source` e `db_path_resolved` dentro do bloco `agent_surface`, sem exigir flag alguma. Um subcomando que altera estado durável sai com exit 2 sem tocar em nada quando NADA nomeou o alvo — nem `--db` nem `db.path` na configuração. Alvo XDG é permitido, porque `config set db.path` é designação feita uma vez em vez de a cada invocação; `--use-active` aceita o padrão compilado de propósito. O schema estava em **v16** naquela release; a V017 avançou para **v17**, que é o que um binário 1.2.8 reporta; `DEFAULT_EMBEDDING_DIM=1024`. O detalhe por release está em [CHANGELOG.pt-BR.md](CHANGELOG.pt-BR.md).
 - **v1.0.79: todo build é apenas LLM e one-shot.** A geração de embedding delega para um subprocesso headless `claude code` ou `codex` (OAuth). O daemon, o runtime ONNX e a feature `embedding-legacy` foram totalmente removidos; os embeddings são em lote, paralelos (`--llm-parallelism`) e com **1024** dimensões por padrão (`--embedding-dim`, faixa [8, 4096]; v1.2.0).
 
 
@@ -18,13 +19,13 @@
 - Auto-init via `remember`/`ingest`/etc. agora ativa `journal_mode = wal` corretamente (correção de regressão).
 
 ## Novas Flags (desde v1.0.45)
-- A extração NER de entidades está **desativada por padrão**. Passe `--enable-ner` em `remember` ou `ingest` para ativar; defina `SQLITE_GRAPHRAG_ENABLE_NER=1` para override persistente de sessão.
+- A extração NER de entidades está **desativada por padrão**. Passe `--enable-ner` em `remember` ou `ingest` para ativar; não existe chave XDG nem override de ambiente para ela.
 - `--skip-extraction` está obsoleto e não tem efeito desde v1.0.45 (NER está desativado por padrão); a flag é mantida como no-op oculto para compatibilidade — remova-a dos scripts.
 - `--graph-stdin` em `remember` lê um único objeto JSON do stdin contendo `body`, `entities` e `relationships`, sendo a forma preferida de fornecer grafos curados por um LLM.
 
 ## Novas Flags (desde v1.0.47)
 - O pipeline GLiNER zero-shot NER foi REMOVIDO na v1.0.79 com a feature `ner-legacy`; `--enable-ner` agora executa apenas extração de URL por regex.
-- `--gliner-variant`, `SQLITE_GRAPHRAG_GLINER_VARIANT` e `SQLITE_GRAPHRAG_GLINER_THRESHOLD` são aceitas por compatibilidade mas NÃO têm efeito desde a v1.0.79.
+- --gliner-variant foi REMOVIDA na v1.1.02: o clap a REJEITA com exit 2, então a invocação que a carrega aborta antes de qualquer trabalho — ela NÃO é tolerada como no-op silencioso. As env vars de produto `SQLITE_GRAPHRAG_GLINER_VARIANT` e `SQLITE_GRAPHRAG_GLINER_THRESHOLD` também são históricas: env de produto não é lida em runtime e não tem efeito.
 - Para extração de entidades/relacionamentos curada por LLM rode um passo SEPARADO de `enrich --mode openrouter` após `ingest --mode none`.
 - Os tipos de entidade agora incluem `organization`, `location`, `date` além de `person`, `project`, `tool`, `file`, `concept`, `decision`, `incident`, `dashboard`, `issue_tracker`, `memory`.
 
@@ -44,7 +45,7 @@
 
 - Crate **`1.2.0`**; pin de consumidores de biblioteca `=1.2.0`. Schema do DB principal permanece em **v16** (sem migrate se já em v16; migrate só da fila sidecar).
 - **DEFAULT_EMBEDDING_DIM=1024** — flag `--embedding-dim` / XDG `embedding.dim` ainda sobrescrevem; DBs existentes mantêm `schema_meta.dim` até re-embed.
-- Precedência de config: **flag CLI > XDG `config set` > default nomeado**. Product env `SQLITE_GRAPHRAG_*` **não** é o caminho de config (ignorada em runtime).
+- Precedência de config: **flag CLI > XDG `config set` > default nomeado**. Product env `SQLITE_GRAPHRAG_*` **não é lida** em runtime e não é o caminho de config.
 - `enrich --list-skipped` / `enrich --requeue-skipped` — recuperam sink `preservation_failed` / skipped sem SQL cru (G-PR-3/4).
 - Fila enrich multi-namespace — coluna `namespace` + `UNIQUE(namespace, operation, item_key)`; `DELETE` escopado; correção SQL `status='pending'`.
 - **GAP-SG-139** — folhas host/XDG (`config`×9, `slots`×3, `cache`×3, `completions`) aceitam `--db` como **no-op** documentado (`src/cli_db_noop.rs`); superfícies de grafo inalteradas.
@@ -57,17 +58,17 @@
 - `enrich --operation entity-connect|cross-domain-bridges` é seguro em namespaces `global` grandes (sem hang cartesiano); ambos compartilham o caminho fully-implemented de `entity_connect_seen`.
 
 ## Novos Comandos e Flags (desde v1.1.05)
-- O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.5`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.5`; o binário de release tem aproximadamente 19 MiB. **Sem migração de schema** (permanece em v16 após a V016 da v1.1.04). Fecha os cinco bugs operacionais do relato de incidente deep-research "danilo" (`gaps.md`)
+- O nome oficial do release é v1.1.05; o manifesto do crate carrega `version = "1.1.5"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.5`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.5`; o binário de release tem aproximadamente 19 MiB. **Sem migração de schema** (permanece em v16 após a V016 da v1.1.04). Fecha os cinco bugs operacionais do relato de incidente deep-research de sujeito único (`gaps.md`)
 - Bug 1: `deep-research` com token único expande em sub-queries multi-aspecto (`source: "aspect"`, facetas EN/PT); estratégia manual via `--sub-query-strategy manual --sub-queries-file`
 - Bug 2: `deep-research --output PATH` grava o envelope via algoritmo atomwrite (tempfile → fsync → rename) e emite ack curto no stdout com checksum `blake3`; flag global `--quiet`/`-q` suprime tracing não-erro; contrato stdout-JSON / stderr-logs (nunca `&>` no mesmo arquivo); helpers em `src/atomic_io.rs`
 - Bug 3: `graph traverse --from <nome-curto>` — match exato prioritário; sem `--fuzzy`, NotFound (exit 4) inclui sugestões Jaro-Winkler/prefixo; com `--fuzzy`, auto-resolve vencedor claro com warning em stderr (`rapidfuzz`)
 - Bug 4: `merge-entities` rejeita self-ref (`--ids` contendo `--into-id`, ou `--names` contendo `--into`) **antes** de qualquer trabalho no DB
 - Bug 5: `link --from-id` / `--to-id` resolvem por ID; `validate_entity_name` rejeita nomes só de dígitos (impede entidades fantasma sob `--create-missing`)
-- Suite de regressão: `tests/v1105_danilo_bugs_regression.rs`
+- Suite de regressão: `tests/v1105_incident_bugs_regression.rs`
 
 ## Novos Comandos e Flags (desde v1.1.02)
 - (histórico v1.1.04) O nome oficial do release é v1.1.04; o manifesto do crate carrega `version = "1.1.4"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.4`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.4` (derivado de `CARGO_PKG_VERSION`); o binário de release tem aproximadamente 19 MiB. A v1.1.04 fecha os dois gaps estruturais rastreados em `gaps.md` após a v1.1.03: o GAP-001 (o panic de nested Tokio runtime no `deep-research` está corrigido — o entry point síncrono computa os embeddings por sub-query ANTES de construir seu runtime dedicado, e os três caminhos de embedding OpenRouter adotam o padrão de reentrada `Handle::try_current` + `block_in_place`) e o GAP-002 (o `entity-connect` agora converge via a nova tabela `entity_connect_seen` registrando o veredito do LLM por par). Migração de banco OBRIGATÓRIA: `migrate --json` aplica a V016 (`entity_connect_seen`); o schema avança v15→v16
-- O nome oficial da release é v1.1.02; o manifesto do crate carrega `version = "1.1.2"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.2`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.2` (derivado de `CARGO_PKG_VERSION`); o binário de release tem aproximadamente 19 MiB; o schema permanece na versão 15 sem migração. A v1.1.02 fecha os dois gaps residuais deixados após v1.1.01 (o argumento depreciado `--gliner-variant` é removido de `remember`/`ingest` com clap exit 2; o teto de tokens de embedding vira a variante tipada `AppError::TooManyTokens { tokens, limit }` enforced na borda de escrita), entrega um teste de regressão para o dispatch de re-embed de entidades (tests/reembed_entities_integration.rs), e adiciona `enrich --prune-dead-entity-orphans` para remover linhas dead-letter entity-keyed da fila sidecar
+- O nome oficial da release é v1.1.02; o manifesto do crate carrega `version = "1.1.2"` porque o parser SemVer rejeita zero à esquerda no componente patch — faça pin com `=1.1.2`. O `User-Agent` HTTP é `sqlite-graphrag/1.1.2` (derivado de `CARGO_PKG_VERSION`); o binário de release tem aproximadamente 19 MiB; o schema permanece na versão 15 sem migração. A v1.1.02 fecha os dois gaps residuais deixados após v1.1.01 (o argumento depreciado --gliner-variant é removido de `remember`/`ingest` com clap exit 2; o teto de tokens de embedding vira a variante tipada `AppError::TooManyTokens { tokens, limit }` enforced na borda de escrita), entrega um teste de regressão para o dispatch de re-embed de entidades (tests/reembed_entities_integration.rs), e adiciona `enrich --prune-dead-entity-orphans` para remover linhas dead-letter entity-keyed da fila sidecar
 - Vetores de entidade são escritos pelo path REST OpenRouter mesmo sob `--llm-backend none` (a chain de embedding de entidade resolve para `[OpenRouter]`, sem subprocesso), e uma guarda de vetor vazio em `upsert_entity_vec`/`upsert_chunk_vec`/`memories::upsert_vec` mantém linhas sem vetor visíveis ao backfill do re-embed em vez de mascará-las atrás de um BLOB vazio (P1)
 - `enrich --operation re-embed --target memories|entities|chunks|all` — backfill retroativo de embedding por tabela de vetor (padrão `memories`, totalmente retrocompatível); `enrich --status` reporta o `scan_backlog` por alvo; os predicados do re-embed também selecionam linhas cujo `dim` gravado diverge do `--embedding-dim` configurado ou cujo blob está vazio (P2, P10)
 - `graph recompute-degree` — reconcilia o `entities.degree` cacheado com as contagens reais de arestas em uma única transação IMMEDIATE, por namespace (ou todos), com `--dry-run` e o envelope `{namespace, dry_run, total, updated, zeroed, unchanged, elapsed_ms}` (P3)
@@ -104,7 +105,7 @@
 - `ingest --force-merge` — atualiza arquivos duplicados em vez de pular (dedup por `body_hash`); corpos grandes demais são divididos nativamente em chunks
 - `read --format raw` — imprime o corpo puro sem envelope JSON; `unlink --memory <nome> --entity <nome>` — remove um único vínculo curado memória-entidade
 - `embedding status --json` adiciona um objeto `coverage` (contagens reais de vetor por tabela); `stats --json` adiciona um `total_memories` no topo
-- `--db <PATH>` deve vir DEPOIS do subcomando; `SQLITE_GRAPHRAG_DB_PATH` é o override canônico independente de posição (SG-32). O singleton por namespace do enrich permanece, com `--rest-concurrency` (clamp 1..=16, padrão 8) como remédio de vazão (GAP-20)
+- `--db <PATH>` deve vir DEPOIS do subcomando; não existe override independente de posição, então a alternativa canônica é a chave XDG `db.path` via `config set` (SG-32). O singleton por namespace do enrich permanece, com `--rest-concurrency` (clamp 1..=16, padrão 8) como remédio de vazão (GAP-20)
 
 ## Novos Comandos e Flags (desde v1.0.96)
 - `enrich --until-empty` — loop interno scan→drain que roda até a fila não ter mais itens elegíveis ou `--max-runtime` expirar; substitui o loop de retry externo em bash (GAP-ENRICH-BACKLOG-CONVERGE, ADR-0055)
@@ -117,9 +118,9 @@
 ## Novos Comandos e Flags (desde v1.0.68)
 ### Ciclo de Vida de Processos (G28)
 - `enrich` adquire um singleton por namespace antes de fazer trabalho real.  Uma segunda invocação concorrente no mesmo banco falha rápido com `AppError::JobSingletonLocked { job_type, namespace }` (exit 75) em vez de empilhar árvores de subprocessos.
-- Env var `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` (opt-in) — quando definida para um diretório existente e vazio, o subprocesso do Claude Code é iniciado com `CLAUDE_CONFIG_DIR=<esse dir>`, suprimindo servidores MCP do escopo user e a fan-out de 8-10 processos.  Este é o único mecanismo que o upstream do Claude Code realmente honra (veja [anthropics/claude-code#10787]).  Deliberadamente NÃO passamos `--strict-mcp-config` nem `--mcp-config '{}'` porque ambos são ignorados.
+- Histórico, removido na v1.2.0 — a env var `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` (opt-in) apontava para um diretório existente e vazio, e o subprocesso do Claude Code era iniciado com `CLAUDE_CONFIG_DIR=<esse dir>`, suprimindo servidores MCP do escopo user e a fan-out de 8-10 processos.  Aquele era o único mecanismo que o upstream do Claude Code realmente honrava (veja [anthropics/claude-code#10787]).  Deliberadamente NÃO passávamos `--strict-mcp-config` nem `--mcp-config '{}'` porque ambos são ignorados.  Os backends headless de subprocesso não existem mais, então o mecanismo acabou junto.
 - `retry::CircuitBreaker` (API do crate Rust) — helper opt-in com `AttemptOutcome::{Success, Transient, HardFailure}`.  Erros rate-limited e timeout são explicitamente excluídos da contagem.  Use em loops de retry customizados para limitar iterações em falhas persistentes.
-- `enrich` emite `tracing::warn!` (visível com `-v`) quando `--llm-parallelism > 4`, recomendando combinar com `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` para manter a fan-out administrável.
+- `enrich` emite `tracing::warn!` (visível com `-v`) quando `--llm-parallelism > 4`; o remédio `SQLITE_GRAPHRAG_CLAUDE_EMPTY_CONFIG_DIR` que ele citava é histórico e foi removido na v1.2.0, então reduza `--llm-parallelism`.
 ### Build Windows (G29)
 - `cargo install sqlite-graphrag` no Windows agora compila.  O tipo `HANDLE` é tratado de forma type-safe via `!handle.is_null() && handle != INVALID_HANDLE_VALUE`.  `windows-sys` está fixado em `=0.59.0` exato em `Cargo.toml`.  Novo job de CI `windows-build-check` roda `cargo check --target x86_64-pc-windows-msvc --lib --all-features` em todo push e PR.
 
@@ -153,8 +154,8 @@
 ### Refinamento da Hybrid Search (G24)
 - A `hybrid-search` usa FTS5 como filtro grosso e refina o conjunto de candidatos com cosseno em Rust puro sobre os embeddings BLOB.  O FTS5 permanece saudável porque a reconstrução é bloqueada por `optimize --fts-skip-when-functional` (G36 da v1.0.69).
 ### Seletor de Backend de Extração
-- Nova flag global `--extraction-backend llm|embedding|none|both` (padrão `llm`) seleciona o backend de extração.  `llm` é o caminho LLM; `embedding` é um stub permanente desde a v1.0.79 (pipeline legado removido) que retorna erro de migração; `none` é um no-op; `both` roda os dois em paralelo e funde os resultados.
-- `src/extract/` expõe o trait `ExtractionBackend` com as quatro implementações.  `src/spawn/` expõe o trait `VersionAdapter` com `CodexAdapter` (detecta `codex 0.130.0` até `0.138+` e adapta flags — `codex 0.137.0` removeu `--ask-for-approval` em favor de `-a never`), `ClaudeAdapter` (claude code 2.1.0+) e `OpencodeAdapter` (opencode headless).
+- HISTÓRICO (era de subprocesso): a flag global --extraction-backend llm|embedding|none|both, padrão `llm`, selecionava o backend de extração — `llm` era o caminho por subprocesso, `embedding` um stub permanente que retornava erro de migração, `none` um no-op, `both` uma fusão em paralelo. A flag NÃO EXISTE MAIS: um binário 1.2.8 responde `unexpected argument` com exit 2, e o caminho de extração por subprocesso que ela selecionava foi removido na v1.2.0. Hoje a extração é escolhida por comando — `ingest --mode none` para ingestão só de corpo, depois um passo SEPARADO de `enrich --mode openrouter` para entidades e relações curadas por LLM.
+- `src/extract/` continua expondo o trait `ExtractionBackend` com as quatro implementações, e nenhuma delas spawna processo. HISTÓRICO: `src/spawn/` expunha o trait `VersionAdapter` com `CodexAdapter` (detectava `codex 0.130.0` até `0.138+` e adaptava flags — `codex 0.137.0` removeu `--ask-for-approval` em favor de `-a never`), `ClaudeAdapter` (claude code 2.1.0+) e `OpencodeAdapter` (opencode headless). Esse diretório não existe na árvore 1.2.8: os três backends headless foram removidos na v1.2.0.
 ### Remoção do Daemon (ADR-0021)
 - O subcomando `daemon` foi DEPRECIADO na v1.0.76 e TOTALMENTE REMOVIDO na v1.0.79 (antecipando o cronograma da v1.1.0).  O subprocesso LLM é o "model loader"; a CLI é 100% one-shot com zero IPC.
 
@@ -163,7 +164,7 @@
 - `--llm-parallelism <N>` agora disponível em `remember` (padrão 4), `ingest` (padrão 2) e `edit` — fan-out limitado via `Semaphore` + `JoinSet`, permits com clamp [1, 32]
 - `enrich --operation re-embed --limit N --resume` é o caminho canônico de re-embed one-shot (ex.: após mudar `--embedding-dim`)
 - `edit --force-reembed` regenera o embedding de uma memória sem alterar o corpo
-- `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` sobrescreve o modelo de embedding do claude (simétrica à variável do codex); `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` limita cada chamada LLM de embedding (padrão 300)
+- Histórico, removido na v1.2.0 — `SQLITE_GRAPHRAG_CLAUDE_EMBED_MODEL` sobrescrevia o modelo de embedding do claude (simétrica à variável do codex); o prazo de embedding agora é `--openrouter-timeout <SEGUNDOS>` ou a chave XDG `embedding.timeout_secs` (padrão 300)
 - Chamadas LLM são em lote (schema `{items:[{i,v}]}` — bases de calibração de 8 chunks / 25 nomes de entidade em dim 64, adaptativas por clamp(base×64/dim, 1, base) desde o G44) e todo subprocesso usa `kill_on_drop` mais timeout explícito
 
 ## Novos Comandos e Flags (desde v1.0.67)
@@ -192,7 +193,7 @@
 - `normalize-entities --yes` normaliza todos os nomes de entidade para kebab-case ASCII minúsculo; mescla colisões automaticamente; `--dry-run` faz preview
 - `enrich --operation <op> --mode claude-code|codex|opencode|openrouter` qualidade do grafo aumentada por LLM; ops FULLY-IMPLEMENTED atuais: `memory-bindings`, `entity-descriptions`, `body-enrich`, `re-embed`, `augment-bindings`, `body-extract`, `entity-connect` (v1.1.06 O(k) + pair keys), `cross-domain-bridges`; `--dry-run` faz preview sem LLM; `--max-cost-usd`, `--resume`, `--retry-failed`, `--until-empty`, `--max-runtime`
 - `deep-research` novas flags: `--rrf-k` (padrão 60), `--graph-decay` (padrão 0.7), `--graph-min-score` (padrão 0.05), `--max-neighbors-per-hop`
-- flag `--max-entity-degree` REMOVIDA de `link` e `remember` na v1.0.99 — a escrita agora é puramente aditiva e NUNCA poda, deleta arestas nem emite warn de grau (passar a flag agora resulta em clap exit 2)
+- flag --max-entity-degree REMOVIDA de `link` e `remember` na v1.0.99 — a escrita agora é puramente aditiva e NUNCA poda, deleta arestas nem emite warn de grau (passar a flag agora resulta em clap exit 2)
 - `health` reporta `top_relation`, `top_relation_ratio`, `applies_to_ratio`, `relation_concentration_warning` quando qualquer relação excede 40%
 - Nomes de entidade normalizados para kebab-case em todo path de escrita (remember, ingest, link, rename-entity)
 
@@ -225,7 +226,7 @@
 - `unlink --relation` agora opcional (remove todos entre o par); `--entity <nome> --all` para massa
 - `graph entities --sort-by degree|name|created_at --order asc|desc`; campo `degree` na resposta
 - `ingest --max-name-length N` configura truncagem; `body_length` no NDJSON; auto-prefixo `doc-` para nomes numéricos
-- `daemon --ping` adicionava campos `model_name`, `model_variant` (HISTÓRICO — o daemon foi removido na v1.0.79)
+- daemon --ping adicionava campos `model_name`, `model_variant` (HISTÓRICO — o daemon foi removido na v1.0.79)
 - TODOS os caminhos de erro agora emitem JSON no stdout: `{"error": true, "code": N, "message": "..."}`
 - Sync FTS5 corrigido em `edit`, `rename`, `restore` — memórias editadas agora imediatamente localizáveis via busca textual
 
@@ -276,9 +277,9 @@
 - Versão mínima exige Claude Code 1.0 ou posterior para suporte estável ao diretório `.claude/hooks/`
 - Docs oficiais em https://docs.anthropic.com/claude-code descrevendo o ciclo de vida dos hooks
 - Dica de ouro é capturar exit code `75` como retry-later mantendo o agente vivo graciosamente
-- Desde v1.0.61, `ingest --mode claude-code` usa o binário Claude Code para extração curada por LLM de entidades/relações durante ingestão em massa
-- O modo de ingestão spawna `claude -p` headless por arquivo — requer Claude Code >= 2.1.0 com assinatura Pro/Max ativa
-- Usar `--claude-timeout <S>` (padrão 300s) para prevenir subprocessos travados em pipelines CI/cron
+- HISTÓRICO (v1.0.61 até a v1.2.0): `ingest --mode claude-code` usava o binário Claude Code para extração curada por LLM de entidades/relações durante ingestão em massa, spawnando `claude -p` headless por arquivo contra assinatura Pro/Max. Um binário 1.2.8 RECUSA — `invalid value 'claude-code' for '--mode <MODE>'`, exit 2 — porque `none` é o único valor aceito.
+- Hoje o mesmo resultado sai em dois passos sem subprocesso: `ingest --mode none` para o corpo e depois um passo SEPARADO de `enrich --mode openrouter --openrouter-model <MODELO>` que alcança o provider por HTTP.
+- HISTÓRICO: --claude-timeout <S> (padrão 300s) limitava aquele subprocesso e hoje é rejeitada com exit 2. Nada spawna, então nada trava: o único orçamento de tempo é a flag global `--openrouter-timeout <SEGUNDOS>`, aplicada por chamada REST à OpenRouter.
 
 
 ## Codex CLI
@@ -290,13 +291,12 @@
 - Versão mínima exige Codex CLI 0.5 ou posterior para regras determinísticas de parsing do AGENTS.md
 - Docs oficiais em https://github.com/openai/codex cobrindo a ordem de descoberta do AGENTS.md
 - Dica de ouro é incluir um exemplo de invocação funcional sob cada comando listado para Codex
-- Desde v1.0.62, `ingest --mode codex` usa o binário Codex CLI para extração curada por LLM de entidades/relações durante ingestão em massa
-- O modo de ingestão spawna `codex exec --json` headless por arquivo — requer Codex CLI >= 0.120.0 com sessão ChatGPT OAuth ativa (codex login)
-- Usar `--codex-timeout <S>` (padrão 300s) para prevenir subprocessos travados em pipelines CI/cron
+- HISTÓRICO (v1.0.62 até a v1.2.0): `ingest --mode codex` usava o binário Codex CLI para extração curada por LLM de entidades/relações durante ingestão em massa, spawnando `codex exec --json` headless por arquivo contra sessão ChatGPT OAuth. Um binário 1.2.8 RECUSA — `none` é o único valor aceito de `--mode`, exit 2 caso contrário.
+- Hoje a receita é `ingest --mode none` seguido de um passo SEPARADO de `enrich --mode openrouter --openrouter-model <MODELO>` por HTTP; o contrato do `AGENTS.md` acima não muda, porque ele só documenta verbos de leitura.
+- HISTÓRICO: --codex-timeout <S> (padrão 300s) limitava aquele subprocesso e hoje é rejeitada com exit 2. O único orçamento de tempo restante é a flag global `--openrouter-timeout <SEGUNDOS>`.
 
-> **Autenticação:** OAuth é o ÚNICO fluxo de credencial aceito. Chaves de API são PROIBIDAS.
-> `--mode claude-code` lê OAuth de `~/.claude/.credentials.json` (Claude Pro/Max/Team).
-> `--mode codex` lê autenticação de dispositivo via `codex login` (OpenAI ChatGPT).
+> **Autenticação (vigente):** não há subprocesso nem fluxo OAuth. Embedding e enriquecimento são chamadas HTTP à OpenRouter com chave guardada em repouso sob XDG por `config add-key --provider openrouter --from-stdin`; `config doctor` mostra qual camada resolveu.
+> **Histórico:** até a v1.2.0 o OAuth era o único fluxo aceito e chaves de API eram recusadas — `--mode claude-code` lia `~/.claude/.credentials.json` (Claude Pro/Max/Team) e `--mode codex` lia a autenticação de dispositivo do `codex login` (OpenAI ChatGPT). Um binário 1.2.8 rejeita os dois modos.
 > Definir `ANTHROPIC_API_KEY` ou `OPENAI_API_KEY` no ambiente ABORTA o spawn com `AppError::Validation` e código de saída 1. A flag `--bare` (que também exigiria uma chave de API) foi REMOVIDA de todo caminho executável.
 > Veja `docs/decisions/adr-0011-oauth-only-enforcement.md` para a justificativa completa.
 
@@ -308,7 +308,7 @@
 - Use `sqlite-graphrag hybrid-search "query" --k 5 --json` para recall com intenção mista de keyword
 - Versão mínima suporta qualquer release recente do Gemini CLI com invocação subprocess habilitada
 - Docs oficiais em https://github.com/google-gemini/gemini-cli sobre padrões de integração de tool
-- Dica de ouro é definir `SQLITE_GRAPHRAG_LANG=pt` ao prompt-ar Gemini em contextos em português
+- Dica de ouro é passar a flag global `--lang pt`, ou persistir `config set i18n.lang pt`, ao prompt-ar Gemini em contextos em português
 
 
 ## Opencode
@@ -385,7 +385,7 @@
 - Use `sqlite-graphrag remember --name cursor-ctx --type project --body "$SELECTION"` por atalho
 - Versão mínima exige Cursor 0.40 ou posterior para regras AI estáveis e override de env de terminal
 - Docs oficiais em https://cursor.com/docs cobrindo padrões de regras AI e integração de terminal
-- Dica de ouro é definir `SQLITE_GRAPHRAG_NAMESPACE=${workspaceFolderBasename}` por workspace
+- Dica de ouro é passar `--namespace ${workspaceFolderBasename}` por workspace, ou persistir `config set namespace.default <NOME>`
 
 
 ## Zed
@@ -407,7 +407,7 @@
 - Use `sqlite-graphrag recall "refactor target" --k 5 --json` invocado antes de cada prompt Aider
 - Versão mínima exige Aider 0.60 ou posterior para invocação subprocess e hook estáveis e suportadas
 - Docs oficiais em https://aider.chat descrevendo configuração e comandos shell customizados
-- Dica de ouro é escopar memória por repositório via `SQLITE_GRAPHRAG_NAMESPACE=$(basename $(pwd))`
+- Dica de ouro é escopar memória por repositório via `--namespace $(basename $(pwd))` em cada invocação
 
 
 ## Jules
@@ -528,7 +528,7 @@ sqlite-graphrag --embedding-backend openrouter \
 - Receita pronta para rotear Claude Code através de qualquer endpoint Anthropic-compatível sem violar o mandato OAuth-only
 - Embora a guarda OAuth-only continue rejeitando `ANTHROPIC_API_KEY` e `OPENAI_API_KEY` com exit 1 (defesa em profundidade desde v1.0.69), a nova whitelist preserva `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `CODEX_ACCESS_TOKEN`, `CLAUDE_CODE_ENTRYPOINT`, `DISABLE_TELEMETRY` e `OTEL_EXPORTER_OTLP_ENDPOINT`
 - Propósito é habilitar providers Anthropic-compatíveis (MiniMax/api.minimax.io, OpenRouter, rotas customizadas do AWS Bedrock, gateways corporativos) sem forçar operadores a pagar pela rota oficial de chave de API Anthropic
-- Use as variáveis de ambiente abaixo antes de invocar qualquer comando `sqlite-graphrag` que dispara embedding (`remember`, `edit`, `ingest --mode claude-code`)
+- RECEITA HISTÓRICA: as variáveis de ambiente abaixo eram exportadas antes de qualquer comando `sqlite-graphrag` que disparava embedding (`remember`, `edit`, `ingest --mode claude-code`). Nada disso vale para um binário 1.2.8: não há subprocesso para herdar env var, `ingest --mode claude-code` é rejeitado, e a seção de manutenção adiante declara que variáveis de ambiente de produto são ignoradas em runtime. O caminho vigente para provider customizado é `config add-key --provider openrouter --from-stdin` mais `--llm-backend openrouter` / `--embedding-backend openrouter`, que são flags de CLI com contrapartes XDG definidas por `config set`
 - Versão mínima requer `sqlite-graphrag` 1.0.83 ou posterior; releases anteriores vão spawnar o subprocesso sem as vars do provider customizado e o provider retornará `401 Invalid authentication credentials`
 - Documentação oficial em https://platform.minimax.io/document e `docs/decisions/adr-0041-preserve-custom-provider-env.md` explica a justificativa arquitetural
 - Dica de ouro é verificar a alcançabilidade do provider com `curl -fsS "$ANTHROPIC_BASE_URL/v1/models" -H "Authorization: Bearer $ANTHROPIC_AUTH_TOKEN"` antes de rodar qualquer comando `sqlite-graphrag`
@@ -581,7 +581,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
   - Confirme que `sqlite-graphrag --version` reporta `1.0.83` ou posterior
   - Confirme que as env vars estão exportadas no MESMO shell onde o comando roda (não shell pai, não `.envrc` consumido só pelo direnv)
   - Rode `env | rg "ANTHROPIC_(AUTH_TOKEN|BASE_URL)"` para confirmar presença
-  - Se o host impõe isolamento de env vars, remova o override de modo estrito: `unset SQLITE_GRAPHRAG_STRICT_ENV_CLEAR` ou remova `--strict-env-clear`
+  - HISTÓRICO: --strict-env-clear era a chave de compliance da era de subprocesso e viveu na superfície global até a v1.2.2, como `src/cli/globals.rs` ainda registra; um binário 1.2.8 responde unexpected argument '--strict-env-clear' found com exit 2. Não há o que remover hoje: o processo não encaminha credencial a filho nenhum, porque não inicia nenhum
   - Capture o erro exato com `RUST_LOG=trace sqlite-graphrag remember ... 2> trace.log` e procure por `apply_env_whitelist`
 - **Confirmação de defesa em profundidade**: a guarda OAuth-only ainda rejeita `ANTHROPIC_API_KEY` se acidentalmente setada; verifique com `export ANTHROPIC_API_KEY=sk-ant-test && sqlite-graphrag remember --name test --body x` retornando exit 1
 ## Shells POSIX
@@ -610,7 +610,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 ### Superfície de Composição — jaq, NDJSON, One-Shots Headless
 - Cada comando abaixo é um subprocesso one-shot com contrato JSON ou NDJSON no stdout, então compõe com `jaq`, redirecionamento e qualquer agendador documentado aqui
 - Passe `--json` nos comandos de envelope único; `export` e `schema` já emitem NDJSON e dispensam a flag
-- Coloque `--db <PATH>` DEPOIS do subcomando; variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` são ignoradas em runtime, então use flags CLI mais `sqlite-graphrag config set <KEY> <VALUE>`
+- Coloque `--db <PATH>` DEPOIS do subcomando; variáveis de ambiente de produto `SQLITE_GRAPHRAG_*` não são lidas em runtime, então use flags CLI mais `sqlite-graphrag config set <KEY> <VALUE>`
 - Pré-visualize todo comando mutador com `--dry-run` primeiro; `cleanup-orphans`, `prune-ner` e `prune-relations` exigem ainda `--yes` para efetivar
 - `split-body` grava memórias filhas sem embeddings inline — encadeie uma passada SEPARADA de `enrich --operation re-embed --target memories` após o exit 0
 
@@ -635,7 +635,7 @@ sqlite-graphrag recall "validacao do provider customizado" --k 3 --json | jaq '.
 ### Linux systemd user / cron — macOS launchd — Windows Task Scheduler
 - O produto **proíbe** GitHub Actions / workflows CI no repositório (releases manuais).
 - Use agendadores **locais** multiplataforma para manutenção one-shot:
-  - Linux: timer `systemd --user` ou `cron` com `sqlite-graphrag purge --days 30 --yes` e `vacuum`
+  - Linux: timer do systemd em modo --user (a flag --user é do systemd, não do sqlite-graphrag) ou `cron` com `sqlite-graphrag purge --days 30 --yes` e `vacuum`
   - macOS: plist `launchd` invocando o binário instalado via cargo
   - Windows: Task Scheduler com o mesmo binário one-shot
 - Enquanto MCPs exigem servidor dedicado, sqlite-graphrag instala via cargo e encerra após cada execução

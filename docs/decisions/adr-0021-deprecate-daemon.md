@@ -1,8 +1,11 @@
 # ADR-0021: Deprecation of `daemon` Command (v1.0.76)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: it says `daemon --stop`, `daemon --ping` and `daemon` all still work, and the v1.2.8 binary has no `daemon` subcommand at all.
+- HISTORICAL: the daemon was removed with no replacement, because every invocation is one-shot.
 
 - Status: Accepted (2026-06-07)
 - Update (v1.0.79): the remaining daemon code was deleted ahead of the v1.1.0 schedule; the transition window is closed
-- Deciders: Danilo Aguiar
+- Deciders: Alice Martins
 - Scope: src/daemon.rs, src/commands/daemon.rs, src/main.rs, src/cli.rs
 
 ## Context

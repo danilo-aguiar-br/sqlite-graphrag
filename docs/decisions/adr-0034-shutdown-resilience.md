@@ -1,4 +1,7 @@
 # ADR-0034 — SHUTDOWN Global Resilience for Audits and Tests
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the escape hatch `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN=1` shown below, including inside a copyable bash fence, is never read at runtime by the v1.2.8 binary and has no effect.
+- HISTORICAL: the live channel is `sqlite-graphrag config set shutdown.ignore true`.
 
 ## Status
 

@@ -30,15 +30,13 @@ pub(super) type FtsCandidates = (Vec<memories::MemoryRow>, bool, Option<String>,
 pub(super) fn resolve_query_embedding(
     args: &HybridSearchArgs,
     models_dir: &std::path::Path,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> QueryEmbedding {
     crate::query_embedding::resolve_query_embedding(
         args.fallback_fts_only,
         models_dir,
         &args.query,
-        embedding_backend,
-        llm_backend,
+        backends,
         "hybrid_search",
     )
 }

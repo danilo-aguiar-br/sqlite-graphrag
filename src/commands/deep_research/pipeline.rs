@@ -35,8 +35,7 @@ pub(super) type SubEmbeddings = (Vec<Option<Arc<Vec<f32>>>>, bool, Option<&'stat
 pub(super) fn compute_sub_embeddings(
     paths: &crate::paths::AppPaths,
     sub_query_texts: &[String],
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> SubEmbeddings {
     output::emit_progress_i18n(
         "Computing per-sub-query embeddings...",
@@ -54,8 +53,7 @@ pub(super) fn compute_sub_embeddings(
         match crate::embedder::try_embed_query_with_embedding_choice(
             &paths.models,
             sq_text,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok((v, _backend)) => sub_embeddings.push(Some(Arc::new(v))),
             Err(reason) => {
@@ -297,6 +295,31 @@ pub(super) fn reconstruct_path(
     Some((nodes, total_weight))
 }
 
+/// How wide and how deep one sub-query retrieves.
+///
+/// The same seven values govern every sub-query of a run — they are read off
+/// `DeepResearchArgs` once and copied into each spawned task. As positionals,
+/// four consecutive `f64` (`min_weight`, `rrf_k`, `graph_decay`,
+/// `graph_min_score`) sat next to each other, and any permutation of them
+/// type-checks while quietly changing what the graph walk returns.
+#[derive(Clone, Copy)]
+pub(super) struct RetrievalKnobs {
+    /// Top-k for both the KNN and the FTS5 legs before RRF fusion.
+    pub(super) k: usize,
+    /// Maximum BFS depth from the seed entities; `0` disables traversal.
+    pub(super) max_hops: usize,
+    /// Minimum edge weight an edge needs to be walked.
+    pub(super) min_weight: f64,
+    /// RRF smoothing constant used to fuse the KNN and FTS rankings.
+    pub(super) rrf_k: f64,
+    /// Per-hop score multiplier applied while walking the graph.
+    pub(super) graph_decay: f64,
+    /// Minimum decayed score a graph hit needs to be kept.
+    pub(super) graph_min_score: f64,
+    /// Fan-out cap per hop; `None` leaves the neighbourhood unbounded.
+    pub(super) max_neighbors_per_hop: Option<usize>,
+}
+
 /// Execute a single sub-query: hybrid search (KNN + FTS fused via RRF) + graph traversal.
 ///
 /// GAP-07 fix: receives the embedding for THIS sub-query (not the shared original).
@@ -306,21 +329,23 @@ pub(super) fn reconstruct_path(
 ///
 /// Runs synchronously on a blocking thread (called from a tokio spawn context).
 /// Each call opens its own read-only SQLite connection to leverage WAL concurrency.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_sub_query(
     sub_query_id: usize,
     query_text: &str,
     embedding: Option<&[f32]>,
     namespace: &str,
     db_path: &std::path::Path,
-    k: usize,
-    max_hops: usize,
-    min_weight: f64,
-    rrf_k: f64,
-    graph_decay: f64,
-    graph_min_score: f64,
-    max_neighbors_per_hop: Option<usize>,
+    knobs: RetrievalKnobs,
 ) -> Result<SubQueryResult, String> {
+    let RetrievalKnobs {
+        k,
+        max_hops,
+        min_weight,
+        rrf_k,
+        graph_decay,
+        graph_min_score,
+        max_neighbors_per_hop,
+    } = knobs;
     let conn = open_ro(db_path).map_err(|e| format!("failed to open db: {e}"))?;
 
     let mut hits: Vec<(i64, f64, String, String, String, Option<usize>)> =

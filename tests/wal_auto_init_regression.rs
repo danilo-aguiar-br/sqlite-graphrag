@@ -31,6 +31,8 @@ fn assert_wal_after(cmd_args: &[&str], description: &str) {
     let db_path = tmp.path().join("graphrag.sqlite");
 
     // GAP-SG-101: product env is not read. Plant db.path + --config-dir.
+    // GAP-SG-207: the planted key is ambient authority for a mutating verb, so
+    // the dispensation has to be declared for the fence to let it through.
     let mut cmd = sgr_cmd();
     common::plant_db_path(&tmp.path().join("config"), &db_path);
     let output = cmd
@@ -42,6 +44,7 @@ fn assert_wal_after(cmd_args: &[&str], description: &str) {
         .arg(tmp.path().join("config"))
         .arg("--cache-dir")
         .arg(tmp.path().join("cache"))
+        .arg("--use-active")
         .args(cmd_args)
         .timeout(std::time::Duration::from_secs(120))
         .output()

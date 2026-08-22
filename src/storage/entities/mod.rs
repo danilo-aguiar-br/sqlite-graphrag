@@ -8,14 +8,15 @@ mod merge;
 
 pub use merge::{
     clear_memory_graph_bindings, count_relationships_by_relation, create_or_fetch_relationship,
-    delete_entities_by_ids, delete_relationship_by_id, delete_relationships_by_relation,
-    find_entity_id, find_orphan_entity_ids, find_relationship, increment_degree,
-    link_memory_entity, link_memory_relationship, list_entity_names_by_relation,
-    recalculate_degree, unlink_memory_entity, RelationshipRow,
+    delete_entities_by_ids, delete_relationship_by_id, delete_relationships_by_ids,
+    delete_relationships_by_relation, find_dangling_relationship_ids, find_entity_id,
+    find_orphan_entity_ids, find_relationship, increment_degree, link_memory_entity,
+    link_memory_relationship, list_entity_names_by_relation, recalculate_degree,
+    unlink_memory_entity, RelationshipRow,
 };
 
 use crate::embedder::f32_to_bytes;
-use crate::entity_type::EntityType;
+use crate::entity_type::normalize_entity_type;
 use crate::errors::AppError;
 use crate::parsers::normalize_entity_name;
 use crate::storage::utils::with_busy_retry;
@@ -31,9 +32,16 @@ use serde::{Deserialize, Serialize};
 pub struct NewEntity {
     /// Name of this item.
     pub name: String,
-    /// Entity type label.
+    /// Entity type label, stored as the caller wrote it.
+    ///
+    /// v1.2.8: plain `String` rather than a closed enum. Deserialization no
+    /// longer folds unknown labels onto `concept` — that fold destroyed the
+    /// caller's word before any layer could see it. Shape is normalised at the
+    /// write boundary by [`normalize_entity_type`], which is where a refusal
+    /// can still be reported; membership in the canonical set is advisory and
+    /// only enforced under `--strict-entity-types`.
     #[serde(alias = "type")]
-    pub entity_type: EntityType,
+    pub entity_type: String,
     /// Human-readable description.
     pub description: Option<String>,
 }
@@ -120,7 +128,7 @@ pub struct FuzzyEntityMatch {
 /// Score how well `query` matches a canonical entity `name`.
 ///
 /// Prefers exact, prefix-of-kebab, first-token equality, then Jaro-Winkler
-/// (rapidfuzz) so short nicknames like `danilo` rank `danilo-aguiar-teixeira`
+/// (rapidfuzz) so short nicknames like `alice` rank `alice-martins-souza`
 /// highly.
 pub fn entity_name_similarity(query: &str, name: &str) -> f64 {
     let q = query.trim().to_ascii_lowercase();
@@ -131,7 +139,7 @@ pub fn entity_name_similarity(query: &str, name: &str) -> f64 {
     if q == n {
         return 1.0;
     }
-    // Prefix of a kebab/snake name: "danilo" ↔ "danilo-aguiar-teixeira"
+    // Prefix of a kebab/snake name: "alice" ↔ "alice-martins-souza"
     if n.starts_with(&q) {
         let rest = &n[q.len()..];
         if rest.is_empty()
@@ -292,6 +300,9 @@ pub fn upsert_entity(conn: &Connection, namespace: &str, e: &NewEntity) -> Resul
             crate::i18n::validation::entity_name_normalizes_too_short(&e.name, &normalized_name),
         ));
     }
+    // Step 4: normalise the type label's SHAPE. Membership is not checked here
+    // — V017 opened the vocabulary, so an unknown label is stored as written.
+    let normalized_type = normalize_entity_type(&e.entity_type)?;
     conn.execute(
         "INSERT INTO entities (namespace, name, type, description)
          VALUES (?1, ?2, ?3, ?4)
@@ -299,7 +310,63 @@ pub fn upsert_entity(conn: &Connection, namespace: &str, e: &NewEntity) -> Resul
            type        = excluded.type,
            description = COALESCE(excluded.description, entities.description),
            updated_at  = unixepoch()",
-        params![namespace, normalized_name, e.entity_type, e.description],
+        params![namespace, normalized_name, normalized_type, e.description],
+    )?;
+    let id: i64 = conn.query_row(
+        "SELECT id FROM entities WHERE namespace = ?1 AND name = ?2",
+        params![namespace, normalized_name],
+        |r| r.get(0),
+    )?;
+    Ok(id)
+}
+
+/// Upserts an entity WITHOUT overwriting a type someone already committed to.
+///
+/// Same contract as [`upsert_entity`] except for the `type` column: a new row
+/// takes the caller's type, and an existing row keeps its own unless that type
+/// is the generic `concept`, in which case the caller may refine it.
+///
+/// This exists because [`upsert_entity`] writes `type = excluded.type`
+/// unconditionally and the LLM enrichment worker runs AFTER every write. A
+/// person declared as `person` in `remember --graph-stdin` was re-typed by
+/// whatever the model guessed minutes later, with the graph reporting a type
+/// nobody asked for and no envelope ever mentioning the change. Measured on a
+/// live corpus: an area of a company stored as `person`.
+///
+/// The rule is deliberately asymmetric. Human write paths — `remember`, `link`,
+/// `ingest`, `split_body` — keep calling [`upsert_entity`] and stay
+/// authoritative. Extraction calls this one, so it can still TYPE what nobody
+/// typed and can still refine `concept`, which since v1.2.8 means only "the
+/// caller supplied no type" rather than "the caller's label did not fit", and
+/// therefore still carries no commitment worth preserving.
+///
+/// # Errors
+///
+/// Returns `Err(AppError::Database)` on any `rusqlite` failure, and
+/// `Err(AppError::Validation)` on a name that fails [`validate_entity_name`].
+pub fn upsert_entity_preserving_type(
+    conn: &Connection,
+    namespace: &str,
+    e: &NewEntity,
+) -> Result<i64, AppError> {
+    validate_entity_name(&e.name)?;
+    let normalized_name = normalize_entity_name(&e.name);
+    if normalized_name.chars().count() < 2 {
+        return Err(AppError::Validation(
+            crate::i18n::validation::entity_name_normalizes_too_short(&e.name, &normalized_name),
+        ));
+    }
+    let normalized_type = normalize_entity_type(&e.entity_type)?;
+    conn.execute(
+        "INSERT INTO entities (namespace, name, type, description)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(namespace, name) DO UPDATE SET
+           type        = CASE WHEN entities.type = 'concept'
+                              THEN excluded.type
+                              ELSE entities.type END,
+           description = COALESCE(excluded.description, entities.description),
+           updated_at  = unixepoch()",
+        params![namespace, normalized_name, normalized_type, e.description],
     )?;
     let id: i64 = conn.query_row(
         "SELECT id FROM entities WHERE namespace = ?1 AND name = ?2",
@@ -323,7 +390,7 @@ pub fn upsert_entity_vec(
     conn: &Connection,
     entity_id: i64,
     namespace: &str,
-    _entity_type: EntityType,
+    _entity_type: &str,
     embedding: &[f32],
     _name: &str,
 ) -> Result<(), AppError> {
@@ -375,6 +442,10 @@ pub fn upsert_relationship(
     target_id: i64,
     rel: &NewRelationship,
 ) -> Result<i64, AppError> {
+    // v1.2.8: canonicalised here for the same reason as
+    // `create_or_fetch_relationship` — the invariant belongs to the boundary
+    // that writes, not to each caller that remembers.
+    let relation = crate::parsers::map_to_canonical_relation(&rel.relation);
     conn.execute(
         "INSERT INTO relationships (namespace, source_id, target_id, relation, weight, description)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -385,14 +456,14 @@ pub fn upsert_relationship(
             namespace,
             source_id,
             target_id,
-            rel.relation,
+            relation,
             rel.strength,
             rel.description
         ],
     )?;
     let id: i64 = conn.query_row(
         "SELECT id FROM relationships WHERE source_id=?1 AND target_id=?2 AND relation=?3",
-        params![source_id, target_id, rel.relation],
+        params![source_id, target_id, relation],
         |r| r.get(0),
     )?;
     Ok(id)
@@ -409,6 +480,12 @@ pub struct EntityNode {
     pub namespace: String,
     /// Kind discriminator.
     pub kind: String,
+    /// Stored description, `None` when NULL or empty (G-PR-7).
+    ///
+    /// Carried so `graph` can export it: `entities.description` had no bulk
+    /// read path in the CLI at all, which is what let a bad description-writing
+    /// policy run unnoticed over a six-figure entity count.
+    pub description: Option<String>,
 }
 
 /// Lists entities, filtering by namespace if provided.
@@ -422,7 +499,7 @@ pub fn list_entities(
 ) -> Result<Vec<EntityNode>, AppError> {
     if let Some(ns) = namespace {
         let mut stmt = conn.prepare_cached(
-            "SELECT id, name, namespace, type FROM entities WHERE namespace = ?1 ORDER BY id",
+            "SELECT id, name, namespace, type, description FROM entities WHERE namespace = ?1 ORDER BY id",
         )?;
         let rows = stmt
             .query_map(params![ns], |r| {
@@ -431,13 +508,16 @@ pub fn list_entities(
                     name: r.get(1)?,
                     namespace: r.get(2)?,
                     kind: r.get(3)?,
+                    description: r
+                        .get::<_, Option<String>>(4)?
+                        .filter(|d| !d.trim().is_empty()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     } else {
         let mut stmt = conn.prepare_cached(
-            "SELECT id, name, namespace, type FROM entities ORDER BY namespace, id",
+            "SELECT id, name, namespace, type, description FROM entities ORDER BY namespace, id",
         )?;
         let rows = stmt
             .query_map([], |r| {
@@ -446,6 +526,9 @@ pub fn list_entities(
                     name: r.get(1)?,
                     namespace: r.get(2)?,
                     kind: r.get(3)?,
+                    description: r
+                        .get::<_, Option<String>>(4)?
+                        .filter(|d| !d.trim().is_empty()),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

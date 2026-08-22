@@ -86,8 +86,13 @@ pub const WEIGHT_FTS_DEFAULT: f64 = 1.0;
 /// `nodes` is the canonical one there; `entities` is its v1.0.66 alias and is
 /// listed in [`AGENT_SURFACE_ALIAS_ARRAYS`]. Reshaping the alias while leaving
 /// the canonical member untouched is precisely the failure that table closes.
+/// `types` is last and is the only member here named after what it holds rather
+/// than after its role. It belongs to `graph entity-types` (v1.2.8), whose whole
+/// envelope is that one array; without the entry the fallback still elected it,
+/// but as a guess, and `--select type` was then resolved against the top-level
+/// members and refused with a suggestion identical to what the caller typed.
 pub const AGENT_SURFACE_RESULT_KEYS: &[&str] = &[
-    "results", "items", "nodes", "entities", "memories", "hits", "rows", "matches", "data",
+    "results", "items", "nodes", "entities", "memories", "hits", "rows", "matches", "data", "types",
 ];
 
 /// GAP-SG-142: derived result arrays suppressed once the agent-native surface
@@ -129,6 +134,75 @@ pub const AGENT_SURFACE_ALIAS_ARRAYS: &[(&str, &str, &[&str])] = &[
     ("recall", "results", &["direct_matches", "graph_matches"]),
     ("related", "results", &["related_memories"]),
 ];
+
+/// GAP-SG-230: field spellings the agent-native surface treats as ONE key.
+///
+/// Each entry pairs a SCOPE with a synonym group: every spelling in the group
+/// names the same field, so a caller that asks for any member is asking for
+/// whichever member the payload actually carries. Read the applicable groups
+/// through [`agent_surface_field_synonym_groups`], never directly.
+///
+/// The first group is the entity type. `graph entities`,
+/// `memory-entities`, `read --with-graph` and `deep-research.graph_context` emit
+/// it as `entity_type`; `graph --format json` and `graph --format ndjson` emit it
+/// as `type` (`NodeOut` and `NdjsonNode` both carry
+/// `#[serde(rename = "type")] r#type`). A caller that learned the spelling on one
+/// surface got `unresolved_keys: ["entity_type"]`, `vocabulary_partial: true` and
+/// `exit 0` on its sibling — a silent miss, which is the failure class the whole
+/// agent-native gate exists to remove. The INPUT side already closed this
+/// asymmetry: `src/storage/entities/mod.rs` declares
+/// `#[serde(alias = "type")] pub entity_type`, and
+/// `docs/schemas/entities-input.schema.json` documents `type` as a synonym in
+/// prose. This table is the output half of that same contract.
+///
+/// # GAP-SG-274: the scope column
+///
+/// The first member of each entry lists the
+/// [`crate::cli::Commands::agent_surface_slug`] values the group applies to; an
+/// EMPTY list means "every command", which is what the entity-type group needs
+/// since `memory-entities`, `read` and `deep-research` report no slug at all.
+///
+/// The column exists because one group is true of a command in one output mode
+/// and false of the same command in another. `kind` is that group. In `NodeOut`
+/// (the json snapshot) `kind: String` is the deprecated alias of the entity
+/// type — `src/commands/graph_export/tests.rs` asserts
+/// `json["kind"] == json["type"]`. In `NdjsonNode` (the ndjson stream)
+/// `kind: &'static str` is the LINE DISCRIMINATOR, valued `"node"`, `"edge"` or
+/// `"summary"`. Declaring it a synonym for BOTH would make `--filter
+/// kind=concept` reach edge and summary lines, and `--select type` answer
+/// `"edge"` for an edge — the mistake [`AGENT_SURFACE_ALIAS_ARRAYS`] narrates for
+/// member names, repeated one layer down on field names.
+///
+/// Until the slug distinguished the two modes there was no way to say "here and
+/// not there", so `kind` was excluded from the table ENTIRELY and the caller who
+/// spelled the entity type the way the json snapshot spells it got a silent miss
+/// on every sibling surface. Now `agent_surface_slug` reports `graph-ndjson` for
+/// the stream and `graph` for every other form of the command — the same
+/// distinction [`crate::cli::Commands::streams`] computes — so the group is
+/// declared exactly where it holds: under `graph`, never under `graph-ndjson`.
+pub const AGENT_SURFACE_FIELD_SYNONYMS: &[(&[&str], &[&str])] = &[
+    (&[], &["entity_type", "type"]),
+    (&["graph"], &["kind", "entity_type", "type"]),
+];
+
+/// GAP-SG-274: the synonym groups that apply to `command`, in table order.
+///
+/// `command` is the slug [`crate::cli::Commands::agent_surface_slug`] reported
+/// for this invocation, or `None` when the surface was never told which
+/// subcommand emitted the envelope. `None` selects the unscoped groups alone,
+/// which is the fail-safe reading: a command that does not identify itself gets
+/// the synonyms that are true everywhere and none of the ones that are true only
+/// somewhere.
+pub fn agent_surface_field_synonym_groups(
+    command: Option<&str>,
+) -> impl Iterator<Item = &'static [&'static str]> + '_ {
+    AGENT_SURFACE_FIELD_SYNONYMS
+        .iter()
+        .filter(move |(scope, _)| {
+            scope.is_empty() || command.is_some_and(|slug| scope.contains(&slug))
+        })
+        .map(|(_, group)| *group)
+}
 
 /// DEFAULT cap on `hybrid-search --with-graph` graph matches.
 ///

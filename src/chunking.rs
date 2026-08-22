@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn split_by_token_offsets_respeita_limite_e_overlap() {
+    fn split_by_token_offsets_honors_limit_and_overlap() {
         let body = "ab".repeat(460);
         let offsets: Vec<(usize, usize)> = (0..460)
             .map(|i| {

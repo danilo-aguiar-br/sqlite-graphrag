@@ -542,12 +542,12 @@ fn test_forget_purge_does_not_corrupt_fts_index() {
     init_db(&tmp);
 
     for i in 0..3 {
-        let nome = format!("fts-reg-{i}");
+        let name = format!("fts-reg-{i}");
         cmd(&tmp)
             .args([
                 "remember",
                 "--name",
-                &nome,
+                &name,
                 "--type",
                 "user",
                 "--description",
@@ -559,12 +559,12 @@ fn test_forget_purge_does_not_corrupt_fts_index() {
             .success();
 
         cmd(&tmp)
-            .args(["forget", "--name", &nome])
+            .args(["forget", "--name", &name])
             .assert()
             .success();
 
         cmd(&tmp)
-            .args(["purge", "--name", &nome, "--retention-days", "0", "--yes"])
+            .args(["purge", "--name", &name, "--retention-days", "0", "--yes"])
             .assert()
             .success();
     }

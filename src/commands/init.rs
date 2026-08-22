@@ -83,8 +83,7 @@ struct InitResponse {
 /// invocation would actually embed with.
 pub fn run(
     args: InitArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
     embedding_model: Option<&str>,
 ) -> Result<(), AppError> {
     let start = std::time::Instant::now();
@@ -97,9 +96,16 @@ pub fn run(
 
     apply_init_pragmas(&conn)?;
 
-    crate::migrations::runner()
-        .run(&mut conn)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("migration failed: {e}")))?;
+    // Foreign keys must be off around the runner, not inside the migration
+    // files: see `storage::connection::run_migrations_with_foreign_keys_off`.
+    // `init` normally targets an empty file, where the ON DELETE CASCADE that
+    // `DROP TABLE` triggers has nothing to delete — which is precisely the
+    // reasoning that kept this defect invisible across nine migrations, so it
+    // is not a reason to leave the call unguarded.
+    crate::storage::connection::run_migrations_with_foreign_keys_off(
+        &mut conn,
+        "migration failed",
+    )?;
 
     conn.execute_batch(&format!(
         "PRAGMA user_version = {};",
@@ -155,8 +161,7 @@ pub fn run(
     let (dim, status) = match crate::embedder::embed_passage_with_embedding_choice(
         &paths.models,
         "smoke test",
-        embedding_backend,
-        llm_backend,
+        backends,
     ) {
         Ok((v, _backend)) => (v.len(), "ok"),
         Err(crate::errors::AppError::Validation(msg)) => {

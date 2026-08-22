@@ -1,4 +1,7 @@
 # ADR-0035 — Auditoria A2: Observabilidade Estruturada para Backup e Health (v1.0.80)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: `SQLITE_GRAPHRAG_LOG_FORMAT=json` e `SQLITE_GRAPHRAG_LOG_LEVEL=debug` nunca são lidas em runtime pelo binário v1.2.8 e não têm efeito.
+- HISTÓRICO: os canais vivos são `sqlite-graphrag config set log.format json` e `sqlite-graphrag config set log.level debug`, ou as flags `-v` / `-vv` / `-vvv`.
 
 ## Status
 

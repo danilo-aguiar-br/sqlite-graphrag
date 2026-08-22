@@ -78,10 +78,6 @@ pub fn not_found(msg: &str) -> String {
         )
         .replace("' not found in namespace", "' não encontrada no namespace")
         .replace("not found in namespace", "não encontrado no namespace")
-        .replace(
-            "not found in pending_memories",
-            "não encontrado em pending_memories",
-        )
         .replace("not found for memory", "não encontrada para memória")
         .replace("does not exist in namespace", "não existe no namespace")
         .replace("memory or entity", "memória ou entidade")

@@ -216,8 +216,13 @@ fn test_ingest_creates_db_in_cwd() {
         .arg(&config)
         .arg("--cache-dir")
         .arg(&cache)
+        // GAP-SG-207: the database is named by the relative `db.path` planted
+        // above, which is ambient authority for a mutating verb; `ingest` is
+        // refused without the declared dispensation. `init` above needs none,
+        // because creating the configured database is its whole purpose.
         .args([
             "--skip-memory-guard",
+            "--use-active",
             "ingest",
             "docs",
             "--type",

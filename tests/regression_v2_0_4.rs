@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 #[test]
-fn regression_v2_0_4_exit_13_apenas_batch_partial() {
+fn regression_v2_0_4_exit_13_only_batch_partial() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::BatchPartialFailure {
         total: 5,
@@ -42,7 +42,7 @@ fn regression_v2_0_4_exit_15_db_busy() {
 }
 
 #[test]
-fn regression_v2_0_4_exit_13_e_15_sao_distintos() {
+fn regression_v2_0_4_exit_13_and_15_are_distinct() {
     use sqlite_graphrag::errors::AppError;
     let batch = AppError::BatchPartialFailure {
         total: 3,
@@ -69,7 +69,7 @@ fn regression_v2_0_4_exit_75_lock_busy_not_73() {
 }
 
 #[test]
-fn regression_v2_0_4_exit_75_all_slots_full_nao_73() {
+fn regression_v2_0_4_exit_75_all_slots_full_not_73() {
     use sqlite_graphrag::errors::AppError;
     let err = AppError::AllSlotsFull {
         max: 4,
@@ -88,13 +88,11 @@ fn regression_v2_0_4_exit_75_all_slots_full_nao_73() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn regression_v2_0_4_docs_agents_nao_menciona_exit_73() {
-    let caminho = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/AGENTS.md");
-    let conteudo = std::fs::read_to_string(caminho).expect("docs/AGENTS.md deve existir");
+fn regression_v2_0_4_docs_agents_does_not_mention_exit_73() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/AGENTS.md");
+    let content = std::fs::read_to_string(path).expect("docs/AGENTS.md deve existir");
     assert!(
-        !conteudo.contains("exit 73")
-            && !conteudo.contains("code 73")
-            && !conteudo.contains("= 73"),
+        !content.contains("exit 73") && !content.contains("code 73") && !content.contains("= 73"),
         "docs/AGENTS.md NÃO deve mencionar exit 73 — o código usa 75 para LockBusy/AllSlotsFull"
     );
 }

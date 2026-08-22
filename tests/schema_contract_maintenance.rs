@@ -4,12 +4,24 @@
 //! test runs the binary, captures stdout, parses it as JSON and validates it
 //! against the published `docs/schemas/*.schema.json`. The shared harness lives
 //! in `tests/schema_support/`.
+//!
+//! NOT gated behind `slow-tests`, unlike the 29 other heavy test files, because
+//! this suite is the only thing that compares the binary's REAL stdout against
+//! the published contract. GAP-SG-271 measured what the gate cost while it was
+//! on: five files sat behind the feature, `cargo test` never compiled them, and
+//! the published schemas drifted with nothing to notice. A gate the default
+//! invocation never runs is not a gate — it is a gate-shaped reassurance.
+//!
+//! The attribute must never move back into `tests/schema_support/mod.rs`: a
+//! shared `mod.rs` that cfg-es itself out does not become empty, it VANISHES
+//! from the module graph, so every `use support::…` fails to resolve and the
+//! whole test build breaks.
 
 #[path = "schema_support/mod.rs"]
 mod support;
 
 use serial_test::serial;
-use support::{validar_schema, Env};
+use support::{validate_schema, Env};
 // ---------------------------------------------------------------------------
 // 18 — health
 // ---------------------------------------------------------------------------
@@ -19,17 +31,17 @@ use support::{validar_schema, Env};
 fn schema_18_health() {
     let env = Env::new();
     env.init();
-    let saida = env.cmd().arg("health").output().expect("health failed");
+    let output = env.cmd().arg("health").output().expect("health failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "health: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "health");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "health");
+    validate_schema(
         "health",
         include_str!("../docs/schemas/health.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -42,17 +54,17 @@ fn schema_18_health() {
 fn schema_19_migrate() {
     let env = Env::new();
     env.init();
-    let saida = env.cmd().arg("migrate").output().expect("migrate failed");
+    let output = env.cmd().arg("migrate").output().expect("migrate failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "migrate: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "migrate");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "migrate");
+    validate_schema(
         "migrate",
         include_str!("../docs/schemas/migrate.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -65,17 +77,17 @@ fn schema_19_migrate() {
 fn schema_20_optimize() {
     let env = Env::new();
     env.init();
-    let saida = env.cmd().arg("optimize").output().expect("optimize failed");
+    let output = env.cmd().arg("optimize").output().expect("optimize failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "optimize: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "optimize");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "optimize");
+    validate_schema(
         "optimize",
         include_str!("../docs/schemas/optimize.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -88,17 +100,17 @@ fn schema_20_optimize() {
 fn schema_21_vacuum() {
     let env = Env::new();
     env.init();
-    let saida = env.cmd().arg("vacuum").output().expect("vacuum failed");
+    let output = env.cmd().arg("vacuum").output().expect("vacuum failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "vacuum: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "vacuum");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "vacuum");
+    validate_schema(
         "vacuum",
         include_str!("../docs/schemas/vacuum.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -111,26 +123,26 @@ fn schema_21_vacuum() {
 fn schema_22_sync_safe_copy() {
     let env = Env::new();
     env.init();
-    let destino = env.tmp.path().join("backup.sqlite");
-    let saida = env
+    let destination = env.tmp.path().join("backup.sqlite");
+    let output = env
         .cmd()
         .args([
             "sync-safe-copy",
             "--dest",
-            destino.to_str().expect("caminho inválido"),
+            destination.to_str().expect("caminho inválido"),
         ])
         .output()
         .expect("sync-safe-copy failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "sync-safe-copy: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "sync-safe-copy");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "sync-safe-copy");
+    validate_schema(
         "sync-safe-copy",
         include_str!("../docs/schemas/sync-safe-copy.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -143,21 +155,21 @@ fn schema_22_sync_safe_copy() {
 fn schema_23_cleanup_orphans() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .args(["cleanup-orphans", "--dry-run"])
         .output()
         .expect("cleanup-orphans failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "cleanup-orphans: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "cleanup-orphans");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "cleanup-orphans");
+    validate_schema(
         "cleanup-orphans",
         include_str!("../docs/schemas/cleanup-orphans.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -170,21 +182,21 @@ fn schema_23_cleanup_orphans() {
 fn schema_24_namespace_detect() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .arg("namespace-detect")
         .output()
         .expect("namespace-detect failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "namespace-detect: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "namespace-detect");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "namespace-detect");
+    validate_schema(
         "namespace-detect",
         include_str!("../docs/schemas/namespace-detect.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -197,21 +209,21 @@ fn schema_24_namespace_detect() {
 fn schema_25_debug_schema() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .arg("debug-schema")
         .output()
         .expect("debug-schema failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "debug-schema: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "debug-schema");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "debug-schema");
+    validate_schema(
         "debug-schema",
         include_str!("../docs/schemas/debug-schema.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -224,21 +236,21 @@ fn schema_25_debug_schema() {
 fn schema_26_fts_rebuild() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .args(["fts", "rebuild"])
         .output()
         .expect("fts rebuild failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "fts rebuild: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "fts-rebuild");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "fts-rebuild");
+    validate_schema(
         "fts-rebuild",
         include_str!("../docs/schemas/fts-rebuild.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -251,21 +263,21 @@ fn schema_26_fts_rebuild() {
 fn schema_27_fts_check() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .args(["fts", "check"])
         .output()
         .expect("fts check failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "fts check: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "fts-check");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "fts-check");
+    validate_schema(
         "fts-check",
         include_str!("../docs/schemas/fts-check.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -278,21 +290,21 @@ fn schema_27_fts_check() {
 fn schema_28_fts_stats() {
     let env = Env::new();
     env.init();
-    let saida = env
+    let output = env
         .cmd()
         .args(["fts", "stats"])
         .output()
         .expect("fts stats failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "fts stats: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "fts-stats");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "fts-stats");
+    validate_schema(
         "fts-stats",
         include_str!("../docs/schemas/fts-stats.schema.json"),
-        &instancia,
+        &instance,
     );
 }
 
@@ -306,20 +318,20 @@ fn schema_29_backup() {
     let env = Env::new();
     env.init();
     let dest = env.tmp.path().join("schema-backup.sqlite");
-    let saida = env
+    let output = env
         .cmd()
         .args(["backup", "--output", dest.to_str().unwrap()])
         .output()
         .expect("backup failed");
     assert!(
-        saida.status.success(),
+        output.status.success(),
         "backup: exit {:?}",
-        saida.status.code()
+        output.status.code()
     );
-    let instancia = Env::parse_stdout(&saida, "backup");
-    validar_schema(
+    let instance = Env::parse_stdout(&output, "backup");
+    validate_schema(
         "backup",
         include_str!("../docs/schemas/backup.schema.json"),
-        &instancia,
+        &instance,
     );
 }

@@ -1,4 +1,7 @@
 # ADR-0062: v1.1.02 — Dois Gaps Residuais Fechados (Remoção GLiNER, TooManyTokens Tipado) + Prune de Órfãos de Entidade + Teste de Regressão Re-Embed
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: `IngestMode` não expõe mais `claude-code`, `codex` nem `opencode`: `ingest --mode` aceita hoje apenas `none`.
+- HISTÓRICO: `--embedding-backend llm` também é recusado; os valores vivos são `openrouter` e `none`.
 
 - **Status**: Aceito
 - **Data**: 2026-07-06

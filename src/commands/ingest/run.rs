@@ -23,14 +23,16 @@ use crate::paths::AppPaths;
 use std::path::PathBuf;
 
 /// Run the `ingest` command (filesystem scan + stage + persist, or mode adapters).
-pub fn run(
-    args: IngestArgs,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-) -> Result<(), AppError> {
+pub fn run(args: IngestArgs, backends: crate::cli::BackendChoice) -> Result<(), AppError> {
     // G20: mode-conditional flag validation BEFORE any DB access.
     // Surfaces flags that the wrong mode would silently discard.
     validate_mode_conditional_flags_ingest(&args)?;
+    // GAP-SG-215: `ingest` emits one record per file and a summary, so it runs
+    // under the stream contract — records unannotated, the `agent_surface` block
+    // once on the summary. The sample is empty on purpose: `ingest` mutates, so
+    // the gate's write fence returns before any question about field names is
+    // asked. Refusing here would report failure for files already persisted.
+    crate::agent_surface::stream::open(crate::agent_surface::get(), &[], 0)?;
     tracing::debug!(target: "ingest", dir = %args.dir.display(), mode = ?args.mode, "starting ingest");
     let started = std::time::Instant::now();
     let files = scan(&args)?;
@@ -64,14 +66,7 @@ pub fn run(
         "incremental pipeline starting: Phase A (rayon) → channel → Phase B (main thread)",
     );
 
-    let producer = stage_producer::spawn(
-        &args,
-        plan.process_items,
-        &paths,
-        parallelism,
-        llm_backend,
-        embedding_backend,
-    )?;
+    let producer = stage_producer::spawn(&args, plan.process_items, &paths, parallelism, backends)?;
 
     let ctx = PersistContext {
         args: &args,
@@ -101,7 +96,7 @@ pub fn run(
     persist_loop::emit_summary(&ctx, tally)?;
 
     if args.enrich_after && tally.succeeded > 0 {
-        enrich_after::run(&args, llm_backend, embedding_backend)?;
+        enrich_after::run(&args, backends)?;
     }
 
     Ok(())

@@ -4,56 +4,143 @@
   "title": "ListResponse",
   "description": "Response emitted by `sqlite-graphrag list` on stdout as a single JSON line: an object containing items array and elapsed_ms.",
   "type": "object",
-  "required": ["items", "elapsed_ms"],
+  "required": [
+    "items",
+    "elapsed_ms"
+  ],
   "additionalProperties": false,
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
     "items": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "id":             { "type": "integer" },
-          "memory_id":      { "type": "integer" },
-          "name":           { "type": "string" },
-          "namespace":      { "type": "string" },
-          "type":           { "type": "string" },
-          "memory_type":    { "type": "string", "description": "Alias of `type` for agents that parse `.memory_type` instead of `.type`. Always equal to `type`." },
-          "description":    { "type": "string" },
-          "snippet":        { "type": "string" },
-          "updated_at":     { "type": "integer" },
-          "updated_at_iso": { "type": "string", "format": "date-time" },
-          "deleted_at":     { "type": "integer", "description": "Unix epoch when the memory was soft-deleted. Present only when `--include-deleted` is used and the memory is soft-deleted; omitted for active memories. (v1.0.37 H7+M9)" },
-          "deleted_at_iso": { "type": "string", "format": "date-time", "description": "RFC 3339 UTC mirror of `deleted_at`. Present only alongside `deleted_at`." },
-          "body_length":    { "type": "integer", "minimum": 0, "description": "Length of the memory body in bytes" }
+          "id": {
+            "type": "integer"
+          },
+          "memory_id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "memory_type": {
+            "type": "string",
+            "description": "Alias of `type` for agents that parse `.memory_type` instead of `.type`. Always equal to `type`."
+          },
+          "description": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "integer"
+          },
+          "updated_at_iso": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deleted_at": {
+            "type": "integer",
+            "description": "Unix epoch when the memory was soft-deleted. Present only when `--include-deleted` is used and the memory is soft-deleted; omitted for active memories. (v1.0.37 H7+M9)"
+          },
+          "deleted_at_iso": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 UTC mirror of `deleted_at`. Present only alongside `deleted_at`."
+          },
+          "body_length": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Length of the memory body in bytes"
+          }
         }
       }
     },
     "memories": {
       "type": "array",
       "description": "Alias for items (v1.0.66). LLM-friendly field name. Identical content.",
-      "items": { "$ref": "#/properties/items/items" }
+      "items": {
+        "$ref": "#/properties/items/items"
+      }
     },
-    "total_count": { "type": "integer", "minimum": 0, "description": "Total memories matching filters before pagination" },
-    "truncated":   { "type": "boolean", "description": "True when returned items are fewer than total_count due to limit" },
-    "elapsed_ms":  { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
+    "total_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total memories matching filters before pagination"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True when returned items are fewer than total_count due to limit"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Handler wall-clock time in milliseconds."
+    },
+    "truncation_warning": {
+      "type": "string",
+      "description": "Actionable hint emitted ONLY when `truncated` is true (GAP-SG-53), pointing at `export --namespace <ns> --json` as the authoritative inventory. Skipped on the wire otherwise, which is why the closed root validated every unbounded `list` while rejecting the paginated one (GAP-SG-291)."
+    }
   },
   "allOf": [
     {
       "description": "GAP-SG-142: the full row contract is asserted only for an unshaped envelope. `--select`/`--fields` projects rows down to the requested keys, so the per-row `required` list cannot hold once the agent-native surface has run; its presence is signalled by the `agent_surface` record. Callers that do not pass a shaping knob keep the v1.0.66 contract unchanged.",
-      "if": { "not": { "required": ["agent_surface"] } },
+      "if": {
+        "not": {
+          "required": [
+            "agent_surface"
+          ]
+        }
+      },
       "then": {
         "properties": {
           "items": {
             "items": {
-              "required": ["id", "memory_id", "name", "namespace", "type", "memory_type", "description", "snippet", "updated_at", "updated_at_iso"]
+              "required": [
+                "id",
+                "memory_id",
+                "name",
+                "namespace",
+                "type",
+                "memory_type",
+                "description",
+                "snippet",
+                "updated_at",
+                "updated_at_iso"
+              ]
             }
           },
           "memories": {
             "items": {
-              "required": ["id", "memory_id", "name", "namespace", "type", "memory_type", "description", "snippet", "updated_at", "updated_at_iso"]
+              "required": [
+                "id",
+                "memory_id",
+                "name",
+                "namespace",
+                "type",
+                "memory_type",
+                "description",
+                "snippet",
+                "updated_at",
+                "updated_at_iso"
+              ]
             }
           }
         }

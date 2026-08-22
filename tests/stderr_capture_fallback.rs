@@ -30,9 +30,9 @@ fn cmd_base(tmp: &TempDir) -> Command {
     c
 }
 
-/// Initialize the test database. The `pending_memories` and
-/// `pending_embeddings` queries (V014 / V015) require the schema to
-/// be at version 13 or higher, which is only applied by `init`.
+/// Initialize the test database. The `pending_embeddings` queries
+/// (V015) require the schema to be at version 13 or higher, which is
+/// only applied by `init`.
 fn init_db(tmp: &TempDir) {
     cmd_base(tmp).arg("init").arg("--force").assert().success();
 }
@@ -102,27 +102,4 @@ fn pending_embeddings_list_rejects_unknown_status() {
         .assert()
         .failure()
         .code(1);
-}
-
-/// GAP-005 acceptance: `pending list` (V014 `pending_memories`
-/// queue) returns the documented JSON envelope. Empty on a fresh
-/// database; surfaces pending memories from the 3-stage
-/// `remember` staging pipeline (deferred to v1.0.83).
-#[test]
-#[serial]
-fn pending_memories_list_returns_empty_on_fresh_db() {
-    let tmp = TempDir::new().expect("tempdir");
-    init_db(&tmp);
-    let out = cmd_base(&tmp)
-        .arg("pending")
-        .arg("list")
-        .output()
-        .expect("invoke");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout must be valid JSON");
-    assert_eq!(parsed["action"], "pending_list");
-    assert!(parsed["entries"].is_array());
-    assert_eq!(parsed["entries"].as_array().unwrap().len(), 0);
-    assert!(parsed["count"].is_number());
 }

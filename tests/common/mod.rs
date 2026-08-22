@@ -208,6 +208,18 @@ pub fn plant_db_path(config_dir: &std::path::Path, db: &std::path::Path) {
 /// Sets OS isolation (`HOME` / `XDG_*`), `--config-dir` / `--cache-dir`, and
 /// plants `db.path` to `tmp/<db_name>`. Does **not** set any product
 /// `SQLITE_GRAPHRAG_*` env var.
+///
+/// # Why `--use-active` is wired here
+///
+/// GAP-SG-207 tightened [`crate::paths`] so a mutating verb is refused when its
+/// target came from the `db.path` key rather than from the argv. This helper
+/// plants exactly that key, on purpose, so every legacy suite built on it began
+/// exiting 2 the moment the fence widened from `Default` to `Xdg`.
+///
+/// The dispensation belongs here rather than at each call site for two reasons.
+/// The inheritance is the POINT of this helper — rewriting the call sites to
+/// pass `--db` would change what they exercise — and four suites had already
+/// been migrated this way by hand, so this is the precedent, not a new idea.
 #[allow(dead_code)]
 pub fn wire_assert_cmd(tmp: &TempDir, c: &mut assert_cmd::Command, db_name: &str) {
     let root = tmp.path();
@@ -223,12 +235,17 @@ pub fn wire_assert_cmd(tmp: &TempDir, c: &mut assert_cmd::Command, db_name: &str
         .arg(&config_dir)
         .arg("--cache-dir")
         .arg(&cache_dir)
+        .arg("--use-active")
         .arg("--embedding-model")
         .arg(openrouter_mock::STUB_MODEL);
 }
 
 /// Same isolation as [`wire_assert_cmd`] for raw `std::process::Command`
 /// (benches, thread-spawned children, signal tests).
+///
+/// Carries the same `--use-active` dispensation, and for the same reason: this
+/// helper plants `db.path` and a mutating verb resolved from that key is
+/// refused with exit 2 without it.
 #[allow(dead_code)]
 pub fn wire_std_cmd(root: &std::path::Path, c: &mut std::process::Command, db: &std::path::Path) {
     let config_dir = root.join("config");
@@ -243,6 +260,7 @@ pub fn wire_std_cmd(root: &std::path::Path, c: &mut std::process::Command, db: &
         .arg(&config_dir)
         .arg("--cache-dir")
         .arg(&cache_dir)
+        .arg("--use-active")
         .arg("--embedding-model")
         .arg(openrouter_mock::STUB_MODEL);
 }
@@ -307,6 +325,10 @@ pub fn isolated_cmd_in(dir: &std::path::Path) -> assert_cmd::Command {
     c.arg("--cache-dir").arg(dir.join("cache"));
     // Offline OpenRouter stub: the client is only built when a model is named.
     c.arg("--embedding-model").arg(openrouter_mock::STUB_MODEL);
+    // GAP-SG-207: this helper exists to prove that resolution through the
+    // invocation directory works, so the ambient target IS the subject under
+    // test. `--use-active` is how that intent is declared to the fence.
+    c.arg("--use-active");
     c
 }
 
@@ -329,7 +351,7 @@ pub fn home_isolated_cmd(cwd: &std::path::Path) -> assert_cmd::Command {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers para testes de grafo (link, unlink, related, graph, cleanup-orphans)
+// Helpers for graph tests (link, unlink, related, graph, cleanup-orphans)
 // ---------------------------------------------------------------------------
 
 /// Creates a memory with entities attached via entities-file to populate the graph.

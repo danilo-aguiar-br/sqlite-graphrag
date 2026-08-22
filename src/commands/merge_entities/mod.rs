@@ -28,7 +28,7 @@ use resolve::find_entity_name_by_id;
 
 /// Run.
 pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
 
     if args.names.is_empty() && args.ids.is_empty() {
         return Err(AppError::Validation(
@@ -245,7 +245,7 @@ pub fn run(args: MergeEntitiesArgs) -> Result<(), AppError> {
         target_id,
         relationships_moved,
         entities_removed,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     };
 
     match args.format {

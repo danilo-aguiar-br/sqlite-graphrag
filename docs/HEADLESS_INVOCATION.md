@@ -74,7 +74,7 @@ sqlite-graphrag enrich --db "$DB" --list-skipped --operation entity-descriptions
 
 ## stdout/stderr contract and --quiet (v1.1.05) + `-o` alias (v1.1.8)
 
-ADR: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs` (suite name **v1105**).
+ADR: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md). Regression suite: `tests/v1105_incident_bugs_regression.rs` (suite name **v1105**).
 
 - Structured JSON ALWAYS on stdout; tracing logs ALWAYS on stderr
 - Use `--quiet`/`-q` (global) to suppress non-error tracing — useful in headless pipelines that parse stdout with `jaq`
@@ -91,12 +91,12 @@ OUTDIR=/tmp/graphrag-out
 mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
-  deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
+  deep-research "alice" --max-sub-queries 7 --k 20 --with-bodies \
   -o "$OUTDIR/research.json" --json
 # Parse the ack on stdout; the full envelope is in the file
 # Optional manual facets:
-# printf '%s\n' 'danilo stack' 'danilo projects' > "$OUTDIR/subs.txt"
-# sqlite-graphrag --quiet deep-research "danilo" \
+# printf '%s\n' 'alice stack' 'alice projects' > "$OUTDIR/subs.txt"
+# sqlite-graphrag --quiet deep-research "alice" \
 #   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
 #   --output "$OUTDIR/research.json" --json
 ```
@@ -269,7 +269,7 @@ Headless orchestrators must know the full product surface even when spawn recipe
   - Failure envelopes (`error: true` / `ok: false`) and `$schema` documents are never reshaped; NDJSON streams bypass the surface
 - Global input flag added in **v1.2.2**
   - `--no-input` — refuse stdin anywhere in the invocation; every stdin reader fails up front with exit 1; precedence flag > XDG `cli.no_input` > `false`
-- `schema` — machine-readable catalog of all **75** JSON contracts
+- `schema` — machine-readable catalog of all **76** JSON contracts
   - `schema` — NDJSON listing, one `{"id","invoke"}` per line; `invoke` is the ready-to-copy command
   - `schema --name <ID>` — emit that contract's JSON Schema document
   - Unknown `<ID>` exits **4**; `$schema` documents are exempt from the agent-native output surface, so any global flag can be chained safely
@@ -280,7 +280,7 @@ Headless orchestrators must know the full product surface even when spawn recipe
 
 ### v1.1.05 Update — Headless Pipeline Safety (`--quiet`, `deep-research --output` / `-o`)
 
-Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-danilo-bugs.md). Regression suite: `tests/v1105_danilo_bugs_regression.rs` (suite name **v1105**).
+Decision record: [ADR-0065](decisions/adr-0065-v1-1-05-incident-bugs.md). Regression suite: `tests/v1105_incident_bugs_regression.rs` (suite name **v1105**).
 
 - Global `--quiet` / `-q` suppresses non-error tracing on stderr so agent harnesses can parse stdout as pure JSON without log noise.
 - `deep-research -o PATH` or `--output PATH` writes the full research envelope via atomwrite (tempfile in the same directory → fsync → rename) and prints only a short stdout ack: `written`, `bytes`, `blake3`, `sub_queries_total`, `unique_memories_found`, `elapsed_ms`. Prefer this for large `--with-bodies` jobs under agent orchestrators. Schema: `docs/schemas/deep-research-output-ack.schema.json`.
@@ -295,12 +295,12 @@ OUTDIR=/tmp/graphrag-out
 mkdir -p "$OUTDIR"
 sqlite-graphrag --quiet \
   --embedding-backend openrouter --embedding-model qwen/qwen3-embedding-8b --embedding-dim 1024 \
-  deep-research "danilo" --max-sub-queries 7 --k 20 --with-bodies \
+  deep-research "alice" --max-sub-queries 7 --k 20 --with-bodies \
   -o "$OUTDIR/research.json" --json
 # Parse ack from stdout; full envelope from the file
 # Optional manual facets:
-# printf '%s\n' 'danilo stack' 'danilo projetos' > "$OUTDIR/subs.txt"
-# sqlite-graphrag --quiet deep-research "danilo" \
+# printf '%s\n' 'alice stack' 'alice projetos' > "$OUTDIR/subs.txt"
+# sqlite-graphrag --quiet deep-research "alice" \
 #   --sub-query-strategy manual --sub-queries-file "$OUTDIR/subs.txt" \
 #   -o "$OUTDIR/research.json" --json
 ```
@@ -399,7 +399,7 @@ sqlite-graphrag remember --name foo --type note --body "..." \
   --llm-backend openrouter --json
 
 # If the backend fails, inspect the pending queue
-sqlite-graphrag pending-embeddings list --filter-status failed --json
+sqlite-graphrag pending-embeddings list --status pending --json
 ```
 ### Slot semaphore poll pattern (GAP-004, ADR-0039)
 ```bash

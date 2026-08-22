@@ -86,6 +86,75 @@ fn scan_entities_without_description_finds_null_description() {
     assert_eq!(results[0].1, "my-tool");
 }
 
+/// G-PR-7: a NAMED entity is eligible under `--force-redescribe` even when its
+/// description matches no low-quality marker.
+///
+/// This is the targeted-repair case, and it was broken in the layer BELOW the
+/// one that was fixed. `entity_description_scan_predicate` already resolved to
+/// `1=1` for a named filter, and then `filter_description_candidates` re-applied
+/// `is_low_quality_description` to every row the query returned — two gates in
+/// series with only the first one opened.
+///
+/// The description below is deliberately fluent, confident and WRONG, carrying
+/// no marker of any kind. That is exactly the class an operator names by hand,
+/// and exactly the class that answered `matched: 0` no matter how the command
+/// was phrased.
+#[test]
+fn a_named_entity_is_eligible_even_without_a_low_quality_marker() {
+    let conn = open_test_db();
+    conn.execute(
+        "INSERT INTO entities (namespace, name, type, description) VALUES \
+         ('global', 'nomeada', 'person', \
+          'Uma engenheira brasileira reconhecida por arquiteturas resilientes.')",
+        [],
+    )
+    .unwrap();
+
+    // Nobody named: the heuristic decides, and it keeps the fluent description.
+    let unnamed = scan_entities_without_description(&conn, "global", None, &[], true).unwrap();
+    assert!(
+        unnamed.is_empty(),
+        "without a name filter the quality heuristic must still gate, or every \
+         --force-redescribe run would rewrite the whole namespace"
+    );
+
+    // Operator named it: the name IS the eligibility rule.
+    let named =
+        scan_entities_without_description(&conn, "global", None, &["nomeada".to_string()], true)
+            .unwrap();
+    assert_eq!(
+        named.len(),
+        1,
+        "a named entity must be eligible under --force-redescribe regardless of \
+         markers; got {named:?}"
+    );
+    assert_eq!(named[0].1, "nomeada");
+}
+
+/// Naming an entity WITHOUT `--force-redescribe` must not reopen it.
+///
+/// The write-once rule still holds: `--entity-names` alone selects whom to
+/// visit, it does not by itself authorise overwriting a description.
+#[test]
+fn naming_an_entity_without_force_redescribe_does_not_reopen_it() {
+    let conn = open_test_db();
+    conn.execute(
+        "INSERT INTO entities (namespace, name, type, description) VALUES \
+         ('global', 'nomeada', 'person', 'Descrição existente e adequada.')",
+        [],
+    )
+    .unwrap();
+
+    let results =
+        scan_entities_without_description(&conn, "global", None, &["nomeada".to_string()], false)
+            .unwrap();
+    assert!(
+        results.is_empty(),
+        "without --force-redescribe a named entity that already has a \
+         description must stay untouched"
+    );
+}
+
 #[test]
 fn scan_respects_limit() {
     let conn = open_test_db();

@@ -28,4 +28,9 @@ test-loom = "nextest run --profile heavy -E 'test(/^loom_/)'"
 # to the default GNU ld; this config requires the host to have at least
 # clang installed for the `-fuse-ld=` driver to work.
 linker = "clang"
+# Incidente 2026-08-13 20:41 — systemd-oomd matou o terminal com 124,5 GB de pico:
+# 36 ld.mold concorrentes, cada um usando as 72 CPUs do host para linkar os 124
+# targets de tests/. O `jobs = 4` acima governa COMPILAÇÃO e não alcança o LINK.
+# O teto vive em ~/.cargo/config.toml (-Wl,--thread-count=16), junto do mold global;
+# arrays de rustflags CONCATENAM entre global e projeto, então não repetir aqui.
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]

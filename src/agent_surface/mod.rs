@@ -59,6 +59,7 @@ pub mod budget;
 pub mod filter;
 pub mod gate;
 pub mod shape;
+pub mod stream;
 pub mod target;
 pub mod universe;
 pub mod vocabulary;
@@ -116,6 +117,19 @@ pub struct AgentSurface {
     pub max_items: usize,
     /// Replace the payload with a count (`--count-only`).
     pub count_only: bool,
+    /// Whether the subcommand emits one self-contained record per line.
+    ///
+    /// GAP-SG-209: [`crate::cli::Commands::streams`] reports it, and [`gate`]
+    /// refuses the knobs that would otherwise be applied once per record.
+    pub streamed: bool,
+    /// Whether the subcommand actually persists, so its envelope is a receipt.
+    ///
+    /// CONTEXT, never a knob. GAP-SG-206: [`crate::cli::Commands::persists`]
+    /// reports it, and `--count-only` is suppressed rather than honoured when it
+    /// is set. DISTINCT from [`Self::mutates`], which answers `true` for
+    /// `config list-keys` and every other command that merely failed to make the
+    /// read-only list.
+    pub writes_receipt: bool,
     /// Cap on string length in characters (`--truncate-content`); `0` disables it.
     pub truncate_content: usize,
     /// Cap on the serialized envelope in bytes (`--max-output-bytes`); `0` disables it.
@@ -178,7 +192,10 @@ const TRUNCATED_KEY: &str = "truncated";
 /// Returns [`AppError::Usage`] when the request cannot be honoured as asked —
 /// see [`gate`] for the three shapes that earns.
 pub fn apply(surface: &AgentSurface, value: Value) -> Result<Value, AppError> {
-    apply_with_target(surface, value, target::record(surface))
+    // The ONE place that reads both process-wide cells. Everything downstream
+    // takes them as arguments, which is what makes the whole surface testable.
+    let ceiling = universe::get();
+    apply_with_premises(surface, value, target::record(surface, ceiling), ceiling)
 }
 
 /// The body of `apply`, with the resolved target supplied rather than read.
@@ -194,8 +211,33 @@ pub fn apply(surface: &AgentSurface, value: Value) -> Result<Value, AppError> {
 /// Returns [`AppError::Usage`] when the request cannot be honoured as asked.
 pub fn apply_with_target(
     surface: &AgentSurface,
+    value: Value,
+    target: Option<Map<String, Value>>,
+) -> Result<Value, AppError> {
+    apply_with_premises(surface, value, target, universe::get())
+}
+
+/// The body of `apply`, with BOTH ambient facts supplied rather than read.
+///
+/// GAP-SG-201 shipped a refusal that no test could reach, and this signature is
+/// why it could not. The query ceiling lives in a second process-wide `OnceLock`,
+/// and `OnceLock` offers a `static` no reset at all — `take` and every `get_mut`
+/// require `&mut self` — so two tests in one binary could never state different
+/// ceilings. Nothing in the family had a test, the compiler was the only reader
+/// left, and `dead_code` cannot see a `pub` item in a lib crate. A guard was
+/// therefore written, translated, reviewed and never called.
+///
+/// [`apply_with_target`] keeps its own shape because the seventeen tests that
+/// only care about the target should not have to state a ceiling they have no
+/// opinion about.
+///
+/// # Errors
+/// Returns [`AppError::Usage`] when the request cannot be honoured as asked.
+pub fn apply_with_premises(
+    surface: &AgentSurface,
     mut value: Value,
     target: Option<Map<String, Value>>,
+    ceiling: Option<&universe::QueryCeiling>,
 ) -> Result<Value, AppError> {
     // Checked FIRST, and separately from the no-op case below: a schema document
     // is a contract rather than a result, and a failure envelope carries its own
@@ -225,14 +267,16 @@ pub fn apply_with_target(
     const NO_ELEMENTS: &[Value] = &[];
     let findings = gate::evaluate(
         surface,
-        &vocabulary::Scope::new(items.as_deref().unwrap_or(NO_ELEMENTS), &value),
+        &vocabulary::Scope::new(items.as_deref().unwrap_or(NO_ELEMENTS), &value)
+            .with_command(surface.command.as_deref()),
         array_key.as_deref(),
         items.is_some(),
+        ceiling,
     )?;
 
     let (payload, mut meta) = match items {
-        Some(items) => shape_items(surface, value, array_key.as_deref(), items),
-        None => shape_scalar_envelope(surface, value),
+        Some(items) => shape_items(surface, value, array_key.as_deref(), items, ceiling),
+        None => shape_scalar_envelope(surface, value, ceiling),
     };
 
     // GAP-SG-205: merged at the ONE point both shaping paths converge on, so the
@@ -367,12 +411,6 @@ fn is_declared_result_array(key: &str) -> bool {
     crate::constants::AGENT_SURFACE_RESULT_KEYS.contains(&key)
 }
 
-/// Wire spelling for a count that the output ceiling reduced.
-const COUNT_SCOPE_EMITTED: &str = "emitted";
-
-/// Wire spelling for a count of every element that satisfied the predicates.
-const COUNT_SCOPE_MATCHED: &str = "matched";
-
 /// Wire spelling for an array the CLI named as its result set.
 const ARRAY_SOURCE_DECLARED: &str = "declared";
 
@@ -399,36 +437,37 @@ fn shape_items(
     mut envelope: Value,
     array_key: Option<&str>,
     items: Vec<Value>,
+    ceiling: Option<&universe::QueryCeiling>,
 ) -> (Value, Map<String, Value>) {
     let input_count = items.len();
-    let mut items = shape::filter(items, &surface.filters);
+    // GAP-SG-274: the same slug the gate resolved keys under, so a key admitted
+    // through a mode-scoped synonym is read back under that very synonym.
+    let command = surface.command.as_deref();
+    let mut items = shape::filter(items, &surface.filters, command);
     if let Some(key) = &surface.sort {
-        items = shape::sort(items, key);
+        items = shape::sort(items, key, command);
     }
     if let Some(key) = &surface.dedupe_by {
-        items = shape::dedupe(items, key);
+        items = shape::dedupe(items, key, command);
     }
     // Measured BEFORE the output ceiling, because that is the only point where
     // "how many rows satisfied the predicate" still has an answer.
     let matched_count = items.len();
     items = shape::limit(items, surface.max_items);
-    items = shape::project(items, &surface.select);
+    items = shape::project(items, &surface.select, command);
     let output_count = items.len();
 
-    if surface.count_only {
-        let mut meta = base_meta(surface, input_count, output_count);
+    // GAP-SG-206. A write receipt reaches HERE, not only the scalar branch:
+    // `remember` carries `entities_created`, and no member of that envelope is a
+    // declared result key, so the surface elects the first array by fallback and
+    // counts it. Scoping the guard to the scalar branch therefore protected
+    // nothing — the receipt this exists to save took this path all along.
+    if surface.count_only && !surface.writes_receipt {
+        let mut meta = base_meta(surface, input_count, output_count, ceiling);
         meta.insert("count_only".into(), Value::Bool(true));
-        // `--count-only` counts what SURVIVED, which is not always what matched:
-        // the count runs after `--max-items`, so a cap of 10 over 39 matches
-        // answers `10`. Documented, deliberate, and until now indistinguishable
-        // from a corpus that really held ten. This names which of the two it is.
         meta.insert(
             "count_scope".into(),
-            json!(if output_count < matched_count {
-                COUNT_SCOPE_EMITTED
-            } else {
-                COUNT_SCOPE_MATCHED
-            }),
+            json!(universe::count_scope(output_count, matched_count, ceiling)),
         );
         return (json!({ "count": output_count }), meta);
     }
@@ -446,7 +485,13 @@ fn shape_items(
         }
         None => envelope = Value::Array(items),
     }
-    let mut meta = base_meta(surface, input_count, output_count);
+    let mut meta = base_meta(surface, input_count, output_count, ceiling);
+    if surface.count_only {
+        // Reached only through the receipt branch above. Named so a caller that
+        // asked for a count and received an envelope learns which of the two
+        // happened instead of reading the full payload as a bug.
+        meta.insert("count_only_suppressed".into(), Value::Bool(true));
+    }
     if !secondary_capped.is_empty() {
         meta.insert("secondary_capped".into(), json!(secondary_capped));
     }
@@ -495,21 +540,50 @@ fn cap_secondary_arrays(envelope: &mut Value, max_items: usize) -> Vec<String> {
 }
 
 /// Handles envelopes with no result array: projection applies to the object.
-fn shape_scalar_envelope(surface: &AgentSurface, envelope: Value) -> (Value, Map<String, Value>) {
-    if surface.count_only {
-        let mut meta = base_meta(surface, 1, 1);
+///
+/// # GAP-SG-206: a count must not eat a write receipt
+///
+/// [`gate`] deliberately refuses nothing after a write, because reporting failure
+/// for a succeeded `remember` makes a retrying caller write twice. That fence
+/// stops the surface from FAILING the command; nothing stopped it from emptying
+/// the answer — `--count-only` replaced the envelope with a number, discarding
+/// `memory_id`, `entities_created` and `enrich_recommended`, the receipt callers
+/// are told to parse, for an operation that cannot be replayed.
+///
+/// The guard turns on [`AgentSurface::writes_receipt`] and NOT on
+/// [`AgentSurface::mutates`]. The second reports `true` for `config list-keys`,
+/// which writes nothing but merely failed to make the read-only list, and keying
+/// the suppression there took a working answer away — the integration suite
+/// caught it. The first is [`crate::cli::Commands::persists`], the same question
+/// the write policy already asks about naming a target.
+fn shape_scalar_envelope(
+    surface: &AgentSurface,
+    envelope: Value,
+    ceiling: Option<&universe::QueryCeiling>,
+) -> (Value, Map<String, Value>) {
+    if surface.count_only && !surface.writes_receipt {
+        let mut meta = base_meta(surface, 1, 1, ceiling);
         meta.insert("count_only".into(), Value::Bool(true));
         // An envelope with no result array is one thing, and no ceiling can make
         // it fewer, so the count always describes what matched.
-        meta.insert("count_scope".into(), json!(COUNT_SCOPE_MATCHED));
+        meta.insert("count_scope".into(), json!(universe::COUNT_SCOPE_SCALAR));
         return (json!({ "count": 1 }), meta);
     }
-    let projected = shape::project_one(envelope, &surface.select);
-    (projected, base_meta(surface, 1, 1))
+    let projected = shape::project_one(envelope, &surface.select, surface.command.as_deref());
+    let mut meta = base_meta(surface, 1, 1, ceiling);
+    if surface.count_only {
+        meta.insert("count_only_suppressed".into(), Value::Bool(true));
+    }
+    (projected, meta)
 }
 
 /// Builds the `agent_surface` record shared by both shaping paths.
-fn base_meta(surface: &AgentSurface, input: usize, output: usize) -> Map<String, Value> {
+fn base_meta(
+    surface: &AgentSurface,
+    input: usize,
+    output: usize,
+    ceiling: Option<&universe::QueryCeiling>,
+) -> Map<String, Value> {
     let mut meta = Map::new();
     meta.insert("input_count".into(), json!(input));
     meta.insert("output_count".into(), json!(output));
@@ -532,43 +606,8 @@ fn base_meta(surface: &AgentSurface, input: usize, output: usize) -> Map<String,
     // [`apply_with_target`], which is the one point the shaped and the inert
     // paths share. Attaching it inside this function is what made it invisible
     // whenever the surface was inert.
-    insert_query_ceiling(&mut meta);
+    universe::insert_query_ceiling(&mut meta, ceiling);
     meta
-}
-
-/// Writes what the QUERY had already removed, when the command declared it.
-///
-/// GAP-SG-201: reported whatever the verdict, because a top-k is never refused
-/// and this is how its narrowness stops being invisible.
-///
-/// Shared by the shaping path and the inert one for the same reason the target
-/// is: both are facts about the PROCESS, not about the reshaping. Until v1.2.7
-/// this lived inside [`base_meta`] alone, so `deep-research "x"` with no knob
-/// reported its resolved target and stayed silent about having cut the ranking
-/// to five — the exact asymmetry the inert path was created to remove.
-fn insert_query_ceiling(meta: &mut Map<String, Value>) {
-    if let Some(ceiling) = universe::get() {
-        meta.insert("query_limited".into(), json!(true));
-        meta.insert("query_limit".into(), json!(ceiling.applied));
-        meta.insert("query_limit_source".into(), json!(ceiling.source.as_str()));
-        meta.insert("query_limit_kind".into(), json!(ceiling.kind.as_str()));
-        if let Some(total) = ceiling.universe_total {
-            meta.insert("universe_total".into(), json!(total));
-        }
-        // Three readings, not two. A top-k is neither the universe nor a page
-        // of one: the caller never asked for a corpus, so reporting `universe`
-        // would claim a completeness it never had, and reporting `page` would
-        // imply a larger set the command cannot name.
-        let scope = match ceiling.kind {
-            universe::CeilingKind::TopK => "top-k",
-            universe::CeilingKind::Pagination if ceiling.truncated_the_universe() => "page",
-            universe::CeilingKind::Pagination => "universe",
-        };
-        meta.insert("filter_scope".into(), json!(scope));
-        if scope == "page" {
-            meta.insert("filter_incomplete".into(), Value::Bool(true));
-        }
-    }
 }
 
 /// Applies the content and byte ceilings, then attaches the record.

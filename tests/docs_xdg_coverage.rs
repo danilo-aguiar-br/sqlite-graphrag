@@ -21,8 +21,36 @@ const ENTRY_MARKER: &str = "SettingKey {";
 /// Field that carries the key name inside a registry entry.
 const KEY_FIELD: &str = "key: \"";
 
-/// Documents that must carry the full reference, one per language.
-const REFERENCE_DOCS: [&str; 2] = ["README.md", "README.pt-BR.md"];
+/// Documents that must carry the FULL key reference, in both languages.
+///
+/// The list is fixed because membership is a SEMANTIC decision no walk can
+/// make: carrying all seventy keys is a promise a document makes to its reader,
+/// and most documents rightly make a narrower one. The criterion for entering
+/// this list, so the next maintainer does not have to guess it:
+///
+/// 1. The document tells the reader where to LOOK UP a setting, rather than
+///    naming the two or three settings its own topic needs.
+/// 2. It ships in a language pair, so a key documented on one side and lost on
+///    the other is a defect this guard can see.
+///
+/// `README` states the criterion by being the entry point. `docs/AGENTS` is the
+/// reference an agent reads before driving the CLI, and it already carried all
+/// seventy keys with NO gate protecting them — a regression waiting to happen,
+/// which is why it is here. `docs/HOW_TO_USE` is the operator manual and holds
+/// the same promise.
+///
+/// Deliberately OUT: `SECURITY`, `MIGRATION`, `INTEGRATIONS`, `CROSS_PLATFORM`,
+/// `TESTING` and `COOKBOOK`. Each covers one axis and names the handful of keys
+/// that axis touches; requiring seventy there would be noise, and a gate that
+/// fires on correct documents is a gate somebody deletes.
+const REFERENCE_DOCS: [&str; 6] = [
+    "README.md",
+    "README.pt-BR.md",
+    "docs/AGENTS.md",
+    "docs/AGENTS.pt-BR.md",
+    "docs/HOW_TO_USE.md",
+    "docs/HOW_TO_USE.pt-BR.md",
+];
 
 /// Prefixes that a documentation token must start with to be judged a config
 /// key at all. Anything outside this set is prose, a file name or a flag.
@@ -99,16 +127,28 @@ fn registry_keys() -> BTreeSet<String> {
 fn documented_keys(markdown: &str) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for token in markdown.split('`').skip(1).step_by(2) {
+        // A `key=value` span teaches the key on its left-hand side. Reading the
+        // whole token as a key is what made this guard report `log.format=json`
+        // as a ghost against a correct line in the `docs/AGENTS` pair.
         let candidate = token.trim();
+        let candidate = candidate.split('=').next().unwrap_or(candidate).trim();
         if !in_a_known_namespace(candidate) {
             continue;
         }
-        // A Rust module path shares the dotted shape but ends in `.rs`, and a
+        // A Rust module path shares the dotted shape but carries `.rs`, and a
         // sentence can trap a trailing comma inside the backticks. A `*` marks
         // prose naming a family (`network.openrouter.*`) rather than a key an
         // operator can type, so it is not a candidate for either direction of
         // this guard.
-        if candidate.ends_with(".rs") || candidate.contains(' ') || candidate.contains('*') {
+        //
+        // `.rs` is matched anywhere, not just at the end: `enrich.rs:379` is a
+        // source citation whose line number trails the extension, and the
+        // suffix-only check waved it through as a config key.
+        if candidate.contains(".rs")
+            || candidate.contains(':')
+            || candidate.contains(' ')
+            || candidate.contains('*')
+        {
             continue;
         }
         found.insert(candidate.trim_end_matches(['.', ',']).to_string());
@@ -116,13 +156,88 @@ fn documented_keys(markdown: &str) -> BTreeSet<String> {
     found
 }
 
+/// How many entries the registry OPENS, counted without touching the key field.
+///
+/// This is the second half of the pair that replaced a hand-written floor. The
+/// floor read `registry.len() >= 61` against seventy real keys, so a scanner
+/// that started dropping nine entries stayed green and nine knobs could leave
+/// the documentation with nothing announcing it. Counting the opening marker is
+/// independent of reading the key literal inside it, so the two numbers can only
+/// agree when every entry was parsed.
+fn registry_entry_count() -> usize {
+    read_repo_file("src/config/registry.rs")
+        .matches(ENTRY_MARKER)
+        .count()
+}
+
+/// The settings the BUILT BINARY reports, as a source independent of the source
+/// file this test scans.
+///
+/// `config list --effective` resolves every operational setting without needing
+/// a database. It is a SUBSET of the registry by design — secret and
+/// non-operational entries never appear — so it serves as a LIVE floor and never
+/// as an equality. Measured 2026-08-21: 57 reported against 70 registered.
+fn keys_the_binary_reports() -> BTreeSet<String> {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sqlite-graphrag"))
+        .args(["config", "list", "--json", "--effective"])
+        .output()
+        .expect("cannot run the binary to list its effective settings");
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("`config list --json --effective` did not emit JSON");
+    parsed["settings"]
+        .as_object()
+        .map(|map| map.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// The registry scanner must read every entry, and the binary must agree.
+///
+/// Nothing here is a number typed by hand. A hand-typed floor is a claim about
+/// a past release that no longer measures anything, which is the shape of
+/// GAP-SG-292 and GAP-SG-293: the right machinery watching a smaller slice than
+/// its name promises.
+#[test]
+fn the_registry_inventory_is_complete_and_the_binary_agrees() {
+    let registry = registry_keys();
+    let entries = registry_entry_count();
+    assert_eq!(
+        registry.len(),
+        entries,
+        "the registry opens {entries} `{ENTRY_MARKER}` blocks and this scanner \
+         read {} key literals out of them. Every check in this file is therefore \
+         measuring a subset it never announces. Fix the scanner — do not lower \
+         anything to make this pass.",
+        registry.len()
+    );
+
+    let live = keys_the_binary_reports();
+    assert!(
+        !live.is_empty(),
+        "`config list --json --effective` reported no settings; without that \
+         second source a collapsed scanner would compare zero against zero and \
+         still look green"
+    );
+    let unknown: Vec<&String> = live.difference(&registry).collect();
+    assert!(
+        unknown.is_empty(),
+        "the binary reports {} setting(s) this file cannot find in \
+         src/config/registry.rs: {:?}\n\
+         Either the scanner is missing entries or the setting is resolved \
+         outside the registry, and both make `config set` and the documentation \
+         disagree.",
+        unknown.len(),
+        unknown
+    );
+}
+
 #[test]
 fn every_registry_key_appears_in_both_reference_documents() {
     let registry = registry_keys();
-    assert!(
-        registry.len() >= 61,
-        "registry shrank to {} keys; update this floor deliberately, never to make the guard pass",
-        registry.len()
+    assert_eq!(
+        registry.len(),
+        registry_entry_count(),
+        "the registry scanner dropped entries; see \
+         `the_registry_inventory_is_complete_and_the_binary_agrees`"
     );
 
     for doc in REFERENCE_DOCS {
@@ -130,7 +245,13 @@ fn every_registry_key_appears_in_both_reference_documents() {
         let missing: Vec<&String> = registry.difference(&documented).collect();
         assert!(
             missing.is_empty(),
-            "{doc} documents {}/{} config keys; {} are invisible to the reader: {:?}",
+            "{doc} documents {}/{} config keys; {} are invisible to the reader.\n\
+             Fix by adding each missing key to that document's XDG reference \
+             table, spelled inside backticks exactly as src/config/registry.rs \
+             declares it — that is the only shape this scanner reads. Removing \
+             the document from REFERENCE_DOCS is NOT the fix unless it stopped \
+             promising a full reference, and the criterion for that sits on the \
+             constant itself.\n{:?}",
             registry.len() - missing.len(),
             registry.len(),
             missing.len(),
@@ -215,6 +336,27 @@ fn the_key_scanner_separates_a_config_key_from_a_module_path() {
     let found = documented_keys(sample);
     assert!(found.contains("enrich.scan_page_size"));
     assert!(!found.contains("retry.rs"));
+    assert_eq!(found.len(), 1, "unexpected extraction: {found:?}");
+}
+
+#[test]
+fn the_key_scanner_reads_the_key_out_of_a_key_equals_value_span() {
+    // Widening REFERENCE_DOCS to the `docs/AGENTS` pair surfaced this: the pair
+    // teaches settings as `log.format=json`, and the whole token was judged a
+    // key the binary rejects. The document was right and the scanner was wrong.
+    let sample = "Export with `log.format=json` before parsing.";
+    let found = documented_keys(sample);
+    assert!(found.contains("log.format"), "got {found:?}");
+    assert!(!found.contains("log.format=json"));
+}
+
+#[test]
+fn the_key_scanner_ignores_a_source_citation_carrying_a_line_number() {
+    // `enrich.rs:379` sits in a registry namespace and does not END in `.rs`,
+    // which is how it walked past the suffix check in the `docs/HOW_TO_USE` pair.
+    let sample = "See `enrich.rs:379` for the loop and `enrich.scan_page_size`.";
+    let found = documented_keys(sample);
+    assert!(!found.contains("enrich.rs:379"));
     assert_eq!(found.len(), 1, "unexpected extraction: {found:?}");
 }
 

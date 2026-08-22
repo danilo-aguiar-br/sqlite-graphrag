@@ -28,9 +28,9 @@ fn cmd_base(tmp: &TempDir) -> Command {
     c.env("PATH", common::prepend_path(&mock_dir));
     common::wire_assert_cmd(tmp, &mut c, "test.sqlite");
     c.env("XDG_CACHE_HOME", tmp.path().join("cache"));
-    // Isola o slot semaphore host-global: slots_dir() prefere XDG_RUNTIME_DIR
-    // sobre XDG_CACHE_HOME, então sem este override os slot files
-    // vazam para /run/user/<uid> e colidem com processos concorrentes.
+    // Isolate the host-global slot semaphore: slots_dir() prefers XDG_RUNTIME_DIR
+    // over XDG_CACHE_HOME, so without this override the slot files
+    // leak into /run/user/<uid> and collide with concurrent processes.
     c.env("XDG_RUNTIME_DIR", tmp.path().join("cache"));
     c.arg("--skip-memory-guard");
     c

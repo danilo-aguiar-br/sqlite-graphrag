@@ -31,11 +31,52 @@
 
 use super::filter;
 use crate::constants::{
-    K_VOCABULARY_MAX_KEYS, K_VOCABULARY_MAX_SUGGESTIONS, K_VOCABULARY_SAMPLE_ELEMENTS,
-    VOCABULARY_SUGGESTION_MIN_SIMILARITY,
+    agent_surface_field_synonym_groups, K_VOCABULARY_MAX_KEYS, K_VOCABULARY_MAX_SUGGESTIONS,
+    K_VOCABULARY_SAMPLE_ELEMENTS, VOCABULARY_SUGGESTION_MIN_SIMILARITY,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
+
+/// GAP-SG-230: every spelling that names the same field as `key`, `key` first.
+///
+/// The synonym applies to the LAST segment of a dotted path and the prefix is
+/// carried over unchanged, so `graph_context.entity_type` yields
+/// `graph_context.type` and never a bare `type`. A synonym is a fact about a
+/// FIELD NAME; where that field sits is the caller's statement about the payload
+/// and is not ours to rewrite.
+///
+/// The caller's own spelling is always first, so a payload that carries BOTH
+/// spellings — which nothing emits today, and which a future struct could —
+/// resolves to what was asked for rather than to whichever the table lists first.
+///
+/// Allocates one small `Vec` per REQUESTED key, never per element. That is the
+/// distinction the module docs draw about cost: [`Scope::classify`] still walks
+/// every element with borrowed data, and the vector here is built once before
+/// that walk starts, so a 107 135-element scan pays for it exactly once.
+///
+/// GAP-SG-274: `command` is the subcommand slug and it selects which groups of
+/// the table apply, so `kind` names the entity type under `graph` and stays the
+/// line discriminator under `graph-ndjson`. A spelling listed by two applicable
+/// groups is emitted once.
+fn spellings(key: &str, command: Option<&str>) -> Vec<String> {
+    let (prefix, leaf) = match key.rfind('.') {
+        Some(idx) => (&key[..=idx], &key[idx + 1..]),
+        None => ("", key),
+    };
+    let mut out = vec![key.to_string()];
+    for group in agent_surface_field_synonym_groups(command) {
+        if !group.contains(&leaf) {
+            continue;
+        }
+        for spelling in group {
+            let candidate = format!("{prefix}{spelling}");
+            if *spelling != leaf && !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
 
 /// Where a requested key was found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,12 +97,35 @@ pub struct Scope<'a> {
     elements: &'a [Value],
     /// What remains of the envelope once the result array was lifted out.
     envelope: &'a Value,
+    /// GAP-SG-274: subcommand slug scoping the field-synonym table, if known.
+    command: Option<&'a str>,
 }
 
 impl<'a> Scope<'a> {
     /// Builds a scope over the elements and the envelope that carried them.
+    ///
+    /// The synonym scope starts unset, which admits only the groups that hold
+    /// for every command. That is the fail-safe half of the pair: a caller that
+    /// never states which subcommand it is resolving for gets no mode-specific
+    /// synonym, rather than the synonyms of some arbitrary mode.
     pub fn new(elements: &'a [Value], envelope: &'a Value) -> Self {
-        Self { elements, envelope }
+        Self {
+            elements,
+            envelope,
+            command: None,
+        }
+    }
+
+    /// GAP-SG-274: states which subcommand slug this scope resolves keys for.
+    ///
+    /// Consumed by the synonym table alone. `graph` declares `kind` a spelling
+    /// of the entity type; `graph-ndjson` does not, because there `kind` is the
+    /// line discriminator and answering `node` to `--select type` would be a
+    /// wrong value rather than a missing one.
+    #[must_use]
+    pub fn with_command(mut self, command: Option<&'a str>) -> Self {
+        self.command = command;
+        self
     }
 
     /// `true` when there are no elements to resolve a key against.
@@ -78,17 +142,62 @@ impl<'a> Scope<'a> {
     /// which is what makes the scalar-envelope refusal precise instead of a
     /// blanket "no array here".
     pub fn classify(&self, key: &str) -> KeyOrigin {
-        if self
-            .elements
-            .iter()
-            .any(|element| filter::resolve(element, key).is_some())
-        {
+        // GAP-SG-230: every spelling of the field counts, not just the one the
+        // caller typed. This is the single point the four shaping knobs share —
+        // `--select` reaches it through `resolve_projection`, and `--filter`,
+        // `--sort` and `--dedupe-by` reach it directly — so resolving the synonym
+        // here is what stops three of the four from needing their own copy.
+        let candidates = spellings(key, self.command);
+        if self.elements.iter().any(|element| {
+            candidates
+                .iter()
+                .any(|candidate| filter::resolve(element, candidate).is_some())
+        }) {
             return KeyOrigin::Element;
         }
-        if filter::resolve(self.envelope, key).is_some() {
+        if candidates
+            .iter()
+            .any(|candidate| filter::resolve(self.envelope, candidate).is_some())
+        {
             return KeyOrigin::EnvelopeOnly;
         }
         KeyOrigin::Absent
+    }
+
+    /// GAP-SG-230: the spelling this payload actually uses for `key`.
+    ///
+    /// Returns `key` itself when the payload carries it, the synonym when the
+    /// payload spells the same field differently, and `None` when no spelling in
+    /// the group is present anywhere in scope.
+    ///
+    /// # Why this is a separate question from [`Self::classify`]
+    ///
+    /// `classify` answers "may this request proceed"; this answers "which name do
+    /// I look the value up under". They only look like one question while both
+    /// spellings are the same string. `graph entities` emits `entity_type` and
+    /// `graph --format json` emits `type` for the very same column, so a caller
+    /// that learned one name asks with it against both — and the four shaping
+    /// knobs walk the path with the name the CALLER wrote, never with the verdict
+    /// this scope reached. Answering only the first question would let a request
+    /// pass the gate and then match nothing, which trades a refusal that names
+    /// the fix for an empty set with `exit 0`.
+    ///
+    /// Elements are consulted before the envelope, mirroring `classify`, so the
+    /// answer describes the place a predicate or a projection will actually look.
+    pub fn effective_key(&self, key: &str) -> Option<String> {
+        let candidates = spellings(key, self.command);
+        for candidate in &candidates {
+            if self
+                .elements
+                .iter()
+                .any(|element| filter::resolve(element, candidate).is_some())
+            {
+                return Some(candidate.clone());
+            }
+        }
+        candidates
+            .into_iter()
+            .find(|candidate| filter::resolve(self.envelope, candidate).is_some())
     }
 
     /// Key names close enough to `key` to be worth offering as a correction.
@@ -97,11 +206,32 @@ impl<'a> Scope<'a> {
     /// [`K_VOCABULARY_MAX_SUGGESTIONS`]. An empty vector means nothing in the
     /// vocabulary resembled the request, which is itself informative: the caller
     /// is looking at the wrong command, not at a typo.
+    ///
+    /// GAP-SG-230: a DECLARED synonym that the payload really carries is placed
+    /// first and bypasses the similarity floor entirely. Similarity is a proxy
+    /// for "you mistyped this"; a synonym is not a typo, it is the same field
+    /// under the name a sibling surface chose, and the table says so as a fact.
+    /// Leaving it to Jaro-Winkler was measured to lose exactly the case this
+    /// exists for: `entity_type` against `type` shares no prefix, so the metric
+    /// scores it below [`VOCABULARY_SUGGESTION_MIN_SIMILARITY`] and the caller
+    /// who asked with the sibling spelling was told nothing resembled its key —
+    /// while the field sat right there under another name.
     pub fn suggestions(&self, key: &str) -> Vec<String> {
         let (vocabulary, _) = self.candidate_keys();
         if vocabulary.is_empty() {
             return Vec::new();
         }
+
+        // Only spellings the payload actually carries are offered, so a synonym
+        // group never advertises a name this envelope has no column for.
+        let declared: Vec<String> = spellings(key, self.command)
+            .into_iter()
+            .skip(1)
+            .filter(|candidate| {
+                let leaf = candidate.rsplit('.').next().unwrap_or(candidate);
+                vocabulary.contains(leaf)
+            })
+            .collect();
 
         // `BatchComparator` pre-processes the needle once and reuses it across
         // the whole vocabulary, which is exactly the one-against-many shape here.
@@ -124,11 +254,19 @@ impl<'a> Scope<'a> {
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.1.cmp(b.1))
         });
-        ranked.truncate(K_VOCABULARY_MAX_SUGGESTIONS);
-        ranked
-            .into_iter()
-            .map(|(_, name)| name.to_string())
-            .collect()
+        // The declared synonyms take their slots first, and the similarity
+        // ranking fills whatever is left of the budget without restating them.
+        let mut out = declared;
+        for (_, name) in ranked {
+            if out.len() >= K_VOCABULARY_MAX_SUGGESTIONS {
+                break;
+            }
+            if !out.iter().any(|already| already.as_str() == name) {
+                out.push(name.to_string());
+            }
+        }
+        out.truncate(K_VOCABULARY_MAX_SUGGESTIONS);
+        out
     }
 
     /// Distinct field names a correction could plausibly have meant.

@@ -96,12 +96,42 @@ fn schema_file_count() -> usize {
         .count()
 }
 
-/// Pulls the integer that immediately precedes `noun` in `line`.
+/// Words that may sit between a total and the noun it counts.
+///
+/// "68 XDG config keys" and "75 JSON contracts" are the same claim as "68 keys"
+/// and "75 contracts"; the corpus simply qualifies the noun. Reading only the
+/// immediately preceding word is how six documents announced a stale key total
+/// with nothing complaining, so the scan now steps over a short run of
+/// adjectives.
+const QUALIFIER_LIMIT: usize = 2;
+
+/// Function words that end the backward walk instead of being stepped over.
+///
+/// Without this list "in 3 of the keys" would read as a claim that the registry
+/// holds three, because "of" and "the" are alphabetic like "XDG" is. A
+/// qualifier names the noun; a preposition points away from it.
+const NON_QUALIFIERS: &[&str] = &[
+    "of", "the", "in", "at", "to", "from", "and", "or", "de", "do", "da", "dos", "das", "os", "as",
+    "em", "e", "para", "com",
+];
+
+/// True when `word` may sit between the number and the noun.
+fn is_qualifier(word: &str) -> bool {
+    !word.is_empty()
+        && word.chars().all(|c| c.is_ascii_alphabetic())
+        && !NON_QUALIFIERS.contains(&word.to_lowercase().as_str())
+}
+
+/// Pulls the integer that precedes `noun` in `line`.
 ///
 /// Returns every occurrence, because one line can carry more than one claim.
 /// The scan walks words rather than applying a regex so the two languages share
 /// one code path: only the noun differs between "64 schemas cover" and
 /// "64 schemas cobrem".
+///
+/// The walk steps left over at most [`QUALIFIER_LIMIT`] adjective-like words
+/// before giving up, so "68 XDG config keys" and "all 75 JSON contracts" are
+/// read as the totals they are.
 ///
 /// A number written with a trailing `+` is an approximation, not a total:
 /// "regenerates 70+ schemas" stays true as the directory grows, so counting it
@@ -115,26 +145,86 @@ fn counts_before(line: &str, noun: &str) -> Vec<usize> {
         if bare != noun || i == 0 {
             continue;
         }
-        let previous = words[i - 1];
-        if previous.trim_end_matches(['.', ',']).ends_with('+') {
-            continue;
-        }
-        let digits = previous.trim_matches(|c: char| !c.is_ascii_digit());
-        if let Ok(n) = digits.parse::<usize>() {
-            found.push(n);
+        let mut at = i;
+        let mut stepped = 0;
+        while at > 0 {
+            let previous = words[at - 1];
+            let bare_previous = previous.trim_matches(|c: char| !c.is_alphanumeric());
+            if bare_previous.chars().any(|c| c.is_ascii_digit()) {
+                if previous.trim_end_matches(['.', ',']).ends_with('+') {
+                    break;
+                }
+                let digits = previous.trim_matches(|c: char| !c.is_ascii_digit());
+                if let Ok(n) = digits.parse::<usize>() {
+                    found.push(n);
+                }
+                break;
+            }
+            if stepped == QUALIFIER_LIMIT || !is_qualifier(bare_previous) {
+                break;
+            }
+            stepped += 1;
+            at -= 1;
         }
     }
     found
 }
+
+/// Phrases with which the corpus announces the whole schema catalogue.
+///
+/// The first version of this filter recognised only "schemas cover" and its
+/// Portuguese twin, so the catalogue total was guarded in the two READMEs and
+/// invisible everywhere else — `llms.txt` introduced the catalogue "at 75
+/// contracts" and `CHANGELOG.md` moved it "to 75" with nothing objecting. The
+/// corpus states the same total four ways, and it counts CONTRACTS as often as
+/// it counts SCHEMAS.
+const CATALOGUE_PHRASES: &[&str] = &[
+    "schemas cover",
+    "schemas cobrem",
+    "catalog",
+    "catálogo",
+    "catalogo",
+    "contracts are listed",
+    "contratos são listados",
+    "lists all",
+    "lista todos",
+];
+
+/// Nouns a catalogue claim counts.
+const CATALOGUE_NOUNS: &[&str] = &["schemas", "contracts", "contratos"];
 
 /// Marks a line as claiming the CATALOGUE total rather than a subset.
 ///
 /// `docs/AGENTS.pt-BR.md` reports "7 schemas JSON atualizados" while listing
 /// the seven files one bug touched. That is a true sentence about a subset, and
 /// a guard that read it as a total would be demanding the documentation lie.
-/// The catalogue claim is the one that says the schemas COVER the surface.
+/// The catalogue claim is the one that names the catalogue itself.
 fn claims_the_schema_catalogue(line: &str) -> bool {
-    line.contains("schemas cover") || line.contains("schemas cobrem")
+    let lowered = line.to_lowercase();
+    CATALOGUE_PHRASES.iter().any(|p| lowered.contains(p))
+}
+
+/// Phrases with which the corpus announces the whole `config set` key registry.
+///
+/// The first version of this filter demanded the literal `config set`, which is
+/// how the two READMEs were guarded while six documents announced a stale total
+/// in the other spellings the corpus actually uses: "all 68 XDG keys",
+/// "as 68 chaves XDG", "68 XDG config keys", "68 chaves de configuração XDG".
+/// The filter exists for a real reason — "10 keys" inside an unrelated example
+/// is not a total — so it is widened rather than removed.
+const KEY_REGISTRY_PHRASES: &[&str] = &[
+    "config set",
+    "xdg",
+    "config key",
+    "configuration key",
+    "chave de configuração",
+    "chaves de configuração",
+];
+
+/// Marks a line as claiming the config key registry total rather than a subset.
+fn claims_the_key_registry(line: &str) -> bool {
+    let lowered = line.to_lowercase();
+    KEY_REGISTRY_PHRASES.iter().any(|p| lowered.contains(p))
 }
 
 /// Words that mark a version as the one shipping RIGHT NOW.
@@ -361,14 +451,13 @@ fn every_declared_key_count_matches_the_registry() {
 
     for (doc, text) in existing_docs() {
         for (n, line) in text.lines().enumerate() {
+            // Only a claim about the configuration surface is this guard's
+            // business; "10 keys" inside an unrelated example is not a total.
+            if !claims_the_key_registry(line) {
+                continue;
+            }
             for noun in ["keys", "chaves"] {
                 for claimed in counts_before(line, noun) {
-                    // Only a claim about the `config set` surface is this
-                    // guard's business; "10 keys" inside an unrelated example
-                    // is not a total.
-                    if !line.contains("config set") {
-                        continue;
-                    }
                     if claimed != real {
                         wrong.push(format!("{doc}:{} claims {claimed} {noun}", n + 1));
                     }
@@ -396,9 +485,11 @@ fn every_declared_schema_count_matches_the_directory() {
             if !claims_the_schema_catalogue(line) {
                 continue;
             }
-            for claimed in counts_before(line, "schemas") {
-                if claimed != real {
-                    wrong.push(format!("{doc}:{} claims {claimed} schemas", n + 1));
+            for noun in CATALOGUE_NOUNS {
+                for claimed in counts_before(line, noun) {
+                    if claimed != real {
+                        wrong.push(format!("{doc}:{} claims {claimed} {noun}", n + 1));
+                    }
                 }
             }
         }
@@ -497,6 +588,35 @@ fn the_count_scanner_treats_a_trailing_plus_as_an_approximation() {
 }
 
 #[test]
+fn the_count_scanner_steps_over_the_qualifiers_the_corpus_writes() {
+    // Reading only the immediately preceding word is why six documents
+    // announced a stale key total with nothing complaining.
+    assert_eq!(counts_before("**68 XDG config keys**", "keys"), vec![68]);
+    assert_eq!(
+        counts_before("all 68 XDG keys, with defaults", "keys"),
+        vec![68]
+    );
+    assert_eq!(
+        counts_before("catalog of all **75** JSON contracts (v1.2.2)", "contracts"),
+        vec![75]
+    );
+    assert_eq!(
+        counts_before("dos **75** contratos JSON, um por linha", "contratos"),
+        vec![75]
+    );
+}
+
+#[test]
+fn the_count_scanner_stops_at_a_preposition_instead_of_reaching_past_it() {
+    // "3 of the keys" counts a subset of something else; treating the 3 as a
+    // registry total would make this guard demand the documentation lie.
+    assert!(counts_before("only 3 of the keys are secret", "keys").is_empty());
+    assert!(counts_before("apenas 3 das chaves são segredo", "chaves").is_empty());
+    // Four qualifiers is prose, not a compound noun.
+    assert!(counts_before("68 one two three four keys", "keys").is_empty());
+}
+
+#[test]
 fn the_catalogue_filter_separates_a_total_from_a_subset() {
     assert!(claims_the_schema_catalogue(
         "- 64 schemas cover `init`, `remember`"
@@ -507,6 +627,59 @@ fn the_catalogue_filter_separates_a_total_from_a_subset() {
     // A bug that touched seven files is not a claim about the catalogue.
     assert!(!claims_the_schema_catalogue(
         "BUG-15: 7 schemas JSON atualizados: enum expandida"
+    ));
+}
+
+#[test]
+fn the_catalogue_filter_reads_every_catalogue_phrasing_in_the_corpus() {
+    // The spellings that shipped past the first version of this filter, most
+    // of which count CONTRACTS rather than SCHEMAS.
+    for line in [
+        "the top-level catalogue at 50 verbs and the schema catalogue at 76 contracts",
+        "o catálogo de topo em 50 verbos e o de schemas em 76 contratos",
+        "Machine-readable catalog of all **75** JSON contracts (v1.2.2)",
+        "`schema` lists ALL **76** contracts as NDJSON `{\"id\",\"invoke\"}`",
+        "All **76** contracts are listed, and `invoke` is the command",
+        "Todos os **76** contratos são listados, e `invoke` é o comando",
+    ] {
+        assert!(claims_the_schema_catalogue(line), "missed: {line}");
+    }
+
+    // Prose about contracts in general is not a claim about the catalogue.
+    assert!(!claims_the_schema_catalogue(
+        "documents carrying `$schema` are contracts, not result sets"
+    ));
+}
+
+#[test]
+fn the_key_registry_filter_reads_every_registry_phrasing_in_the_corpus() {
+    // The first line is the spelling the original filter recognised; the rest
+    // are the ones it did not, one real document each.
+    for line in [
+        "### Complete `config set` key reference (64 keys, v1.2.5)",
+        "### REQUIRED — Complete XDG key registry (all 68 keys, v1.2.5)",
+        "### OBRIGATÓRIO — Registro completo de chaves XDG (as 68 chaves, v1.2.5)",
+        "- The complete registry of all 68 XDG keys, with value kind and default",
+        "- O registro completo das 68 chaves XDG, com tipo de valor e default",
+        "  2. Configuration surface is **68 XDG config keys**",
+        "impede que qualquer uma das 68 chaves de configuração XDG fique sem doc",
+    ] {
+        assert!(claims_the_key_registry(line), "missed: {line}");
+    }
+}
+
+#[test]
+fn the_key_registry_filter_ignores_a_count_that_is_not_a_total() {
+    // The reason the filter exists at all: an example that happens to use ten
+    // keys says nothing about how many the binary accepts.
+    assert!(!claims_the_key_registry(
+        "the payload below carries 10 keys in this example"
+    ));
+    assert!(!claims_the_key_registry(
+        "o payload abaixo carrega 10 chaves neste exemplo"
+    ));
+    assert!(!claims_the_key_registry(
+        "`--select` keeps 3 keys per element"
     ));
 }
 

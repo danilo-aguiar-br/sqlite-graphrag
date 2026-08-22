@@ -42,6 +42,7 @@ fn empty_response(k: usize, rrf_k: u32, weight_vec: f32, weight_fts: f32) -> Hyb
         warning: None,
         backend_invoked: None,
         vec_degraded_reason: None,
+        vec_degraded_code: None,
         elapsed_ms: 0,
     }
 }
@@ -119,7 +120,6 @@ fn hybrid_search_item_omits_fts_rank_when_none() {
         rrf_score: Some(0.0328),
         normalized_score: 1.0,
         vec_distance: Some(0.12),
-        fts_bm25: None,
     };
     let json = serde_json::to_string(&item).unwrap();
     assert!(
@@ -150,7 +150,6 @@ fn hybrid_search_item_omits_vec_rank_when_none() {
         rrf_score: Some(0.016),
         normalized_score: 0.5,
         vec_distance: None,
-        fts_bm25: None,
     };
     let json = serde_json::to_string(&item).unwrap();
     assert!(
@@ -181,7 +180,6 @@ fn hybrid_search_item_serializes_both_ranks_when_some() {
         rrf_score: Some(0.05),
         normalized_score: 0.8,
         vec_distance: Some(0.25),
-        fts_bm25: None,
     };
     let json = serde_json::to_string(&item).unwrap();
     assert!(json.contains("\"vec_rank\""), "must contain vec_rank");
@@ -227,6 +225,7 @@ fn hybrid_search_response_with_graph_matches() {
         warning: None,
         backend_invoked: None,
         vec_degraded_reason: None,
+        vec_degraded_code: None,
         elapsed_ms: 42,
     };
     let json = serde_json::to_value(&resp).unwrap();

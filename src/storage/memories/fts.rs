@@ -133,6 +133,12 @@ pub fn fts_search(
 /// UPDATE triggers. This function performs the equivalent sync in Rust:
 /// DELETE the old entry, then INSERT the new one (external-content FTS5
 /// tables do not support in-place UPDATE).
+// The three FTS columns twice, before and after: the arity IS the delete/insert
+// pair the external-content index requires, and both triples are already spelled
+// out at every call site from two different sources.
+// The old and new triples are what an FTS5 external-content delete/insert pair
+// requires, and they must stay POSITIONALLY distinct so a caller cannot pass the
+// new text as the old: naming them in one struct would invite exactly that.
 #[allow(clippy::too_many_arguments)]
 pub fn sync_fts_after_update(
     conn: &Connection,

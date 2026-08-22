@@ -1,4 +1,7 @@
 # ADR-0052: OpenRouter Embedding Backend
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `OPENROUTER_API_KEY` as an environment variable is never read at runtime by the v1.2.8 binary and has no effect; the live channel is `sqlite-graphrag config add-key --provider openrouter --from-stdin`.
+- HISTORICAL: the nextest `ci` profile and the CI job named below do not exist: this repository has no `.github/workflows/` and releases are cut by hand.
 
 - Status: ACCEPTED
 - Date: 2026-06-25

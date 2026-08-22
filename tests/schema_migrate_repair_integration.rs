@@ -11,7 +11,17 @@
 mod support;
 
 use serial_test::serial;
+use sqlite_graphrag::constants::CURRENT_SCHEMA_VERSION;
 use support::{conn_ro, init_isolated_db, sgr_on};
+
+/// The schema version this suite expects to see on the wire, as a JSON number.
+///
+/// GAP-SG-284: derived, never written. Two literal `16`s in this file survived
+/// V017 and failed against a migration that was perfectly correct, the same way
+/// the two in `schema_shape_integration.rs` did.
+fn expected_schema_version() -> serde_json::Value {
+    serde_json::Value::from(CURRENT_SCHEMA_VERSION)
+}
 
 // ---------------------------------------------------------------------------
 // v1.0.76 — migrate --rehash and --to-llm-only integration tests
@@ -49,8 +59,9 @@ fn migrate_rehash_is_noop_on_healthy_db() {
         "healthy DB must report ok_no_changes, got: {stdout}"
     );
     assert_eq!(json["rewritten"].as_array().unwrap().len(), 0);
-    assert_eq!(json["inspected"], 16);
-    assert_eq!(json["schema_version"], 16);
+    // `inspected` counts the applied migrations, so it tracks the same number.
+    assert_eq!(json["inspected"], expected_schema_version());
+    assert_eq!(json["schema_version"], expected_schema_version());
 }
 
 #[test]
@@ -144,7 +155,7 @@ fn migrate_to_llm_only_reports_no_vec_tables_on_fresh_db() {
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
     assert_eq!(json["status"], "ok");
-    assert_eq!(json["schema_version"], 16);
+    assert_eq!(json["schema_version"], expected_schema_version());
     assert_eq!(json["v013_applied"], true);
     assert_eq!(
         json["vec_tables_were_present"], false,

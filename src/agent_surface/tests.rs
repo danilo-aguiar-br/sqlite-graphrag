@@ -14,6 +14,7 @@ mod filters;
 mod gate;
 mod ordering;
 mod projection;
+mod stream;
 mod surface_state;
 mod target;
 mod truncation;
@@ -62,6 +63,45 @@ fn apply(surface: &AgentSurface, value: Value) -> Value {
 /// The fallible form, for the tests whose subject IS the refusal.
 fn try_apply(surface: &AgentSurface, value: Value) -> Result<Value, crate::errors::AppError> {
     super::apply_with_target(surface, value, None)
+}
+
+/// A page of a countable universe, as `list` and `graph entities` declare one.
+///
+/// `applied < total` is what [`universe::QueryCeiling::truncated_the_universe`]
+/// turns on, so a caller writing `pagination(50, 107_111)` is stating "the query
+/// returned fifty of a hundred and seven thousand" and nothing else.
+fn pagination(applied: usize, total: usize) -> universe::QueryCeiling {
+    universe::QueryCeiling {
+        applied,
+        offset: 0,
+        source: universe::CeilingSource::Default,
+        kind: universe::CeilingKind::Pagination,
+        universe_total: Some(total),
+    }
+}
+
+/// A ranked bound, as `hybrid-search -k` declares one: the k IS the answer.
+fn top_k(applied: usize) -> universe::QueryCeiling {
+    universe::QueryCeiling {
+        applied,
+        offset: 0,
+        source: universe::CeilingSource::Flag,
+        kind: universe::CeilingKind::TopK,
+        universe_total: None,
+    }
+}
+
+/// Shapes under a STATED query ceiling.
+///
+/// The ceiling lives in a process-wide `OnceLock` in production, and `OnceLock`
+/// gives a `static` no reset — so before this existed, no test in this binary
+/// could state one, and GAP-SG-201 shipped a refusal nothing could reach.
+fn try_apply_under(
+    surface: &AgentSurface,
+    value: Value,
+    ceiling: Option<&universe::QueryCeiling>,
+) -> Result<Value, crate::errors::AppError> {
+    super::apply_with_premises(surface, value, None, ceiling)
 }
 
 /// A surface that knows which subcommand emitted the envelope.

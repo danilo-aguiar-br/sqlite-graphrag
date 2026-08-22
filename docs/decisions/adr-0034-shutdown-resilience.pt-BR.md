@@ -1,4 +1,7 @@
 # ADR-0034 — Resiliência do SHUTDOWN Global para Auditorias e Testes
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: a válvula de escape `SQLITE_GRAPHRAG_IGNORE_SHUTDOWN=1` mostrada abaixo, inclusive dentro de fence bash copiável, nunca é lida em runtime pelo binário v1.2.8 e não tem efeito.
+- HISTÓRICO: o canal vivo é `sqlite-graphrag config set shutdown.ignore true`.
 
 ## Status
 

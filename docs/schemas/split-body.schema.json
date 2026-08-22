@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/split-body.schema.json",
   "title": "SplitBodyResponse",
-  "description": "v1.1.03 (GAP-V8): response emitted by `sqlite-graphrag split-body` on stdout as a single JSON line. The original oversized memory is never soft-deleted: it is annotated with `metadata.superseded_by_split=true` and `metadata.split_into=[child names]`, and each child memory gets a canonical `replaces` graph relationship to the original. The single-mode envelope (`--name <NAME>`) and the batch-mode envelope (`--batch`) are discriminated by `oneOf`: the single envelope carries `original`/`children`, while the batch envelope carries `namespace`/`split`/`skipped`.",
+  "description": "v1.1.03 (GAP-V8): response emitted by `sqlite-graphrag split-body` on stdout as a single JSON line. The original oversized memory is never soft-deleted: it is annotated with `metadata.superseded_by_split=true` and `metadata.split_into=[child names]`, and each child memory gets a canonical `replaces` graph relationship to the original. The single-mode envelope (`--name <NAME>`) and the batch-mode envelope (`--batch`) are discriminated by `oneOf`: the single envelope carries `original`/`children`, while the batch envelope carries `namespace`/`split`/`skipped`. Corrected by GAP-SG-271, which ran the command and validated the real envelope for the first time: neither branch declared `agent_surface`, `truncated` or `count`, and both set `additionalProperties: false`, so every real answer failed BOTH branches of the `oneOf` and was reported as `OneOfNotValid` — a message that names no member and reads as a discriminator problem rather than a missing declaration. The GAP-SG-142 members were added to the other contracts and this one was left behind.",
   "oneOf": [
     {
       "title": "SplitBodySingleResponse",
@@ -11,6 +11,9 @@
       "required": ["original", "children", "threshold", "dry_run", "elapsed_ms"],
       "additionalProperties": false,
       "properties": {
+        "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+        "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+        "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
         "original": { "type": "string", "description": "Name of the memory targeted by the split." },
         "original_id": { "type": "integer", "description": "Row id of the targeted memory. Omitted only when the memory could not be resolved before the scan returned." },
         "children": {
@@ -38,6 +41,9 @@
       "required": ["namespace", "threshold", "dry_run", "split", "skipped", "elapsed_ms"],
       "additionalProperties": false,
       "properties": {
+        "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
+        "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
+        "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
         "namespace": { "type": "string", "description": "Resolved namespace scope of the batch run." },
         "threshold": { "type": "integer", "minimum": 0, "description": "Character threshold applied to candidate selection." },
         "dry_run": { "type": "boolean", "description": "True when the whole batch was previewed without writing." },

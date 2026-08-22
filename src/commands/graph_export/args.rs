@@ -1,7 +1,6 @@
 //! CLI argument types for `graph` subcommands.
 
 use crate::cli::GraphExportFormat;
-use crate::entity_type::EntityType;
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -15,6 +14,8 @@ pub enum GraphSubcommand {
     Stats(GraphStatsArgs),
     /// List entities stored in the graph with optional filters
     Entities(GraphEntitiesArgs),
+    /// Audit the entity-type vocabulary actually present in the database
+    EntityTypes(GraphEntityTypesArgs),
     /// Reconcile the cached `degree` column with the real edge counts (P3)
     RecomputeDegree(GraphRecomputeDegreeArgs),
 }
@@ -83,7 +84,7 @@ pub struct GraphArgs {
 NOTES:\n  \
     Output is always JSON. The `hops` array contains each reachable entity\n  \
     with its relation, direction (inbound/outbound), weight, and depth level.\n  \
-    Short nicknames (e.g. `danilo` vs `danilo-aguiar-teixeira`) do not exact-match;\n  \
+    Short nicknames (e.g. `alice` vs `alice-martins-souza`) do not exact-match;\n  \
     without `--fuzzy` the error includes ranked suggestions (v1.1.05). With\n  \
     `--fuzzy`, a clear single winner is auto-resolved and warned on stderr.")]
 /// Graph traverse args.
@@ -140,6 +141,72 @@ pub struct GraphStatsArgs {
     pub db: Option<String>,
 }
 
+/// Graph entity-types format.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphEntityTypesFormat {
+    /// JSON variant.
+    Json,
+    /// Text variant.
+    Text,
+}
+
+#[derive(clap::Args)]
+#[command(after_long_help = "EXAMPLES:\n  \
+    # List every entity type present, most frequent first\n  \
+    sqlite-graphrag graph entity-types\n\n  \
+    # Restrict the audit to one namespace\n  \
+    sqlite-graphrag graph entity-types --namespace project-x\n\n  \
+    # Compact human-readable summary\n  \
+    sqlite-graphrag graph entity-types --format text\n\n  \
+    # Only the labels outside the canonical set\n  \
+    sqlite-graphrag graph entity-types --filter canonical=false\n\n\
+NOTES:\n  \
+    v1.2.8 opened the entity-type vocabulary, so the set of stored labels is\n  \
+    no longer knowable from the source. This reports what the database\n  \
+    actually holds: each `type` with its `count` and whether it belongs to\n  \
+    the canonical thirteen. `--entity-type` on `graph entities` can only\n  \
+    filter by a label you already guessed; this is where you find the label.")]
+/// Graph entity types args.
+pub struct GraphEntityTypesArgs {
+    /// Namespace scope. Omit to audit ALL namespaces.
+    #[arg(long)]
+    pub namespace: Option<String>,
+    /// Output format for the vocabulary report.
+    #[arg(long, value_enum, default_value = "json")]
+    pub format: GraphEntityTypesFormat,
+    /// Emit machine-readable JSON on stdout.
+    #[arg(long, hide = true, help = "No-op; JSON is always emitted on stdout")]
+    pub json: bool,
+    /// Path to the SQLite database file.
+    #[arg(long)]
+    pub db: Option<String>,
+}
+
+/// One row of the entity-type vocabulary audit.
+#[derive(Serialize)]
+pub(crate) struct EntityTypeCount {
+    /// The label exactly as stored, after V017 removed the SQL `CHECK`.
+    #[serde(rename = "type")]
+    pub(crate) entity_type: String,
+    /// Entities carrying this label within the requested scope.
+    pub(crate) count: i64,
+    /// Whether the label is one of `CANONICAL_ENTITY_TYPES`. False is a normal
+    /// result, not a defect: the vocabulary is open by design.
+    pub(crate) canonical: bool,
+}
+
+#[derive(Serialize)]
+pub(crate) struct GraphEntityTypesResponse {
+    pub(crate) types: Vec<EntityTypeCount>,
+    /// Distinct labels found, which is `types.len()` before any agent-surface
+    /// trimming and therefore survives `--max-items`.
+    pub(crate) total_types: usize,
+    /// Entities summed across every label in scope.
+    pub(crate) total_entities: i64,
+    pub(crate) namespace: Option<String>,
+    pub(crate) elapsed_ms: u64,
+}
+
 /// Field to sort entities by in `graph entities`.
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 pub enum EntitySortField {
@@ -177,15 +244,19 @@ pub enum SortOrder {
     sqlite-graphrag graph entities --sort-by created-at --order asc\n\n  \
 NOTES:\n  \
     Output is always JSON with `entities`, `total_count`, `limit`, and `offset` fields.\n  \
-    Entity types are canonical strings (e.g. `person`, `organization`, `location`).")]
+    Entity types are free-form strings; the canonical ones (e.g. `person`,\n  \
+    `organization`, `location`) are recommended rather than exhaustive.")]
 /// Graph entities args.
 pub struct GraphEntitiesArgs {
     /// Namespace scope.
     #[arg(long)]
     pub namespace: Option<String>,
-    /// Filter by entity type (one of the 13 canonical types).
-    #[arg(long, value_enum)]
-    pub entity_type: Option<EntityType>,
+    /// Filter by entity type. Any stored label is accepted (v1.2.8); the
+    /// thirteen canonical types are recommended, not exhaustive. A label no
+    /// entity carries returns an empty list, which is a result and not an
+    /// error.
+    #[arg(long, value_name = "TYPE")]
+    pub entity_type: Option<String>,
     /// Maximum number of results to return.
     #[arg(long, default_value_t = crate::constants::K_GRAPH_ENTITIES_DEFAULT_LIMIT, value_parser = crate::parsers::parse_k_range)]
     pub limit: usize,

@@ -24,6 +24,12 @@ use std::path::{Path, PathBuf};
 /// Deliberately exact rather than a substring match: `max_concurrency` also
 /// ends in a number-shaped word but is clamped against the host CPU count
 /// inside the command, and `timeout` is a duration, not a size.
+///
+/// `scan_page_size` belongs to the same exempt class as `max_concurrency`:
+/// `runtime_config::enrich_scan_page_size` clamps it into
+/// `ENRICH_SCAN_PAGE_SIZE_RANGE` before it sizes anything, so an absurd value
+/// cannot reach an allocation. `quality_sample` does NOT, which is why it is
+/// listed — it reached `Vec::with_capacity` unfiltered.
 const BOUNDED_FIELDS: &[&str] = &[
     "limit",
     "k",
@@ -32,6 +38,7 @@ const BOUNDED_FIELDS: &[&str] = &[
     "max_hops",
     "max_results",
     "max_sub_queries",
+    "quality_sample",
 ];
 
 /// Integer types that reach an allocation or a `LIMIT` clause unchanged.
@@ -62,16 +69,52 @@ fn command_sources() -> Vec<PathBuf> {
     out
 }
 
+/// Strips one `Option<…>` wrapper, so `Option<usize>` reads as `usize`.
+///
+/// An optional argument allocates exactly like a required one the moment the
+/// caller supplies it — `--limit` is `Option<usize>` on `list` and `enrich`,
+/// and `unwrap_or(default)` downstream erases the difference. Comparing the RAW
+/// type against [`NUMERIC_TYPES`] therefore made the gate blind to its own
+/// subject: measured on v1.2.7, `list.limit`, `enrich.limit` and
+/// `hybrid_search.max_hops` all carry a name this gate LISTS and escaped
+/// through the type. Only one wrapper is stripped; `Option<Option<usize>>` is
+/// not a shape this CLI declares, and unwrapping blindly would let genuinely
+/// unrelated generics in.
+fn unwrap_option(ty: &str) -> &str {
+    ty.strip_prefix("Option<")
+        .and_then(|rest| rest.strip_suffix('>'))
+        .map_or(ty, str::trim)
+}
+
 /// Parses `    pub limit: usize,` into `Some("limit")` when the type is numeric.
 fn bounded_field_name(line: &str) -> Option<&'static str> {
     let trimmed = line.trim();
     let rest = trimmed.strip_prefix("pub ")?;
     let (name, ty) = rest.split_once(": ")?;
-    let ty = ty.trim_end_matches(',').trim();
+    let ty = unwrap_option(ty.trim_end_matches(',').trim());
     if !NUMERIC_TYPES.contains(&ty) {
         return None;
     }
     BOUNDED_FIELDS.iter().copied().find(|f| *f == name)
+}
+
+#[test]
+fn an_optional_numeric_argument_is_still_bounded() {
+    assert_eq!(unwrap_option("Option<usize>"), "usize");
+    assert_eq!(unwrap_option("Option<u32>"), "u32");
+    assert_eq!(unwrap_option("usize"), "usize");
+    // Not an Option at all: left untouched rather than half-parsed.
+    assert_eq!(unwrap_option("Vec<usize>"), "Vec<usize>");
+    assert_eq!(
+        bounded_field_name("    pub limit: Option<usize>,"),
+        Some("limit")
+    );
+    assert_eq!(
+        bounded_field_name("    pub quality_sample: Option<usize>,"),
+        Some("quality_sample")
+    );
+    // A numeric field whose name denotes no result-set bound stays out.
+    assert_eq!(bounded_field_name("    pub timeout: Option<u64>,"), None);
 }
 
 /// Walks up from a field declaration and returns the `#[arg(...)]` above it.

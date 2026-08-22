@@ -8,7 +8,7 @@ use crate::errors::AppError;
 
 // Re-export for child ops modules that use `use super::*`.
 pub(crate) use super::args::EnrichMode;
-pub(crate) use super::prompts::ENTITY_DESCRIPTION_PROMPT_PREFIX;
+pub(crate) use super::prompts::ENTITY_DESCRIPTION_SYSTEM_PROMPT;
 pub(crate) use super::schemas::{
     BINDINGS_PROMPT, BINDINGS_SCHEMA, BODY_ENRICH_PROMPT_PREFIX, BODY_ENRICH_SCHEMA,
     BODY_EXTRACT_PROMPT, BODY_EXTRACT_SCHEMA, DEEP_RESEARCH_SYNTH_PROMPT,
@@ -81,9 +81,7 @@ pub(crate) fn call_openrouter(
     // enforced by the reqwest builder.
     let _ = (model, timeout_secs);
     let client = crate::embedder::openrouter_chat_client().ok_or_else(|| {
-        AppError::Validation(
-            "OpenRouter chat client not initialised before dispatch (internal error)".into(),
-        )
+        AppError::Validation(crate::i18n::validation::chat_client_not_initialised())
     })?;
     // GAP-001 (v1.1.04): canonical nested-runtime guard. This was the last
     // `block_on` in the crate without it — calling it from inside a Tokio
@@ -134,6 +132,18 @@ pub(crate) enum EnrichItemResult {
     },
     Skipped {
         reason: String,
+        /// Tokens already PAID when the skip was decided.
+        ///
+        /// Not always zero. A skip taken BEFORE the request costs nothing, but
+        /// abstention costs full price: the model read the corpus, judged it
+        /// insufficient and said so, and the provider bills that completion
+        /// like any other. Reporting zero for it understated real spend by
+        /// roughly a quarter on a measured 362-item run — 130 of those items
+        /// skipped, most of them after the call.
+        ///
+        /// A cost surface that under-reports is worse than none, because it is
+        /// trusted.
+        cost: f64,
     },
     /// G29 Step 4 (v1.0.69): the LLM rewrite diverged from the original
     /// body beyond the configured `--preserve-threshold` and was rejected
@@ -145,11 +155,68 @@ pub(crate) enum EnrichItemResult {
         chars_before: usize,
         chars_after: usize,
     },
+    /// GAP-SG-279: `entity-type-validate` rewrote an entity's type label.
+    ///
+    /// A variant rather than fields on [`EnrichItemResult::Done`], and the
+    /// reason is arithmetic: `Done` is constructed in thirty places across the
+    /// enrich modules, while the enum itself is matched exhaustively in three.
+    /// Widening `Done` would have meant thirty mechanical edits in files four
+    /// other teams are holding; a new variant costs three.
+    ///
+    /// It exists because the old envelope could not tell the caller ANYTHING
+    /// about what this operation did. A reclassification, a confirmation and a
+    /// discarded suggestion all emitted the same `Done { entities: 1 }`, so an
+    /// operator who paid for ten thousand calls could not answer "how many
+    /// types actually changed" from the output — only by diffing the database
+    /// against a backup.
+    Retyped {
+        entity_id: i64,
+        /// The label the row carried before this call.
+        previous_type: String,
+        /// The label written by this call, already shape-normalised.
+        validated_type: String,
+        /// Characters of evidence the decision was made from.
+        ///
+        /// This is the number that separates a grounded verdict from a lucky
+        /// one. Emitting it lets a caller filter on decision quality before
+        /// trusting the rewrite, which is the whole reason GAP-SG-279 was
+        /// opened.
+        evidence_chars: usize,
+        cost: f64,
+        is_oauth: bool,
+    },
 }
 
 // ---------------------------------------------------------------------------
 // Per-operation call helpers (SCAN + JUDGE + PERSIST in one unit)
 // ---------------------------------------------------------------------------
+
+/// Which provider serves ONE extraction call, and how patiently.
+///
+/// `model` + `timeout` + `mode` are resolved once per drain and then threaded
+/// unchanged through every `call_*` helper below. Passed positionally they cost
+/// three argument slots in each signature, and they are not self-checking:
+/// `model` is `Option<&str>` and several operations carry their own `&str` knob,
+/// so transposing the two type-checks and surfaces only as a wrong prompt at
+/// runtime.
+///
+/// The provider BINARY is deliberately absent. Every `call_*` helper still
+/// accepts one positionally and every one of them ignores it — a leftover of the
+/// subprocess backends this crate no longer has. Folding a value nothing reads
+/// into the descriptor would have preserved that fiction under a better name.
+///
+/// `Copy` on purpose — `call_entity_description` invokes the provider twice
+/// (first draft, then the anti-jargon retry), so re-passing the descriptor must
+/// stay as cheap as re-passing the three values was.
+#[derive(Clone, Copy)]
+pub(crate) struct ProviderCall<'a> {
+    /// Model identifier, when the caller pinned one.
+    pub(crate) model: Option<&'a str>,
+    /// Per-request timeout, in seconds.
+    pub(crate) timeout: u64,
+    /// Which transport answers the call.
+    pub(crate) mode: &'a EnrichMode,
+}
 
 // Wave C1: operation helpers are children of this module so `use super::*` works.
 // GAP-SG-146: children are named for what they DO. The former `_a`/`_b`/`_c`

@@ -6,6 +6,6 @@
 
 #[test]
 fn placeholder_compile_only() {
-    // Stub mínimo para satisfazer compilação após restore
+    // Minimal stub to satisfy compilation after restore
     assert_eq!(2 + 2, 4);
 }

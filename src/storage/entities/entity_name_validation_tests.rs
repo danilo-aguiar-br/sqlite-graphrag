@@ -5,13 +5,12 @@
 
 use super::test_fixtures::*;
 use super::*;
-use crate::entity_type::EntityType;
 
 #[test]
 fn accepts_type_field_as_alias() -> TestResult {
     let json = r#"{"name": "X", "type": "concept"}"#;
     let ent: NewEntity = serde_json::from_str(json)?;
-    assert_eq!(ent.entity_type, EntityType::Concept);
+    assert_eq!(ent.entity_type, "concept");
     Ok(())
 }
 
@@ -19,7 +18,7 @@ fn accepts_type_field_as_alias() -> TestResult {
 fn accepts_canonical_entity_type_field() -> TestResult {
     let json = r#"{"name": "X", "entity_type": "concept"}"#;
     let ent: NewEntity = serde_json::from_str(json)?;
-    assert_eq!(ent.entity_type, EntityType::Concept);
+    assert_eq!(ent.entity_type, "concept");
     Ok(())
 }
 
@@ -27,9 +26,9 @@ fn accepts_canonical_entity_type_field() -> TestResult {
 fn both_fields_present_yields_duplicate_error() {
     // having both entity_type and type in the same JSON is a duplicate and must fail
     let json = r#"{"name": "X", "entity_type": "concept", "type": "person"}"#;
-    let resultado: Result<NewEntity, _> = serde_json::from_str(json);
+    let result: Result<NewEntity, _> = serde_json::from_str(json);
     assert!(
-        resultado.is_err(),
+        result.is_err(),
         "both fields in the same JSON are a duplicate"
     );
 }
@@ -85,8 +84,8 @@ fn validate_entity_name_rejects_purely_numeric() {
 
 #[test]
 fn entity_name_similarity_prefers_prefix_of_kebab() {
-    let s = entity_name_similarity("danilo", "danilo-aguiar-teixeira");
+    let s = entity_name_similarity("alice", "alice-martins-souza");
     assert!(s >= 0.90, "expected strong prefix score, got {s}");
-    let exact = entity_name_similarity("danilo", "danilo");
+    let exact = entity_name_similarity("alice", "alice");
     assert!((exact - 1.0).abs() < f64::EPSILON);
 }

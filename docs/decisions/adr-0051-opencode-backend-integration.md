@@ -1,4 +1,8 @@
 # ADR-0051: OpenCode Backend Integration (v1.0.90)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the `## Env Vars` section below lists `SQLITE_GRAPHRAG_OPENCODE_BINARY`, `SQLITE_GRAPHRAG_OPENCODE_EMBED_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_MODEL`, `SQLITE_GRAPHRAG_OPENCODE_TIMEOUT` and `SQLITE_GRAPHRAG_LLM_MODEL`; none of them is read at runtime by the v1.2.8 binary and none has any effect.
+- HISTORICAL: the `## CLI Flags` section below lists `--opencode-binary`, `--opencode-model`, `--opencode-timeout`, `--llm-backend opencode` and `--mode opencode`; the parser refuses every one of them.
+- HISTORICAL: the OpenCode backend was removed with no replacement: v1.2.8 calls OpenRouter over HTTP in-process, and the key is stored with `sqlite-graphrag config add-key --provider openrouter --from-stdin`.
 
 ## Status
 - Accepted (2026-06-22)

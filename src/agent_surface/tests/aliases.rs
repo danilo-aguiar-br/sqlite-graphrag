@@ -89,6 +89,30 @@ fn a_noop_surface_emits_every_alias_envelope_byte_for_byte() {
     }
 }
 
+/// GAP-SG-230 is a resolution change, never a wire change.
+///
+/// The synonym table decides which name a REQUEST resolves to; it must not touch
+/// what the binary EMITS. `graph --format json` keeps shipping `type` beside the
+/// deprecated `kind`, and no `entity_type` member is invented next to them —
+/// `docs/schemas` declares these envelopes with `additionalProperties: false`,
+/// so a helpfully added member would invalidate the project's own schema.
+/// Checked on the serialization rather than on structural equality, for the same
+/// reason the sibling above is.
+#[test]
+fn a_noop_surface_leaves_a_graph_snapshot_spelling_type_byte_for_byte() {
+    let original = json!({
+        "nodes": [
+            { "id": 1, "name": "jwt", "namespace": "global", "kind": "concept", "type": "concept" },
+            { "id": 2, "name": "auth-svc", "namespace": "global", "kind": "tool", "type": "tool" }
+        ],
+        "edges": [{ "from": "jwt", "to": "auth-svc", "relation": "uses", "weight": 0.8 }],
+        "elapsed_ms": 3
+    });
+    let before = serde_json::to_string(&original).unwrap();
+    let after = serde_json::to_string(&apply(&surface_for("graph"), original)).unwrap();
+    assert_eq!(before, after, "a synonym must not rewrite the wire");
+}
+
 #[test]
 fn related_alias_is_dropped_and_absent_siblings_are_a_silent_noop() {
     // `related` shares the `results` canonical key with `recall` but carries

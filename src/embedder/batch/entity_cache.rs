@@ -144,9 +144,12 @@ pub fn embed_entity_texts_cached(
     models_dir: &Path,
     texts: &[String],
     parallelism: usize,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<(Vec<Vec<f32>>, EmbedCacheStats), AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     if texts.is_empty() {
         return Ok((Vec::new(), EmbedCacheStats::default()));
     }
@@ -207,8 +210,7 @@ pub fn embed_entity_texts_cached(
             Arc::from(miss_texts),
             parallelism,
             entity_embed_batch_size(),
-            embedding_backend,
-            llm_backend,
+            backends,
         )?;
         let mut guard = cache.lock();
         guard.evict_expired_and_overflow(miss_count);

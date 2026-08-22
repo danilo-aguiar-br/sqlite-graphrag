@@ -1,4 +1,4 @@
-# ADR-0065: v1.1.05 — Cinco Bugs Operacionais do Incidente de Deep-Research sobre "danilo"
+# ADR-0065: v1.1.05 — Cinco Bugs Operacionais do Incidente de Deep-Research de Sujeito Único
 
 - Status: Accepted
 - Data: 2026-07-11
@@ -10,13 +10,13 @@
 
 ## Contexto
 
-Em 2026-07-08 um operador executou pesquisa multi-hop profunda contra um grafo de produção grande (`graphrag.sqlite`, binário v1.1.4) sobre o sujeito `"danilo"`. Cinco bugs da CLI bloquearam a investigação; um sexto erro do lado do shell amplificou um deles. Estão catalogados em `gaps.md` ("Bugs do GraphRAG — Relato de Deep Research sobre danilo") e fechados na v1.1.05. Nenhuma migração de schema SQLite é necessária (`CURRENT_SCHEMA_VERSION` permanece em 16 desde V016 / ADR-0064).
+Em 2026-07-08 um operador executou pesquisa multi-hop profunda contra um grafo de produção grande (`graphrag.sqlite`, binário v1.1.4) sobre o sujeito `"alice"`. Cinco bugs da CLI bloquearam a investigação; um sexto erro do lado do shell amplificou um deles. Estão catalogados em `gaps.md` ("Bugs do GraphRAG — Relato de Deep Research de sujeito único") e fechados na v1.1.05. Nenhuma migração de schema SQLite é necessária (`CURRENT_SCHEMA_VERSION` permanece em 16 desde V016 / ADR-0064).
 
 | # | Sintoma | Causa raiz (resumo) |
 |---|---------|---------------------|
-| Bug 1 | `deep-research "danilo"` produzia uma única busca híbrida em vez de fan-out multi-aspecto | A heurística `decompose_query` era puramente sintática; tokens únicos nunca se dividiam |
+| Bug 1 | `deep-research "alice"` produzia uma única busca híbrida em vez de fan-out multi-aspecto | A heurística `decompose_query` era puramente sintática; tokens únicos nunca se dividiam |
 | Bug 2 | `jaq`/`jq` falhava ao parsear a captura completa de stdout | Truncamento do envelope / contaminação de stderr sob redirecionamentos do shell (`&>`), não `serde_json` inválido |
-| Bug 3 | `graph traverse --from danilo` retornava vazio / NotFound opaco | Match apenas de nome exato; apelidos curtos nunca resolviam para nomes canônicos kebab |
+| Bug 3 | `graph traverse --from alice` retornava vazio / NotFound opaco | Match apenas de nome exato; apelidos curtos nunca resolviam para nomes canônicos kebab |
 | Bug 4 | `merge-entities` aceitava merges auto-referenciais sob argv malformado | A guarda existia mais fundo no caminho; word-splitting do zsh ainda podia colocar o alvo em `--ids` antes de o trabalho de DB ser evitado cedo o bastante |
 | Bug 5 | `link --from 89975 --create-missing` criava entidade fantasma chamada `"89975"` | Strings numéricas tratadas como nomes; sem flags de link por ID |
 | Erro de Shell 1 | word-splitting do zsh corrompia comandos de merge multi-arg | Higiene de shell (arrays); mitigado na CLI pelo Bug 4 |
@@ -69,7 +69,7 @@ Aplicar cinco correções cirúrgicas de CLI/UX (mais I/O atômico compartilhado
 ### Infraestrutura compartilhada
 
 - Novo módulo `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) reutilizado pelo Bug 2 e com testes unitários.
-- Suite de integração `tests/v1105_danilo_bugs_regression.rs` cobre os cinco bugs na fronteira da CLI.
+- Suite de integração `tests/v1105_incident_bugs_regression.rs` cobre os cinco bugs na fronteira da CLI.
 
 
 ## Alternativas Consideradas
@@ -108,8 +108,8 @@ Aplicar cinco correções cirúrgicas de CLI/UX (mais I/O atômico compartilhado
 
 ## Validação
 
-- Unitário: `test_decompose_single_token_danilo_fans_out`, testes de atomic_io, guardas clap/ID para link e merge.
-- Integração: `tests/v1105_danilo_bugs_regression.rs` (`bug1`…`bug5`).
+- Unitário: `test_decompose_single_token_fans_out`, testes de atomic_io, guardas clap/ID para link e merge.
+- Integração: `tests/v1105_incident_bugs_regression.rs` (`bug1`…`bug5`).
 - A tarefa de docs não reexecuta a suíte completa; as tarefas de implementação já fecharam os cinco bugs.
 
 

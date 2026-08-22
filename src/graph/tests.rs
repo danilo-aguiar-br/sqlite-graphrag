@@ -80,7 +80,7 @@ fn reached(
     ids
 }
 
-// --- edge cases retornando vazio ---
+// --- edge cases returning empty ---
 
 #[test]
 fn returns_empty_when_seeds_empty() {
@@ -300,17 +300,17 @@ fn result_without_duplicates() {
 
     insert_memory(&conn, 1, "ns", false);
     link_memory_entity(&conn, 1, 10);
-    link_memory_entity(&conn, 1, 11); // dois seeds na mesma memory
+    link_memory_entity(&conn, 1, 11); // two seeds on the same memory
 
     insert_memory(&conn, 2, "ns", false);
     link_memory_entity(&conn, 2, 20);
 
-    // ambos os seeds apontam para a mesma entity 20
+    // both seeds point at the same entity 20
     insert_relationship(&conn, 10, 20, 1.0, "ns");
     insert_relationship(&conn, 11, 20, 1.0, "ns");
 
     let result = reached(&conn, &[1], "ns", 0.5, 1);
-    // memory 2 deve aparecer apenas uma vez
+    // memory 2 must appear only once
     assert_eq!(result.len(), 1);
     assert_eq!(result, vec![2]);
 }
@@ -328,7 +328,7 @@ fn single_node_without_neighbors_returns_empty() {
     assert!(reached(&conn, &[1], "ns", 0.5, 5).is_empty());
 }
 
-// --- ciclos no grafo ---
+// --- cycles in the graph ---
 
 #[test]
 fn cycle_does_not_cause_infinite_loop() {
@@ -348,11 +348,11 @@ fn cycle_does_not_cause_infinite_loop() {
     insert_relationship(&conn, 20, 30, 1.0, "ns");
     insert_relationship(&conn, 30, 10, 1.0, "ns");
 
-    // deve retornar 2 e 3 sem loop infinito
+    // must return 2 and 3 without looping forever
     assert_eq!(reached(&conn, &[1], "ns", 0.5, 10), vec![2, 3]);
 }
 
-// --- variante com cap de vizinhos ---
+// --- variant with a neighbor cap ---
 
 #[test]
 fn neighbor_cap_keeps_strongest_edges() {
@@ -377,7 +377,7 @@ fn neighbor_cap_keeps_strongest_edges() {
     assert_eq!(uncapped.len(), 3);
 }
 
-// --- distância mínima, não a primeira encontrada ---
+// --- minimum distance, not the first one found ---
 
 #[test]
 fn hop_count_is_minimum_distance() {
@@ -386,7 +386,7 @@ fn hop_count_is_minimum_distance() {
     insert_memory(&conn, 1, "ns", false);
     link_memory_entity(&conn, 1, 10);
 
-    // alvo alcançável por 1 salto (10 -> 20) e por 3 saltos (10 -> 30 -> 40 -> 20)
+    // target reachable in 1 hop (10 -> 20) and in 3 hops (10 -> 30 -> 40 -> 20)
     for (mem, ent) in [(2i64, 20i64), (3, 30), (4, 40)] {
         insert_memory(&conn, mem, "ns", false);
         link_memory_entity(&conn, mem, ent);
@@ -401,7 +401,7 @@ fn hop_count_is_minimum_distance() {
     assert_eq!(hop_of_2, Some(1), "BFS deve reportar a distância mínima");
 }
 
-// --- motor compartilhado: direção declarada ---
+// --- shared engine: declared direction ---
 
 #[test]
 fn walk_direction_controls_edge_following() {

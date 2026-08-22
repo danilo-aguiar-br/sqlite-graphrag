@@ -10,6 +10,18 @@ pub(crate) struct EnrichSummary {
     pub(crate) completed: usize,
     pub(crate) failed: usize,
     pub(crate) skipped: usize,
+    /// Entities whose type label was REWRITTEN this run (GAP-SG-279).
+    ///
+    /// A subset of `completed`, emitted only by `entity-type-validate`, which is
+    /// why it is optional rather than a plain zero on every other operation.
+    ///
+    /// Without it the summary answered "how many labels changed" with the same
+    /// number whether all of them moved or none did: confirmations and
+    /// abstentions land in `skipped`, reclassifications in `completed`, and the
+    /// two were indistinguishable from outside. On a drain of ten thousand paid
+    /// calls that is the difference between a report and a receipt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) retyped: Option<usize>,
     pub(crate) cost_usd: f64,
     pub(crate) elapsed_ms: u64,
     /// v1.0.84 (ADR-0042): discriminator of the embedding backend that actually ran.

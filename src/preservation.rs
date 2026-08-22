@@ -39,6 +39,22 @@ use std::collections::HashSet;
 /// `enrich.entity_description.min_corpus_chars`.
 pub const DEFAULT_GROUNDING_MIN_CORPUS_CHARS: usize = 40;
 
+/// Whether there is enough evidence to judge a candidate against at all
+/// (G-PR-7).
+///
+/// Single source of truth for "is this corpus worth grounding against",
+/// shared by the entity-description write path and the `--status` quality
+/// sampler. Before this existed, both asked
+/// [`PreservationVerdict::evaluate_grounding`] instead, which answers
+/// `Preserved { score: 1.0 }` when the evidence is empty — so the writer
+/// persisted filler for unbound entities and the sampler counted those same
+/// entities as PERFECT quality. The measurement shared the defect of the
+/// thing it measured, which is why the problem stayed invisible.
+#[must_use]
+pub fn corpus_is_sufficient(evidence: &str, min_corpus_chars: usize) -> bool {
+    evidence.trim().chars().count() >= min_corpus_chars.max(1)
+}
+
 /// Computes the trigram-Jaccard similarity between two strings.
 ///
 /// The score is `|A ∩ B| / |A ∪ B|` where `A` and `B` are the sets of
@@ -160,6 +176,16 @@ impl PreservationVerdict {
     /// - evidence shorter than `min_corpus_chars` → accept (weak corpus)
     /// - weak-but-present corpus (`min..2*min` chars) → half threshold
     /// - dense corpus → full `threshold`
+    ///
+    /// # Trap (G-PR-7)
+    ///
+    /// The first two rules mean this gate returns `Preserved { score: 1.0 }`
+    /// for the entities with the LEAST support — the confidence signal is
+    /// inverted exactly where it matters. Callers that need to distinguish
+    /// "well grounded" from "no evidence at all" MUST consult
+    /// [`corpus_is_sufficient`] FIRST; the verdict alone cannot tell them
+    /// apart. Raising `min_corpus_chars` widens the accept-everything band
+    /// instead of tightening it.
     pub fn evaluate_grounding(candidate: &str, evidence: &str, threshold: f64) -> Self {
         Self::evaluate_grounding_adaptive(
             candidate,
@@ -253,8 +279,17 @@ mod tests {
         assert!(verdict.is_accepted());
     }
 
+    /// Pins the G-PR-6 policy AND the trap it creates.
+    ///
+    /// This assertion is not an endorsement: an unrelated software-jargon
+    /// description IS accepted against a fiscal corpus, purely because the
+    /// corpus is short. The verdict is kept as-is because `body-enrich` and
+    /// the other preservation callers rely on it not mass-rejecting on
+    /// Jaccard noise. Protection against the trap lives in
+    /// `corpus_is_sufficient`, exercised by the two tests below — this test
+    /// exists so nobody "fixes" the symptom here and breaks those callers.
     #[test]
-    fn short_corpus_accepts_without_strict_grounding() {
+    fn short_corpus_accepts_but_is_not_evidence() {
         let evidence = "ICMS tax"; // well under DEFAULT_GROUNDING_MIN_CORPUS_CHARS
         let description = "A configuration file used in software system design pipelines";
         let verdict = PreservationVerdict::evaluate_grounding_adaptive(
@@ -267,12 +302,47 @@ mod tests {
             verdict.is_accepted(),
             "short corpus must accept under G-PR-6 adaptive policy"
         );
+        assert!(
+            !corpus_is_sufficient(evidence, DEFAULT_GROUNDING_MIN_CORPUS_CHARS),
+            "and the gate must refuse to treat it as evidence in the first place"
+        );
     }
 
     #[test]
-    fn empty_corpus_still_accepts() {
+    fn empty_corpus_accepts_but_is_not_evidence() {
         let verdict = PreservationVerdict::evaluate_grounding("anything goes", "", 0.5);
-        assert!(verdict.is_accepted());
+        assert!(
+            verdict.is_accepted(),
+            "empty evidence scores 1.0 — the inversion this module documents"
+        );
+        assert!(
+            !corpus_is_sufficient("", DEFAULT_GROUNDING_MIN_CORPUS_CHARS),
+            "callers must gate on corpus_is_sufficient before trusting that verdict"
+        );
+    }
+
+    /// G-PR-7: the real regression guard for the hallucination class.
+    ///
+    /// A bare proper noun with no linked memories must never reach the LLM.
+    #[test]
+    fn unbound_entity_corpus_is_never_sufficient() {
+        for evidence in ["", "   ", "\n\t ", "Acme"] {
+            assert!(
+                !corpus_is_sufficient(evidence, DEFAULT_GROUNDING_MIN_CORPUS_CHARS),
+                "evidence {evidence:?} must not be treated as groundable"
+            );
+        }
+    }
+
+    #[test]
+    fn real_corpus_is_sufficient() {
+        let evidence =
+            "Acme Holdings is a trading company incorporated in 1998, with two partners \
+             holding equal shares of the quota capital.";
+        assert!(corpus_is_sufficient(
+            evidence,
+            DEFAULT_GROUNDING_MIN_CORPUS_CHARS
+        ));
     }
 
     #[test]

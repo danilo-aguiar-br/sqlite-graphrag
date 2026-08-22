@@ -20,7 +20,7 @@
         "properties": {
           "entity_id":   { "type": "integer", "description": "Primary key of the entity row." },
           "name":        { "type": "string", "description": "Human-readable name of the entity." },
-          "entity_type": { "type": "string", "description": "Type of the entity, e.g. 'concept', 'tool', 'person'." },
+          "entity_type": { "type": "string", "description": "Type of the entity exactly as stored, e.g. 'concept', 'tool', 'person'. The vocabulary is OPEN since v1.2.8, so this is ANY term the writer used and not a member of a fixed list; the thirteen canonical kinds are a recommendation." },
           "description": { "type": "string", "description": "v1.1.8 (GAP-CLI-ME-01): entity description text; empty string when unset." }
         }
       }

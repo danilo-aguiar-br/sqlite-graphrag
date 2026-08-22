@@ -55,8 +55,8 @@ pub(super) fn classify_enrich_outcome(e: &AppError) -> crate::retry::AttemptOutc
         // GAP-SG-78: a referenced entity that is not yet materialized is a
         // TRANSITORY absence — a later enrich pass creates the entity — so the
         // item is rescheduled, not dead-lettered on the first miss. Matched on
-        // the typed variant, never a message substring (rules_rust_retry: NUNCA
-        // string matching). The `--max-attempts` floor (default 8) still ends
+        // the typed variant, never a message substring (`rules_rust_retry:
+        // NUNCA string matching`). The `--max-attempts` floor (default 8) ends
         // the item if the entity never materializes, mirroring the `Embedding`
         // floor below.
         AppError::EntityNotYetMaterialized { .. } => AttemptOutcome::Transient,
@@ -79,16 +79,21 @@ pub(super) fn classify_enrich_outcome(e: &AppError) -> crate::retry::AttemptOutc
                 AttemptOutcome::HardFailure
             }
         }
-        // GAP-SG-73: safe floor for the `re-embed` operation. `AppError::Embedding`
-        // reaches here only via `embed_with_fallback`'s backend-chain resolution
-        // (`crate::embedder`), which discards the origin-typed
-        // `EmbedError::retry_class` through `From<EmbedError> for AppError` before
-        // the error surfaces to the queue. Extracting the precise verdict would
-        // require bypassing the fallback chain to call the OpenRouter embedding
-        // client directly — out of scope here (touches `embedder.rs`, which is
-        // off-limits, and removes the multi-backend fallback safety net).
-        // Transient is the conservative choice: a persistently permanent failure
-        // still terminates via `--max-attempts` instead of retrying forever.
+        // GAP-SG-270: `re-embed` now READS the verdict computed at the failure's
+        // origin. `crate::embedder::app_error_preserving_retry_class` carries
+        // `EmbedError::retry_class` across the conversion to `AppError` and
+        // through the fallback chain, so a PERMANENT failure dead-letters on the
+        // first attempt instead of burning every `--max-attempts` retry.
+        // `Success` never describes a failure: same floor as an absent verdict.
+        AppError::EmbeddingClassified { retry_class, .. } => match retry_class {
+            AttemptOutcome::HardFailure => AttemptOutcome::HardFailure,
+            AttemptOutcome::Transient | AttemptOutcome::Success => AttemptOutcome::Transient,
+        },
+        // GAP-SG-73: safe floor for every embedding failure reaching the queue
+        // WITHOUT an origin-typed verdict (client not initialised, task join
+        // error, batch count mismatch, empty backend chain). Transient is the
+        // conservative choice and is deliberately KEPT: a persistently permanent
+        // failure still terminates via `--max-attempts` instead of looping.
         AppError::Embedding(_) => AttemptOutcome::Transient,
         // Every other variant — including `Validation` without an
         // origin-typed retry verdict attached — is treated as permanent.
@@ -146,6 +151,8 @@ pub(super) fn record_item_failure(
 /// [`record_item_failure`], which falls back to the untyped
 /// [`classify_enrich_outcome`] classifier when no origin-typed verdict
 /// exists. Both share this single write path (DRY).
+// One parameter per column the failure UPDATE writes, plus the row it targets:
+// the arity IS the queue schema.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn record_item_failure_typed(
     queue_conn: &rusqlite::Connection,
@@ -344,6 +351,8 @@ pub(super) fn skip_wrong_type(
 /// Returns the number of updated rows; callers decide whether a failed write is
 /// logged (serial) or ignored (parallel worker), preserving their current
 /// behaviour.
+// One parameter per column the completion UPDATE writes, plus the row it
+// targets: the arity IS the queue schema.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn mark_done(
     queue_conn: &rusqlite::Connection,
@@ -725,3 +734,66 @@ pub(super) fn reconcile_satisfied_reembed_pending(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// GAP-SG-270: proves the origin-typed retry verdict survives the whole path
+/// from `EmbedError` to the queue classifier.
+#[cfg(test)]
+mod retry_class_preservation_tests {
+    use super::classify_enrich_outcome;
+    use crate::embedder::app_error_preserving_retry_class;
+    use crate::embedding_api::EmbedError;
+    use crate::errors::AppError;
+    use crate::retry::AttemptOutcome;
+
+    /// The failure the OpenRouter transport produces, with its origin verdict.
+    fn embed_failure(retry_class: AttemptOutcome) -> EmbedError {
+        EmbedError {
+            source: AppError::Embedding("openrouter returned status 400".to_string()),
+            retry_class,
+        }
+    }
+
+    #[test]
+    fn permanent_embed_failure_reaches_the_queue_as_permanent() {
+        let err = app_error_preserving_retry_class(embed_failure(AttemptOutcome::HardFailure));
+        assert_eq!(
+            classify_enrich_outcome(&err),
+            AttemptOutcome::HardFailure,
+            "a permanent embedding failure must dead-letter instead of burning --max-attempts"
+        );
+        // The operator-facing contract is unchanged by the extra field.
+        assert_eq!(
+            err.to_string(),
+            "embedding error: openrouter returned status 400"
+        );
+        assert_eq!(err.exit_code(), 11);
+    }
+
+    #[test]
+    fn transient_embed_failure_stays_transient() {
+        let err = app_error_preserving_retry_class(embed_failure(AttemptOutcome::Transient));
+        assert_eq!(classify_enrich_outcome(&err), AttemptOutcome::Transient);
+    }
+
+    #[test]
+    fn embed_failure_without_a_verdict_keeps_the_conservative_transient_floor() {
+        let err = AppError::Embedding("client not initialised".to_string());
+        assert_eq!(
+            classify_enrich_outcome(&err),
+            AttemptOutcome::Transient,
+            "an absent verdict must NOT be promoted to permanent"
+        );
+    }
+
+    #[test]
+    fn already_typed_sources_are_forwarded_untouched() {
+        let err = app_error_preserving_retry_class(EmbedError {
+            source: AppError::RateLimited {
+                detail: "429".to_string(),
+            },
+            retry_class: AttemptOutcome::Transient,
+        });
+        assert!(matches!(err, AppError::RateLimited { .. }));
+        assert_eq!(classify_enrich_outcome(&err), AttemptOutcome::Transient);
+    }
+}

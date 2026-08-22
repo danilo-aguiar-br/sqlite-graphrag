@@ -33,7 +33,7 @@ fn init_db(tmp: &TempDir) {
 }
 
 // ---------------------------------------------------------------------------
-// Path traversal — rejeitado em db path
+// Path traversal — rejected in the db path
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -65,12 +65,12 @@ fn test_path_traversal_double_dot_rejected() {
 #[test]
 fn test_path_traversal_validate_path_direct() {
     use sqlite_graphrag::paths::AppPaths;
-    let resultado = AppPaths::resolve(Some("../../../etc/passwd"));
+    let result = AppPaths::resolve(Some("../../../etc/passwd"));
     assert!(
-        resultado.is_err(),
-        "resolve com .. deve retornar Err, obtido: {resultado:?}"
+        result.is_err(),
+        "resolve com .. deve retornar Err, obtido: {result:?}"
     );
-    let msg = resultado.unwrap_err().to_string();
+    let msg = result.unwrap_err().to_string();
     assert!(
         msg.contains("path traversal") || msg.contains("validation"),
         "mensagem de erro deve mencionar traversal ou validation: {msg}"
@@ -80,17 +80,16 @@ fn test_path_traversal_validate_path_direct() {
 #[test]
 fn test_normal_path_accepted_by_validate_path() {
     let tmp = TempDir::new().unwrap();
-    let caminho_valido = tmp.path().join("valido.sqlite");
-    let resultado =
-        sqlite_graphrag::paths::AppPaths::resolve(Some(caminho_valido.to_str().unwrap()));
+    let valid_path = tmp.path().join("valido.sqlite");
+    let result = sqlite_graphrag::paths::AppPaths::resolve(Some(valid_path.to_str().unwrap()));
     assert!(
-        resultado.is_ok(),
-        "caminho sem .. deve ser aceito, obtido: {resultado:?}"
+        result.is_ok(),
+        "caminho sem .. deve ser aceito, obtido: {result:?}"
     );
 }
 
 // ---------------------------------------------------------------------------
-// Symlink para /etc rejeitado — apenas Unix
+// Symlink to /etc rejected — Unix only
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -162,7 +161,7 @@ fn test_chmod_600_does_not_allow_group_read() {
 }
 
 // ---------------------------------------------------------------------------
-// chmod 600 em arquivos WAL e SHM — apenas Unix
+// chmod 600 on WAL and SHM files — Unix only
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -194,11 +193,11 @@ fn test_sqlite_wal_shm_chmod_600() {
 
     let db_path = tmp.path().join("test.sqlite");
 
-    // Verificar arquivos WAL e SHM se existirem
+    // Check the WAL and SHM files if they exist
     for ext in ["sqlite-wal", "sqlite-shm"] {
-        let arquivo = db_path.with_extension(ext);
-        if arquivo.exists() {
-            let meta = std::fs::metadata(&arquivo).unwrap();
+        let file = db_path.with_extension(ext);
+        if file.exists() {
+            let meta = std::fs::metadata(&file).unwrap();
             let mode = meta.permissions().mode() & 0o777;
             assert_eq!(
                 mode, 0o600,
@@ -214,9 +213,9 @@ fn test_sqlite_wal_shm_chmod_600() {
 
 #[test]
 fn test_blake3_hash_idempotent() {
-    let corpo = "conteudo de teste para hash determinístico";
-    let hash1 = blake3::hash(corpo.as_bytes()).to_hex().to_string();
-    let hash2 = blake3::hash(corpo.as_bytes()).to_hex().to_string();
+    let body = "conteudo de teste para hash determinístico";
+    let hash1 = blake3::hash(body.as_bytes()).to_hex().to_string();
+    let hash2 = blake3::hash(body.as_bytes()).to_hex().to_string();
     assert_eq!(
         hash1, hash2,
         "BLAKE3 deve ser determinístico para o mesmo input"
@@ -225,10 +224,10 @@ fn test_blake3_hash_idempotent() {
 
 #[test]
 fn test_blake3_hash_differs_for_distinct_bodies() {
-    let corpo1 = "primeiro conteudo";
-    let corpo2 = "segundo conteudo diferente";
-    let hash1 = blake3::hash(corpo1.as_bytes()).to_hex().to_string();
-    let hash2 = blake3::hash(corpo2.as_bytes()).to_hex().to_string();
+    let body1 = "primeiro conteudo";
+    let body2 = "segundo conteudo diferente";
+    let hash1 = blake3::hash(body1.as_bytes()).to_hex().to_string();
+    let hash2 = blake3::hash(body2.as_bytes()).to_hex().to_string();
     assert_ne!(
         hash1, hash2,
         "BLAKE3 deve produzir hashes distintos para inputs distintos"
@@ -237,7 +236,7 @@ fn test_blake3_hash_differs_for_distinct_bodies() {
 
 #[test]
 fn test_blake3_hash_length_correct() {
-    let hash = blake3::hash(b"qualquer corpo").to_hex().to_string();
+    let hash = blake3::hash(b"qualquer body").to_hex().to_string();
     assert_eq!(
         hash.len(),
         64,
@@ -250,7 +249,7 @@ fn test_blake3_deduplication_via_cli() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let corpo = "conteudo exatamente idêntico para testar deduplicação por hash";
+    let body = "conteudo exatamente idêntico para testar deduplicação por hash";
 
     cmd_base(&tmp)
         .args([
@@ -264,7 +263,7 @@ fn test_blake3_deduplication_via_cli() {
             "--namespace",
             "global",
             "--body",
-            corpo,
+            body,
         ])
         .assert()
         .success();
@@ -282,7 +281,7 @@ fn test_blake3_deduplication_via_cli() {
             "--namespace",
             "global",
             "--body",
-            corpo,
+            body,
         ])
         .assert()
         .success()
@@ -331,9 +330,9 @@ fn test_cli_slot_lock_files_small_size() {
 fn test_cache_dir_without_traversal_in_override() {
     use sqlite_graphrag::paths::AppPaths;
 
-    let resultado = AppPaths::resolve(Some("/tmp/teste-seguro/banco.sqlite"));
+    let result = AppPaths::resolve(Some("/tmp/teste-seguro/banco.sqlite"));
     assert!(
-        resultado.is_ok() || resultado.is_err(),
+        result.is_ok() || result.is_err(),
         "caminho absoluto sem .. deve ser processado"
     );
 }
@@ -375,14 +374,14 @@ fn test_sql_injection_in_name_rejected() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    // O validator deve rejeitar nomes com caracteres especiais antes de tocar o DB
-    let nome_injetado = "'; DROP TABLE memories; --";
+    // The validator must reject names with special characters before touching the DB
+    let injected_name = "'; DROP TABLE memories; --";
 
     cmd_base(&tmp)
         .args([
             "remember",
             "--name",
-            nome_injetado,
+            injected_name,
             "--type",
             "user",
             "--description",
@@ -390,7 +389,7 @@ fn test_sql_injection_in_name_rejected() {
             "--namespace",
             "global",
             "--body",
-            "corpo inofensivo",
+            "body inofensivo",
         ])
         .assert()
         .failure()
@@ -405,7 +404,7 @@ fn test_sql_injection_in_namespace_rejected() {
     let tmp = TempDir::new().unwrap();
     init_db(&tmp);
 
-    let ns_injetado = "global'; DROP TABLE memories; --";
+    let injected_ns = "global'; DROP TABLE memories; --";
 
     cmd_base(&tmp)
         .args([
@@ -417,9 +416,9 @@ fn test_sql_injection_in_namespace_rejected() {
             "--description",
             "desc",
             "--namespace",
-            ns_injetado,
+            injected_ns,
             "--body",
-            "corpo",
+            "body",
         ])
         .assert()
         .failure()

@@ -1,8 +1,11 @@
 # ADR-0021: Depreciação do Comando `daemon` (v1.0.76)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele diz que `daemon --stop`, `daemon --ping` e `daemon` ainda funcionam, e o binário v1.2.8 não tem o subcomando `daemon`.
+- HISTÓRICO: o daemon foi removido sem substituto, porque toda invocação é one-shot.
 
 - Status: Aceito (2026-06-07)
 - Atualização (v1.0.79): o código restante do daemon foi deletado antecipando o cronograma da v1.1.0; a janela de transição está fechada
-- Decisores: Danilo Aguiar
+- Decisores: Alice Martins
 - Escopo: src/daemon.rs, src/commands/daemon.rs, src/main.rs, src/cli.rs
 
 ## Contexto

@@ -1,4 +1,7 @@
 # ADR-0043: Five-Gap Remediation — Typed FallbackReason, Deterministic OAuth Fallback, Rate-Limit Headers, Bilíngue Read NotFound, dim 64
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the acceptance criterion below rests on `--dry-run-backend`, a flag the v1.2.8 parser refuses.
+- HISTORICAL: the subprocess LLM backends it audited were removed in v1.2.0, with no replacement flag.
 
 - **Status**: Accepted
 - **Date**: 2026-06-17

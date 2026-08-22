@@ -11,8 +11,8 @@
 //! exact HTTP status or structured provider code), instead of letting a
 //! downstream consumer (the enrich queue) infer it from a formatted message
 //! substring, which `rules_rust_tratamento_de_erros.md` and
-//! `rules_rust_retry_com_backoff.md` both forbid ("NUNCA usar string matching
-//! em mensagens de erro").
+//! `rules_rust_retry_com_backoff.md` both forbid
+//! (`NUNCA usar string matching em mensagens de erro`).
 
 use std::time::Duration;
 
@@ -81,8 +81,8 @@ pub(crate) fn status_retry_class(status: reqwest::StatusCode) -> AttemptOutcome 
 /// Classifies a structured OpenRouter provider error (the `error` object
 /// carried inside an otherwise-2xx body) by its `code`, never by its
 /// `message` — mapping an external code to an internal variant is the
-/// pattern `rules_rust_retry_com_backoff.md` explicitly allows ("MAPEAR
-/// códigos de erro externos para variantes internas").
+/// pattern `rules_rust_retry_com_backoff.md` explicitly allows
+/// (`MAPEAR códigos de erro externos para variantes internas`).
 ///
 /// A numeric code in `429` or `500..=599` is transient (rate limit / server
 /// overload surfaced inside a 200 body); known transient string codes are

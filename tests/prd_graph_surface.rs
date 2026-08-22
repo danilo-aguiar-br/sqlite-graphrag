@@ -1,6 +1,6 @@
 //! PRD compliance: health, history, link/unlink, graph rendering and hybrid ranking (clauses 13-20).
 //!
-//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the MUST/DEVE
+//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the `MUST`/`DEVE`
 //! clauses of the sqlite-graphrag PRD. The shared harness lives in
 //! `tests/prd_support/`.
 
@@ -11,7 +11,7 @@ use rusqlite::Connection;
 use support::{cmd_base, db_path, init_db, remember_ok};
 use tempfile::TempDir;
 // ---------------------------------------------------------------------------
-// 13 — health emite integrity_ok e schema_ok
+// 13 — health emits integrity_ok and schema_ok
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -39,7 +39,7 @@ fn prd_health_emits_integrity_ok_and_schema_ok() {
 }
 
 // ---------------------------------------------------------------------------
-// 14 — history inclui created_at_iso
+// 14 — history includes created_at_iso
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -73,7 +73,7 @@ fn prd_history_includes_created_at_iso() {
 }
 
 // ---------------------------------------------------------------------------
-// 15 — link cria entrada em memory_relationships
+// 15 — link creates an entry in memory_relationships
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -103,7 +103,7 @@ fn prd_link_creates_memory_relationships() {
         .unwrap();
 
     if output.status.success() {
-        // Se o link funcionou, verifica a tabela memory_relationships
+        // If the link worked, check the memory_relationships table
         let conn = Connection::open(db_path(&tmp)).unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_relationships", [], |r| {
@@ -141,7 +141,7 @@ fn prd_unlink_removes_only_specific_relation() {
 
     let conn = Connection::open(db_path(&tmp)).unwrap();
 
-    // Insere entidades e relacionamentos manualmente
+    // Insert entities and relationships manually
     conn.execute_batch(
         "INSERT INTO entities (name, type, namespace) VALUES ('ent-a', 'concept', 'global');
          INSERT INTO entities (name, type, namespace) VALUES ('ent-b', 'concept', 'global');
@@ -178,7 +178,7 @@ fn prd_unlink_removes_only_specific_relation() {
 
     drop(conn);
 
-    // Desfaz apenas o link A→B
+    // Undo only the A→B link
     cmd_base(&tmp)
         .args([
             "unlink",
@@ -286,7 +286,7 @@ fn prd_graph_mermaid_starts_with_graph_lr() {
 }
 
 // ---------------------------------------------------------------------------
-// 20 — hybrid-search usa RRF k=60 como default (verifica que aceita o arg)
+// 20 — hybrid-search uses RRF k=60 as the default (verifies that it accepts the arg)
 // ---------------------------------------------------------------------------
 
 #[test]

@@ -479,39 +479,30 @@ fn main() -> std::process::ExitCode {
         }
     }
 
+    // GAP-SG-265: the two selectors are resolved together above and consumed
+    // together by every write path, so the dispatch hands them over as one value.
+    let backends = sqlite_graphrag::cli::BackendChoice::new(llm_backend, embedding_backend);
     let result = match cli.command {
         Some(cmd) => match cmd {
-            sqlite_graphrag::cli::Commands::Init(args) => commands::init::run(
-                args,
-                llm_backend,
-                embedding_backend,
-                embedding_model.as_deref(),
-            ),
+            sqlite_graphrag::cli::Commands::Init(args) => {
+                commands::init::run(args, backends, embedding_model.as_deref())
+            }
             sqlite_graphrag::cli::Commands::Remember(args) => {
-                commands::remember::run(args, llm_backend, embedding_backend)
+                commands::remember::run(args, backends)
             }
             sqlite_graphrag::cli::Commands::RememberBatch(args) => {
-                commands::remember_batch::run(args, llm_backend, embedding_backend)
+                commands::remember_batch::run(args, backends)
             }
-            sqlite_graphrag::cli::Commands::Ingest(args) => {
-                commands::ingest::run(*args, llm_backend, embedding_backend)
-            }
+            sqlite_graphrag::cli::Commands::Ingest(args) => commands::ingest::run(*args, backends),
             sqlite_graphrag::cli::Commands::Recall(args) => {
-                commands::recall::run(args, llm_backend, embedding_backend, cli.fail_on_degraded)
+                commands::recall::run(args, backends, cli.fail_on_degraded)
             }
-            sqlite_graphrag::cli::Commands::Edit(args) => {
-                commands::edit::run(args, llm_backend, embedding_backend)
-            }
+            sqlite_graphrag::cli::Commands::Edit(args) => commands::edit::run(args, backends),
             sqlite_graphrag::cli::Commands::History(args) => commands::history::run(args),
-            sqlite_graphrag::cli::Commands::Restore(args) => {
-                commands::restore::run(args, llm_backend, embedding_backend)
+            sqlite_graphrag::cli::Commands::Restore(args) => commands::restore::run(args, backends),
+            sqlite_graphrag::cli::Commands::HybridSearch(args) => {
+                commands::hybrid_search::run(args, backends, cli.fail_on_degraded)
             }
-            sqlite_graphrag::cli::Commands::HybridSearch(args) => commands::hybrid_search::run(
-                args,
-                llm_backend,
-                embedding_backend,
-                cli.fail_on_degraded,
-            ),
             sqlite_graphrag::cli::Commands::Read(args) => commands::read::run(args),
             sqlite_graphrag::cli::Commands::List(args) => commands::list::run(args),
             sqlite_graphrag::cli::Commands::Forget(args) => commands::forget::run(args),
@@ -532,12 +523,9 @@ fn main() -> std::process::ExitCode {
             sqlite_graphrag::cli::Commands::Vacuum(args) => commands::vacuum::run(args),
             sqlite_graphrag::cli::Commands::Link(args) => commands::link::run(args),
             sqlite_graphrag::cli::Commands::Unlink(args) => commands::unlink::run(args),
-            sqlite_graphrag::cli::Commands::DeepResearch(args) => commands::deep_research::run(
-                args,
-                llm_backend,
-                embedding_backend,
-                cli.fail_on_degraded,
-            ),
+            sqlite_graphrag::cli::Commands::DeepResearch(args) => {
+                commands::deep_research::run(args, backends, cli.fail_on_degraded)
+            }
             sqlite_graphrag::cli::Commands::Related(args) => commands::related::run(args),
             sqlite_graphrag::cli::Commands::Graph(args) => commands::graph_export::run(args),
             sqlite_graphrag::cli::Commands::Export(args) => commands::export::run(args),
@@ -559,13 +547,13 @@ fn main() -> std::process::ExitCode {
             }
             sqlite_graphrag::cli::Commands::Reclassify(args) => commands::reclassify::run(args),
             sqlite_graphrag::cli::Commands::RenameEntity(args) => {
-                commands::rename_entity::run(args, llm_backend, embedding_backend)
+                commands::rename_entity::run(args, backends)
             }
             sqlite_graphrag::cli::Commands::MergeEntities(args) => {
                 commands::merge_entities::run(args)
             }
             sqlite_graphrag::cli::Commands::Enrich(args) => {
-                commands::enrich::run(args.as_ref(), llm_backend, embedding_backend)
+                commands::enrich::run(args.as_ref(), backends)
             }
             sqlite_graphrag::cli::Commands::ReclassifyRelation(args) => {
                 commands::reclassify_relation::run(args)
@@ -579,7 +567,6 @@ fn main() -> std::process::ExitCode {
             }
             sqlite_graphrag::cli::Commands::DebugSchema(args) => commands::debug_schema::run(args),
             sqlite_graphrag::cli::Commands::Slots(args) => commands::slots::run(args),
-            sqlite_graphrag::cli::Commands::Pending(args) => commands::pending::run(args),
             sqlite_graphrag::cli::Commands::Embedding(args) => {
                 commands::embedding::run(args, llm_backend)
             }

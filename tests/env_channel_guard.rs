@@ -14,11 +14,19 @@
 //! rather than sampling a command, because a class is only closed when the sweep
 //! is exhaustive.
 //!
-//! The single legitimate mention lives in the guard test that proves the
-//! variable is ignored, which is source code and not user-facing text, so it is
-//! out of scope here by construction.
+//! # GAP-SG-232: the sweep had to reach the source too
+//!
+//! Rendered text was only half of it. The other half is the SOURCE: several
+//! embedded test modules kept clearing `SQLITE_GRAPHRAG_*` before an assertion,
+//! as hygiene against a channel that no longer exists. Nothing read those
+//! variables, so every one of those calls was a no-op — and a reader who found
+//! `remove_var("SQLITE_GRAPHRAG_DISABLE_RETRY")` beside `is_kill_switch_active`
+//! learnt, reasonably and wrongly, that the variable steers the switch. The two
+//! sweeps here are therefore complementary: one walks the help tree, the other
+//! walks `src/`, and neither can close the class alone.
 
 use clap::CommandFactory;
+use std::path::{Path, PathBuf};
 
 /// Environment-variable names the product must never offer as a channel.
 ///
@@ -117,6 +125,242 @@ fn the_guard_tells_an_offer_from_a_denial() {
         vec!["OPENROUTER_API_KEY", "env var"],
         "an offer must be reported, naming every token that made it one"
     );
+}
+
+/// GAP-SG-232: source files allowed to write a product variable, with reasons.
+///
+/// One entry, argued rather than assumed. An allowlist that grows by habit is
+/// how the class reopens.
+const SOURCE_EXEMPT: &[(&str, &str)] = &[(
+    "src/config/api_keys.rs",
+    "resolve_api_key_ignores_product_env proves OPENROUTER_API_KEY is IGNORED, \
+     and the only way to prove a variable is ignored is to set it and observe \
+     that nothing moved. Deleting the write would delete the proof.",
+)];
+
+/// Functions that WRITE the process environment.
+///
+/// Reading is not the offence and is not searched for: `std::env::var` over
+/// `LANG` is how the POSIX locale is resolved, and a guard that flagged it would
+/// be flagging correct code. Writing a product variable is the offence, because
+/// the only reason to write one is to influence a reader that does not exist.
+const ENV_WRITERS: &[&str] = &["set_var(", "remove_var("];
+
+/// Source with `//` comments and all whitespace removed, plus a byte-to-line map.
+///
+/// Both steps are load-bearing, and both are borrowed from the sibling guard in
+/// `src/i18n/tests.rs`. Comments go because this very file, and the comments
+/// that replaced the removed calls, name the banned variables in prose; a
+/// literal search would flag the text that documents the fix. Whitespace goes
+/// because rustfmt splits a call the moment its arguments grow, and a guard that
+/// only matches the one-line shape passes by not looking.
+struct Normalized {
+    text: String,
+    line_of_byte: Vec<usize>,
+}
+
+fn normalize(source: &str) -> Normalized {
+    let mut text = String::with_capacity(source.len());
+    let mut line_of_byte = Vec::with_capacity(source.len());
+    for (idx, raw) in source.lines().enumerate() {
+        let code = match raw.find("//") {
+            Some(pos) => &raw[..pos],
+            None => raw,
+        };
+        for ch in code.chars().filter(|c| !c.is_whitespace()) {
+            text.push(ch);
+            line_of_byte.resize(text.len(), idx + 1);
+        }
+    }
+    Normalized { text, line_of_byte }
+}
+
+/// GAP-SG-232: every write of a PRODUCT environment variable, as `(line, name)`.
+///
+/// A system channel is not an offence and must not be reported: `XDG_RUNTIME_DIR`
+/// is a real contract with the operating system, and `LC_ALL`, `LANG` and
+/// `NO_COLOR` are read by code the product does not own. Only a name matching
+/// [`BANNED_CHANNELS`] counts, which is the same vocabulary the text sweeps use.
+///
+/// # Declared blind spot
+///
+/// Only a LITERAL argument is judged. A name held in a `const` reaches
+/// `set_var` as an identifier and is invisible here —
+/// `src/commands/ingest_tests.rs` writes `SQLITE_GRAPHRAG_LOW_MEMORY` exactly
+/// that way, through `RETIRED_LOW_MEMORY_ENV`, and this gate does not see it.
+/// The hole is written down rather than papered over: resolving constants would
+/// mean grepping the source for the family prefix, which the module docs above
+/// rule out because `SQLITE_GRAPHRAG_VERSION` and its siblings share it. Closing
+/// it needs the call deleted, not the detector widened.
+fn offending_env_writes(source: &str) -> Vec<(usize, String)> {
+    let normalized = normalize(source);
+    let mut found = Vec::new();
+    for writer in ENV_WRITERS {
+        let mut from = 0;
+        while let Some(hit) = normalized.text[from..].find(writer) {
+            let at = from + hit;
+            let after = at + writer.len();
+            from = after;
+            // Only a literal argument is judged. A name held in a constant is
+            // out of reach here and is covered by the help and message sweeps.
+            let rest = &normalized.text[after..];
+            let Some(body) = rest.strip_prefix('"') else {
+                continue;
+            };
+            let Some(end) = body.find('"') else {
+                continue;
+            };
+            let name = &body[..end];
+            let banned = BANNED_CHANNELS.iter().any(|needle| {
+                // `SQLITE_GRAPHRAG_` is a family, so it matches as a prefix;
+                // `OPENROUTER_API_KEY` is one name and matches whole.
+                if needle.ends_with('_') {
+                    name.starts_with(needle)
+                } else {
+                    name == *needle
+                }
+            });
+            if banned {
+                let line = normalized.line_of_byte.get(at).copied().unwrap_or(0);
+                found.push((line, name.to_string()));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Every `.rs` file under `root`, recursively.
+fn rust_files(root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Repo-relative path with forward slashes, so the message reads the same
+/// on every platform.
+fn relative(path: &Path, repo: &Path) -> String {
+    path.strip_prefix(repo)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+#[test]
+fn the_source_detector_tells_a_product_channel_from_a_system_one() {
+    // Without this the gate can pass by not looking, which is exactly how the
+    // manipulation inside embedded test modules survived the text sweeps.
+    let offence = "std::env::remove_var(\"SQLITE_GRAPHRAG_DISABLE_RETRY\");";
+    assert_eq!(
+        offending_env_writes(offence),
+        vec![(1, "SQLITE_GRAPHRAG_DISABLE_RETRY".to_string())],
+        "a write to a product variable must be reported, with its line"
+    );
+    assert_eq!(
+        offending_env_writes("std::env::set_var(\"OPENROUTER_API_KEY\", \"sk-x\");"),
+        vec![(1, "OPENROUTER_API_KEY".to_string())],
+        "the API key is one name, matched whole"
+    );
+    assert!(
+        offending_env_writes("std::env::set_var(\"XDG_RUNTIME_DIR\", dir);").is_empty(),
+        "a system channel must not be flagged: XDG_RUNTIME_DIR is a real contract"
+    );
+    assert!(
+        offending_env_writes(
+            "std::env::set_var(\"LC_ALL\", \"C\");\nstd::env::remove_var(\"NO_COLOR\");"
+        )
+        .is_empty(),
+        "POSIX locale and terminal channels are read by code the product does not own"
+    );
+    assert!(
+        offending_env_writes("// std::env::set_var(\"SQLITE_GRAPHRAG_LANG\", \"pt\");").is_empty(),
+        "prose documenting the banned call must not trip the gate"
+    );
+    assert_eq!(
+        offending_env_writes(
+            "std::env::set_var(\n    \"SQLITE_GRAPHRAG_EMBEDDING_DIM\",\n    \"384\",\n);"
+        )
+        .len(),
+        1,
+        "a rustfmt-split call must still be caught"
+    );
+}
+
+#[test]
+fn no_source_file_manipulates_a_product_environment_variable() {
+    let repo = repo_root();
+    let mut files = Vec::new();
+    rust_files(&repo.join("src"), &mut files);
+
+    assert!(
+        files.len() > 100,
+        "the scan found {} files, which is too few to be the real tree — the \
+         walk is broken and this gate is passing on an empty set",
+        files.len()
+    );
+
+    let mut offences = Vec::new();
+    for path in &files {
+        let rel = relative(path, &repo);
+        if SOURCE_EXEMPT.iter().any(|(name, _)| *name == rel) {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for (line, name) in offending_env_writes(&source) {
+            offences.push(format!("{rel}:{line} writes {name}"));
+        }
+    }
+    offences.sort();
+
+    assert!(
+        offences.is_empty(),
+        "GAP-SG-232: source code writes an environment variable the product never \
+         reads. \
+         Configuration precedence is: CLI flag, then the XDG key via `config \
+         set`, then the compiled default — no product environment variable takes \
+         part at any layer, so setting or clearing one changes nothing and \
+         teaches the next reader that it does. Delete the call; if the test \
+         relied on it, the premise it needed comes from the XDG key or from the \
+         process-wide setter the code really uses.\n{}",
+        offences.join("\n")
+    );
+}
+
+#[test]
+fn every_source_exemption_names_a_file_that_still_offends() {
+    // An exemption for a file that no longer writes the variable is worse than
+    // none: it silently covers whatever that path does next.
+    let repo = repo_root();
+    for (name, reason) in SOURCE_EXEMPT {
+        assert!(
+            reason.len() > 40,
+            "the exemption for `{name}` has no real justification: {reason:?}"
+        );
+        let path = repo.join(name);
+        assert!(
+            path.is_file(),
+            "SOURCE_EXEMPT names `{name}`, which is gone"
+        );
+        let source = std::fs::read_to_string(&path).expect("exempt file must be readable");
+        assert!(
+            !offending_env_writes(&source).is_empty(),
+            "`{name}` is exempt but writes no product variable any more; delete the entry"
+        );
+    }
 }
 
 #[test]

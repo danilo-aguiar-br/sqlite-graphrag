@@ -2699,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "sqlite-graphrag"
-version = "1.2.7"
+version = "1.2.8"
 dependencies = [
  "ahash",
  "anyhow",

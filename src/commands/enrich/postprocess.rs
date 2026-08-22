@@ -1,7 +1,7 @@
 //! Persist helpers — write enrichment results to the main DB.
 
 /* wave-c1-imports */
-use crate::entity_type::EntityType;
+use crate::entity_type::{is_canonical_entity_type, normalize_entity_type};
 use crate::errors::AppError;
 use crate::storage::entities::{self, NewEntity, NewRelationship};
 use crate::storage::memories;
@@ -32,28 +32,62 @@ pub(super) fn persist_memory_bindings(
         strength: f64,
     }
 
-    let extracted_entities: Vec<EntityItem> = serde_json::from_value(entities_json.clone())
-        .map_err(|e| {
-            AppError::Validation(crate::i18n::validation::failed_to_parse_entities_array(&e))
-        })?;
+    // `serde_json::from_value` takes the `Value` BY VALUE, so both calls used to
+    // deep-clone the whole extracted document — every entity and every relation,
+    // strings included — only to throw the copy away one line later. This runs
+    // once per item inside a 16-way fan-out, so the copy was paid 16 times over
+    // concurrently. Deserializing from `&Value` reads the same tree in place and
+    // still hands back owned `String` fields, which is all the loops below need.
+    let extracted_entities: Vec<EntityItem> = Vec::deserialize(entities_json).map_err(|e| {
+        AppError::Validation(crate::i18n::validation::failed_to_parse_entities_array(&e))
+    })?;
 
-    let extracted_rels: Vec<RelItem> = serde_json::from_value(rels_json.clone()).map_err(|e| {
+    let extracted_rels: Vec<RelItem> = Vec::deserialize(rels_json).map_err(|e| {
         AppError::Validation(crate::i18n::validation::failed_to_parse_relationships_array(&e))
     })?;
 
     let mut ent_count = 0usize;
     let mut rel_count = 0usize;
 
-    for item in &extracted_entities {
-        // GAP-SG-47: fold non-canonical labels onto the nearest canonical kind
-        // instead of discarding the entity (no silent data loss).
-        let entity_type = EntityType::map_to_canonical(&item.entity_type);
-        match entities::upsert_entity(
+    // Consumed by value: nothing reads the vector after the loop, so each item's
+    // `entity_type` can MOVE into `NewEntity` instead of being cloned per entity.
+    for item in extracted_entities {
+        // v1.2.8: the label is stored as the model wrote it. GAP-SG-47 used to
+        // fold anything outside the canonical thirteen onto the nearest kind so
+        // no entity was dropped; V017 removed the CHECK, so keeping the label
+        // now achieves the same "never discard" goal without destroying the
+        // word. `upsert_entity_preserving_type` normalises the SHAPE and is the
+        // only place that may refuse — a refusal is already handled below as a
+        // per-entity skip rather than a failed item.
+        //
+        // A non-canonical label is reported here because this drain has no
+        // warnings channel: `persist_memory_bindings` answers with two counts
+        // and `EnrichItemResult::Done` carries no warnings field, so a log line
+        // is the only place the observation can land without changing a
+        // signature shared with `extraction_bindings`.
+        if let Ok(normalized) = normalize_entity_type(&item.entity_type) {
+            if !is_canonical_entity_type(&normalized) {
+                tracing::warn!(
+                    target: "enrich",
+                    entity = %item.name,
+                    entity_type = %normalized,
+                    "entity type is outside the canonical vocabulary; stored as written"
+                );
+            }
+        }
+        // v1.2.8: `_preserving_type` instead of `upsert_entity`. This worker
+        // runs after EVERY successful write, so the plain upsert let a model
+        // guess overwrite a type the caller had just declared — silently, and
+        // after the envelope that reported success had already been read.
+        match entities::upsert_entity_preserving_type(
             conn,
             namespace,
             &NewEntity {
+                // `name` still has to be cloned: the failure arm below logs it,
+                // so it must outlive the borrow handed to the upsert. Only
+                // `entity_type` is free to move, and it does.
                 name: item.name.clone(),
-                entity_type,
+                entity_type: item.entity_type,
                 description: None,
             },
         ) {
@@ -77,7 +111,9 @@ pub(super) fn persist_memory_bindings(
     let mut affected_entity_ids: std::collections::BTreeSet<i64> =
         std::collections::BTreeSet::new();
 
-    for rel in &extracted_rels {
+    // Same reasoning as the entity loop: nothing reads the vector afterwards, so
+    // `source` and `target` move into `NewRelationship` instead of being cloned.
+    for rel in extracted_rels {
         // GAP-SG-48: rewrite non-canonical relations to canonical instead of
         // accepting them raw with only a warning.
         let normalized = crate::parsers::map_to_canonical_relation(&rel.relation);
@@ -90,8 +126,8 @@ pub(super) fn persist_memory_bindings(
         let tgt_id = entities::find_entity_id(conn, namespace, &tgt_name);
         if let (Ok(Some(sid)), Ok(Some(tid))) = (src_id, tgt_id) {
             let new_rel = NewRelationship {
-                source: rel.source.clone(),
-                target: rel.target.clone(),
+                source: rel.source,
+                target: rel.target,
                 relation: normalized,
                 strength: rel.strength,
                 description: None,
@@ -128,7 +164,19 @@ pub(super) fn persist_memory_bindings(
     Ok((ent_count, rel_count))
 }
 
-/// Updates an entity's description directly in the `entities` table.
+/// Updates an entity's description directly in the `entities` table, and drops
+/// the vector that described the previous text.
+///
+/// The embedded text of an entity is `"{name} {description}"`, so rewriting the
+/// description invalidates the stored vector. Nothing noticed: the re-embed
+/// scanner selects on `reembed_entity_predicate`, which asks only whether a BLOB
+/// exists at the active dimension — a vector for a description that no longer
+/// exists satisfies both conditions perfectly. The row stayed at 100% coverage
+/// while its vector answered for text the database had discarded.
+///
+/// Deleting the row is what makes the existing predicate true again, so the
+/// backfill picks the entity up on its next pass without a second mechanism or
+/// a new column to mark staleness.
 pub(super) fn persist_entity_description(
     conn: &Connection,
     entity_id: i64,
@@ -138,7 +186,31 @@ pub(super) fn persist_entity_description(
         "UPDATE entities SET description = ?1, updated_at = unixepoch() WHERE id = ?2",
         rusqlite::params![description, entity_id],
     )?;
+    conn.execute(
+        "DELETE FROM entity_embeddings WHERE entity_id = ?1",
+        rusqlite::params![entity_id],
+    )?;
     Ok(())
+}
+
+/// One memory row, as the vector writers need it.
+///
+/// Every field comes out of the same `SELECT`, and three of them are `&str`:
+/// `memory_name`, `memory_type` and `body` were adjacent positionals, so
+/// transposing name and type wrote a valid row with the wrong payload and no
+/// compiler complaint.
+#[derive(Clone, Copy)]
+pub(super) struct MemoryRowRef<'a> {
+    /// Namespace the memory belongs to.
+    pub(super) namespace: &'a str,
+    /// Primary key in the `memories` table.
+    pub(super) memory_id: i64,
+    /// Kebab-case unique name of the memory.
+    pub(super) memory_name: &'a str,
+    /// Memory type discriminator (`decision`, `document`, …).
+    pub(super) memory_type: &'a str,
+    /// Full body text; the source of the embedding and the snippet.
+    pub(super) body: &'a str,
 }
 
 /// v1.0.84 (ADR-0042): on successful re-embed, records the active backend
@@ -146,30 +218,35 @@ pub(super) fn persist_entity_description(
 /// `EnrichSummary` can expose `backend_invoked` without changing every
 /// caller's signature. Best-effort observability — concurrent enrich runs
 /// may race, but `Mutex` keeps the mutation safe.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn reembed_memory_vector(
     conn: &Connection,
-    namespace: &str,
-    memory_id: i64,
-    memory_name: &str,
-    memory_type: &str,
-    body: &str,
+    row: MemoryRowRef<'_>,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<(), AppError> {
-    let snippet: String = body.chars().take(200).collect();
+    let MemoryRowRef {
+        namespace,
+        memory_id,
+        memory_name,
+        memory_type,
+        body,
+    } = row;
+    // This text never reaches a model: it is handed to `memories::upsert_vec`,
+    // which takes it as `_snippet` and discards it. The log-preview budget is
+    // the right one because it is the only role that is not model input, and
+    // it also keeps the width unchanged — widening a payload nothing reads
+    // would be a cost with no reader.
+    let snippet: String = body
+        .chars()
+        .take(crate::constants::ENRICH_BODY_LOG_PREVIEW_CHARS)
+        .collect();
     // v1.0.82 (GAP-003): forward --llm-backend to embed_with_fallback.
     // v1.0.84 (ADR-0042): tuple (Vec<f32>, LlmBackendKind) — extrai o
     // backend that actually ran; populate the accumulator for the
     // EnrichSummary agregado.
     // v1.0.93 (GAP-OR-PROPAGATION): honour --embedding-backend openrouter.
-    let (embedding, backend_kind) = crate::embedder::embed_passage_with_embedding_choice(
-        &paths.models,
-        body,
-        embedding_backend,
-        llm_backend,
-    )?;
+    let (embedding, backend_kind) =
+        crate::embedder::embed_passage_with_embedding_choice(&paths.models, body, backends)?;
     record_enrich_backend(backend_kind.as_str());
     memories::upsert_vec(
         conn,
@@ -205,7 +282,6 @@ pub(super) static ENRICH_LAST_BACKEND: std::sync::Mutex<Option<&'static str>> =
 ///
 /// Uses `memories::update` to set the new body and `sync_fts_after_update`
 /// to keep FTS5 in sync. Also re-embeds the memory for recall accuracy.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn persist_enriched_body(
     conn: &Connection,
     namespace: &str,
@@ -213,8 +289,7 @@ pub(super) fn persist_enriched_body(
     memory_name: &str,
     new_body: &str,
     paths: &crate::paths::AppPaths,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<(), AppError> {
     // Read current values for FTS sync
     let (old_name, old_desc, old_body): (String, String, String) = conn.query_row(
@@ -291,14 +366,15 @@ pub(super) fn persist_enriched_body(
     // Re-embed for recall accuracy
     if let Err(e) = reembed_memory_vector(
         conn,
-        namespace,
-        memory_id,
-        memory_name,
-        &memory_type,
-        new_body,
+        MemoryRowRef {
+            namespace,
+            memory_id,
+            memory_name,
+            memory_type: &memory_type,
+            body: new_body,
+        },
         paths,
-        llm_backend,
-        embedding_backend,
+        backends,
     ) {
         tracing::warn!(target: "enrich", memory = %memory_name, error = %e, "vec upsert failed after body-enrich");
     }
@@ -368,6 +444,15 @@ mod tests {
             );
             CREATE TABLE memory_embeddings (
                 memory_id   INTEGER PRIMARY KEY,
+                namespace   TEXT NOT NULL,
+                embedding   BLOB NOT NULL,
+                source      TEXT NOT NULL,
+                model       TEXT NOT NULL DEFAULT '',
+                dim         INTEGER NOT NULL DEFAULT {dim},
+                created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+            CREATE TABLE entity_embeddings (
+                entity_id   INTEGER PRIMARY KEY,
                 namespace   TEXT NOT NULL,
                 embedding   BLOB NOT NULL,
                 source      TEXT NOT NULL,
@@ -453,7 +538,31 @@ mod tests {
             )
             .unwrap();
 
+        // A vector describing the OLD text, so the staleness is observable.
+        conn.execute(
+            "INSERT INTO entity_embeddings (entity_id, namespace, embedding, source, model)
+             VALUES (?1, 'global', X'00', 'test', 'test')",
+            rusqlite::params![eid],
+        )
+        .unwrap();
+
         persist_entity_description(&conn, eid, "Async runtime for Rust applications").unwrap();
+
+        // The embedded text is `"{name} {description}"`, so a rewritten
+        // description leaves the old vector answering for text that no longer
+        // exists. Dropping the row is what makes `reembed_entity_predicate`
+        // true again, so the backfill reclaims the entity on its next pass.
+        let vectors_left: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM entity_embeddings WHERE entity_id = ?1",
+                rusqlite::params![eid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            vectors_left, 0,
+            "rewriting the description must invalidate the vector that described the old text"
+        );
 
         let desc: String = conn
             .query_row(

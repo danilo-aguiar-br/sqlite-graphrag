@@ -1,7 +1,7 @@
 //! Body and entity embedding for `remember`.
 
 use crate::chunking;
-use crate::cli::{EmbeddingBackendChoice, LlmBackendChoice};
+use crate::cli::BackendChoice;
 use crate::errors::AppError;
 use crate::output;
 use crate::paths::AppPaths;
@@ -16,15 +16,13 @@ pub(crate) struct EmbedPhaseOutcome {
 }
 
 /// Embed the memory body (and entity names) for a remember write.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_embed_phase(
     paths: &AppPaths,
     raw_body: &str,
     chunks_info: &[crate::chunking::Chunk],
     graph: &super::graph_input::GraphInput,
     args: &super::args::RememberArgs,
-    embedding_backend: EmbeddingBackendChoice,
-    llm_backend: LlmBackendChoice,
+    backends: BackendChoice,
 ) -> Result<EmbedPhaseOutcome, AppError> {
     output::emit_progress_i18n("Computing embedding...", "Calculando embedding...");
     let mut chunk_embeddings_cache: Option<Vec<Vec<f32>>> = None;
@@ -40,8 +38,7 @@ pub(crate) fn run_embed_phase(
         match crate::embedder::embed_passage_with_embedding_choice(
             &paths.models,
             raw_body,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             // GAP-CLI-EMBED-NONE (v1.1.8): intentional `--llm-backend none`
             // returns an empty vector — treat as no embedding (do not
@@ -101,8 +98,7 @@ pub(crate) fn run_embed_phase(
             std::sync::Arc::from(chunk_texts),
             args.llm_parallelism as usize,
             crate::embedder::chunk_embed_batch_size(),
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok(chunk_embeddings) => {
                 output::emit_progress_i18n(
@@ -150,8 +146,7 @@ pub(crate) fn run_embed_phase(
             &paths.models,
             &entity_texts,
             args.llm_parallelism as usize,
-            embedding_backend,
-            llm_backend,
+            backends,
         ) {
             Ok(r) => r,
             Err(e) if skip_embed => {

@@ -47,7 +47,7 @@ mod common;
 
 #[test]
 #[serial]
-fn limite_respeitado_sob_carga() {
+fn concurrency_limit_respected_under_load() {
     let tmp = TempDir::new().expect("TempDir deve ser criado");
     let bin = assert_cmd::cargo::cargo_bin("sqlite-graphrag");
 
@@ -70,20 +70,20 @@ fn limite_respeitado_sob_carga() {
         })
         .collect();
 
-    // Aguarda todas e coleta exit codes.
-    let resultados: Vec<_> = handles
+    // Waits for all of them and collects exit codes.
+    let results: Vec<_> = handles
         .into_iter()
         .map(|h| h.wait_with_output().expect("wait failed"))
         .collect();
 
-    let successos = resultados.iter().filter(|r| r.status.success()).count();
-    let falhas = resultados.iter().filter(|r| !r.status.success()).count();
+    let successes = results.iter().filter(|r| r.status.success()).count();
+    let failures = results.iter().filter(|r| !r.status.success()).count();
 
     // All 10 invocations must complete successfully when --wait-lock=30.
     assert_eq!(
-        successos, 10,
-        "todas as 10 invocações devem completar com sucesso (--wait-lock 30), \
-         obtivemos {successos} sucessos e {falhas} falhas"
+        successes, 10,
+        "all 10 invocations must complete successfully (--wait-lock 30), \
+         got {successes} successes and {failures} failures"
     );
 }
 
@@ -91,7 +91,7 @@ fn limite_respeitado_sob_carga() {
 // Test 2 — --max-concurrency 0 is rejected with exit 2
 // ---------------------------------------------------------------------------
 // Validates that the validation guard in `Cli::validate_flags` rejects N=0
-// antes de tentar adquirir qualquer slot.
+// before trying to acquire any slot.
 
 #[test]
 #[serial]
@@ -112,10 +112,10 @@ fn max_concurrency_zero_rejected_with_exit_2() {
 }
 
 // ---------------------------------------------------------------------------
-// Teste 3 — todos os slots ocupados retornam exit 75 sem espera
+// Test 3 — all slots occupied return exit 75 without waiting
 // ---------------------------------------------------------------------------
 // Occupy N slots directly via fs4 and verify that invocation with --wait-lock 0
-// retorna exit 75 (AllSlotsFull) imediatamente sem timeout.
+// returns exit 75 (AllSlotsFull) immediately without a timeout.
 
 #[test]
 #[serial]
@@ -163,7 +163,7 @@ fn all_slots_busy_return_75() {
         .failure()
         .code(75);
 
-    // Libera os locks antes de drop(tmp).
+    // Releases the locks before drop(tmp).
     drop(handles);
 }
 

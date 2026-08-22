@@ -48,6 +48,24 @@ pub const ENRICH_MAX_LENGTH_RETRIES: u32 = 2;
 /// `unwrap_or` at the call site.
 pub const DEFAULT_ENRICH_REST_CONCURRENCY: u32 = 8;
 
+/// Lowest REST fan-out `enrich --mode openrouter` accepts (GAP-SG-266).
+///
+/// One means serial. Zero would mean "no worker", which is not a slower drain
+/// but an absent one, so the floor is a refusal and not a preference.
+pub const MIN_ENRICH_REST_CONCURRENCY: u32 = 1;
+
+/// Highest REST fan-out `enrich --mode openrouter` accepts (GAP-SG-266).
+///
+/// The ceiling protects the shared OpenRouter quota, which is a HOST-scoped
+/// scarcity: the key lives once in `~/.config/sqlite-graphrag/config.toml` and
+/// every folder on the machine spends from it. It is enforced twice on purpose
+/// — the clap parser REFUSES an out-of-range flag, and
+/// `commands::enrich::events::parallelism` clamps whatever reaches it, so a
+/// caller that bypasses the parser still cannot exceed the ceiling. That module
+/// is an internal hook with no public page, so this is a code span and not a
+/// link.
+pub const MAX_ENRICH_REST_CONCURRENCY: u32 = 16;
+
 /// Default subprocess worker count for `enrich` when `--llm-parallelism` is
 /// omitted (GAP-SG-141).
 ///
@@ -84,3 +102,76 @@ pub const ENRICH_SCAN_WATCHDOG_POLL_MS: u64 = 50;
 /// a tight loop; the real stopping conditions are `--max-runtime` and
 /// convergence. Coordination wait, so it takes no XDG key.
 pub const ENRICH_UNTIL_EMPTY_IDLE_NAP_SECS: u64 = 1;
+
+/// Ceiling, in seconds, on the exponential backoff a rate-limited drain waits
+/// between attempts.
+///
+/// The doubling in both drains used to stop at a bare `900` written twice, once
+/// per drain. Two literals of the same policy is one edit away from two
+/// policies, and the serial and parallel paths would then disagree about how
+/// long a rate limit is allowed to stall a run. Coordination wait against a
+/// remote limit, so it takes no XDG key: the tunable the operator actually has
+/// is `enrich.rate_limit_deadline_secs`, which bounds the whole wait rather
+/// than one step of it.
+pub const ENRICH_BACKOFF_CEILING_SECS: u64 = 900;
+
+/// Default wall-clock budget, in seconds, for one `enrich` run when
+/// `--max-runtime` is omitted.
+///
+/// Previously an unnamed `3600` inside `unwrap_or`, contradicted by its own
+/// doc-comment two lines above; naming it is what lets the help text and the
+/// default be read from the same place.
+pub const DEFAULT_ENRICH_MAX_RUNTIME_SECS: u64 = 3_600;
+
+/// Number of chars of a memory body shown to the model as a PREVIEW.
+///
+/// GAP-SG-279 measured six body truncations across the enrich modules carrying
+/// three different literals — 500, 2000 and 200 — none of them named. The
+/// divergence was invisible because each site read as a local decision; taken
+/// together they meant the same operation class showed the model wildly
+/// different amounts of the same corpus. Preview is the smallest of the three
+/// roles: enough to identify a memory, never enough to reason from.
+pub const ENRICH_BODY_PREVIEW_CHARS: usize = 500;
+
+/// Number of chars of a memory body sent when the body ITSELF is the subject.
+///
+/// Used where the model must reason over the body rather than recognise it —
+/// synthesis and extraction — so it is four times the preview budget.
+pub const ENRICH_BODY_SUBJECT_CHARS: usize = 2_000;
+
+/// Number of chars of a memory body kept in a LOG or diagnostic line.
+///
+/// Smallest of the three roles: this text is never sent to a model, it only
+/// has to let a human recognise which memory a line refers to.
+pub const ENRICH_BODY_LOG_PREVIEW_CHARS: usize = 200;
+
+/// Minimum description length, in chars, below which a description is judged
+/// generic and eligible for rewriting.
+///
+/// Lived inside the text of `GENERIC_DESCRIPTION_PREDICATE` as a bare `30`. A
+/// number embedded in a SQL string is neither typed nor greppable: changing the
+/// policy meant editing prose, and nothing connected it to the quality report
+/// that acts on the same idea.
+pub const ENRICH_GENERIC_DESCRIPTION_MAX_CHARS: usize = 30;
+
+/// Relationship weight at or above which an edge counts as HIGH weight.
+///
+/// Same defect as the constant above: it lived as `0.7` inside a
+/// `const &str` holding SQL, so it was formally a constant and practically a
+/// literal — untyped, and impossible to reuse from the Rust side.
+pub const ENRICH_HIGH_WEIGHT_THRESHOLD: f64 = 0.7;
+
+/// Weight given to the accept rate when blending it with mean grounding score
+/// into a single quality figure.
+///
+/// The blend was written as `0.5 * accept_rate + 0.5 * mean_score` with both
+/// halves anonymous. Naming one of them states that the two signals are
+/// deliberately equal rather than accidentally so, and gives the pair a single
+/// place to change.
+pub const ENRICH_QUALITY_ACCEPT_RATE_WEIGHT: f64 = 0.5;
+
+/// Weight given to the mean grounding score in the same blend.
+///
+/// Must sum to one with [`ENRICH_QUALITY_ACCEPT_RATE_WEIGHT`]; the test beside
+/// the blend asserts it.
+pub const ENRICH_QUALITY_MEAN_SCORE_WEIGHT: f64 = 0.5;

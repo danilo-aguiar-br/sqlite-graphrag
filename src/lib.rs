@@ -206,7 +206,11 @@ pub mod embedding_api;
 /// Shared HTTP primitives (`ApiError`, retry backoff) reused by [`chat_api`] and [`embedding_api`].
 pub mod openrouter_http;
 
-/// Canonical entity type taxonomy: 13 variants, ValueEnum + serde + rusqlite impls.
+/// Entity type vocabulary: open since V017, with a canonical set as guidance.
+///
+/// This line used to read "13 variants, ValueEnum + serde + rusqlite impls",
+/// which described the closed enum that `V017__open_entity_type_vocabulary.sql`
+/// removed. The module's own `//!` header carries the current account.
 pub mod entity_type;
 
 /// Library-wide error type and the mapping to process exit codes (see [`errors::AppError`]).

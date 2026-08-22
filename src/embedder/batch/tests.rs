@@ -70,8 +70,15 @@ fn openrouter_branch_ignores_local_batch_size() {
         .filter(|line| !line.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n");
+    // GAP-SG-263: the marker deliberately omits the visibility. It used to read
+    // `pub(crate) fn`, and when the function was promoted to `pub` — because the
+    // deprecated wrapper that used to be the public entry point was removed —
+    // this scan stopped finding the body and the test failed for a reason that
+    // had nothing to do with what it asserts. A structural test should key on
+    // the thing it is about, and this one is about the function, not about who
+    // may call it.
     let body = src
-        .split("pub(crate) fn embed_passages_parallel_shared")
+        .split("fn embed_passages_parallel_shared")
         .nth(1)
         .expect("the shared implementation must exist");
     // Start AFTER the parameter list, or the signature itself would match.

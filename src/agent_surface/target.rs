@@ -100,7 +100,10 @@ pub fn is_reportable() -> bool {
 /// Returns `None` when there is no target, which lets the caller skip the
 /// insertion entirely rather than attach an empty block.
 #[must_use]
-pub fn record(surface: &AgentSurface) -> Option<Map<String, Value>> {
+pub fn record(
+    surface: &AgentSurface,
+    ceiling: Option<&super::universe::QueryCeiling>,
+) -> Option<Map<String, Value>> {
     let mut meta = Map::new();
     insert_into(&mut meta, surface);
     // The query ceiling rides along, for the same reason the target does: it is
@@ -108,6 +111,6 @@ pub fn record(surface: &AgentSurface) -> Option<Map<String, Value>> {
     // `deep-research "x"` with no knob reported which database it opened and
     // stayed silent about having cut the ranking to five, which is half a
     // contract and the harder half to notice is missing.
-    super::insert_query_ceiling(&mut meta);
+    super::universe::insert_query_ceiling(&mut meta, ceiling);
     (!meta.is_empty()).then_some(meta)
 }

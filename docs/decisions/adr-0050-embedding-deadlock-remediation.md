@@ -1,4 +1,7 @@
 # ADR-0050 — Embedding Deadlock Remediation
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the global flags `--claude-binary` and `--codex-binary` named below are refused by the v1.2.8 parser.
+- HISTORICAL: the subprocess LLM backends they pointed at were removed in v1.2.0, with no replacement flag.
 
 **Status**: Accepted
 **Date**: 2026-06-21

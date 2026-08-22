@@ -194,6 +194,18 @@ pub fn create_or_fetch_relationship(
     weight: f64,
     description: Option<&str>,
 ) -> Result<(i64, bool), AppError> {
+    // v1.2.8: the label is canonicalised HERE, at the last step before SQL,
+    // rather than in each caller. Four write paths reached this function and
+    // three of them normalised; the fourth — `enrich::extraction_body` — passed
+    // the extraction model's string verbatim, and it is the one that runs in
+    // bulk. That single omission produced 67 651 edges in a spelling every read
+    // filter normalises away, so the rows exist and no query can reach them.
+    //
+    // Fixing that call site alone would leave the next one free to repeat it.
+    // Owning the invariant at the persistence boundary makes the omission
+    // impossible instead of merely absent, and the callers that already
+    // normalise are unaffected because the operation is idempotent.
+    let relation = &crate::parsers::map_to_canonical_relation(relation);
     // Check if it exists first; update weight if different.
     let existing = find_relationship(conn, source_id, target_id, relation)?;
     if let Some(row) = existing {
@@ -295,6 +307,57 @@ pub fn find_orphan_entity_ids(
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ids)
     }
+}
+
+/// Finds relationship rows whose `source_id` or `target_id` has no entity.
+///
+/// Distinct from `find_orphan_entity_ids`, which finds entities carrying no
+/// edges. This is the mirror image: edges carrying no entity. Both are called
+/// "orphans" and only the first had a repair path, so a database holding a
+/// dangling edge had no supported way to clean it — while `PRAGMA
+/// foreign_key_check` reported it on every migration, and `ensure_db_ready`
+/// migrates on open.
+///
+/// Such rows cannot be written while enforcement is on. They exist in files
+/// that predate it, or that were written while `PRAGMA foreign_keys = OFF` was
+/// in effect for a schema rebuild.
+///
+/// Namespace-scoped through the relationship's own column, so repairing one
+/// project never reaches another's edges.
+///
+/// # Errors
+///
+/// Returns [`AppError::Database`] when the underlying SQLite operation fails.
+pub fn find_dangling_relationship_ids(
+    conn: &Connection,
+    namespace: Option<&str>,
+) -> Result<Vec<i64>, AppError> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT r.id FROM relationships r
+         WHERE (?1 IS NULL OR r.namespace = ?1)
+           AND (NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.source_id)
+             OR NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.target_id))",
+    )?;
+    let ids = stmt
+        .query_map(params![namespace], |r| r.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids)
+}
+
+/// Deletes relationship rows by primary key. Returns how many were removed.
+///
+/// # Errors
+///
+/// Returns [`AppError::Database`] when the underlying SQLite operation fails.
+pub fn delete_relationships_by_ids(
+    conn: &Connection,
+    relationship_ids: &[i64],
+) -> Result<usize, AppError> {
+    let mut removed = 0usize;
+    for id in relationship_ids {
+        removed += conn.execute("DELETE FROM relationships WHERE id = ?1", params![id])?;
+    }
+    Ok(removed)
 }
 
 /// Deletes entities and their associated vectors. Returns the number of entities removed.

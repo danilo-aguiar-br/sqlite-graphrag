@@ -40,6 +40,16 @@
           "items": { "type": "string" },
           "description": "Keys kept by --select/--fields, in the requested order. Absent keys are skipped rather than emitted as null."
         },
+        "stream": {
+          "type": "boolean",
+          "const": true,
+          "description": "GAP-SG-231: marks this record as describing an NDJSON STREAM rather than one envelope. Emitted by GAP-SG-215 since v1.2.8 and NOT declared here until v1.2.8, so every trailer the binary wrote was invalid against this document, which `export-summary` $refs under `additionalProperties: false`. It rides the summary line and never a record line — a record line carries the record and nothing else. A consumer reading the block off a summary needs it to know the counts around it are about N lines instead of about the line it is holding. THREE surfaces emit it: `export`, `ingest`, and, since GAP-SG-229 in v1.2.8, `graph --format ndjson` over stdout, which now goes through the same emit_stream_record / emit_stream_trailer pair instead of writing bare lines. Present only on a trailer, so its absence means the ordinary single-envelope shape."
+        },
+        "records_truncated": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "GAP-SG-231: how many streamed records --truncate-content actually shortened, counted across the whole stream and reported once on the summary line. Distinct from content_truncated, which is a boolean about one envelope. Emitted by GAP-SG-215 since v1.2.8 and undeclared here until v1.2.8, which invalidated every truncated stream against this document. Reaches the same three surfaces `stream` does, `graph --format ndjson` among them since GAP-SG-229. Emitted only when at least one record was cut, so a stream that fit reports nothing and the wire value is never zero."
+        },
         "filters": {
           "type": "integer",
           "minimum": 1,
@@ -60,6 +70,10 @@
         "count_only": {
           "type": "boolean",
           "description": "True when --count-only replaced the payload with a count. See #/$defs/CountOnlyEnvelope."
+        },
+        "count_only_suppressed": {
+          "type": "boolean",
+          "description": "GAP-SG-231 declared it; GAP-SG-206 emits it. True when --count-only was set over a write receipt and was SUPPRESSED rather than honoured, so the envelope still carries memory_id, entities_created and enrich_recommended. Emitted instead of count_only, never beside it: a caller that asked for a count and received a full envelope reads this instead of treating the payload as a bug."
         },
         "content_truncated": {
           "type": "boolean",

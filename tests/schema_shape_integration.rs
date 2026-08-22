@@ -11,18 +11,27 @@
 mod support;
 
 use serial_test::serial;
+use sqlite_graphrag::constants::CURRENT_SCHEMA_VERSION;
 use support::{conn_ro, index_exists, init_isolated_db, sgr_on, table_exists, trigger_exists};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
-// Test 1 — init applies exactly 16 migrations V001 through V016
+// Test 1 — init applies every numbered migration, with no gap in the sequence
 // ---------------------------------------------------------------------------
 // v1.0.76 added V012 and V013 on top of the historical V001-V011 set.
-// v1.1.01 added V014/V015 (pending queues); v1.1.04 added V016 (entity_connect_seen).
+// v1.1.01 added V014/V015 (pending queues); v1.1.04 added V016 (entity_connect_seen);
+// v1.2.8 added V017 (open entity_type vocabulary).
+//
+// The count is DERIVED from `CURRENT_SCHEMA_VERSION` rather than written here.
+// It used to be the literal 16, and V017 shipped without anyone updating it, so
+// this test failed for a migration that was perfectly correct. A number repeated
+// in two places is a number that will disagree with itself; the constant already
+// carries its own unit test tying it to the count of `V*.sql` files, so deriving
+// from it makes this assertion transitively true instead of separately maintained.
 
 #[test]
 #[serial]
-fn init_creates_16_migrations_v001_to_v016() {
+fn init_applies_every_numbered_migration() {
     let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
@@ -36,15 +45,16 @@ fn init_creates_16_migrations_v001_to_v016() {
             .collect()
     };
 
+    let expected: Vec<i64> = (1..=i64::from(CURRENT_SCHEMA_VERSION)).collect();
     assert_eq!(
         versions.len(),
-        16,
-        "exactly 16 migrations must be applied, found: {versions:?}"
+        expected.len(),
+        "exactly {} migrations must be applied, found: {versions:?}",
+        expected.len()
     );
     assert_eq!(
-        versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-        "expected versions V001-V016"
+        versions, expected,
+        "the applied versions must be the unbroken sequence V001..=V{CURRENT_SCHEMA_VERSION:03}"
     );
 }
 
@@ -218,7 +228,7 @@ fn fts_memories_tokenizer_unicode61_remove_diacritics() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 8 — FTS5 search 'cafe' matches text containing 'café' (remove_diacritics)
+// Test 8 — FTS5 search 'cafe' matches text containing `café` (remove_diacritics)
 // ---------------------------------------------------------------------------
 // Inserts a memory with an accented body via the CLI and verifies that an
 // unaccented search succeeds, confirming that remove_diacritics is active.
@@ -360,12 +370,13 @@ fn schema_meta_required_keys_exist() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 12 — schema_version in schema_meta matches CURRENT_SCHEMA_VERSION (16)
+// Test 12 — schema_version in schema_meta matches CURRENT_SCHEMA_VERSION
 // ---------------------------------------------------------------------------
+// Derived, not written: see the note on Test 1 for why the literal was removed.
 
 #[test]
 #[serial]
-fn schema_version_meta_equals_16() {
+fn schema_version_meta_matches_the_constant() {
     let (_tmp, db_path) = init_isolated_db();
     let conn = conn_ro(&db_path);
 
@@ -378,7 +389,8 @@ fn schema_version_meta_equals_16() {
         .expect("schema_version must exist in schema_meta");
 
     assert_eq!(
-        version, "16",
-        "schema_version in schema_meta must be '16' after V016"
+        version,
+        CURRENT_SCHEMA_VERSION.to_string(),
+        "schema_version in schema_meta must equal CURRENT_SCHEMA_VERSION"
     );
 }

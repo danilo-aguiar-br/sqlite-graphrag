@@ -103,7 +103,6 @@ pub(super) fn fuse_candidates(
                     rrf_score: Some(combined_score),
                     normalized_score,
                     vec_distance: vec_distance_map.get(&memory_id).copied(),
-                    fts_bm25: None,
                 }
             })
         })

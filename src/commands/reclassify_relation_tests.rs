@@ -89,7 +89,7 @@ fn same_relation_value_rejected_at_logic_level() {
 }
 
 // -----------------------------------------------------------------------
-// v1.1.1 (P4): --literal-from — filtro sem normalização
+// v1.1.1 (P4): --literal-from — filter without normalisation
 // -----------------------------------------------------------------------
 
 fn base_args() -> ReclassifyRelationArgs {
@@ -124,7 +124,7 @@ fn effective_from_prefers_literal_and_falls_back_to_normalized() {
         "literal value must win and stay verbatim"
     );
 
-    // Migração literal→normalizado é VÁLIDA (não é igualdade).
+    // A literal→normalised migration is VALID (it is not an equality).
     assert_ne!(args.effective_from(), args.effective_to());
 }
 
@@ -152,8 +152,8 @@ fn literal_from_migrates_hyphenated_edge_unreachable_by_normalized_filter() {
     )
     .unwrap();
     let b = conn.last_insert_rowid();
-    // Aresta gravada com o valor LITERAL com hífen — inalcançável pelo
-    // --from-relation (que normaliza para 'applies_to' na borda clap).
+    // Edge stored with the LITERAL hyphenated value — unreachable through
+    // --from-relation, which normalises to 'applies_to' at the clap boundary.
     conn.execute(
         "INSERT INTO relationships (namespace, source_id, target_id, relation, weight) \
          VALUES ('global', ?1, ?2, 'applies-to', 0.5)",
@@ -249,7 +249,7 @@ fn cli_accepts_literal_from_alone_and_keeps_it_verbatim() {
 }
 
 // -----------------------------------------------------------------------
-// v1.1.03: --literal-to — grava valor canonical hífen verbatim
+// v1.1.03: --literal-to — writes the canonical hyphenated value verbatim
 // -----------------------------------------------------------------------
 
 #[test]
@@ -267,7 +267,7 @@ fn literal_to_writes_hyphenated_target() {
     )
     .unwrap();
     let b = conn.last_insert_rowid();
-    // Aresta legacy armazenada com underscore (61357 casos reais).
+    // Legacy edge stored with an underscore (61357 real cases).
     conn.execute(
         "INSERT INTO relationships (namespace, source_id, target_id, relation, weight) \
          VALUES ('global', ?1, ?2, 'applies_to', 0.5)",
@@ -307,9 +307,10 @@ fn literal_to_writes_hyphenated_target() {
 
 #[test]
 fn literal_from_applies_to_literal_to_applies_to_hyphen_migrates() {
-    // Reproduz o bug 2: --literal-from applies_to --literal-to applies-to
-    // --batch --dry-run deve retornar count > 0 (antes: erro "must be
-    // different" porque to_relation normalizava para applies_to).
+    // Reproduces bug 2: `--literal-from applies_to --literal-to applies-to`
+    // with `--batch --dry-run` must return count > 0. It used to fail with
+    // "must be different", because `to_relation` normalised the target back to
+    // `applies_to` and the two sides then compared equal.
     let (_tmp, mut conn) = setup_migrated_db();
     conn.execute(
         "INSERT INTO entities (namespace, name, type) VALUES ('global','ent-a','concept')",
@@ -336,7 +337,7 @@ fn literal_from_applies_to_literal_to_applies_to_hyphen_migrates() {
     args.to_relation = None;
     args.literal_to = Some("applies-to".to_string());
     args.dry_run = true;
-    // Migração agora passa: effective_from()="applies_to" !=
+    // The migration now passes: effective_from()="applies_to" !=
     // effective_to()="applies-to".
     assert_ne!(
         args.effective_from(),

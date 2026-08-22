@@ -1,8 +1,11 @@
 # ADR-0014 — Helper Unificado `codex_spawn` (v1.0.69)
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: ele expõe o subcomando de topo `codex-models --json`, que o binário v1.2.8 não tem.
+- HISTÓRICO: o helper de spawn do Codex e a introspecção de modelos foram removidos sem substituto; a escolha de modelo hoje viaja em `--llm-model` e `--embedding-model`.
 
 - **Status.** Aceito.
 - **Data.** 2026-06-05.
-- **Decisores.** Danilo Aguiar (operador), Claude Code (consultor).
+- **Decisores.** Alice Martins (operador), Claude Code (consultor).
 - **Supersede.** Nenhum.
 - **Gaps relacionados.** G31 (flags ausentes em `enrich`), G32 (parser JSONL ingênuo), G33 (validação de modelo ausente).
 

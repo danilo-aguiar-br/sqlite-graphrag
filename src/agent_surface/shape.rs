@@ -3,18 +3,24 @@
 //! Every function here takes and returns plain `serde_json` data so a single
 //! call site in [`crate::output`] can serve every subcommand. None of them
 //! knows what a memory, an entity or a hit is.
+//!
+//! GAP-SG-274: the one thing they do carry is the subcommand slug, threaded
+//! through as `command` and used for nothing but scoping the field-synonym
+//! table. It is not knowledge of the domain — it is the same answer the gate
+//! used when it admitted the key, and passing it here is what keeps a key that
+//! was accepted from silently matching nothing.
 
 use super::filter::{lookup, scalar_text, FilterExpr};
 use serde_json::{Map, Value};
 
 /// Keeps only the elements accepted by every predicate.
-pub fn filter(items: Vec<Value>, filters: &[FilterExpr]) -> Vec<Value> {
+pub fn filter(items: Vec<Value>, filters: &[FilterExpr], command: Option<&str>) -> Vec<Value> {
     if filters.is_empty() {
         return items;
     }
     items
         .into_iter()
-        .filter(|item| super::filter::matches_all(filters, item))
+        .filter(|item| super::filter::matches_all(filters, item, command))
         .collect()
 }
 
@@ -23,11 +29,11 @@ pub fn filter(items: Vec<Value>, filters: &[FilterExpr]) -> Vec<Value> {
 /// Numeric values compare numerically, everything else compares as text.
 /// Elements without the key keep their relative order at the end of the list,
 /// so a partially populated payload never loses rows to sorting.
-pub fn sort(mut items: Vec<Value>, key: &str) -> Vec<Value> {
+pub fn sort(mut items: Vec<Value>, key: &str, command: Option<&str>) -> Vec<Value> {
     let path: Vec<String> = key.split('.').map(str::to_string).collect();
     items.sort_by(|a, b| {
-        let left = lookup(a, &path);
-        let right = lookup(b, &path);
+        let left = lookup(a, &path, command);
+        let right = lookup(b, &path, command);
         match (left, right) {
             (None, None) => std::cmp::Ordering::Equal,
             (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -55,12 +61,12 @@ fn compare(left: &Value, right: &Value) -> std::cmp::Ordering {
 ///
 /// Elements lacking the key are always kept: dropping them would silently
 /// collapse rows that were never proven duplicate.
-pub fn dedupe(items: Vec<Value>, key: &str) -> Vec<Value> {
+pub fn dedupe(items: Vec<Value>, key: &str, command: Option<&str>) -> Vec<Value> {
     let path: Vec<String> = key.split('.').map(str::to_string).collect();
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::with_capacity(items.len());
     for item in items {
-        match lookup(&item, &path).and_then(scalar_text) {
+        match lookup(&item, &path, command).and_then(scalar_text) {
             Some(text) => {
                 if seen.insert(text) {
                     out.push(item);
@@ -84,32 +90,69 @@ pub fn limit(mut items: Vec<Value>, max: usize) -> Vec<Value> {
 ///
 /// Keys absent from an element are skipped rather than emitted as `null`, so a
 /// projection never invents fields. Non-object elements pass through unchanged.
-pub fn project(items: Vec<Value>, keys: &[String]) -> Vec<Value> {
+/// The dotted paths are split ONCE here rather than per element.
+///
+/// Splitting inside the per-element loop allocated a `Vec<String>`, plus a
+/// `String` per segment, for every element times every key — and discarded them
+/// immediately. `graph entities --select name` over the measured corpus of
+/// 107 135 entities did that 107 135 times to answer with one field. [`sort`] and
+/// [`dedupe`] in this same file already hoist the split out of their loops, so
+/// this is the file's own established shape rather than a new idea.
+pub fn project(items: Vec<Value>, keys: &[String], command: Option<&str>) -> Vec<Value> {
     if keys.is_empty() {
         return items;
     }
+    let paths = compile_paths(keys);
     items
         .into_iter()
-        .map(|item| project_one(item, keys))
+        .map(|item| project_with(item, keys, &paths, command))
         .collect()
 }
 
-/// Projects a single value; see [`project`].
-pub fn project_one(item: Value, keys: &[String]) -> Value {
-    if keys.is_empty() {
-        return item;
-    }
+/// Splits every dotted key into its segments.
+///
+/// Visible to the whole surface because [`super::stream`] compiles ONCE when the
+/// stream opens and reuses the result for every line. A stream has no `Vec` to
+/// hoist the work out of, so the hoisting has to live in the caller.
+pub(super) fn compile_paths(keys: &[String]) -> Vec<Vec<String>> {
+    keys.iter()
+        .map(|key| key.split('.').map(str::to_string).collect())
+        .collect()
+}
+
+/// Projects one value against paths that were already compiled.
+///
+/// `keys` and `paths` are parallel by construction: both come from the same
+/// slice, in the same order, and `keys` supplies the OUTPUT name while `paths`
+/// supplies the lookup. They are not interchangeable — the output key keeps its
+/// dotted spelling so `--select a.b` answers under `"a.b"` and not under `"b"`.
+pub(super) fn project_with(
+    item: Value,
+    keys: &[String],
+    paths: &[Vec<String>],
+    command: Option<&str>,
+) -> Value {
     let Value::Object(_) = &item else {
         return item;
     };
     let mut out = Map::new();
-    for key in keys {
-        let path: Vec<String> = key.split('.').map(str::to_string).collect();
-        if let Some(found) = lookup(&item, &path) {
+    for (key, path) in keys.iter().zip(paths) {
+        if let Some(found) = lookup(&item, path, command) {
             out.insert(key.clone(), found.clone());
         }
     }
     Value::Object(out)
+}
+
+/// Projects a single value; see [`project`].
+///
+/// Compiles the paths for one value, which is the right trade for the scalar
+/// envelope this serves: there is no loop to hoist the work out of.
+pub fn project_one(item: Value, keys: &[String], command: Option<&str>) -> Value {
+    if keys.is_empty() {
+        return item;
+    }
+    project_with(item, keys, &compile_paths(keys), command)
 }
 
 /// Shortens every string longer than `max` characters, recursively.

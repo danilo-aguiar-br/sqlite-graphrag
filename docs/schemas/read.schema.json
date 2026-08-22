@@ -5,33 +5,166 @@
   "description": "Response emitted by `sqlite-graphrag read` on stdout as a single JSON line.",
   "type": "object",
   "required": [
-    "id", "memory_id", "namespace", "name", "type", "memory_type",
-    "description", "body", "body_hash", "source", "metadata",
-    "version", "created_at", "created_at_iso", "updated_at", "updated_at_iso",
+    "id",
+    "memory_id",
+    "namespace",
+    "name",
+    "type",
+    "memory_type",
+    "description",
+    "body",
+    "body_hash",
+    "source",
+    "metadata",
+    "version",
+    "created_at",
+    "created_at_iso",
+    "updated_at",
+    "updated_at_iso",
     "elapsed_ms"
   ],
   "additionalProperties": false,
   "properties": {
-    "agent_surface": { "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta" },
-    "truncated": { "type": "boolean", "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope." },
-    "count": { "type": "integer", "minimum": 0, "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope." },
-    "id":             { "type": "integer" },
-    "memory_id":      { "type": "integer" },
-    "namespace":      { "type": "string" },
-    "name":           { "type": "string" },
-    "type":           { "type": "string", "description": "Enum: user|feedback|project|reference|decision|incident|skill" },
-    "memory_type":    { "type": "string", "description": "Alias of `type`." },
-    "description":    { "type": "string" },
-    "body":           { "type": "string" },
-    "body_hash":      { "type": "string", "description": "BLAKE3 hex digest of the body." },
-    "session_id":     { "type": ["string", "null"] },
-    "source":         { "type": "string" },
-    "metadata":       { "type": "object", "description": "Arbitrary metadata object." },
-    "version":        { "type": "integer", "minimum": 1 },
-    "created_at":     { "type": "integer", "description": "Unix epoch seconds." },
-    "created_at_iso": { "type": "string",  "format": "date-time" },
-    "updated_at":     { "type": "integer", "description": "Unix epoch seconds." },
-    "updated_at_iso": { "type": "string",  "format": "date-time" },
-    "elapsed_ms":     { "type": "integer", "minimum": 0, "description": "Handler wall-clock time in milliseconds." }
+    "agent_surface": {
+      "$ref": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/agent-surface.schema.json#/$defs/AgentSurfaceMeta"
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "GAP-SG-142: raised by the agent-native surface whenever it removed data from this envelope."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "GAP-SG-142: emitted under --count-only, which replaces the payload. See agent-surface.schema.json#/$defs/CountOnlyEnvelope."
+    },
+    "id": {
+      "type": "integer"
+    },
+    "memory_id": {
+      "type": "integer"
+    },
+    "namespace": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string",
+      "description": "Enum: user|feedback|project|reference|decision|incident|skill"
+    },
+    "memory_type": {
+      "type": "string",
+      "description": "Alias of `type`."
+    },
+    "description": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "body_hash": {
+      "type": "string",
+      "description": "BLAKE3 hex digest of the body."
+    },
+    "session_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Arbitrary metadata object."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "integer",
+      "description": "Unix epoch seconds."
+    },
+    "created_at_iso": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "integer",
+      "description": "Unix epoch seconds."
+    },
+    "updated_at_iso": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Handler wall-clock time in milliseconds."
+    },
+    "entities": {
+      "type": "array",
+      "description": "Entities linked to this memory. Present ONLY under --with-graph; skipped on the wire otherwise, which is why the closed root validated the default invocation while rejecting the opt-in one (GAP-SG-291).",
+      "items": {
+        "$ref": "#/$defs/ReadEntityBinding"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "Relationships between the linked entities. Same --with-graph opt-in as `entities` (GAP-SG-291).",
+      "items": {
+        "$ref": "#/$defs/ReadRelationshipBinding"
+      }
+    }
+  },
+  "$defs": {
+    "ReadEntityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_id",
+        "name",
+        "entity_type"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string",
+          "description": "Open vocabulary; not an enum, because reclassify accepts labels this document cannot enumerate."
+        }
+      }
+    },
+    "ReadRelationshipBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "relation",
+        "weight"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "relation": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        }
+      }
+    }
   }
 }

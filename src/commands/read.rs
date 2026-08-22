@@ -162,12 +162,7 @@ pub fn run(args: ReadArgs) -> Result<(), AppError> {
             .name_positional
             .clone()
             .or(args.name.clone())
-            .ok_or_else(|| {
-                AppError::Validation(
-                "name or --id required: pass name as positional argument, via --name, or use --id"
-                    .to_string(),
-            )
-            })?;
+            .ok_or_else(|| AppError::Validation(crate::i18n::validation::name_or_id_required()))?;
         memories::read_by_name(&conn, &namespace, &name)?
     };
 

@@ -67,7 +67,7 @@ fn send_signal(child: &Child, signal: libc::c_int) -> Result<(), i32> {
 
 /// Checks the SQLite database integrity using `PRAGMA integrity_check`.
 /// Returns `true` when the result is "ok".
-fn db_integro(tmp: &TempDir) -> bool {
+fn db_intact(tmp: &TempDir) -> bool {
     let db_path = tmp.path().join("test.sqlite");
     if !db_path.exists() {
         return false;
@@ -76,10 +76,10 @@ fn db_integro(tmp: &TempDir) -> bool {
     match conn {
         Err(_) => false,
         Ok(c) => {
-            let resultado: String = c
+            let result: String = c
                 .query_row("PRAGMA integrity_check", [], |row| row.get(0))
                 .unwrap_or_else(|_| "failed".to_string());
-            resultado.trim() == "ok"
+            result.trim() == "ok"
         }
     }
 }
@@ -110,7 +110,7 @@ fn sigint_during_health_exits_with_db_integrity() {
     // Send SIGINT; ignore ESRCH (errno 3) if process already exited
     match send_signal(&child, libc::SIGINT) {
         Ok(()) => {}
-        Err(3) => {} // ESRCH: processo já encerrou — tudo bem
+        Err(3) => {} // ESRCH: the process already exited — that is fine
         Err(e) => panic!("kill(SIGINT) failed com errno={e}"),
     }
 
@@ -118,10 +118,10 @@ fn sigint_during_health_exits_with_db_integrity() {
 
     // Process exited normally (exit 0) or by signal — both acceptable
     // What matters is that no panic occurred and the DB is intact
-    let _ = status; // exit code depende de timing — não assertamos valor fixo
+    let _ = status; // exit code depends on timing — we do not assert a fixed value
 
     assert!(
-        db_integro(&tmp),
+        db_intact(&tmp),
         "DB deve estar íntegro após SIGINT em health"
     );
 }
@@ -147,28 +147,25 @@ fn sigterm_during_init_graceful_exit_db_integrity() {
 
     match send_signal(&child, libc::SIGTERM) {
         Ok(()) => {}
-        Err(3) => {} // ESRCH: processo já encerrou
+        Err(3) => {} // ESRCH: the process already exited
         Err(e) => panic!("kill(SIGTERM) failed com errno={e}"),
     }
 
     let status = child.wait().expect("wait failed");
 
     // Accept both exit 0 (completed before signal) and signal termination
-    let encerrou_ok =
+    let finished_ok =
         status.success() || status.signal().is_some() || status.code().is_some_and(|c| c != 0);
 
     assert!(
-        encerrou_ok,
+        finished_ok,
         "Processo deveria ter encerrado mas wait retornou status indefinido"
     );
 
     // If the DB was created, it must be intact
     let db_path = tmp.path().join("test.sqlite");
     if db_path.exists() {
-        assert!(
-            db_integro(&tmp),
-            "DB criado deve estar íntegro após SIGTERM"
-        );
+        assert!(db_intact(&tmp), "DB criado deve estar íntegro após SIGTERM");
     }
 }
 
@@ -177,7 +174,7 @@ fn sigterm_during_init_graceful_exit_db_integrity() {
 fn sigterm_after_remember_does_not_corrupt_db() {
     let tmp = setup_db();
 
-    // Primeiro remember sem sinal — deve completar normalmente
+    // First remember without a signal — must complete normally
     let status = sqlite_graphrag_cmd(&tmp)
         .args([
             "remember",
@@ -230,7 +227,7 @@ fn sigterm_after_remember_does_not_corrupt_db() {
 
     // DB must be intact after signal — critical invariant
     assert!(
-        db_integro(&tmp),
+        db_intact(&tmp),
         "DB deve estar íntegro após SIGTERM durante remember"
     );
 }
@@ -265,11 +262,11 @@ fn sigkill_process_does_not_become_zombie() {
     // Critical invariant: `.wait()` returned without blocking (not a zombie).
     // The process may have exited before SIGKILL (exit 0) or by SIGKILL (signal 9).
     // Both cases are valid — only a deadlock in `.wait()` would be a real failure.
-    let wait_retornou =
+    let wait_returned =
         status.success() || status.signal().is_some_and(|s| s == 9) || !status.success();
 
     assert!(
-        wait_retornou,
+        wait_returned,
         "Processo deveria ter encerrado mas wait bloqueou ou retornou estado indefinido: {status:?}"
     );
 }

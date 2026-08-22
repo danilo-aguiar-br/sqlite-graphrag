@@ -40,11 +40,11 @@ pub fn embed_passage_or_skip(
 }
 
 // =============================================================================
-// v1.0.82 (GAP-003): wrappers que aceitam a escolha do CLI
-// (`crate::cli::LlmBackendChoice`) e a traduzem em uma chain para
-// `embed_with_fallback`. Centralizam a propagação do flag `--llm-backend`
-// nos 6 comandos que produzem embedding (`remember`, `edit`, `ingest`,
-// `enrich`, `recall`, `hybrid-search`).
+// v1.0.82 (GAP-003): wrappers that take the CLI choice
+// (`crate::cli::LlmBackendChoice`) and translate it into a chain for
+// `embed_with_fallback`. They centralize the propagation of the
+// `--llm-backend` flag across the 6 commands that produce embeddings
+// (`remember`, `edit`, `ingest`, `enrich`, `recall`, `hybrid-search`).
 // =============================================================================
 
 /// Embed a single passage using the LLM backend selected by the user via
@@ -69,9 +69,12 @@ pub fn embed_passage_with_choice(
 pub fn embed_passage_with_embedding_choice(
     models_dir: &Path,
     text: &str,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<(Vec<f32>, LlmBackendKind), AppError> {
+    let crate::cli::BackendChoice {
+        llm: llm_backend,
+        embedding: embedding_backend,
+    } = backends;
     let _slot_guard = acquire_llm_slot_for_embedding()?;
     let chain = embedding_backend.to_chain(llm_backend);
     embed_with_fallback(models_dir, text, &chain, false)
@@ -112,10 +115,9 @@ pub fn try_embed_query_with_choice(
 pub fn try_embed_query_with_embedding_choice(
     models_dir: &Path,
     text: &str,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    llm_backend: crate::cli::LlmBackendChoice,
+    backends: crate::cli::BackendChoice,
 ) -> Result<(Vec<f32>, LlmBackendKind), FallbackReason> {
-    match embed_passage_with_embedding_choice(models_dir, text, embedding_backend, llm_backend) {
+    match embed_passage_with_embedding_choice(models_dir, text, backends) {
         Ok((v, _backend)) if v.is_empty() => Err(FallbackReason::DimZero),
         Ok((v, backend)) => Ok((v, backend)),
         Err(e) => Err(classify_embedding_error(e)),

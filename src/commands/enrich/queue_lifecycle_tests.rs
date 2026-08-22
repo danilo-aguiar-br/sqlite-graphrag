@@ -290,11 +290,11 @@ fn item_type_for_maps_entity_and_memory() {
 
 #[test]
 fn open_queue_db_alter_is_idempotent() {
-    let path = format!(
-        "/tmp/test-enrich-idem-{}-{}.sqlite",
-        std::process::id(),
-        fastrand::u64(..)
-    );
+    // A hand-built `/tmp/...` literal made this test Unix-only; `tempfile`
+    // resolves the platform's temp directory and cleans up on drop.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("idempotent.sqlite");
+    let path = path.to_string_lossy().into_owned();
     let _ = open_queue_db(&path).expect("first open");
     let conn = open_queue_db(&path).expect("second open is idempotent");
     let cols: Vec<String> = {
@@ -525,7 +525,11 @@ fn writeback_reports_a_completion_that_landed() {
 
 #[test]
 fn queue_db_schema_creates_correctly() {
-    let tmp_path = format!("/tmp/test-enrich-queue-{}.sqlite", std::process::id());
+    // A hand-built `/tmp/...` literal made this test Unix-only; `tempfile`
+    // resolves the platform's temp directory and cleans up on drop.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let tmp_path = dir.path().join("schema.sqlite");
+    let tmp_path = tmp_path.to_string_lossy().into_owned();
     let conn = open_queue_db(&tmp_path).expect("queue db must open");
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM queue", [], |r| r.get(0))

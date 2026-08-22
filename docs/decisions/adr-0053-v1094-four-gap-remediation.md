@@ -1,4 +1,7 @@
 # ADR-0053 — v1.0.94 Four-Gap Remediation
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: `SQLITE_GRAPHRAG_EMBED_TIMEOUT_SECS` is never read at runtime by the v1.2.8 binary and has no effect; the live channels are `--openrouter-timeout` and `sqlite-graphrag config set embedding.timeout_secs`.
+- HISTORICAL: `--mode claude-code`, `--mode codex` and `--mode opencode` are refused: `enrich --mode` accepts only `openrouter` and `ingest --mode` only `none`.
 
 **Status**: Accepted
 **Date**: 2026-06-26

@@ -90,7 +90,7 @@ struct OptimizeResponse {
 
 /// Run.
 pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
-    let inicio = std::time::Instant::now();
+    let started = std::time::Instant::now();
     let paths = AppPaths::resolve(args.db.as_deref())?;
 
     crate::storage::connection::ensure_db_ready(&paths)?;
@@ -120,7 +120,7 @@ pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
             fts_skipped_functional: false,
             fts_unhealthy: !fts_functional,
             fts_rows_indexed: None,
-            elapsed_ms: inicio.elapsed().as_millis() as u64,
+            elapsed_ms: started.elapsed().as_millis() as u64,
         })?;
         if recommend_rebuild {
             // GAP-SG-125: never bare process::exit — map through AppError so
@@ -215,7 +215,7 @@ pub fn run(args: OptimizeArgs) -> Result<(), AppError> {
         fts_skipped_functional,
         fts_unhealthy,
         fts_rows_indexed,
-        elapsed_ms: inicio.elapsed().as_millis() as u64,
+        elapsed_ms: started.elapsed().as_millis() as u64,
     })?;
 
     Ok(())

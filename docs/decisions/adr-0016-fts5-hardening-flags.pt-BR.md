@@ -2,7 +2,7 @@
 
 - **Status.** Aceito.
 - **Data.** 2026-06-05.
-- **Decisores.** Danilo Aguiar (operador), Claude Code (consultor).
+- **Decisores.** Alice Martins (operador), Claude Code (consultor).
 - **Supersede.** Nenhum.
 - **Gaps relacionados.** G36 (`optimize` rebuilda FTS5 sem checar, sem progresso, sem dry-run).
 

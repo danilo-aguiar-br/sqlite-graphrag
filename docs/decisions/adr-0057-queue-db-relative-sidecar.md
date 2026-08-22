@@ -1,4 +1,8 @@
 # ADR-0057: Enrich + Ingest queue sidecar derived from `--db`, not the CWD (v1.0.97)
+- HISTORICAL: this ADR is a historical record and describes the product as it stood on the date the decision was taken.
+- HISTORICAL: the override `--queue-db` named below was never delivered and the parser refuses it.
+- HISTORICAL: the path chains described below still name `SQLITE_GRAPHRAG_CACHE_DIR` and `SQLITE_GRAPHRAG_HOME`; neither is read at runtime by the v1.2.8 binary and the live channels are `sqlite-graphrag config set cache.dir` and `config set db.path`.
+- HISTORICAL: those two lines describe INTERNAL resolution rather than instructing the reader, so they are recorded here as stale description and not as an offered channel.
 
 - **Status**: Accepted
 - **Date**: 2026-06-29

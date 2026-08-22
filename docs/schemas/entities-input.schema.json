@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/danilo-aguiar-br/sqlite-graphrag/schemas/entities-input.schema.json",
   "title": "RememberEntitiesInput",
-  "description": "JSON array accepted by `sqlite-graphrag remember --entities-file`. Each item must define an entity name and a valid semantic type. The alias field `type` is accepted as a synonym for `entity_type`, but both must not appear together in the same object.",
+  "description": "JSON array accepted by `sqlite-graphrag remember --entities-file`. Each item must define an entity name and a semantic type. Since v1.2.8 the type vocabulary is OPEN: any term is stored as written, and the thirteen canonical kinds are a recommendation rather than a gate. The alias field `type` is accepted as a synonym for `entity_type`, but both must not appear together in the same object.",
   "type": "array",
   "items": {
     "type": "object",
@@ -14,13 +14,11 @@
       },
       "entity_type": {
         "type": "string",
-        "enum": ["project", "tool", "person", "file", "concept", "incident", "decision", "memory", "dashboard", "issue_tracker", "organization", "location", "date"],
-        "description": "Canonical semantic type label for the entity."
+        "description": "Semantic type label for the entity. The vocabulary is OPEN since v1.2.8 (GAP-SG-277, GAP-SG-278): any term is accepted and STORED AS WRITTEN, never replaced by another label. Thirteen kinds stay RECOMMENDED — concept, dashboard, date, decision, file, incident, issue_tracker, location, memory, organization, person, project, tool — and a label outside them is reported in the response `warnings` array while still being written. Pass `--strict-entity-types` to restrict the write to those thirteen and be refused with exit 1 otherwise. Only the SHAPE is enforced: the label is trimmed, lowercased and has hyphens turned into underscores, and it is rejected when empty, digits only, containing a line break, or longer than 64 characters."
       },
       "type": {
         "type": "string",
-        "enum": ["project", "tool", "person", "file", "concept", "incident", "decision", "memory", "dashboard", "issue_tracker", "organization", "location", "date"],
-        "description": "Alias accepted by the parser as a synonym for `entity_type`."
+        "description": "Alias accepted by the parser as a synonym for `entity_type`. Same open vocabulary and same shape rules."
       },
       "description": {
         "type": ["string", "null"],

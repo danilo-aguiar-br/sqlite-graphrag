@@ -1,4 +1,7 @@
 # ADR-0042: Split Real do Entry Point Claude no Embedder
+- HISTÓRICO: este ADR é um registro histórico e descreve o produto no estado em que ele estava na data da decisão.
+- HISTÓRICO: a seção de Decisão abaixo entrega `--dry-run-backend` e `SQLITE_GRAPHRAG_DRY_RUN_BACKEND=1`; o parser recusa a flag e a env nunca é lida em runtime.
+- HISTÓRICO: `--llm-backend claude` é recusado com exit 2: a flag aceita hoje apenas `openrouter` e `none`.
 
 - **Status**: Aceito
 - **Data**: 2026-06-17

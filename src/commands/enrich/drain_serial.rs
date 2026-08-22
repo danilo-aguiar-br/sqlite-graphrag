@@ -11,7 +11,7 @@ use super::extraction::{
     call_body_enrich, call_body_extract, call_deep_research_synth, call_description_enrich,
     call_domain_classify, call_entity_connect, call_entity_description, call_entity_type_validate,
     call_graph_audit, call_memory_bindings, call_relation_reclassify, call_weight_calibrate,
-    take_last_openrouter_failure, EnrichItemResult,
+    take_last_openrouter_failure, BodyEnrichTuning, EnrichItemResult, ProviderCall,
 };
 use super::prompts;
 use super::queue::{
@@ -28,35 +28,107 @@ use crate::paths::AppPaths;
 
 use super::drain_parallel::DrainCounters;
 
-#[allow(clippy::too_many_arguments)]
+/// What the drain reads from and writes to.
+///
+/// GAP-SG-264: these five travelled together through 23 positional parameters,
+/// and `#[allow(clippy::too_many_arguments)]` said so out loud without changing
+/// anything. The lint was right: at that arity the compiler stops helping —
+/// `provider_model` and `op_label` are both `&str`, `provider_timeout` and
+/// `total` are both integers, and transposing either pair type-checks.
+pub(crate) struct DrainSession<'a> {
+    pub(crate) args: &'a EnrichArgs,
+    pub(crate) paths: &'a AppPaths,
+    pub(crate) conn: &'a Connection,
+    pub(crate) queue_conn: &'a Connection,
+    pub(crate) namespace: &'a str,
+}
+
+/// Which backends answer, and how patiently.
+///
+/// The `llm` + `embedding` pair now arrives already named, as
+/// [`crate::cli::BackendChoice`]: the two selectors are resolved together in
+/// `main`, travel together down every write path, and are consumed together, so
+/// carrying them as one field removes a transposition hazard here and keeps this
+/// struct agreeing with the rest of the crate.
+pub(crate) struct DrainProvider<'a> {
+    /// Path to the provider binary; None only for the batched re-embed path.
+    pub(crate) binary: Option<&'a Path>,
+    /// Model identifier, when the caller pinned one.
+    pub(crate) model: Option<&'a str>,
+    /// Per-request timeout, in seconds.
+    pub(crate) timeout: u64,
+    /// Which LLM answers enrichment, and which backend computes embeddings.
+    pub(crate) backends: crate::cli::BackendChoice,
+}
+
+/// What this drain is called, and how much of it there is.
+pub(crate) struct DrainScope<'a> {
+    pub(crate) op_label: &'a str,
+    pub(crate) backoff_clause: &'a str,
+    pub(crate) item_type: &'a str,
+    pub(crate) total: usize,
+}
+
+/// Every clock the loop answers to.
+pub(crate) struct DrainClocks {
+    pub(crate) started: Instant,
+    pub(crate) until_deadline: Instant,
+    pub(crate) rate_limit_deadline: Instant,
+    pub(crate) yield_every: usize,
+    pub(crate) backoff_secs: u64,
+}
+
+/// The mutable tally the caller keeps across `--until-empty` rounds.
+pub(crate) struct DrainProgress<'a> {
+    pub(crate) counters: &'a mut DrainCounters,
+    pub(crate) items_since_yield: &'a mut usize,
+    pub(crate) yield_count: &'a mut u64,
+    pub(crate) preempted_for_gate: &'a mut bool,
+}
+
 pub(crate) fn drain_serial(
-    args: &EnrichArgs,
-    paths: &AppPaths,
-    conn: &Connection,
-    queue_conn: &Connection,
-    namespace: &str,
-    provider_binary: Option<&Path>,
-    provider_model: Option<&str>,
-    provider_timeout: u64,
-    op_label: &str,
-    backoff_clause: &str,
-    item_type: &str,
-    total: usize,
-    llm_backend: crate::cli::LlmBackendChoice,
-    embedding_backend: crate::cli::EmbeddingBackendChoice,
-    yield_every: usize,
-    counters: &mut DrainCounters,
-    items_since_yield: &mut usize,
-    yield_count: &mut u64,
-    preempted_for_gate: &mut bool,
-    enrich_started: Instant,
-    until_deadline: Instant,
-    rate_limit_deadline: Instant,
-    mut backoff_secs: u64,
+    session: DrainSession<'_>,
+    provider: DrainProvider<'_>,
+    scope: DrainScope<'_>,
+    clocks: DrainClocks,
+    progress: DrainProgress<'_>,
 ) -> Result<(), AppError> {
+    let DrainSession {
+        args,
+        paths,
+        conn,
+        queue_conn,
+        namespace,
+    } = session;
+    let DrainProvider {
+        binary: provider_binary,
+        model: provider_model,
+        timeout: provider_timeout,
+        backends,
+    } = provider;
+    let DrainScope {
+        op_label,
+        backoff_clause,
+        item_type,
+        total,
+    } = scope;
+    let DrainClocks {
+        started: enrich_started,
+        until_deadline,
+        rate_limit_deadline,
+        yield_every,
+        mut backoff_secs,
+    } = clocks;
+    let DrainProgress {
+        counters,
+        items_since_yield,
+        yield_count,
+        preempted_for_gate,
+    } = progress;
     let mut completed = counters.completed;
     let mut failed = counters.failed;
     let mut skipped = counters.skipped;
+    let mut retyped = counters.retyped;
     let mut cost_total = counters.cost_total;
     let mut oauth_detected = counters.oauth_detected;
     loop {
@@ -85,8 +157,7 @@ pub(crate) fn drain_serial(
                 op_label,
                 backoff_clause,
                 paths,
-                llm_backend,
-                embedding_backend,
+                backends,
                 max_attempts: args.max_attempts,
                 total,
                 stdout_mu: None,
@@ -105,8 +176,7 @@ pub(crate) fn drain_serial(
                 ReembedCycle::Empty | ReembedCycle::BreakerOpen => break,
                 ReembedCycle::DbBusy => {
                     return Err(AppError::DbBusy(
-                        "SQLITE_BUSY exhausted bounded retries while claiming a re-embed batch"
-                            .into(),
+                        crate::i18n::validation::sqlite_busy_exhausted_on_reembed_claim(),
                     ))
                 }
             }
@@ -177,6 +247,12 @@ pub(crate) fn drain_serial(
         // See worker note: provider_binary is Some for every LLM-backed
         // op; "" here only for ReEmbed, which never reads it.
         let provider_bin = provider_binary.unwrap_or_else(|| std::path::Path::new(""));
+        let mode = args.mode();
+        let provider_call = ProviderCall {
+            model: provider_model,
+            timeout: provider_timeout,
+            mode: &mode,
+        };
         let call_result = match args.operation() {
             EnrichOperation::MemoryBindings | EnrichOperation::AugmentBindings => {
                 call_memory_bindings(
@@ -186,40 +262,36 @@ pub(crate) fn drain_serial(
                     provider_bin,
                     provider_model,
                     provider_timeout,
-                    &args.mode(),
+                    &mode,
                 )
             }
             EnrichOperation::EntityDescriptions => call_entity_description(
                 conn,
                 namespace,
                 &item_key,
-                provider_bin,
-                provider_model,
-                provider_timeout,
-                &args.mode(),
-                args.entity_description_grounding_threshold,
+                provider_call,
+                args.entity_description_grounding_threshold(),
                 &prompts::resolve_entity_description_domain(&args.entity_description_domain),
             ),
             EnrichOperation::BodyEnrich => call_body_enrich(
                 conn,
                 namespace,
                 &item_key,
-                provider_bin,
-                provider_model,
-                provider_timeout,
-                &args.mode(),
-                args.min_output_chars,
-                args.max_output_chars,
-                args.prompt_template.as_deref(),
-                args.preserve_threshold,
+                provider_call,
+                BodyEnrichTuning {
+                    min_output_chars: args.min_output_chars,
+                    max_output_chars: args.max_output_chars,
+                    prompt_template: args.prompt_template.as_deref(),
+                    preserve_threshold: args.preserve_threshold,
+                },
                 paths,
-                llm_backend,
-                embedding_backend,
+                backends,
             ),
             // GAP-SG-141 (B1): handled by the batched cycle above; the arm
             // stays so the match remains exhaustive.
             EnrichOperation::ReEmbed => Ok(EnrichItemResult::Skipped {
-                reason: "re-embed is served by the batched claim path".to_string(),
+                cost: 0.0,
+                reason: crate::i18n::validation::reembed_served_by_batch_path(),
             }),
             EnrichOperation::WeightCalibrate => call_weight_calibrate(
                 conn,
@@ -228,7 +300,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::RelationReclassify => call_relation_reclassify(
                 conn,
@@ -237,7 +309,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::EntityConnect | EnrichOperation::CrossDomainBridges => {
                 call_entity_connect(
@@ -247,7 +319,7 @@ pub(crate) fn drain_serial(
                     provider_bin,
                     provider_model,
                     provider_timeout,
-                    &args.mode(),
+                    &mode,
                 )
             }
             EnrichOperation::EntityTypeValidate => call_entity_type_validate(
@@ -257,7 +329,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::DescriptionEnrich => call_description_enrich(
                 conn,
@@ -266,7 +338,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::DomainClassify => call_domain_classify(
                 conn,
@@ -275,7 +347,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::GraphAudit => call_graph_audit(
                 conn,
@@ -284,7 +356,7 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::DeepResearchSynth => call_deep_research_synth(
                 conn,
@@ -293,16 +365,13 @@ pub(crate) fn drain_serial(
                 provider_bin,
                 provider_model,
                 provider_timeout,
-                &args.mode(),
+                &mode,
             ),
             EnrichOperation::BodyExtract => call_body_extract(
                 conn,
                 namespace,
                 &item_key,
-                provider_bin,
-                provider_model,
-                provider_timeout,
-                &args.mode(),
+                provider_call,
                 args.body_extract_graph_only,
             ),
         };
@@ -402,48 +471,95 @@ pub(crate) fn drain_serial(
                         chars_after,
                         cost_usd: if is_oauth { None } else { Some(cost) },
                         elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
-                        error: None,
                         index: current_index,
                         total,
+                        ..Default::default()
                     });
                 } else {
                     failed += 1;
                     emit_json(&ItemEvent {
                         item: &item_key,
                         status: "failed",
-                        memory_id: None,
-                        entity_id: None,
-                        entities: None,
-                        rels: None,
-                        chars_before: None,
-                        chars_after: None,
-                        cost_usd: None,
                         elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
                         error: persist_err,
                         index: current_index,
                         total,
+                        ..Default::default()
                     });
                 }
             }
-            Ok(EnrichItemResult::Skipped { reason }) => {
+            Ok(EnrichItemResult::Skipped { reason, cost }) => {
                 skipped += 1;
+                // G-PR-7: abstention is BILLED. A skip taken before the request
+                // carries zero, but one taken because the model read the corpus
+                // and declined costs full price — folding it in here is what
+                // keeps the budget guard and the summary honest.
+                cost_total += cost;
                 if let Err(e) = mark_skipped(queue_conn, queue_id, &reason) {
                     tracing::warn!(target: "enrich", error = %e, "queue skipped update failed");
                 }
+                // GAP-SG-279: the reason travels to the CALLER, not only into the
+                // sidecar. `mark_skipped` above has always recorded it; the event
+                // carried `error: None` and nothing else, so a stream watcher saw
+                // `skipped` with no way to tell an abstention from a duplicate
+                // without opening the queue database by hand.
                 emit_json(&ItemEvent {
                     item: &item_key,
                     status: "skipped",
-                    memory_id: None,
-                    entity_id: None,
-                    entities: None,
-                    rels: None,
-                    chars_before: None,
-                    chars_after: None,
-                    cost_usd: None,
+                    cost_usd: (cost > 0.0).then_some(cost),
                     elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
-                    error: None,
+                    reason: Some(reason),
                     index: current_index,
                     total,
+                    ..Default::default()
+                });
+            }
+            Ok(EnrichItemResult::Retyped {
+                entity_id,
+                previous_type,
+                validated_type,
+                evidence_chars,
+                cost,
+                is_oauth,
+            }) => {
+                // GAP-SG-279: a reclassification is a completion that says WHAT
+                // it changed. It feeds `completed` like any other success, plus a
+                // dedicated counter, because the question an operator has after a
+                // paid drain is how many labels moved — and `completed` alone
+                // answered it identically whether ten thousand types changed or
+                // none did.
+                let elapsed_ms = item_started.elapsed().as_millis() as i64;
+                if let Err(e) = mark_done(
+                    queue_conn,
+                    queue_id,
+                    None,
+                    Some(entity_id),
+                    1,
+                    0,
+                    cost,
+                    elapsed_ms,
+                ) {
+                    tracing::warn!(target: "enrich", error = %e, "queue done update failed");
+                }
+                completed += 1;
+                retyped += 1;
+                if !is_oauth {
+                    cost_total += cost;
+                }
+                emit_json(&ItemEvent {
+                    item: &item_key,
+                    status: "retyped",
+                    entity_id: Some(entity_id),
+                    entities: Some(1),
+                    rels: Some(0),
+                    cost_usd: if is_oauth { None } else { Some(cost) },
+                    elapsed_ms: Some(elapsed_ms as u64),
+                    previous_type: Some(previous_type),
+                    validated_type: Some(validated_type),
+                    evidence_chars: Some(evidence_chars),
+                    index: current_index,
+                    total,
+                    ..Default::default()
                 });
             }
             Ok(EnrichItemResult::PreservationFailed {
@@ -468,17 +584,13 @@ pub(crate) fn drain_serial(
                 emit_json(&ItemEvent {
                     item: &item_key,
                     status: "preservation_failed",
-                    memory_id: None,
-                    entity_id: None,
-                    entities: None,
-                    rels: None,
                     chars_before: Some(chars_before),
                     chars_after: Some(chars_after),
-                    cost_usd: None,
                     elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
                     error: Some(reason),
                     index: current_index,
                     total,
+                    ..Default::default()
                 });
             }
             Err(e) => {
@@ -497,7 +609,8 @@ pub(crate) fn drain_serial(
                             tracing::warn!(target: "enrich", error = %qe, "queue pending update failed");
                         }
                         std::thread::sleep(std::time::Duration::from_secs(actual_wait));
-                        backoff_secs = (backoff_secs * 2).min(900);
+                        backoff_secs =
+                            (backoff_secs * 2).min(crate::constants::ENRICH_BACKOFF_CEILING_SECS);
                         continue;
                     }
                 }
@@ -530,17 +643,11 @@ pub(crate) fn drain_serial(
                 emit_json(&ItemEvent {
                     item: &item_key,
                     status: "failed",
-                    memory_id: None,
-                    entity_id: None,
-                    entities: None,
-                    rels: None,
-                    chars_before: None,
-                    chars_after: None,
-                    cost_usd: None,
                     elapsed_ms: Some(item_started.elapsed().as_millis() as u64),
                     error: Some(err_str),
                     index: current_index,
                     total,
+                    ..Default::default()
                 });
             }
         }
@@ -551,6 +658,7 @@ pub(crate) fn drain_serial(
     counters.completed = completed;
     counters.failed = failed;
     counters.skipped = skipped;
+    counters.retyped = retyped;
     counters.cost_total = cost_total;
     counters.oauth_detected = oauth_detected;
     let _ = (

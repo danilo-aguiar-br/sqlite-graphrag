@@ -1,6 +1,6 @@
 //! PRD compliance: purge retention, optimize, vacuum, permissions, path traversal, stats, list, rename, restore, cleanup-orphans, sync-safe-copy and the high-degree hub write (clauses 21-32).
 //!
-//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the MUST/DEVE
+//! Part of the PRD-compliance suite split by GAP-SG-208. Covers the `MUST`/`DEVE`
 //! clauses of the sqlite-graphrag PRD. The shared harness lives in
 //! `tests/prd_support/`.
 
@@ -37,7 +37,7 @@ fn prd_purge_retention_removes_old_soft_deleted() {
         .assert()
         .success();
 
-    // Verifica que foi removida permanentemente
+    // Verify that it was permanently removed
     let conn2 = Connection::open(db_path(&tmp)).unwrap();
     let count: i64 = conn2
         .query_row(
@@ -53,7 +53,7 @@ fn prd_purge_retention_removes_old_soft_deleted() {
 }
 
 // ---------------------------------------------------------------------------
-// 22 — optimize executa sem erros e retorna status ok
+// 22 — optimize runs without errors and returns status ok
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -74,7 +74,7 @@ fn prd_optimize_runs_and_returns_status_ok() {
 }
 
 // ---------------------------------------------------------------------------
-// 23 — vacuum retorna size_before_bytes e size_after_bytes
+// 23 — vacuum returns size_before_bytes and size_after_bytes
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -141,7 +141,7 @@ fn prd_path_traversal_rejected_in_db_flag() {
 }
 
 // ---------------------------------------------------------------------------
-// 26 — stats inclui memories, entities, relationships (e aliases _total)
+// 26 — stats includes memories, entities, relationships (and the _total aliases)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -179,7 +179,7 @@ fn prd_stats_inclui_memories_entities_relationships() {
 }
 
 // ---------------------------------------------------------------------------
-// 27 — list respeita --limit
+// 27 — list respects --limit
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -269,7 +269,7 @@ fn prd_rename_updates_version() {
         versions_count >= 1,
         "rename deve registrar versão em memory_versions"
     );
-    let _ = version_antes; // usado para documentar intenção do teste
+    let _ = version_antes; // used to document the test's intent
 }
 
 // ---------------------------------------------------------------------------
@@ -328,7 +328,7 @@ fn prd_restore_reverte_soft_delete() {
         .assert()
         .success();
 
-    // Verifica que foi restaurada (deleted_at = NULL)
+    // Verify that it was restored (deleted_at = NULL)
     let conn2 = Connection::open(db_path(&tmp)).unwrap();
     let active: bool = conn2
         .query_row(
@@ -361,7 +361,7 @@ fn prd_cleanup_orphans_removes_entities_without_memories() {
     .unwrap();
     drop(conn);
 
-    // Verifica que existe antes
+    // Verify that it exists beforehand
     let conn2 = Connection::open(db_path(&tmp)).unwrap();
     let antes: i64 = conn2
         .query_row(
@@ -373,7 +373,7 @@ fn prd_cleanup_orphans_removes_entities_without_memories() {
     assert_eq!(antes, 1, "entidade órfã deve existir antes do cleanup");
     drop(conn2);
 
-    // Executa cleanup
+    // Run cleanup
     let output = cmd_base(&tmp)
         .args(["cleanup-orphans", "--yes"])
         .assert()
@@ -389,7 +389,7 @@ fn prd_cleanup_orphans_removes_entities_without_memories() {
         "cleanup-orphans deve reportar ao menos 1 deleted"
     );
 
-    // Verifica que a entidade foi removida
+    // Verify that the entity was removed
     let conn3 = Connection::open(db_path(&tmp)).unwrap();
     let depois: i64 = conn3
         .query_row(
@@ -405,7 +405,7 @@ fn prd_cleanup_orphans_removes_entities_without_memories() {
 }
 
 // ---------------------------------------------------------------------------
-// 31 — sync-safe-copy gera snapshot coerente com bytes_copied > 0
+// 31 — sync-safe-copy produces a coherent snapshot with bytes_copied > 0
 // ---------------------------------------------------------------------------
 
 #[test]

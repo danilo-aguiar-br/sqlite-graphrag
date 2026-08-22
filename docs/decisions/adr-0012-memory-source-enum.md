@@ -2,7 +2,7 @@
 
 - **Status.** Accepted.
 - **Date.** 2026-06-05.
-- **Deciders.** Danilo Aguiar (operator), Claude Code (advisor).
+- **Deciders.** Alice Martins (operator), Claude Code (advisor).
 - **Supersedes.** None.
 - **Related gaps.** G29 (violação de CHECK constraint), G29 Passo 2 (runtime guard).
 

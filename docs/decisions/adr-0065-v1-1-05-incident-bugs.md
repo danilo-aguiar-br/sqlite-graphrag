@@ -1,4 +1,4 @@
-# ADR-0065: v1.1.05 — Five Operator Bugs from the "danilo" Deep-Research Incident
+# ADR-0065: v1.1.05 — Five Operator Bugs from the Single-Subject Deep-Research Incident
 
 - Status: Accepted
 - Date: 2026-07-11
@@ -10,13 +10,13 @@
 
 ## Context
 
-On 2026-07-08 an operator ran deep multi-hop research against a large production graph (`graphrag.sqlite`, binary v1.1.4) on the subject `"danilo"`. Five CLI bugs blocked the investigation; a sixth shell-side error amplified one of them. They are catalogued in `gaps.md` ("Bugs do GraphRAG — Relato de Deep Research sobre danilo") and closed in v1.1.05. No SQLite schema migration is required (`CURRENT_SCHEMA_VERSION` stays at 16 from V016 / ADR-0064).
+On 2026-07-08 an operator ran deep multi-hop research against a large production graph (`graphrag.sqlite`, binary v1.1.4) on the subject `"alice"`. Five CLI bugs blocked the investigation; a sixth shell-side error amplified one of them. They are catalogued in `gaps.md` ("Bugs do GraphRAG — Relato de Deep Research de sujeito único") and closed in v1.1.05. No SQLite schema migration is required (`CURRENT_SCHEMA_VERSION` stays at 16 from V016 / ADR-0064).
 
 | # | Symptom | Root cause (summary) |
 |---|---------|----------------------|
-| Bug 1 | `deep-research "danilo"` produced a single hybrid search instead of multi-aspect fan-out | Heuristic `decompose_query` was purely syntactic; single tokens never split |
+| Bug 1 | `deep-research "alice"` produced a single hybrid search instead of multi-aspect fan-out | Heuristic `decompose_query` was purely syntactic; single tokens never split |
 | Bug 2 | `jaq`/`jq` failed to parse the full stdout capture | Envelope truncation / stderr contamination under shell redirects (`&>`), not invalid `serde_json` |
-| Bug 3 | `graph traverse --from danilo` returned empty / opaque NotFound | Exact-name match only; short nicknames never resolved to kebab canonical names |
+| Bug 3 | `graph traverse --from alice` returned empty / opaque NotFound | Exact-name match only; short nicknames never resolved to kebab canonical names |
 | Bug 4 | `merge-entities` accepted self-referential merges under malformed argv | Guard existed deeper in the path; zsh word-splitting could still put target into `--ids` before DB work was skipped early enough |
 | Bug 5 | `link --from 89975 --create-missing` created a ghost entity named `"89975"` | Numeric strings treated as names; no ID-based link flags |
 | Shell Error 1 | zsh word-splitting mangled multi-arg merge commands | Shell hygiene (arrays); mitigated in CLI by Bug 4 |
@@ -69,7 +69,7 @@ Apply five surgical CLI/UX fixes (plus shared atomic I/O) without advancing the 
 ### Shared infrastructure
 
 - New module `src/atomic_io.rs` (`write_atomic`, `write_json_atomic`) reused by Bug 2 and unit-tested.
-- Integration suite `tests/v1105_danilo_bugs_regression.rs` covers all five bugs at the CLI boundary.
+- Integration suite `tests/v1105_incident_bugs_regression.rs` covers all five bugs at the CLI boundary.
 
 
 ## Alternatives Considered
@@ -108,8 +108,8 @@ Apply five surgical CLI/UX fixes (plus shared atomic I/O) without advancing the 
 
 ## Validation
 
-- Unit: `test_decompose_single_token_danilo_fans_out`, atomic_io tests, clap/ID guards for link and merge.
-- Integration: `tests/v1105_danilo_bugs_regression.rs` (`bug1`…`bug5`).
+- Unit: `test_decompose_single_token_fans_out`, atomic_io tests, clap/ID guards for link and merge.
+- Integration: `tests/v1105_incident_bugs_regression.rs` (`bug1`…`bug5`).
 - Docs task does not re-run the full suite; implementation tasks already closed the five bugs.
 
 

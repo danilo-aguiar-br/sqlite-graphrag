@@ -3,7 +3,7 @@
 - **Status**: Accepted
 - **Data**: 2026-06-19
 - **Versão**: v1.0.89 (closes GAP-E2E-007 P1)
-- **Autores**: Danilo Aguiar <daniloaguiarbr@proton.me>
+- **Autores**: Alice Martins <daniloaguiarbr@proton.me>
 
 ## Context
 
